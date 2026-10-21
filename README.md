@@ -223,8 +223,10 @@ that doing it right is audible rather than merely scored:
 
 ## Not built yet
 
-- **The analysis pillar** — loading your own audio and having it read back to
-  you: loudness, crest factor, spectral balance, stereo correlation per band.
+- **A view for the analysis readings.** The measurements are in — loudness,
+  crest factor, spectral balance and width all read back in the standard
+  envelope, with a `distance` so two tracks can be compared — but there is no
+  page that shows them yet, so nothing in the app calls them.
 - **An optional guided path** through the material.
 - **A mix exercise mode** — the six tools over a few stems, with a mixer, and
   scored on the whole master.
@@ -315,6 +317,37 @@ completely described by what it does to one click, so "is this delay as long as
 that room" is a question that can be asked. `distance` on `harmonics` is
 pairwise only: its masking floor is derived from both readings at once, so
 three of them cannot be ranked.
+
+Four more belong to no tool: `loudness`, `crest`, `balance` and `width`, in
+`src/analysis/`. They are readings of a piece of audio rather than of a
+setting, which is what the analysis pillar is — and they go in the same
+envelope so that two of them can be put side by side by something that does
+not know which kind it is holding.
+
+**The loudness meter is held to somebody else's answer**, which nothing else
+here can be. ITU-R BS.1770-4 prints its K-weighting coefficients at 48 kHz and
+EBU Tech 3341 prints signals and the readings a compliant meter must give for
+them; `tests/loudness.test.js` checks both. The filters reproduce the printed
+coefficients to ten decimal places and are derived rather than transcribed, so
+they are right at 44.1 kHz too — which matters, because the browser picks the
+rate. All five of the Tech 3341 cases pass inside the document's ±0.1 LU: a
+−23 dBFS sine reads −23.0, the gated cases read −23.0 with their quiet ends
+thrown away, and the one that averages −26 and −20 reads −23.0 rather than the
+−24 that averaging decibels instead of power would give.
+
+Two details in there look like mistakes and are not: the shelf's midpoint gain
+is `Vh ** 0.4996667741545416` rather than `sqrt(Vh)`, and the high-pass
+numerator is a plain `1, −2, 1` that leaves about 0.005 of gain in the filter.
+The −0.691 offset in the loudness equation was calibrated against exactly
+those, so correcting either one gives a meter that no longer agrees with
+anybody else's. The comment above them says so.
+
+True peak is read at four times the sample rate through a 49-tap windowed
+sinc, because a sample peak is not the peak — a file that reads −0.1 dBFS can
+still clip a converter. Interpolating every sample of a four-minute track is
+two billion multiplications, so only samples within 9 dB of the loudest are
+looked at: the overshoot between two samples is bounded at about 3 dB for a
+band-limited signal, and nine is three times that margin.
 
 `of.state` is what fixed three bugs that were shipping: the imager painted a
 live goniometer beside band bars up to a debounce old *in the same frame*, the

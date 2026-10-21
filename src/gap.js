@@ -17,6 +17,10 @@ import { reductionGap } from './comp/reading.js';
 import { decayGap } from './fx/response.js';
 import { imageGap } from './image/field.js';
 import { heatGap } from './heat/shape.js';
+import { loudnessGap } from './analysis/loudness.js';
+import { crestGap } from './analysis/dynamics.js';
+import { balanceGap } from './analysis/balance.js';
+import { widthGap } from './analysis/width.js';
 import { comparable, gapOf } from './read.js';
 
 /**
@@ -26,6 +30,11 @@ import { comparable, gapOf } from './read.js';
  * share one - a room and a repeat are both described by how they decay, and
  * saying so here is what makes "is this delay as long as that room" a question
  * this app can answer.
+ *
+ * And the analysis readings, which belong to no tool. They are here for the
+ * same reason as the rest: so that two of them can be put side by side - your
+ * mix against a reference - by something that does not know which kind it is
+ * holding.
  */
 const GAPS = {
   curve: curveGap,
@@ -33,6 +42,10 @@ const GAPS = {
   decay: decayGap,
   image: imageGap,
   harmonics: heatGap,
+  loudness: loudnessGap,
+  crest: crestGap,
+  balance: balanceGap,
+  width: widthGap,
 };
 
 /** Which kinds can be compared at all. */
