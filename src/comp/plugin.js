@@ -355,6 +355,19 @@ export class CompPlugin {
     this.player.push();
   }
 
+  /**
+   * Whether the loop is running, asked from outside.
+   *
+   * The shell needs this because a drill hides the tool and drives the
+   * transport itself: the Play button a drill draws has to say Stop when the
+   * loop is going, and the only thing that knows is the player. Reaching
+   * through `tool.player.playing` from the shell worked and was a hole in the
+   * contract - this is the same answer, asked properly.
+   */
+  isPlaying() {
+    return !!this.player?.playing;
+  }
+
   async toggle() {
     if (this.player.playing) {
       this.player.stop();

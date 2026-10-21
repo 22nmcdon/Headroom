@@ -72,6 +72,21 @@
            the EQ is a plugin, not a question with options under it. -->
       <div class="surface" id="surface" hidden></div>
 
+      <!-- A drill puts the tool away and asks instead. It has to: on every
+           one of these tools the display IS the answer - the analyser draws
+           the boost, the harmonic bars draw even against odd. So the drill
+           gets a transport of its own, and the tool goes on playing behind
+           it, unseen. -->
+      <div class="drill" id="drill" hidden>
+        <p class="drill-ask" id="drillAsk"></p>
+        <div class="drill-transport">
+          <button class="submit-btn" type="button" id="drillPlay">Play</button>
+          <button class="link-btn" type="button" id="drillClean" aria-pressed="false" hidden>
+            Hear it clean
+          </button>
+        </div>
+      </div>
+
       <!-- What you have tried, newest first. Append-only and unbounded:
            there is no ceiling to size an empty grid to any more, and the
            first attempt decides the columns. -->

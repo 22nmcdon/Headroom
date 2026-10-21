@@ -1,6 +1,6 @@
 import { curveReading, writeHz } from '../eq/filters.js';
 import { distance } from '../gap.js';
-import { HIT, NEAR, MISS, logPick, toStep, toThirdOctave, pick } from './scoring.js';
+import { HIT, NEAR, MISS, onScale, logPick, toStep, toThirdOctave, pick } from './scoring.js';
 
 /**
  * What you do with an EQ, as opposed to what an EQ is.
@@ -35,6 +35,71 @@ const TROUBLE = [
  */
 const CLOSE_ENOUGH = { easy: 2.5, medium: 1.8, hard: 1.2 };
 
+/* --- the drill ------------------------------------------------------------ */
+
+/**
+ * The octaves a move is audible in, on the bed this app plays.
+ *
+ * Measured: the bed was rendered offline and read at the ten octave centres
+ * from 31.5 Hz to 16 kHz, then rendered again through a +9 dB octave-wide
+ * boost at each one. Relative to its loudest octave (125 Hz) the bed holds
+ * -1.5 dB at 63, -1.1 at 250, -2.6 at 500, -11.1 at 1k, -17.1 at 2k, -21.1 at
+ * 4k, -24.8 at 8k - and -20.1 at 31.5 Hz and -32.7 at 16 kHz. Those two ends
+ * are not here. There is nothing to hear at 31.5 Hz on most speakers and
+ * almost nothing in the bed at 16 kHz: the same +9 dB lifts its own octave by
+ * 6.3 and 4.3 dB there against 6.1-7.3 dB everywhere else, and a drill whose
+ * answer you cannot hear is a coin toss wearing a chip.
+ *
+ * The names are what an engineer reaches for when they say where a problem
+ * is, which is the vocabulary this is teaching as much as the frequency.
+ */
+const OCTAVES = [
+  { id: '63', hz: 63, symbol: '63', name: 'weight' },
+  { id: '125', hz: 125, symbol: '125', name: 'bass' },
+  { id: '250', hz: 250, symbol: '250', name: 'mud' },
+  { id: '500', hz: 500, symbol: '500', name: 'boxy' },
+  { id: '1k', hz: 1000, symbol: '1k', name: 'nasal' },
+  { id: '2k', hz: 2000, symbol: '2k', name: 'honk' },
+  { id: '4k', hz: 4000, symbol: '4k', name: 'presence' },
+  { id: '8k', hz: 8000, symbol: '8k', name: 'air' },
+];
+
+const octaveAt = (id) => OCTAVES.findIndex((octave) => octave.id === id);
+
+/**
+ * How big the move is, which octaves are on offer, and how wide "close" is.
+ *
+ * Measured, on the same renders. An octave-wide move of 9 dB lifts its own
+ * octave of the bed by 6.1-7.3 dB, 6 dB lifts it by 4.1-4.9, and 4 dB by
+ * 2.7-3.2 - and a cut of the same size takes very nearly the same amount out.
+ * Three decibels in one octave of a mix is a move anybody working on a record
+ * makes and hears, which is what the hard tier asks you to name.
+ *
+ * `near` is the interesting one. The same renders say what a neighbour gets:
+ * a move at one octave shows up in the octave next door at about a third of
+ * its size (1.3-3.2 dB of a 9 dB move) and two octaves away at a tenth or
+ * less (0.6 dB or under). So next door really is a near miss - you heard the
+ * move, in roughly the right place - and two along is not.
+ *
+ * Which is also why the easy tier scores exact or nothing. Its four octaves
+ * are two apart, so the chip beside the right one is the one that shares 0.6
+ * dB with it: calling that "close" would be telling somebody they very nearly
+ * heard it when what they heard was somewhere else.
+ */
+const DRILL = {
+  easy: { gain: 9, octaves: ['63', '250', '1k', '4k'], near: 0 },
+  medium: { gain: 6, octaves: OCTAVES.map((o) => o.id), near: 1 },
+  hard: { gain: 4, octaves: OCTAVES.map((o) => o.id), near: 1 },
+};
+
+/** One octave wide, which is the Q every number above was measured at. */
+const OCTAVE_Q = 1.41;
+
+const MOVES = [
+  { id: 'boost', symbol: 'Boost', name: 'louder there' },
+  { id: 'cut', symbol: 'Cut', name: 'quieter there' },
+];
+
 /**
  * The two exercises, in the shape a session can set up.
  *
@@ -64,7 +129,94 @@ export const EQ_EXERCISES = {
     targetOf: () => [],
     answerOf: (puzzle) => [{ ...puzzle.fault, gain: -puzzle.fault.gain }],
   },
+  drill: {
+    id: 'drill',
+    label: 'Name the move',
+    // What `drill` means to the shell: the question is answered with chips
+    // rather than on the tool, so the tool is put away while it is asked. It
+    // has to be - the analyser would be showing the answer as a bump.
+    drill: true,
+    ask: 'One octave has been moved. Which one, and which way?',
+    lede: 'Nothing to dial here. One octave of this mix has been moved up or '
+        + 'down; listen, and say which one and which way.',
+    opening: 'Play it, listen for what stands out, then name the octave.',
+    source: 'mix',
+    other: 'Clean',
+    faultOf: (puzzle) => puzzle.fault,
+    targetOf: () => [],
+    // Nothing to draw: there is no curve in the answer, and the tool is not
+    // on screen to draw it on.
+    answerOf: () => null,
+  },
 };
+
+/**
+ * Name the octave, name the direction.
+ *
+ * Two readings for two chips, and a third that is the point of the exercise:
+ * how far off, in octaves, said in octaves. "Two octaves low" is a correction
+ * somebody can take to the next round; "wrong" is not.
+ *
+ * `onScale` over the octaves on offer, with the tier saying how wide close
+ * is - see DRILL above for what was measured to set it.
+ */
+function scoreDrill(state, puzzle) {
+  const { answer, tier } = puzzle;
+  const spec = DRILL[tier] ?? DRILL.medium;
+  const offered = OCTAVES.filter((octave) => spec.octaves.includes(octave.id));
+
+  const guessedAt = offered.findIndex((octave) => octave.id === state.band);
+  const answerAt = offered.findIndex((octave) => octave.id === answer.band);
+  const band = onScale(guessedAt, answerAt, { near: spec.near });
+  const right = state.move === answer.move;
+
+  // In octaves of the real spectrum, not in chips: at the easy tier the chips
+  // are two octaves apart, and "1 chip out" would be a number about the
+  // picker rather than about what was played.
+  const steps = octaveAt(state.band) - octaveAt(answer.band);
+  const away = Math.abs(steps);
+
+  const guessed = OCTAVES[octaveAt(state.band)];
+  const correct = band === HIT && right;
+
+  return {
+    correct,
+    cells: [
+      { state: band, text: `${guessed.symbol} · ${guessed.name}` },
+      { state: right ? HIT : MISS, text: state.move === 'boost' ? 'Boost' : 'Cut' },
+      {
+        state: correct ? HIT : band === HIT ? NEAR : band,
+        text: away === 0
+          ? (right ? 'that is it' : 'right octave, wrong way')
+          : `${away} ${away === 1 ? 'octave' : 'octaves'} ${steps > 0 ? 'high' : 'low'}`,
+        narrow: true,
+      },
+    ],
+    why: [
+      {
+        label: 'How far off',
+        value: away === 0 ? 'the right octave' : `${away} ${away === 1 ? 'octave' : 'octaves'}`,
+        how: 'Counted on the eight octave centres from 63 Hz to 8 kHz, not on the '
+           + 'chips - at the easy tier the chips are two octaves apart.',
+      },
+      {
+        label: 'Close is',
+        value: spec.near === 0 ? 'the right octave, and nothing else' : 'one octave either way',
+        how: 'The bed was rendered through a move at each octave and read back. A '
+           + 'move shows up in the octave next door at about a third of its size '
+           + 'and two octaves away at a tenth or less - so next door is somebody '
+           + 'who heard it in roughly the right place, and two along is not. The '
+           + 'easy tier offers octaves two apart, so it has no next door.',
+      },
+      {
+        label: 'The move',
+        value: `${Math.abs(puzzle.fault.gain)} dB, one octave wide`,
+        how: 'Measured on this bed: 9 dB lifts its own octave by 6.1-7.3 dB, 6 dB '
+           + 'by 4.1-4.9, and 4 dB by 2.7-3.2.',
+      },
+    ],
+  };
+}
 
 export const EQ_WORK = {
   tool: 'eq',
@@ -86,14 +238,49 @@ export const EQ_WORK = {
     hard: { label: 'Hard', blurb: 'Three bands, and subtle', guesses: 4, bands: 3, size: [2.5, 5] },
   },
 
-  /** The round is played on the tool, so there is nothing to pick from. */
-  slots() {
-    return [];
+  /**
+   * An exercise is answered on the tool, so it asks for nothing here. The
+   * drill is the exception: it is a listening question, and it is answered
+   * by naming what you heard.
+   */
+  slots(tier, settings) {
+    if (settings?.exercise !== 'drill') return [];
+
+    const spec = DRILL[tier] ?? DRILL.medium;
+    return [
+      {
+        id: 'band',
+        kind: 'choice',
+        label: 'Which octave',
+        options: OCTAVES.filter((octave) => spec.octaves.includes(octave.id)),
+      },
+      {
+        id: 'move',
+        kind: 'choice',
+        label: 'Which way',
+        options: MOVES,
+      },
+    ];
   },
 
   makePuzzle(rng, tier, settings) {
     const spec = this.tiers[tier];
     const size = () => toStep(spec.size[0] + rng() * (spec.size[1] - spec.size[0]), 0.5);
+
+    if (settings.exercise === 'drill') {
+      const drill = DRILL[tier] ?? DRILL.medium;
+      const octave = pick(rng, OCTAVES.filter((o) => drill.octaves.includes(o.id)));
+      const move = pick(rng, MOVES);
+      const gain = move.id === 'cut' ? -drill.gain : drill.gain;
+
+      return {
+        // The move is baked into the sample rather than set on the EQ: what
+        // you are being asked to hear is a mix with something wrong with it,
+        // not a plugin with something on it.
+        fault: { type: 'peaking', frequency: octave.hz, gain, q: OCTAVE_Q, on: true },
+        answer: { band: octave.id, move: move.id },
+      };
+    }
 
     if (settings.exercise === 'fix') {
       // The sample has a resonance in it. The answer is its inverse, which is
@@ -136,6 +323,8 @@ export const EQ_WORK = {
    * plugin rather than the ear. What is compared is what comes out.
    */
   score(state, puzzle) {
+    if (puzzle.settings?.exercise === 'drill') return scoreDrill(state, puzzle);
+
     const { answer, tier } = puzzle;
     const rate = 48000;
     // Readings rather than bare curves. The EQ cached nothing at all before
@@ -198,6 +387,25 @@ export const EQ_WORK = {
    * reveal, and that has its own button.
    */
   hints(puzzle) {
+    if (puzzle.settings?.exercise === 'drill') {
+      // Three rungs, each one a third of the way to the answer: which way,
+      // then which third of the spectrum, then the word an engineer would
+      // use for it - which is as close as a hint gets before it is the
+      // reveal, and that has its own button.
+      const octave = OCTAVES[octaveAt(puzzle.answer.band)];
+      const boost = puzzle.answer.move === 'boost';
+      const third = octave.hz < 250 ? 'down at the bottom, under 250 Hz'
+        : octave.hz < 2000 ? 'somewhere in the middle, between 250 Hz and 1 kHz'
+        : 'up in the top, at 2 kHz or above';
+
+      return [
+        `It is a ${boost ? 'boost' : 'cut'}: something is ${boost ? 'louder' : 'quieter'} `
+          + 'in one octave than it should be.',
+        `The octave it is in sits ${third}.`,
+        `An engineer hearing that region would call it ${octave.name}.`,
+      ];
+    }
+
     const { answer } = puzzle;
     const bands = puzzle?.fault
       ? [{ ...puzzle.fault, gain: -puzzle.fault.gain }]
@@ -227,6 +435,15 @@ export const EQ_WORK = {
     ];
   },
   reveal(puzzle) {
+    if (puzzle.settings?.exercise === 'drill') {
+      const octave = OCTAVES[octaveAt(puzzle.answer.band)];
+      return {
+        symbol: `${octave.symbol} Hz`.replace('k Hz', ' kHz'),
+        name: `${puzzle.answer.move === 'boost' ? 'boosted' : 'cut'} by `
+          + `${Math.abs(puzzle.fault.gain)} dB, the ${octave.name} octave`,
+      };
+    }
+
     const { answer } = puzzle;
     const bands = puzzle?.fault
       ? [{ ...puzzle.fault, gain: -puzzle.fault.gain }]
@@ -239,6 +456,11 @@ export const EQ_WORK = {
   },
 
   weak(puzzle) {
+    if (puzzle.settings?.exercise === 'drill') {
+      const octave = OCTAVES[octaveAt(puzzle.answer.band)];
+      return { key: `octave-${octave.id}`, label: `${octave.symbol} (${octave.name})` };
+    }
+
     const { answer } = puzzle;
     const band = puzzle?.fault ?? answer[0];
     const zone = TROUBLE.find((t) => band.frequency >= t.low && band.frequency < t.high);

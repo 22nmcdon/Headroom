@@ -69,8 +69,19 @@ test('nothing reaches across and hides what another function owns', () => {
     .map((m) => m[1])
     .sort();
 
-  assert.deepEqual(hidden, ['#clue', '#picker'],
+  // What it owns is the choice between a tool and a drill: the tool's
+  // surface, the drill's panel and its clean A/B, the chips, and the clue row
+  // that neither uses any more. The list grew when drills arrived, and it
+  // grew for a reason - but it is still a list, and the two below are what it
+  // must never grow to include.
+  assert.deepEqual(hidden, ['#clue', '#drill', '#drillClean', '#picker', '#surface'],
     `putExercise writes .hidden on ${hidden.join(', ') || 'nothing'}`);
+
+  // The two it must never grow to include. `#advice` is the specific bug
+  // above; `#notes` is the same shape of thing waiting to happen.
+  for (const other of ['#advice', '#notes']) {
+    assert.ok(!hidden.includes(other), `putExercise hides ${other}, which buildHead owns`);
+  }
 });
 
 test('each tool’s DSP points at the notes that explain it', () => {

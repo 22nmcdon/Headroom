@@ -1379,3 +1379,36 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
 }
+
+/* --- a drill ------------------------------------------------------------- */
+
+/* The tool is behind this, still playing and not on screen. What is left is
+   the question and a transport, which is all a listening question needs. */
+.drill {
+  border: 1px solid var(--line);
+  background: var(--paper);
+  border-radius: 1px;
+  padding: 26px 24px;
+  margin: 18px 0 0;
+  text-align: center;
+}
+
+.drill-ask {
+  font-family: var(--script);
+  font-size: 21px;
+  line-height: 29px;
+  color: var(--text);
+  margin: 0 0 20px;
+}
+
+.drill-transport {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 14px 22px;
+}
+
+/* Pressed means you are listening to the clean side, which is a state you are
+   in rather than a thing you did. */
+.drill-transport .link-btn[aria-pressed="true"] { color: var(--blush-deep); }

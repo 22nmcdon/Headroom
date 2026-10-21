@@ -57,11 +57,26 @@ test('an exercise says how to set a tool up, as data rather than as a mount', ()
   }
 });
 
-test('a tool is answered on the tool, so it asks for no slots', () => {
+test('a tool exercise is answered on the tool, and only a drill asks with chips', () => {
+  // Which is why `slots` takes the settings. A tool that asked for chips
+  // whatever it was set to would be drawing a picker under a plugin that
+  // already answers the question - and a drill that did not ask for them
+  // would have nowhere to put the answer.
   for (const [id, tool] of Object.entries(MODES)) {
-    for (const [tier] of ROUNDS.filter(([which]) => which === id)) {
-      assert.equal(tool.slots(tier).length, 0, `${id} brings an interface and a picker`);
+    for (const [, tier, settings] of ROUNDS.filter(([which]) => which === id)) {
+      const chosen = settingsFor(id, settings);
+      const slots = tool.slots(tier, chosen);
+
+      if (tool.exercises[chosen.exercise]?.drill) {
+        assert.ok(slots.length, `${id}/${tier} has a drill that asks nothing`);
+      } else {
+        assert.equal(slots.length, 0, `${id}/${tier}/${chosen.exercise} brings a tool and a picker`);
+      }
     }
+
+    // And with nothing said about the settings, a tool is a tool: this is the
+    // call the shell makes before a round exists.
+    assert.equal(tool.slots('easy').length, 0, `${id} asks for chips with no exercise set`);
   }
 });
 

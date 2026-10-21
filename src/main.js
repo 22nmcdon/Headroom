@@ -43,6 +43,9 @@ const ui = {
   toolId: null,
   mode: 'eq',
   tier: 'easy',
+  // What a drill has put in the material, so the clean A/B can take it out
+  // and put it back. Null whenever the round is not a drill.
+  fault: null,
   chosen: {}, // settings, per mode, so switching back finds them as you left them
   guess: {},
   game: null,
@@ -96,11 +99,12 @@ function buildPicker() {
 
   // Chips are cleared between guesses; controls are not. A producer works from
   // where they got to last time, not from the middle of the range again.
-  const dialled = startingGuess(ui.mode, ui.tier);
+  const chosen = settings();
+  const dialled = startingGuess(ui.mode, ui.tier, chosen);
   ui.guess = { ...dialled, ...Object.fromEntries(
     Object.entries(ui.guess).filter(([id]) => id in dialled)) };
 
-  renderPicker(picker, tool().slots(ui.tier), ui.guess, { write: writeSymbol });
+  renderPicker(picker, tool().slots(ui.tier, chosen), ui.guess, { write: writeSymbol });
 
   syncAnswer();
 }
@@ -115,7 +119,7 @@ function buildPicker() {
 function syncAnswer() {
   const submit = $('#submit');
 
-  const slots = tool().slots(ui.tier);
+  const slots = tool().slots(ui.tier, settings());
 
   // A tool is answered on the tool. Only a drill asks with chips, and there
   // is no "out of guesses" any more - so the only thing that closes the
@@ -182,16 +186,56 @@ async function openTool() {
  * not arrived yet, and nothing said so.
  */
 async function putExercise() {
-  const surface = $('#surface');
-  surface.hidden = false;
+  const exercise = exerciseOf(ui.mode, settings());
+  const drilling = !!exercise.drill;
+
+  // A drill puts the tool away and asks instead. The tool is still there and
+  // still playing - it owns the audio, and a drill is a listening question -
+  // but its display is not, because on every one of these tools the display
+  // is the answer: the analyser draws the boost, the harmonic bars draw even
+  // against odd. Hidden, every canvas reads as zero by zero and every draw is
+  // a no-op, so nothing is spent on pictures nobody is looking at.
+  $('#surface').hidden = drilling;
+  $('#drill').hidden = !drilling;
+  $('#picker').hidden = !drilling;
   $('#clue').hidden = true;
-  $('#picker').hidden = true;
   // Not the advice. It is a line about the tool, and this used to hide all of
   // it, every time, in the same synchronous pass that buildClue had just
   // written it. Five paragraphs, set and never seen by anybody.
 
-  await desk.put(await openTool(), exerciseOf(ui.mode, settings()), ui.game.puzzle);
+  $('#drillAsk').textContent = exercise.ask ?? '';
+  // The clean side is only offered where there is a fault to take out, which
+  // is what makes it an A/B rather than a mute.
+  ui.fault = drilling ? (exercise.faultOf?.(ui.game.puzzle) ?? null) : null;
+  $('#drillClean').hidden = !ui.fault;
+  setClean(false);
+
+  await desk.put(await openTool(), exercise, ui.game.puzzle);
   syncAnswer();
+  syncTransport();
+}
+
+/* ---------- the drill's transport ---------- */
+
+/** Play and Stop, on a tool nobody can see. */
+function syncTransport() {
+  $('#drillPlay').textContent = ui.tool?.isPlaying?.() ? 'Stop' : 'Play';
+}
+
+/**
+ * Hear it without the fault in it.
+ *
+ * Built out of `setFault`, which every tool already implements and which the
+ * session already uses to put the fault there - so this is the same A/B the
+ * fix exercises have, driven from outside the tool rather than from a button
+ * on it. The loop never stops: the fault crossfades out and back, which is
+ * the only way a comparison is worth anything.
+ */
+function setClean(on) {
+  const button = $('#drillClean');
+  button.setAttribute('aria-pressed', on ? 'true' : 'false');
+  button.textContent = on ? 'Hear it again' : 'Hear it clean';
+  if (ui.fault) ui.tool?.setFault(on ? null : ui.fault);
 }
 
 /**
@@ -208,7 +252,9 @@ function buildHead() {
   const advice = tool().advice;
   $('#advice').hidden = !advice;
   $('#advice').textContent = advice ?? '';
-  $('#lede').textContent = tool().lede;
+  // A drill brings its own, because the tool's says to drag the bands and a
+  // drill has no bands to drag. Everything else gets the tool's.
+  $('#lede').textContent = exerciseOf(ui.mode, settings()).lede ?? tool().lede;
   buildNotes();
 }
 
@@ -263,8 +309,9 @@ async function startGame({ fresh = false } = {}) {
   // over stored guesses and could print different text than had been shown,
   // because the audio it marks against loads after the board does.
   render();
-  // A mode with its own interface is not answered by naming anything.
-  say(tool().opening ?? 'Play it, then name what you heard.');
+  // A tool is not answered by naming anything; a drill is answered by nothing
+  // else, so it gets the first word.
+  say(exerciseOf(ui.mode, chosen).opening ?? tool().opening ?? 'Play it, then name what you heard.');
 }
 
 /**
@@ -276,10 +323,11 @@ async function startGame({ fresh = false } = {}) {
  * third thing to size and would say what the cells already say.
  */
 function buildLog() {
+  const slots = tool().slots(ui.tier, settings());
   ui.log = makeLog($('#log'), {
     write: writeSymbol,
-    headings: tool().slots(ui.tier).length
-      ? tool().slots(ui.tier).map((slot) => slot.heading ?? slot.id)
+    headings: slots.length
+      ? slots.map((slot) => slot.heading ?? slot.id)
       : ['how close', 'where'],
   });
 }
@@ -309,7 +357,7 @@ function onSubmit() {
   // attempt is an adjustment of this one.
   ui.guess = Object.fromEntries(
     Object.entries(ui.guess).filter(([id]) =>
-      tool().slots(ui.tier).find((slot) => slot.id === id)?.kind === 'range'));
+      slots.find((slot) => slot.id === id)?.kind === 'range'));
 
   const attempt = next.guesses[next.guesses.length - 1];
   const n = ui.log.add(attempt.score);
@@ -641,7 +689,7 @@ function wire() {
     const dial = e.target.closest('[data-dial]');
     if (!dial) return;
 
-    const slot = tool().slots(ui.tier).find((s) => s.id === dial.dataset.dial);
+    const slot = tool().slots(ui.tier, settings()).find((s) => s.id === dial.dataset.dial);
     ui.guess[slot.id] = dialValue(slot, dial.value);
     syncAnswer();
   });
@@ -649,6 +697,14 @@ function wire() {
   $('#submit').addEventListener('click', onSubmit);
 
   $('#again').addEventListener('click', () => startGame({ fresh: true }));
+
+  $('#drillPlay').addEventListener('click', async () => {
+    await ui.tool?.toggle?.();
+    syncTransport();
+  });
+  $('#drillClean').addEventListener('click', (e) => {
+    setClean(e.currentTarget.getAttribute('aria-pressed') !== 'true');
+  });
 
   $('#hint').addEventListener('click', onHint);
   $('#show').addEventListener('click', onShow);
@@ -678,7 +734,7 @@ function wire() {
     if (e.code === 'Space') {
       e.preventDefault();
       // Space is the transport wherever a musician meets one.
-      ui.tool?.toggle?.();
+      Promise.resolve(ui.tool?.toggle?.()).then(syncTransport);
     }
     if (e.key === 'Enter' && !$('#submit').disabled) onSubmit();
   });

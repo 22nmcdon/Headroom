@@ -104,10 +104,15 @@ export function sameGuess(a, b) {
   return keys.every((key) => sameGuess(a[key], b[key]));
 }
 
-/** What the controls start on, before anything has been dialled. */
-export function startingGuess(mode, tier) {
+/**
+ * What the controls start on, before anything has been dialled.
+ *
+ * The settings go in because the slots depend on them: only a drill asks with
+ * controls at all, and which controls it asks with is the exercise's to say.
+ */
+export function startingGuess(mode, tier, settings = {}) {
   return Object.fromEntries(
-    toolOf(mode).slots(tier).filter((slot) => slot.kind === 'range')
+    toolOf(mode).slots(tier, settings).filter((slot) => slot.kind === 'range')
       .map((slot) => [slot.id, slot.start]),
   );
 }
