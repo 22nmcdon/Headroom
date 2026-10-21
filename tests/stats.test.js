@@ -42,8 +42,8 @@ const wrongFor = (frequency, tries = 4) => Array.from(
   (_, i) => bandAt(frequency > 1000 ? 50 + i * 4 : 8000 + i * 400, -11),
 );
 
-function play(puzzle, guesses, { playing = 'practice', give = false } = {}) {
-  let game = createGame(puzzle, { mode: playing });
+function play(puzzle, guesses, { give = false } = {}) {
+  let game = createGame(puzzle);
   for (const guess of guesses) game = submitGuess(game, guess);
   if (give) game = showAnswer(game);
   recordGame(game);
@@ -52,15 +52,23 @@ function play(puzzle, guesses, { playing = 'practice', give = false } = {}) {
 
 test.beforeEach(() => resetStats());
 
-test('a solve records a streak and lands in the right attempt band', () => {
+test('a solve is counted, and lands in the right attempt band', () => {
   play(puzzleFor(MUD), [bandAt(9000, -9), bandAt(MUD)]);
 
-  const stats = getStats('practice', 'eq', 'easy');
+  const stats = getStats('eq', 'easy');
   assert.equal(stats.played, 1);
   assert.equal(stats.won, 1);
-  assert.equal(stats.streak, 1);
-  assert.equal(stats.maxStreak, 1);
   assert.equal(stats.attempts['2'], 1, 'solved on the second attempt');
+});
+
+test('a bucket keeps no streak', () => {
+  // A streak is a scarcity mechanic, and with the daily gone there is nothing
+  // to break one: you can start another round the moment this one ends, so the
+  // number measured how recently you played rather than how well you hear.
+  play(puzzleFor(MUD), [bandAt(MUD)]);
+  const stats = getStats('eq', 'easy');
+  assert.ok(!('streak' in stats), 'no streak');
+  assert.ok(!('maxStreak' in stats), 'and no best streak');
 });
 
 test('the attempt bands are open-ended, and band at the edges', () => {
@@ -86,11 +94,9 @@ test('asking to be shown counts as played, never as solved', () => {
   play(puzzleFor(MUD), [bandAt(MUD)]);
   play(puzzleFor(HARSH, 's2'), wrongFor(HARSH), { give: true });
 
-  const stats = getStats('practice', 'eq', 'easy');
+  const stats = getStats('eq', 'easy');
   assert.equal(stats.played, 2);
   assert.equal(stats.won, 1, 'being shown is not a solve');
-  assert.equal(stats.streak, 0, 'and it breaks the run');
-  assert.equal(stats.maxStreak, 1);
 
   // And it does not land in an attempt band: it did not take four attempts to
   // get there, it took four attempts and then the answer.
@@ -99,12 +105,12 @@ test('asking to be shown counts as played, never as solved', () => {
 });
 
 test('the weak-spot hint waits for enough data, then names the worst kind of answer', () => {
-  assert.equal(weakestKind(getStats('practice', 'eq', 'easy')), null, 'no hint from one game');
+  assert.equal(weakestKind(getStats('eq', 'easy')), null, 'no hint from one game');
 
   for (let i = 0; i < 3; i += 1) play(puzzleFor(HARSH, `d${i}`), wrongFor(HARSH), { give: true });
   play(puzzleFor(MUD, 'm1'), [bandAt(MUD)]);
 
-  const weak = weakestKind(getStats('practice', 'eq', 'easy'));
+  const weak = weakestKind(getStats('eq', 'easy'));
   assert.equal(weak.key, 'harshness');
   assert.equal(weak.label, 'harshness');
   assert.equal(weak.rate, 0);
@@ -113,42 +119,49 @@ test('the weak-spot hint waits for enough data, then names the worst kind of ans
 test('unfinished games are not recorded', () => {
   const puzzle = makePuzzle({ mode: 'eq', tier: 'easy', seed: 'unfinished' });
   recordGame(submitGuess(createGame(puzzle), bandAt(9000, -9)));
-  assert.equal(getStats('practice', 'eq', 'easy').played, 0);
+  assert.equal(getStats('eq', 'easy').played, 0);
 });
 
-test('a bucket is its own per mode, so the modes do not pool their streaks', () => {
+test('a bucket is its own per tool and per tier, so they do not pool', () => {
   play(puzzleFor(MUD), [bandAt(MUD)]);
-  assert.equal(getStats('practice', 'eq', 'easy').played, 1);
-  assert.equal(getStats('practice', 'reverb', 'easy').played, 0, 'the reverb has played nothing');
-  assert.equal(getStats('daily', 'eq', 'easy').played, 0, 'nor has the daily');
+  assert.equal(getStats('eq', 'easy').played, 1);
+  assert.equal(getStats('reverb', 'easy').played, 0, 'the reverb has played nothing');
+  assert.equal(getStats('eq', 'hard').played, 0, 'nor has the hard tier');
 });
 
-test('the daily is no longer locked once it has been played', () => {
-  // It stays the same puzzle for everybody on the same day, which is the whole
-  // of what made it worth having. What it no longer does is refuse a second
-  // run - there is no scarce resource left to protect, and the restore that
-  // used to enforce it re-scored stored guesses against audio that loads
-  // asynchronously, so it could print different text than had been shown.
-  const puzzle = puzzleFor(HONK, 'daily:eq:easy:2026-09-21');
-  play(puzzle, [bandAt(60, -9), bandAt(HONK)], { playing: 'daily' });
+test('a round opens fresh, and nothing is kept per puzzle', () => {
+  // The daily used to be locked once it had been played, and the restore that
+  // enforced it re-scored stored guesses against audio that loads
+  // asynchronously - so it could print different text than had been shown.
+  const puzzle = puzzleFor(HONK, 'round:eq:easy');
+  play(puzzle, [bandAt(60, -9), bandAt(HONK)]);
 
-  const again = createGame(puzzle, { mode: 'daily' });
-  assert.equal(again.status, 'playing', 'the same daily opens fresh');
+  const again = createGame(puzzle);
+  assert.equal(again.status, 'playing', 'the same puzzle opens fresh');
   assert.equal(again.guesses.length, 0);
 
-  assert.equal(getStats('daily', 'eq', 'easy').played, 1);
-  assert.ok(!('daily' in JSON.parse(localStorage.getItem('headroom.stats.v2'))),
-    'nothing is kept per-puzzle any more');
+  assert.equal(getStats('eq', 'easy').played, 1);
+  assert.deepEqual(Object.keys(JSON.parse(localStorage.getItem('headroom.stats.v3')).buckets),
+    ['eq:easy'], 'one bucket, keyed by tool and tier and nothing else');
+});
+
+test('a v2 store is read as nothing rather than merged', () => {
+  // Half of a v2 store's buckets were the daily's, and adding those to
+  // practice would be adding up two different measurements.
+  localStorage.setItem('headroom.stats.v2', JSON.stringify({
+    buckets: { 'daily:eq:easy': { played: 9, won: 9 }, 'practice:eq:easy': { played: 4, won: 1 } },
+  }));
+  assert.equal(getStats('eq', 'easy').played, 0);
 });
 
 test('a stored bucket from an older shape is filled in rather than thrown on', () => {
   // What comes back from a browser was written by whatever version of this
   // file the browser last ran. Reading a field added since should give a zero.
-  localStorage.setItem('headroom.stats.v2', JSON.stringify({
-    buckets: { 'practice:eq:easy': { played: 3, won: 2 } },
+  localStorage.setItem('headroom.stats.v3', JSON.stringify({
+    buckets: { 'eq:easy': { played: 3, won: 2 } },
   }));
 
-  const stats = getStats('practice', 'eq', 'easy');
+  const stats = getStats('eq', 'easy');
   assert.equal(stats.played, 3);
   assert.equal(stats.won, 2);
   assert.deepEqual(stats.attempts, Object.fromEntries(ATTEMPT_BANDS.map((b) => [b.id, 0])));
@@ -156,8 +169,152 @@ test('a stored bucket from an older shape is filled in rather than thrown on', (
 });
 
 test('corrupt storage degrades to empty stats instead of throwing', () => {
-  localStorage.setItem('headroom.stats.v2', '{not json');
-  const stats = getStats('practice', 'eq', 'easy');
+  localStorage.setItem('headroom.stats.v3', '{not json');
+  const stats = getStats('eq', 'easy');
   assert.equal(stats.played, 0);
   assert.deepEqual(stats.attempts, Object.fromEntries(ATTEMPT_BANDS.map((b) => [b.id, 0])));
+});
+
+/* --- carrying progress between browsers ---------------------------------- */
+
+const { exportProgress, importProgress, PROGRESS_FORMAT } = await import('../src/stats.js');
+
+test('an export carries every bucket, and says what it is', () => {
+  play(puzzleFor(MUD), [bandAt(MUD)]);
+
+  const file = exportProgress(new Date('2026-10-21T09:00:00Z'));
+  assert.equal(file.app, 'headroom');
+  assert.equal(file.format, PROGRESS_FORMAT);
+  assert.equal(file.exported, '2026-10-21T09:00:00.000Z');
+  assert.ok(file.id, 'and carries an id, so the same file is not counted twice');
+  assert.equal(file.buckets['eq:easy'].played, 1);
+
+  // It is a file, so it has to survive being one.
+  assert.deepEqual(JSON.parse(JSON.stringify(file)), file);
+});
+
+test('importing into an empty browser is a restore', () => {
+  play(puzzleFor(MUD), [bandAt(9000, -9), bandAt(MUD)]);
+  const file = exportProgress();
+
+  resetStats();
+  assert.equal(getStats('eq', 'easy').played, 0);
+
+  const result = importProgress(file);
+  assert.equal(result.ok, true);
+  assert.equal(result.buckets, 1);
+
+  const stats = getStats('eq', 'easy');
+  assert.equal(stats.played, 1);
+  assert.equal(stats.won, 1);
+  assert.equal(stats.attempts['2'], 1);
+  assert.equal(stats.byAnswer.mud.seen, 1);
+});
+
+test('importing onto progress adds to it rather than replacing it', () => {
+  // The case this is for: the same person on a phone and on a laptop. Neither
+  // half is the real one, so neither half is thrown away.
+  play(puzzleFor(MUD), [bandAt(MUD)]);
+  play(puzzleFor(HARSH, 'h1'), wrongFor(HARSH), { give: true });
+  const phone = exportProgress();
+
+  resetStats();
+  play(puzzleFor(HONK, 'k1'), [bandAt(9000, -9), bandAt(HONK)]);
+
+  assert.equal(importProgress(phone).ok, true);
+
+  const stats = getStats('eq', 'easy');
+  assert.equal(stats.played, 3, 'two from the file and one from here');
+  assert.equal(stats.won, 2);
+  assert.equal(stats.attempts['1'], 1);
+  assert.equal(stats.attempts['2'], 1);
+  assert.equal(stats.byAnswer.harshness.seen, 1, 'and the weak spots come across');
+  assert.equal(stats.byAnswer.mud.seen, 1);
+});
+
+test('the same file imported twice is counted once', () => {
+  // Which is what the id on an export is for. Adding rather than replacing is
+  // the right default right up until somebody presses import twice, and a
+  // doubled count is worse than no import at all: it is wrong and it looks
+  // fine.
+  play(puzzleFor(MUD), [bandAt(MUD)]);
+  const file = exportProgress();
+
+  resetStats();
+  assert.equal(importProgress(file).ok, true);
+  const second = importProgress(file);
+  assert.equal(second.ok, false);
+  assert.match(second.reason, /already/i);
+  assert.equal(getStats('eq', 'easy').played, 1);
+});
+
+test('a file from somewhere else is refused, and says why', () => {
+  play(puzzleFor(MUD), [bandAt(MUD)]);
+
+  for (const [what, file] of [
+    ['nothing', null],
+    ['a string', 'progress'],
+    ['another app', { app: 'wordle', format: PROGRESS_FORMAT, buckets: {} }],
+    ['a newer format', { app: 'headroom', format: PROGRESS_FORMAT + 1, buckets: {} }],
+    ['no buckets', { app: 'headroom', format: PROGRESS_FORMAT }],
+  ]) {
+    const result = importProgress(file);
+    assert.equal(result.ok, false, `${what} was accepted`);
+    assert.ok(result.reason, `${what} was refused without saying why`);
+  }
+
+  assert.equal(getStats('eq', 'easy').played, 1, 'and nothing here was touched');
+});
+
+test('a bucket full of junk cannot corrupt the store', () => {
+  // The file came off somebody's disk. Every number in it is read as a count,
+  // and anything that is not one is a zero rather than a NaN that spreads.
+  const result = importProgress({
+    app: 'headroom',
+    format: PROGRESS_FORMAT,
+    id: 'junk-1',
+    buckets: {
+      'eq:easy': {
+        played: 'lots', won: -4, attempts: { '2': 1.7, nonsense: 9 },
+        byAnswer: { mud: { seen: NaN, solved: 'two', label: 'mud' } },
+      },
+      'not a key': { played: 1 },
+    },
+  });
+
+  assert.equal(result.ok, true);
+  const stats = getStats('eq', 'easy');
+  assert.equal(stats.played, 0, 'a count that is not a number is nothing');
+  assert.equal(stats.won, 0, 'and nor is a negative one');
+  assert.equal(stats.attempts['2'], 1, 'a fractional count is floored');
+  assert.ok(!('nonsense' in stats.attempts), 'a band this app does not have is dropped');
+  assert.equal(stats.byAnswer.mud.seen, 0);
+  assert.equal(stats.byAnswer.mud.solved, 0);
+});
+
+test('an import never leaves more solved than played', () => {
+  // The one invariant the rest of the app reads off these numbers: `solved %`
+  // is won/played, and a file claiming nine wins in one game would print 900%.
+  const result = importProgress({
+    app: 'headroom',
+    format: PROGRESS_FORMAT,
+    id: 'junk-2',
+    buckets: { 'eq:easy': { played: 1, won: 9, byAnswer: { mud: { seen: 1, solved: 5 } } } },
+  });
+
+  assert.equal(result.ok, true);
+  const stats = getStats('eq', 'easy');
+  assert.equal(stats.won, 1);
+  assert.equal(stats.byAnswer.mud.solved, 1);
+});
+
+test('resetting clears what was imported too, so a file can be imported again', () => {
+  play(puzzleFor(MUD), [bandAt(MUD)]);
+  const file = exportProgress();
+
+  resetStats();
+  assert.equal(importProgress(file).ok, true);
+  resetStats();
+  assert.equal(importProgress(file).ok, true, 'a reset is a reset');
+  assert.equal(getStats('eq', 'easy').played, 1);
 });

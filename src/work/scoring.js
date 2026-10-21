@@ -61,7 +61,7 @@ export function dialled(guess, answer, spec) {
 
   return {
     state: mark,
-    text: state === HIT ? 'spot on' : `${amount} ${off < 0 ? spec.below : spec.above}`,
+    text: mark === HIT ? 'spot on' : `${amount} ${off < 0 ? spec.below : spec.above}`,
   };
 }
 

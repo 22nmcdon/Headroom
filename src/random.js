@@ -1,4 +1,10 @@
-/** Deterministic PRNG so a daily puzzle is the same for everyone, everywhere. */
+/**
+ * Seeded randomness, so that a puzzle is a function of its seed.
+ *
+ * Which is what lets a round be made twice and come out the same - a test can
+ * hand a mode a seed and get the puzzle the browser would get. The day key and
+ * the puzzle number that used to live here went with the daily.
+ */
 export function mulberry32(seed) {
   let a = seed >>> 0;
   return function next() {
@@ -18,20 +24,4 @@ export function hashSeed(str) {
     h = Math.imul(h, 16777619);
   }
   return h >>> 0;
-}
-
-export const EPOCH = Date.UTC(2026, 0, 1);
-const DAY_MS = 86400000;
-
-/** UTC day key, e.g. "2026-09-21" — everyone gets the same puzzle at the same time. */
-export function dayKey(date = new Date()) {
-  return new Date(date).toISOString().slice(0, 10);
-}
-
-/** Puzzle number, counting from the game's epoch. */
-export function puzzleNumber(date = new Date()) {
-  const utcMidnight = Date.UTC(
-    date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(),
-  );
-  return Math.floor((utcMidnight - EPOCH) / DAY_MS) + 1;
 }

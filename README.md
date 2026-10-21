@@ -23,9 +23,13 @@ measured.
 > alongside the plugins. Those are gone — naming a half-diminished seventh is
 > musicianship, not production — and so are the guess ceiling and the share
 > grid: a tool you can only touch four times is not a tool, and the whole
-> content of the grid was "I did it in three". What replaces them
-> (identification drills, an analysis pillar, an optional guided path) is being
-> built in stages. Streaks are still here and are next out.
+> content of the grid was "I did it in three". The daily and the streak have
+> now gone after them, for the same reason: both are scarcity mechanics, and
+> with nothing to run out of, a streak measured how recently you played rather
+> than how well you hear. A daily *drill* — one short question a day, the same
+> for everyone — is worth having and comes back on the drills. What replaces
+> all of it (identification drills, an analysis pillar, an optional guided
+> path) is being built in stages.
 
 | Mode | What you work with | Exercises |
 | --- | --- | --- |
@@ -91,9 +95,15 @@ npm start           # python3 -m http.server 8080
 app uses ES modules, which browsers refuse to load over `file://`.)
 
 ```bash
-npm test            # node --test — the modes, the round, the stats
+npm test            # node --test — the modes, the round, the readings, the stats
 npm run artifact    # bundles the whole app into dist/headroom.html, one file
 ```
+
+Pushed to the default branch, `.github/workflows/pages.yml` runs the tests and,
+if they pass, publishes the repository as-is to GitHub Pages. There is no build
+step to run first — what is in the repository *is* the site. It needs one
+setting turned on by hand, once: **Settings → Pages → Build and deployment →
+Source → GitHub Actions**.
 
 `npm run artifact` folds the stylesheet and the ES modules into a single page so
 it can be published or opened straight off disk. Nothing is minified and nothing
@@ -151,7 +161,12 @@ that doing it right is audible rather than merely scored:
   additive partials, a kit built from filtered noise, and a four-piece bed
   (kick, bass, chord, hats) for the exercises that need something broadband to
   judge a move against.
-- **Per-tool progress**, including which kind of answer keeps catching you out.
+- **Per-tool progress**, per tier, including which kind of answer keeps
+  catching you out — and **Export** / **Import** in the stats dialog, because
+  one key in one browser's storage is not a copy. An import *adds* to what is
+  already there rather than replacing it, so the same person on a phone and on
+  a laptop keeps both halves; each export carries an id, so importing the same
+  file twice counts it once.
 
 ## Not built yet
 
@@ -161,8 +176,10 @@ that doing it right is audible rather than merely scored:
 - **The analysis pillar** — loading your own audio and having it read back to
   you: loudness, crest factor, spectral balance, stereo correlation per band.
 - **An optional guided path** through the material.
-- Any server, account or cross-device sync. Everything lives in
-  `localStorage`.
+- **A mix exercise mode** — the six tools over a few stems, with a mixer, and
+  scored on the whole master.
+- Any server, account or automatic sync. Progress lives in `localStorage`, and
+  the way it moves between browsers is the exported file.
 
 ## Adding a tool
 
@@ -272,9 +289,10 @@ accents, Playfair / Cormorant / Jost.
 - **The five meaning colours do not move between tools.** Sage is "that is it",
   gold is "close", rust is "not close" — the same three readings whether the
   thing being read is a curve, a decay or a harmonic series.
-- **Practice is the same page in a different light.** `body.practice` redefines
-  the palette tokens and nothing else: paper drops a stop and goes cooler, the
-  rose accent becomes slate. No component knows the page changed colour.
+- **One palette.** There was a second, under `body.practice`, for the half of
+  the app that was not the daily: tokens only, with no component knowing the
+  page had changed colour. The daily went and it went with it — the mechanism
+  is in the history if a light/dark pair ever wants it.
 - **Three radii, each meaning something.** `1px` is paper (inputs, filled
   buttons), a pill is a state you are in, `50%` is a dot (the help `?`).
 - **Readings are set in the serif, on the line, with tabular figures**, so a
@@ -304,9 +322,10 @@ src/gap.js          comparing two readings without knowing their kind
 src/tools/          one file per tool: what it is, and how to open one
 src/work/           one file per tool: the exercises over it, and the marking
 src/bench/          the registry, the session, the picker, the attempt log
-src/random.js       seeded PRNG + daily numbering
+src/random.js       seeded PRNG, so a puzzle is a function of its seed
 src/game.js         the round, over whichever tool is asking (pure, no DOM)
-src/stats.js        localStorage persistence, per tool and tier
+src/stats.js        localStorage persistence per tool and tier, and the
+                    export/import that is the only way off this browser
 src/engrave.js      accidentals, set properly
 src/main.js         DOM wiring
 scripts/            the single-file bundler, and the module order it derives

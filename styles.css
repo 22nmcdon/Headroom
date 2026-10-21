@@ -43,25 +43,11 @@
   --max: 1080px;
 }
 
-/* Practice is the same page in a different light: paper drops a stop and goes
-   cooler, the rose accent becomes slate. Tokens only - nothing below this block
-   knows the page changed colour, and anything added later is themed by having
-   used the palette in the first place. The daily is the performance; this is
-   the room you work in. */
-body.practice {
-  --cream:      #eeedea;
-  --cream-2:    #e1e0da;
-  --paper:      #fafaf7;
-  --charcoal:   #20202a;
-  --line:       #d7d5cd;
-  --text:       #343139;
-  --text-soft:  #656069;
-  --blush:      #99a1bb;
-  --blush-deep: #5c6488;
-
-  --wash:        rgba(92, 100, 136, 0.15);
-  --wash-strong: rgba(92, 100, 136, 0.24);
-}
+/* There was a second palette here, under `body.practice`: the same page a stop
+   cooler, for the half of the app that was not the daily. One palette now, for
+   the one thing the app is. The mechanism was worth keeping on paper - tokens
+   only, nothing below knowing the page had changed colour - and it is in the
+   history if a light/dark pair ever wants it. */
 
 * { box-sizing: border-box; }
 
@@ -172,27 +158,6 @@ body, .sheet, .dock, .top-bar, dialog { transition: background-color 280ms ease,
   white-space: nowrap;
 }
 .status[data-state="done"] { color: var(--gold); border-color: var(--gold); }
-
-.mode-switch {
-  display: flex;
-  border: 1px solid var(--line);
-  border-radius: 30px;
-  overflow: hidden;
-}
-.mode-option {
-  background: none;
-  border: none;
-  padding: 7px 15px;
-  font-family: var(--sans);
-  font-size: 10.5px;
-  line-height: 13px;
-  text-transform: uppercase;
-  letter-spacing: 0.18em;
-  font-weight: 500;
-  color: var(--text-soft);
-}
-.mode-option:hover { color: var(--blush-deep); }
-.mode-option[aria-checked="true"] { background: var(--charcoal); color: var(--cream); }
 
 .tools { display: flex; align-items: center; gap: 12px; }
 
@@ -1342,6 +1307,9 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
   max-width: 62ch;
 }
 .dialog-actions { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 20px; }
+/* Three links on one side of the row, which wrap rather than push the Close
+   button off the edge at a phone width. */
+.action-group { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
 
 .submit-btn {
   background: var(--charcoal);

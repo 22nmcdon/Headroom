@@ -29,13 +29,9 @@
     </div>
 
     <div class="top-bar-right">
-      <!-- A state you are in, not an action, so: a pill. Nothing is torn down
-           when it flips - the same chart, in a different light. -->
-      <div class="mode-switch" role="radiogroup" aria-label="What you are playing">
-        <button class="mode-option" type="button" data-mode="daily" role="radio" aria-checked="true">Daily</button>
-        <button class="mode-option" type="button" data-mode="practice" role="radio" aria-checked="false">Practice</button>
-      </div>
-      <div class="status" id="puzzleStatus" data-state="playing">Daily</div>
+      <!-- A state you are in, not an action, so: a pill. There was a
+           Daily/Practice switch beside it; it went with the daily. -->
+      <div class="status" id="puzzleStatus" data-state="playing">Easy</div>
       <!-- Grouped so the "?" never wraps onto a line of its own at a phone
            width, which reads as a control that fell off the row. -->
       <div class="tools">
@@ -119,7 +115,7 @@
 
 <div class="colophon">
   <span>Six tools, and the measurements behind them.</span>
-  <span>Every sound synthesised live in <code>src/audio.js</code> — no samples.</span>
+  <span>Every sound synthesised live — no samples to load.</span>
   <span>Stats stay in this browser.</span>
 </div>
 
@@ -177,8 +173,17 @@
     <h3 class="subhead">Attempts to get there</h3>
     <div class="dist" id="stats-dist"></div>
     <p class="weak" id="stats-weak"></p>
+
+    <!-- The only copy of any of this is one key in this browser's storage, and
+         there is no account to sync it to. So: a file. -->
+    <p class="fine" id="stats-note" hidden></p>
     <div class="dialog-actions">
-      <button class="link-btn" type="button" id="reset-stats">Reset</button>
+      <span class="action-group">
+        <button class="link-btn" type="button" id="export-stats">Export</button>
+        <button class="link-btn" type="button" id="import-stats">Import</button>
+        <button class="link-btn" type="button" id="reset-stats">Reset</button>
+        <input type="file" id="import-file" accept="application/json,.json" hidden>
+      </span>
       <button class="submit-btn" type="button" id="stats-ok">Close</button>
     </div>
   </div>

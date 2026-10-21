@@ -1,0 +1,62 @@
+# Deploy the app to GitHub Pages.
+#
+# There is no build step: the app is index.html, styles.css and the ES modules
+# under src/, served as they are. So this uploads the repository itself rather
+# than a bundle - `npm run artifact` makes a single-file version for publishing
+# as an artifact, which is a different thing for a different place.
+#
+# The tests run first, and a red test does not deploy. They need no browser and
+# no install: node --test over the modes, the round and the readings.
+#
+# One-time setup, which is a settings toggle and not something a workflow can
+# do for itself: Settings -> Pages -> Build and deployment -> Source -> GitHub
+# Actions. Until that is set, this workflow runs and the deploy step fails.
+
+name: Pages
+
+# Every push runs the tests; only the default branch deploys. The deploy is
+# gated by a condition rather than a branch filter because this repository's
+# default branch is not called `main`, and a workflow that names the branch
+# goes stale the moment that changes.
+on:
+  push:
+  workflow_dispatch:
+
+# One deploy at a time, and a newer push waits rather than cancelling: half a
+# site is worse than an old one.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm test
+
+  deploy:
+    needs: test
+    # Only the deploy job needs these, so only the deploy job is given them.
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          # The repository root, which is the site. Everything the page loads
+          # is under src/ and styles.css, both of which are in it.
+          path: '.'
+      - id: deployment
+        uses: actions/deploy-pages@v4

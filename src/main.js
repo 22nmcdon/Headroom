@@ -1,12 +1,14 @@
 import { TOOLS, TOOL_IDS, toolOf, exerciseOf } from './bench/registry.js';
 import { bench } from './bench/session.js';
 import {
-  createGame, submitGuess, makePuzzle, dailySeed, practiceSeed, reveal,
+  createGame, submitGuess, makePuzzle, roundSeed, reveal,
   settingsFor, startingGuess, hintFor, hintsLeft, takeHint, showAnswer,
 } from './game.js';
 import { Engine } from './audio.js';
-import { getStats, recordGame, weakestKind, resetStats, ATTEMPT_BANDS } from './stats.js';
-import { puzzleNumber } from './random.js';
+import {
+  getStats, recordGame, weakestKind, resetStats, ATTEMPT_BANDS,
+  exportProgress, importProgress,
+} from './stats.js';
 import { engraveNote } from './engrave.js';
 import { renderPicker, syncPicker, pickerState, dialValue } from './bench/picker.js';
 import { makeLog } from './bench/log.js';
@@ -33,7 +35,6 @@ const engine = new Engine();
 const desk = bench();
 
 const ui = {
-  playing: 'daily', // 'daily' | 'practice'
   // The tool, open, per id. Opened once and kept: the whole of this stage is
   // that an exercise arriving is not a reason to destroy one. Switching tools
   // still tears down, because six live plugins each holding a loop is six
@@ -239,12 +240,13 @@ function buildNotes() {
 
 async function startGame({ fresh = false } = {}) {
   const chosen = settings();
-  const seed = ui.playing === 'daily'
-    ? dailySeed(ui.mode, ui.tier, chosen)
-    : practiceSeed(ui.mode, ui.tier, fresh ? Math.random() : ui.tier);
+  // `fresh` is "another one" - a new puzzle of the same shape. Without it the
+  // salt is the tier, so switching tool, tier or exercise and coming back
+  // finds the round you left rather than a different one.
+  const seed = roundSeed(ui.mode, ui.tier, fresh ? Math.random() : ui.tier);
 
   const puzzle = makePuzzle({ mode: ui.mode, tier: ui.tier, settings: chosen, seed });
-  ui.game = createGame(puzzle, { mode: ui.playing });
+  ui.game = createGame(puzzle);
 
   buildHead();
   buildPicker();
@@ -257,13 +259,9 @@ async function startGame({ fresh = false } = {}) {
   // for, heard rather than read.
   await putExercise();
 
-  // The daily is no longer locked once it has been played. It stays the same
-  // puzzle for everybody on the same day - which is the whole of what made it
-  // worth having - but there is nothing left to protect it from: with the
-  // guess ceiling gone there is no scarce resource, and the restore this
-  // replaces re-ran the scoring over stored guesses and could print different
-  // text than had been shown, because the audio it marks against loads after
-  // the board does.
+  // Nothing is restored into a round. What this replaces re-ran the scoring
+  // over stored guesses and could print different text than had been shown,
+  // because the audio it marks against loads after the board does.
   render();
   // A mode with its own interface is not answered by naming anything.
   say(tool().opening ?? 'Play it, then name what you heard.');
@@ -422,10 +420,12 @@ function onShow() {
 function render() {
   const game = ui.game;
 
+  // The tier, and nothing else. What was here was `Daily #294 · Easy`, and
+  // with the daily gone the number names nothing - every round is its own.
+  // The exercise is already a control in the setup row and the tool is already
+  // in the sheet head, so repeating either here would be furniture.
   const status = $('#puzzleStatus');
-  status.textContent = ui.playing === 'daily'
-    ? `Daily #${puzzleNumber()} · ${tool().tiers[game.puzzle.tier].label}`
-    : `Practice · ${tool().tiers[game.puzzle.tier].label}`;
+  status.textContent = tool().tiers[game.puzzle.tier].label;
   status.dataset.state = game.status === 'playing' ? 'playing' : 'done';
 
   $('#modeMark').textContent = tool().label;
@@ -435,7 +435,7 @@ function render() {
   $('#picker').classList.toggle('done', solved);
   $('#dock').classList.toggle('done', solved);
   $('#again').hidden = !solved && game.status !== 'shown';
-  $('#again').textContent = ui.playing === 'daily' ? 'Try it in practice' : 'Another one';
+  $('#again').textContent = 'Another one';
   if (game.status === 'playing') $('#played').textContent = '';
 
   // Both ways out are there from the first attempt and stay there. Hiding them
@@ -456,19 +456,27 @@ function render() {
 /* ---------- stats ---------- */
 
 function showStats() {
-  const stats = getStats(ui.playing, ui.mode, ui.tier);
+  const stats = getStats(ui.mode, ui.tier);
   const tier = tool().tiers[ui.tier];
 
   $('#statsMode').textContent = tool().label;
-  $('#stats-scope').textContent =
-    `${ui.playing === 'daily' ? 'Daily' : 'Practice'} · ${tier.label} · ${tier.blurb}`;
+  $('#stats-scope').textContent = `${tier.label} · ${tier.blurb}`;
 
+  // Three readings, not five. The streak and the best streak that were here
+  // measured how recently you played rather than how well you hear, and with
+  // the daily gone there was nothing to break a streak at all.
   const solved = stats.played ? Math.round((stats.won / stats.played) * 100) : 0;
+  // Which band most solves land in - the one thing the distribution below
+  // says that is worth having at a glance, and the honest version of what the
+  // streak was pretending to measure.
+  const typical = stats.won
+    ? ATTEMPT_BANDS.reduce((best, band) =>
+        (stats.attempts[band.id] ?? 0) > (stats.attempts[best.id] ?? 0) ? band : best)
+    : null;
   $('#stats-summary').innerHTML = [
     ['Played', stats.played],
     ['Solved %', solved],
-    ['Streak', stats.streak],
-    ['Best', stats.maxStreak],
+    ['Usually in', typical ? typical.label : '—'],
   ].map(([text, value]) => `<div><strong>${value}</strong><span>${text}</span></div>`).join('');
 
   // Six bands, always all six. What was here sliced the rows to the tier's
@@ -488,7 +496,72 @@ function showStats() {
     ? `${weak.label} is the one to work on — solved ${Math.round(weak.rate * 100)}% of ${weak.seen}.`
     : 'A few more rounds and this will say which one is worth working on.';
 
+  note('');
   $('#stats').showModal();
+}
+
+/* ---------- progress, as a file ---------- */
+
+/** The line under the buttons: what just happened to the progress. */
+function note(text) {
+  const line = $('#stats-note');
+  line.textContent = text;
+  line.hidden = !text;
+}
+
+/**
+ * Write the progress out as a file.
+ *
+ * Everything this app remembers is one key in one browser's storage, and
+ * clearing site data takes it with it. There is no account to sync to, so the
+ * backup is a file you keep where you keep files.
+ */
+function downloadProgress() {
+  const file = exportProgress();
+  const url = URL.createObjectURL(
+    new Blob([JSON.stringify(file, null, 2)], { type: 'application/json' }));
+
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `headroom-progress-${file.exported.slice(0, 10)}.json`;
+  link.click();
+  // Not revoked on the next line: the click starts the download and some
+  // browsers have not read the blob by the time the statement after it runs,
+  // which gives an empty file. A tick is enough, and the url is dead either
+  // way the moment this page goes.
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+
+  const buckets = Object.keys(file.buckets).length;
+  note(buckets
+    ? `Saved ${buckets} ${buckets === 1 ? 'set' : 'sets'} of progress as ${link.download}.`
+    : 'Saved — though there is nothing in it yet.');
+}
+
+/** Read a progress file back in, adding it to whatever is here. */
+async function uploadProgress(input) {
+  const [file] = input.files ?? [];
+  // The picker is reset either way, so picking the same file twice in a row
+  // still fires a change event and still gets an answer.
+  input.value = '';
+  if (!file) return;
+
+  let parsed;
+  try {
+    parsed = JSON.parse(await file.text());
+  } catch {
+    note(`${file.name} is not readable as JSON.`);
+    return;
+  }
+
+  const result = importProgress(parsed);
+  if (!result.ok) {
+    note(result.reason);
+    return;
+  }
+
+  showStats();
+  note(`Added ${result.buckets} ${result.buckets === 1 ? 'set' : 'sets'} of progress from `
+    + `${file.name}. Nothing already here was replaced.`);
 }
 
 /* ---------- the cheat sheet ---------- */
@@ -507,7 +580,7 @@ function fillHelp() {
     entries.push([`${spec.label}: ${spec.options.map((o) => o.label).join(', ')}.`,
       spec.id === 'exercise'
         ? `${spec.options.length} different exercises, not ${spec.options.length} views of one `
-          + '- each has its own daily.'
+          + '- each asks its own question, over the same tool.'
         : 'Up in the setup row, and it changes what you are listening to rather than how hard it is.']);
   }
 
@@ -518,25 +591,7 @@ function fillHelp() {
 
 /* ---------- events ---------- */
 
-function setPlaying(playing) {
-  ui.playing = playing;
-  for (const button of document.querySelectorAll('[data-mode]')) {
-    button.setAttribute('aria-checked', button.dataset.mode === playing ? 'true' : 'false');
-  }
-  // One class, and the palette follows it: practice is the same page in a
-  // cooler light. Nothing below here knows the page changed colour.
-  document.body.classList.toggle('practice', playing === 'practice');
-}
-
 function wire() {
-  for (const button of document.querySelectorAll('[data-mode]')) {
-    button.addEventListener('click', () => {
-      if (ui.playing === button.dataset.mode) return;
-      setPlaying(button.dataset.mode);
-      startGame();
-    });
-  }
-
   $('#modes').addEventListener('click', (e) => {
     const pill = e.target.closest('[data-train]');
     if (!pill || pill.dataset.train === ui.mode) return;
@@ -593,10 +648,7 @@ function wire() {
 
   $('#submit').addEventListener('click', onSubmit);
 
-  $('#again').addEventListener('click', () => {
-    setPlaying('practice');
-    startGame({ fresh: true });
-  });
+  $('#again').addEventListener('click', () => startGame({ fresh: true }));
 
   $('#hint').addEventListener('click', onHint);
   $('#show').addEventListener('click', onShow);
@@ -607,7 +659,14 @@ function wire() {
   $('#stats-btn').addEventListener('click', showStats);
   $('#stats-close').addEventListener('click', () => $('#stats').close());
   $('#stats-ok').addEventListener('click', () => $('#stats').close());
-  $('#reset-stats').addEventListener('click', () => { resetStats(); showStats(); });
+  $('#reset-stats').addEventListener('click', () => {
+    resetStats();
+    showStats();
+    note('Progress cleared.');
+  });
+  $('#export-stats').addEventListener('click', downloadProgress);
+  $('#import-stats').addEventListener('click', () => $('#import-file').click());
+  $('#import-file').addEventListener('change', (e) => uploadProgress(e.target));
 
   for (const dialog of document.querySelectorAll('dialog')) {
     // A click on the backdrop lands on the dialog element itself.

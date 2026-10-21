@@ -6,7 +6,7 @@
 // is rewritten beyond the module keywords, so the bundle is the source read
 // top to bottom.
 
-import { readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -168,5 +168,8 @@ const checkFile = join(tmpdir(), 'headroom-bundle-check.mjs');
 await writeFile(checkFile, emitted);
 await promisify(execFile)(process.execPath, ['--check', checkFile]);
 
+// dist/ is gitignored, so a fresh clone does not have one and the write fails
+// with ENOENT - which is what both bundle tests were failing on.
+await mkdir(join(root, 'dist'), { recursive: true });
 await writeFile(join(root, 'dist', 'headroom.html'), bundle);
 console.log(`dist/headroom.html — ${(bundle.length / 1024).toFixed(1)} KB, parses clean`);

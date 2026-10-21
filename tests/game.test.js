@@ -4,9 +4,9 @@ import assert from 'node:assert/strict';
 import { TOOLS as MODES, toolOf as modeOf } from '../src/bench/registry.js';
 import {
   scoreGuess, sameGuess, hintFor, hintsLeft, takeHint, showAnswer,
-  createGame, submitGuess, makePuzzle, dailySeed, practiceSeed, reveal, settingsFor,
+  createGame, submitGuess, makePuzzle, roundSeed, reveal, settingsFor,
 } from '../src/game.js';
-import { mulberry32, hashSeed, puzzleNumber, dayKey } from '../src/random.js';
+import { mulberry32, hashSeed } from '../src/random.js';
 import { answerAsGuess, wrongGuess, everyRound } from './helpers.js';
 
 
@@ -184,37 +184,44 @@ test('a mode\'s settings fill themselves in, and refuse what it does not offer',
   assert.deepEqual(settingsFor('saturation', {}), { exercise: 'amount' });
 });
 
-/* --- the daily ----------------------------------------------------------- */
+/* --- seeds --------------------------------------------------------------- */
 
-test('a daily is per mode, per tier, per exercise, per UTC day', () => {
-  const day = new Date('2026-09-21T08:00:00Z');
-  const later = new Date('2026-09-21T23:59:00Z');
-  const tomorrow = new Date('2026-09-22T00:01:00Z');
-
-  const daily = (mode, tier, when, settings = {}) =>
-    makePuzzle({ mode, tier, settings, seed: dailySeed(mode, tier, settings, when) });
-
-  assert.deepEqual(daily('eq', 'easy', day).answer, daily('eq', 'easy', later).answer,
-    'the same day is the same puzzle, wherever you are in it');
-  assert.notDeepEqual(daily('eq', 'easy', day).answer, daily('eq', 'easy', tomorrow).answer);
-  assert.notDeepEqual(daily('eq', 'easy', day).answer, daily('eq', 'medium', day).answer,
-    'a tier is its own puzzle');
-  assert.notEqual(dailySeed('eq', 'easy', {}, day), dailySeed('rhythm', 'easy', {}, day),
-    'so is a mode');
-
-  // Matching a target and curing a fault are different exercises, so each has
-  // its own daily rather than two views of one.
-  assert.notEqual(dailySeed('eq', 'easy', { exercise: 'match' }, day),
-                  dailySeed('eq', 'easy', { exercise: 'fix' }, day));
-
-  assert.equal(dayKey(day), '2026-09-21');
-  assert.equal(puzzleNumber(tomorrow) - puzzleNumber(day), 1);
+test('a round is a different puzzle every time you ask for one', () => {
+  // There was a `dailySeed` here, and a test that it was stable per UTC day.
+  // Both went with the daily: a seed pinned to the date is only worth having
+  // when the point is that everybody gets the same one.
+  const seeds = new Set();
+  for (let i = 0; i < 50; i += 1) seeds.add(roundSeed('eq', 'easy', i));
+  assert.equal(seeds.size, 50);
 });
 
-test('practice is a different puzzle every time you ask for one', () => {
-  const seeds = new Set();
-  for (let i = 0; i < 50; i += 1) seeds.add(practiceSeed('pitch', 'easy', i));
-  assert.equal(seeds.size, 50);
+test('the same salt is the same round, so coming back finds what you left', () => {
+  // What the salt is for: `startGame()` passes the tier and `startGame({fresh})`
+  // passes a random number, which is the difference between switching exercise
+  // and back, and pressing "another one".
+  const same = (salt) => makePuzzle({
+    mode: 'eq', tier: 'easy', settings: { exercise: 'match' },
+    seed: `round:eq:easy:${salt}`,
+  }).answer;
+
+  assert.deepEqual(same('easy'), same('easy'));
+  assert.notDeepEqual(same('easy'), same('0.418'));
+});
+
+test('a seed carries the exercise, because an exercise is its own puzzle', () => {
+  // Matching a target and curing a fault are not two views of one puzzle, so
+  // the settings go into `makePuzzle` rather than only into the sound.
+  const made = (exercise) => makePuzzle({
+    mode: 'eq', tier: 'easy', settings: { exercise }, seed: 'round:eq:easy:7',
+  });
+  assert.notDeepEqual(made('match').settings, made('fix').settings);
+});
+
+test('a tier is its own puzzle', () => {
+  const made = (tier) => makePuzzle({
+    mode: 'eq', tier, settings: { exercise: 'match' }, seed: 'round:eq:x:7',
+  }).answer;
+  assert.notDeepEqual(made('easy'), made('medium'));
 });
 
 test('the seeded PRNG is deterministic and stays in range', () => {

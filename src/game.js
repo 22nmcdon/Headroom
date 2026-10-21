@@ -1,5 +1,5 @@
 import { toolOf } from './bench/registry.js';
-import { mulberry32, hashSeed, dayKey, puzzleNumber } from './random.js';
+import { mulberry32, hashSeed } from './random.js';
 
 export { HIT, NEAR, MISS } from './work/scoring.js';
 
@@ -47,17 +47,19 @@ export function makePuzzle({ mode = 'eq', tier = 'easy', settings = {}, seed }) 
 }
 
 /**
- * One puzzle per mode per tier per exercise per day, the same one for
- * everybody. The exercise is in the seed because it is a different exercise -
- * matching a target and curing a fault are not two views of one puzzle.
+ * A seed for one round, different every time.
+ *
+ * There was a `dailySeed` beside this: one puzzle per mode per tier per
+ * exercise per day, the same one for everybody. It went with the guess ceiling
+ * and the share grid. A daily is a thing you can run out of and then compare -
+ * and with no ceiling there was nothing to run out of, with no grid nothing to
+ * compare, and what was left was a pill that pinned you to one puzzle until
+ * midnight. A daily drill is worth having and will come back on the drills,
+ * where "today's one question, same for everyone" is a shape that fits; it is
+ * not this.
  */
-export function dailySeed(mode, tier, settings = {}, date = new Date()) {
-  const exercise = settingsFor(mode, settings).exercise;
-  return `daily:${mode}:${tier}${exercise ? `:${exercise}` : ''}:${dayKey(date)}`;
-}
-
-export function practiceSeed(mode, tier, salt = Math.random()) {
-  return `practice:${mode}:${tier}:${salt}:${Date.now()}`;
+export function roundSeed(mode, tier, salt = Math.random()) {
+  return `round:${mode}:${tier}:${salt}:${Date.now()}`;
 }
 
 /**
@@ -69,11 +71,9 @@ export function practiceSeed(mode, tier, salt = Math.random()) {
  * was running out; what ends it now is getting there, and the way out when you
  * cannot is to ask for it.
  */
-export function createGame(puzzle, { mode = 'practice', date = new Date() } = {}) {
+export function createGame(puzzle) {
   return {
     puzzle,
-    mode, // 'daily' or 'practice' - the puzzle carries which training mode it is
-    number: mode === 'daily' ? puzzleNumber(date) : null,
     guesses: [],
     hinted: 0, // how far up the hint ladder this round has walked
     status: 'playing', // 'playing' | 'solved' | 'shown'
