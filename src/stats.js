@@ -1,12 +1,17 @@
 // Local-only persistence: no accounts, no server (per the MVP plan).
 import { toolOf } from './bench/registry.js';
 
-// v3: the daily went, so a bucket is no longer per-daily-or-practice, and the
-// streak went with it. Neither an old store's keys nor its streaks could be
-// carried over - half of a v2 store's buckets were the daily's, and merging
-// them into practice would be adding up two different measurements - so a v2
-// store is read as nothing, the way v1 was.
-const KEY = 'headroom.stats.v3';
+// v4: a bucket is now per kind as well - working at a tool and being asked
+// about one are different activities, and pooling them would average an
+// EQ drill's accuracy with the EQ match exercise's and report neither.
+//
+// This one IS migrated, unlike v2 and v3 before it. Nothing in a v3 store can
+// be anything but work, because there were no drills to put in it, so every
+// bucket moves across under the same name with `:work` on the end. A v2 store
+// still reads as nothing: half its buckets were the daily's, and adding those
+// to practice would be adding up two different measurements.
+const KEY = 'headroom.stats.v4';
+const WAS = 'headroom.stats.v3';
 
 /**
  * How many attempts it took, in bands rather than in rows.
@@ -59,7 +64,7 @@ function emptyStore() {
 
 function read() {
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw = localStorage.getItem(KEY) ?? migrated();
     if (!raw) return emptyStore();
     const parsed = JSON.parse(raw);
     return {
@@ -71,6 +76,28 @@ function read() {
   }
 }
 
+/**
+ * A v3 store, read as a v4 one and written back under the new key.
+ *
+ * Written back rather than translated on every read: the old key is left
+ * where it is, so a browser that somehow goes back to the old code finds its
+ * progress still there.
+ */
+function migrated() {
+  const raw = localStorage.getItem(WAS);
+  if (!raw) return null;
+
+  const parsed = JSON.parse(raw);
+  const buckets = {};
+  for (const [key, bucket] of Object.entries(parsed.buckets ?? {})) {
+    buckets[`${key}:work`] = bucket;
+  }
+
+  const store = { buckets, imported: Array.isArray(parsed.imported) ? parsed.imported : [] };
+  write(store);
+  return JSON.stringify(store);
+}
+
 function write(store) {
   try {
     localStorage.setItem(KEY, JSON.stringify(store));
@@ -79,8 +106,8 @@ function write(store) {
   }
 }
 
-/** Two things decide a bucket: which mode, and which tier. */
-const bucketKey = (mode, tier) => `${mode}:${tier}`;
+/** Three things decide a bucket: which mode, which tier, and which kind. */
+const bucketKey = (mode, tier, kind = 'work') => `${mode}:${tier}:${kind}`;
 
 /**
  * A stored bucket, with anything it is missing filled in.
@@ -96,9 +123,9 @@ const fill = (stored) => ({
   byAnswer: { ...(stored?.byAnswer ?? {}) },
 });
 
-export function getStats(mode, tier) {
+export function getStats(mode, tier, kind = 'work') {
   const store = read();
-  return fill(store.buckets[bucketKey(mode, tier)]);
+  return fill(store.buckets[bucketKey(mode, tier, kind)]);
 }
 
 /**
@@ -112,18 +139,33 @@ export function getStats(mode, tier) {
  */
 export function recordGame(game) {
   const { puzzle, guesses, status } = game;
-  if (status === 'playing') return getStats(puzzle.mode, puzzle.tier);
+  const spec = toolOf(puzzle.mode);
+  const which = spec.exercises?.[puzzle.settings?.exercise]?.drill ? 'drill' : 'work';
+  if (status === 'playing') return getStats(puzzle.mode, puzzle.tier, which);
 
   const store = read();
-  const key = bucketKey(puzzle.mode, puzzle.tier);
+  const key = bucketKey(puzzle.mode, puzzle.tier, which);
   const bucket = fill(store.buckets[key]);
 
   bucket.played += 1;
   // What counts as "one kind of answer" is the mode's to say: a band of
   // trouble, a kind of room, how hard something is driven.
-  const kind = toolOf(puzzle.mode).weak(puzzle);
+  const kind = spec.weak(puzzle);
   const perKind = bucket.byAnswer[kind.key] ?? { seen: 0, solved: 0, label: kind.label };
   perKind.seen += 1;
+
+  // And what was heard instead, when something else was. The first guess
+  // rather than the last: it is the one made before any reading came back, so
+  // it is the only one that says what the ear did on its own. A drill is the
+  // only kind of round where a guess can be named this way - a curve you
+  // built is not one of a short list of things.
+  const first = guesses[0]?.guess;
+  const was = first === undefined ? null : spec.heard?.(first, puzzle) ?? null;
+  if (was && was.key !== kind.key) {
+    perKind.confused = perKind.confused ?? {};
+    const already = perKind.confused[was.key] ?? { n: 0, label: was.label };
+    perKind.confused[was.key] = { n: already.n + 1, label: was.label };
+  }
 
   if (status === 'solved') {
     bucket.won += 1;
@@ -144,13 +186,21 @@ export function recordGame(game) {
  */
 export function weakestKind(stats, minSeen = 3) {
   let worst = null;
-  for (const [key, { seen, solved, label }] of Object.entries(stats.byAnswer)) {
+  for (const [key, entry] of Object.entries(stats.byAnswer)) {
+    const { seen, solved, label } = entry;
     if (seen < minSeen) continue;
     const rate = solved / seen;
-    if (!worst || rate < worst.rate) worst = { key, rate, seen, label };
+    if (!worst || rate < worst.rate) worst = { key, rate, seen, label, confused: entry.confused };
   }
   if (!worst || worst.rate >= 0.9) return null;
-  return worst;
+
+  // And what it keeps getting heard as, if anything does so more than once.
+  // Once is a slip; twice is the thing worth telling somebody.
+  const instead = Object.entries(worst.confused ?? {})
+    .sort(([, a], [, b]) => b.n - a.n)
+    .find(([, entry]) => entry.n >= 2);
+
+  return { ...worst, confusedWith: instead ? { key: instead[0], ...instead[1] } : null };
 }
 
 export function resetStats() {
@@ -165,10 +215,10 @@ export function resetStats() {
 // instead is a file: write it out, keep it where you keep things, read it back
 // into whatever browser you are in next.
 //
-// The number is this file's store shape, and it is the same number as the `v3`
+// The number is this file's store shape, and it is the same number as the `v4`
 // in KEY. A file says which shape it is in so that a future version can refuse
 // one it does not understand rather than reading halfway down it.
-export const PROGRESS_FORMAT = 3;
+export const PROGRESS_FORMAT = 4;
 
 /** An id for one export, so that importing it twice is caught. */
 const newId = () => (globalThis.crypto?.randomUUID?.()
@@ -213,6 +263,13 @@ function mergeBucket(into, from) {
     const mine = bucket.byAnswer[key] ?? { seen: 0, solved: 0, label: key };
     mine.seen += count(kind?.seen);
     mine.solved = Math.min(mine.seen, mine.solved + count(kind?.solved));
+
+    // What the other browser kept hearing instead, added to what this one did.
+    for (const [heard, entry] of Object.entries(kind?.confused ?? {})) {
+      mine.confused = mine.confused ?? {};
+      const already = mine.confused[heard] ?? { n: 0, label: typeof entry?.label === 'string' ? entry.label : heard };
+      mine.confused[heard] = { n: Math.min(mine.seen, already.n + count(entry?.n)), label: already.label };
+    }
     // The label is the tool's own word for this kind of answer - 'mud',
     // 'harshness'. Keep the one already here; take the file's only if there
     // was none, because this browser's is the one its tool wrote.
@@ -258,12 +315,13 @@ export function importProgress(file) {
   }
 
   // Only buckets this app could have written. A key of any other shape is a
-  // bucket for a tool or tier that does not exist, and keeping it would mean
-  // carrying it forward for ever in every later export.
+  // bucket for a tool, tier or kind that does not exist, and keeping it would
+  // mean carrying it forward for ever in every later export.
   let buckets = 0;
   for (const [key, bucket] of Object.entries(file.buckets)) {
-    const [mode, tier] = key.split(':');
-    if (!mode || !tier || key.split(':').length !== 2) continue;
+    const [mode, tier, kind] = key.split(':');
+    if (!mode || !tier || key.split(':').length !== 3) continue;
+    if (kind !== 'work' && kind !== 'drill') continue;
     store.buckets[key] = mergeBucket(store.buckets[key], bucket);
     buckets += 1;
   }

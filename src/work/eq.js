@@ -140,6 +140,14 @@ export const EQ_EXERCISES = {
     lede: 'Nothing to dial here. One octave of this mix has been moved up or '
         + 'down; listen, and say which one and which way.',
     opening: 'Play it, listen for what stands out, then name the octave.',
+    // What a tier means here is not what it means to the tool: not how many
+    // bands you have to build, but which octaves are on offer and how big the
+    // move is. See DRILL above for where the numbers came from.
+    tierBlurbs: {
+      easy: 'Four octaves, two apart, 9 dB',
+      medium: 'All eight octaves, 6 dB',
+      hard: 'All eight octaves, 4 dB',
+    },
     source: 'mix',
     other: 'Clean',
     faultOf: (puzzle) => puzzle.fault,
@@ -453,6 +461,18 @@ export const EQ_WORK = {
       symbol: bands.map((band) => writeHz(band.frequency)).join(' · '),
       name: bands.map((band) => `${writeDb(band.gain)} at Q ${band.q.toFixed(1)}`).join(', '),
     };
+  },
+
+  /**
+   * What a guess says it heard, in the same words `weak` uses for what was
+   * played - so the two can be compared and the stats can say "you keep
+   * hearing 2k as 4k".
+   */
+  heard(guess, puzzle) {
+    if (puzzle.settings?.exercise !== 'drill') return null;
+    const octave = OCTAVES[octaveAt(guess.band)];
+    if (!octave) return null;
+    return { key: `octave-${octave.id}`, label: `${octave.symbol} (${octave.name})` };
   },
 
   weak(puzzle) {

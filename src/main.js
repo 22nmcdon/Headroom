@@ -43,9 +43,12 @@ const ui = {
   toolId: null,
   mode: 'eq',
   tier: 'easy',
-  // What a drill has put in the material, so the clean A/B can take it out
-  // and put it back. Null whenever the round is not a drill.
-  fault: null,
+  // 'work' or 'drill'. Not per tool: it is how you are practising, not what
+  // you are practising, and it survives switching tools on purpose.
+  kind: 'work',
+  // How this drill's clean A/B takes its subject out and puts it back. Null
+  // whenever the round is not a drill, or has nothing to compare against.
+  clean: null,
   chosen: {}, // settings, per mode, so switching back finds them as you left them
   guess: {},
   game: null,
@@ -54,6 +57,19 @@ const ui = {
 
 const tool = () => toolOf(ui.mode);
 const settings = () => settingsFor(ui.mode, ui.chosen[ui.mode] ?? {});
+
+/**
+ * The exercises this tool offers of the kind being practised.
+ *
+ * Two kinds, and they are different activities: working at a tool, and being
+ * asked about one. Keeping them apart is what lets somebody run the drill on
+ * all six in a sitting without going through the exercise dropdown six times.
+ */
+const exercisesOfKind = (id, kind) =>
+  Object.values(TOOLS[id].exercises).filter((exercise) => !!exercise.drill === (kind === 'drill'));
+
+/** Which kind an exercise id belongs to. */
+const kindOf = (id, exercise) => (TOOLS[id].exercises[exercise]?.drill ? 'drill' : 'work');
 
 /* ---------- setup row ---------- */
 
@@ -71,25 +87,80 @@ function syncModes() {
   }
 }
 
+/**
+ * What a tier means, which is the exercise's to say before it is the tool's.
+ *
+ * A tier is not one thing. On the EQ it is how many bands you have to build;
+ * in the EQ's drill it is which octaves are on the chips and how big the move
+ * is. The dropdown said the first whichever you were doing, which made it
+ * wrong half the time.
+ */
+const tierBlurb = (id) =>
+  exerciseOf(ui.mode, settings()).tierBlurbs?.[id] ?? tool().tiers[id].blurb;
+
 function fillTiers() {
   const spec = tool();
-  $('#tier').innerHTML = Object.entries(spec.tiers)
-    .map(([id, tier]) => `<option value="${id}">${tier.label} — ${tier.blurb}</option>`)
-    .join('');
   if (!spec.tiers[ui.tier]) ui.tier = Object.keys(spec.tiers)[0];
+
+  $('#tier').innerHTML = Object.entries(spec.tiers)
+    .map(([id, tier]) => `<option value="${id}">${tier.label} — ${tierBlurb(id)}</option>`)
+    .join('');
   $('#tier').value = ui.tier;
 }
 
+/**
+ * The settings row, with the exercise list narrowed to the kind on the pill.
+ *
+ * Narrowed rather than reordered: in drills the dropdown offers the drills
+ * and nothing else, so the pill is the only thing deciding which activity
+ * this is and the dropdown cannot quietly put you back in the other one.
+ */
 function fillSettings() {
   const chosen = settings();
-  $('#settings').innerHTML = (tool().settings ?? []).map((setting) => `
-    <label class="field">
+
+  $('#settings').innerHTML = (tool().settings ?? []).map((setting) => {
+    const options = setting.id === 'exercise'
+      ? setting.options.filter((option) => kindOf(ui.mode, option.id) === ui.kind)
+      : setting.options;
+
+    return `
+    <label class="field"${options.length < 2 ? ' hidden' : ''}>
       <span class="field-label">${setting.label}</span>
-      <select data-setting="${setting.id}">${setting.options
+      <select data-setting="${setting.id}">${options
         .map((option) => `<option value="${option.id}"`
           + `${option.id === chosen[setting.id] ? ' selected' : ''}>${option.label}</option>`)
         .join('')}</select>
-    </label>`).join('');
+    </label>`;
+  }).join('');
+}
+
+/**
+ * Put the chosen exercise inside the kind on the pill.
+ *
+ * Called whenever either moves: switching to drills has to land on a drill,
+ * and switching tool has to land on one of that tool's. Returns nothing - it
+ * changes what `settings()` answers, and the caller restarts the round.
+ */
+function settleKind() {
+  const current = settings().exercise;
+  if (current && kindOf(ui.mode, current) === ui.kind) return;
+
+  const [first] = exercisesOfKind(ui.mode, ui.kind);
+  // A tool with no drill keeps you where you are rather than stranding you on
+  // an empty dropdown. Every tool has one now; this is what happens the day
+  // one does not.
+  if (!first) {
+    ui.kind = 'work';
+    return settleKind();
+  }
+  ui.chosen[ui.mode] = { ...ui.chosen[ui.mode], exercise: first.id };
+  return undefined;
+}
+
+function syncKind() {
+  for (const button of document.querySelectorAll('[data-kind]')) {
+    button.setAttribute('aria-checked', button.dataset.kind === ui.kind ? 'true' : 'false');
+  }
 }
 
 /* ---------- the picker ---------- */
@@ -204,13 +275,16 @@ async function putExercise() {
   // written it. Five paragraphs, set and never seen by anybody.
 
   $('#drillAsk').textContent = exercise.ask ?? '';
-  // The clean side is only offered where there is a fault to take out, which
-  // is what makes it an A/B rather than a mute.
-  ui.fault = drilling ? (exercise.faultOf?.(ui.game.puzzle) ?? null) : null;
-  $('#drillClean').hidden = !ui.fault;
-  setClean(false);
 
   await desk.put(await openTool(), exercise, ui.game.puzzle);
+
+  // After the put, and it has to be. A drill that sets the tool's own
+  // controls has only just set them, and what the clean A/B flips back to is
+  // where they ended up - read before the put, it would be the last round's.
+  ui.clean = drilling ? cleanWay(exercise, ui.game.puzzle) : null;
+  $('#drillClean').hidden = !ui.clean;
+  setClean(false);
+
   syncAnswer();
   syncTransport();
 }
@@ -223,19 +297,42 @@ function syncTransport() {
 }
 
 /**
- * Hear it without the fault in it.
+ * How to take this drill's subject out and put it back.
  *
- * Built out of `setFault`, which every tool already implements and which the
- * session already uses to put the fault there - so this is the same A/B the
- * fix exercises have, driven from outside the tool rather than from a button
- * on it. The loop never stops: the fault crossfades out and back, which is
- * the only way a comparison is worth anything.
+ * Two levers, because there are two kinds of drill. Some put the thing to be
+ * named in the MATERIAL - the EQ drill moves an octave of the mix, and the EQ
+ * itself is flat and innocent - and those come out with `setFault`. Others
+ * put it on the TOOL, because a compressor doing 6 dB is a compressor and not
+ * a faulty loop, and those go on and come off with `setState`.
+ *
+ * Both are methods the session already calls to set the exercise up; this is
+ * the same two calls, driven by a button, with the loop never stopping. A
+ * drill that offers neither has nothing worth comparing against - knowing
+ * where a sound is panned does not need a reference - and gets no button.
  */
+function cleanWay(exercise, puzzle) {
+  const fault = exercise.faultOf?.(puzzle) ?? null;
+  if (fault) return { on: () => ui.tool?.setFault(null), off: () => ui.tool?.setFault(fault) };
+
+  const clean = exercise.cleanOf?.(puzzle) ?? null;
+  if (!clean) return null;
+
+  // Taken once, because `startOf` may have solved for it against the loop and
+  // asking twice would solve it twice.
+  const working = ui.tool?.state();
+  return {
+    on: () => ui.tool?.setState(clean),
+    off: () => ui.tool?.setState(working),
+  };
+}
+
+/** Hear it without whatever is being asked about, and back. */
 function setClean(on) {
   const button = $('#drillClean');
   button.setAttribute('aria-pressed', on ? 'true' : 'false');
   button.textContent = on ? 'Hear it again' : 'Hear it clean';
-  if (ui.fault) ui.tool?.setFault(on ? null : ui.fault);
+  if (on) ui.clean?.on();
+  else ui.clean?.off();
 }
 
 /**
@@ -504,11 +601,15 @@ function render() {
 /* ---------- stats ---------- */
 
 function showStats() {
-  const stats = getStats(ui.mode, ui.tier);
+  const stats = getStats(ui.mode, ui.tier, ui.kind);
   const tier = tool().tiers[ui.tier];
 
   $('#statsMode').textContent = tool().label;
-  $('#stats-scope').textContent = `${tier.label} · ${tier.blurb}`;
+  // Which bucket this is. Working at a tool and being asked about one are
+  // different activities and kept apart, so the dialog has to say which of
+  // them it is showing or the numbers mean nothing.
+  $('#stats-scope').textContent =
+    `${ui.kind === 'drill' ? 'Drills' : 'Work'} · ${tier.label} · ${tierBlurb(ui.tier)}`;
 
   // Three readings, not five. The streak and the best streak that were here
   // measured how recently you played rather than how well you hear, and with
@@ -542,6 +643,7 @@ function showStats() {
   const weak = weakestKind(stats);
   $('#stats-weak').textContent = weak
     ? `${weak.label} is the one to work on — solved ${Math.round(weak.rate * 100)}% of ${weak.seen}.`
+      + (weak.confusedWith ? ` You usually hear it as ${weak.confusedWith.label}.` : '')
     : 'A few more rounds and this will say which one is worth working on.';
 
   note('');
@@ -624,6 +726,16 @@ function fillHelp() {
   // there is nothing useful the shell can say about a plugin it has not seen.
   const entries = tool().help.map((entry) => [...entry]);
 
+  // Except this, which is about the shell: the pill is the one control that
+  // changes what kind of question you are being asked rather than how hard
+  // it is, and it is new enough to be worth saying out loud.
+  entries.unshift([
+    ui.kind === 'drill' ? 'You are on the drills.' : 'Work at it, or be drilled on it.',
+    'The pill under the tools switches between building the answer on the plugin '
+    + 'and being asked about it with the plugin put away. It stays where you put '
+    + 'it when you change tool, so a run of all six drills is one click each.',
+  ]);
+
   for (const spec of tool().settings ?? []) {
     entries.push([`${spec.label}: ${spec.options.map((o) => o.label).join(', ')}.`,
       spec.id === 'exercise'
@@ -640,12 +752,29 @@ function fillHelp() {
 /* ---------- events ---------- */
 
 function wire() {
+  for (const button of document.querySelectorAll('[data-kind]')) {
+    button.addEventListener('click', () => {
+      if (ui.kind === button.dataset.kind) return;
+      ui.kind = button.dataset.kind;
+      settleKind();
+      syncKind();
+      // After settleKind, because a tier is described by the exercise and
+      // the exercise has only just changed.
+      fillTiers();
+      fillSettings();
+      startGame();
+    });
+  }
+
   $('#modes').addEventListener('click', (e) => {
     const pill = e.target.closest('[data-train]');
     if (!pill || pill.dataset.train === ui.mode) return;
 
     ui.mode = pill.dataset.train;
     syncModes();
+    // The pill stays where it was and the exercise moves to match it, which
+    // is what makes a run of drills across all six one click each.
+    settleKind();
     fillTiers();
     fillSettings();
     startGame();
@@ -660,6 +789,7 @@ function wire() {
     const next = TOOL_IDS[(TOOL_IDS.indexOf(ui.mode) + step + TOOL_IDS.length) % TOOL_IDS.length];
     ui.mode = next;
     syncModes();
+    settleKind();
     fillTiers();
     fillSettings();
     startGame();
@@ -674,6 +804,7 @@ function wire() {
     // A setting is part of what the clue sounds like - and an exercise is part
     // of what the answer is - so the round starts again rather than changing
     // under a board that was scored against the old one.
+    fillTiers();
     fillSettings();
     startGame();
   });
@@ -741,6 +872,8 @@ function wire() {
 }
 
 fillModes();
+settleKind();
+syncKind();
 fillTiers();
 fillSettings();
 wire();

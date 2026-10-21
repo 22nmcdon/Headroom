@@ -48,6 +48,12 @@ function snapshotOf(tool) {
  *   4. fault, then target, then the A/B's name
  *   5. the starting settings last, so `onChange` fires once, at the end
  *
+ * `startOf` is the fifth step asked of the puzzle rather than fixed on the
+ * exercise, and it is deliberately after the material. A drill that asks how
+ * much a compressor is doing has to set a compressor that does that much to
+ * THIS loop, which cannot be worked out until the loop exists - so it is
+ * worked out here, where it does.
+ *
  * Material is awaited rather than set and hoped for. The compression exercise
  * used to fill `puzzle.material` from an unawaited IIFE and fall back to a
  * synthetic probe when it had not arrived - which in a live workbench is
@@ -73,7 +79,7 @@ export async function attach(tool, exercise, puzzle = {}) {
   if (exercise.targetOf) await tool.setTarget(exercise.targetOf(puzzle));
   if (exercise.other) tool.nameAB(exercise.other);
 
-  tool.setState(exercise.start ?? before.state);
+  tool.setState(exercise.startOf?.(puzzle) ?? exercise.start ?? before.state);
 
   let done = false;
   return async function detach() {
@@ -88,6 +94,12 @@ export async function attach(tool, exercise, puzzle = {}) {
     // settings - somebody may want to keep working from where the exercise
     // left them - it is everything the exercise imposed: the drawn answer,
     // the lock, the fault in the material, the other side of the A/B.
+    //
+    // The settings are the exception when the exercise set them itself. An
+    // exercise that drives the tool's own controls is a drill, the controls
+    // are the answer, and leaving them where they were put means the next
+    // exercise opens with the last drill's answer sitting on the knobs.
+    if (exercise.restores) tool.setState(before.state);
     tool.showTarget(null);
     tool.unlock?.();
     await tool.setTarget(null);

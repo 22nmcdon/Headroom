@@ -85,15 +85,25 @@ test('a drill is only right when every part of it is right', () => {
   }
 });
 
-test('a drill over several rounds asks more than one thing', () => {
-  // A drill whose answer barely moves is a drill you pass by picking the same
-  // chip every time.
+test('no drill can be passed by picking the same chip every time', () => {
+  // Not a count of how many answers exist - three well-separated amounts of
+  // gain reduction is all this loop supports at the easy tier, and three
+  // honest answers beat six somebody has to guess between. What matters is
+  // that no one of them comes up often enough to be worth always picking.
+  const ROUNDS = 120;
+
   for (const [id, tier] of DRILLS) {
-    const seen = new Set();
-    for (let i = 0; i < 40; i += 1) {
-      seen.add(JSON.stringify(drillPuzzle(id, tier, `spread-${id}-${tier}-${i}`).answer));
+    const counts = new Map();
+    for (let i = 0; i < ROUNDS; i += 1) {
+      const key = JSON.stringify(drillPuzzle(id, tier, `spread-${id}-${tier}-${i}`).answer);
+      counts.set(key, (counts.get(key) ?? 0) + 1);
     }
-    assert.ok(seen.size >= 4, `${id}/${tier} only ever asks ${seen.size} different things`);
+
+    assert.ok(counts.size >= 3, `${id}/${tier} only ever asks ${counts.size} different things`);
+
+    const commonest = Math.max(...counts.values()) / ROUNDS;
+    assert.ok(commonest < 0.5,
+      `${id}/${tier} answers the same thing ${Math.round(commonest * 100)}% of the time`);
   }
 });
 
@@ -191,4 +201,264 @@ test('the EQ drill names a weak spot by octave, so the stats can say which', () 
   assert.equal(kind.key, 'octave-2k');
   assert.match(kind.label, /2k/);
   assert.match(kind.label, /honk/);
+});
+
+/* --- the compression drill: how much is it doing ------------------------- */
+
+/** A loop of struck hits, for solving a compressor against. */
+function hits(rate = 48000, beats = 8, seconds = 4) {
+  const samples = new Float32Array(Math.round(rate * seconds));
+  const span = samples.length / beats;
+  for (let beat = 0; beat < beats; beat += 1) {
+    const from = Math.floor(beat * span);
+    for (let i = 0; i < Math.floor(rate * 0.22) && from + i < samples.length; i += 1) {
+      const t = i / rate;
+      samples[from + i] = 0.62 * (Math.sin(2 * Math.PI * 90 * t) * Math.exp(-t * 22)
+        + 0.35 * Math.sin(2 * Math.PI * 1800 * t) * Math.exp(-t * 90));
+    }
+  }
+  return samples;
+}
+
+test('the compression drill solves a compressor that does what it says', async () => {
+  // The answer is a property of the loop, so the settings are solved against
+  // the loop rather than stored - and this is the check that the solving
+  // works. Over a loop of hits, which is what a test has instead of a
+  // rendered bed.
+  const { analyse } = await import('../src/comp/dsp.js');
+  const drill = TOOLS.compression.exercises.drill;
+  const rate = 48000;
+  const samples = hits(rate);
+
+  for (const tier of ['easy', 'medium', 'hard']) {
+    for (let i = 0; i < 8; i += 1) {
+      const puzzle = drillPuzzle('compression', tier, `comp-drill-${tier}-${i}`);
+      // What the session does: pin the material, then ask for the settings.
+      puzzle.material = { rate, samples, even: samples, key: null };
+
+      const settings = drill.startOf(puzzle);
+      const want = Number(puzzle.answer.reduction);
+      const got = analyse(samples, rate, { ...settings, makeup: 0 }).makeup;
+
+      assert.ok(Math.abs(got - want) < 0.6,
+        `${tier}: asked for ${want} dB, the compressor does ${got.toFixed(2)}`);
+      assert.ok(settings.threshold <= 0, 'a threshold above zero compresses nothing');
+      if (want === 0) assert.equal(settings.makeup, 0, 'nothing to put back');
+      else assert.ok(settings.makeup > 0, 'the level has to be put back, or it is a loudness test');
+    }
+  }
+});
+
+test('the compression drill changes only how much it is doing', () => {
+  // Ratio and attack are fixed, so the one thing that moves between rounds is
+  // the question. Anything else moving would be a second question nobody was
+  // asked.
+  const drill = TOOLS.compression.exercises.drill;
+  const seen = new Set();
+  for (let i = 0; i < 12; i += 1) {
+    const s = drill.startOf(drillPuzzle('compression', 'hard', `fixed-${i}`));
+    seen.add(`${s.ratio}:${s.attack}:${s.release}:${s.knee}`);
+  }
+  assert.equal(seen.size, 1, `the shape of the compressor moved: ${[...seen].join(', ')}`);
+});
+
+test('the compression drill puts the level back, so it is not a loudness test', () => {
+  const drill = TOOLS.compression.exercises.drill;
+  for (let i = 0; i < 6; i += 1) {
+    const puzzle = drillPuzzle('compression', 'hard', `level-${i}`);
+    const settings = drill.startOf(puzzle);
+    const want = Number(puzzle.answer.reduction);
+    // The makeup is the measured reduction, put back.
+    assert.ok(Math.abs(settings.makeup - want) < 0.6 || want === 0,
+      `makeup ${settings.makeup.toFixed(2)} does not match ${want} dB of reduction`);
+  }
+});
+
+test('the compression drill reads a step out as a step out, in decibels', () => {
+  const puzzle = { ...drillPuzzle('compression', 'medium', 'read'),
+    answer: { reduction: '6' } };
+  const read = (reduction) => scoreGuess({ reduction }, puzzle);
+
+  assert.equal(read('6').cells[1].text, 'that is it');
+  assert.equal(read('9').cells[1].text, '3 dB too much');
+  assert.equal(read('2').cells[1].text, '4 dB too little');
+  assert.equal(read('4').cells[0].state, NEAR, 'one step out is close at this tier');
+  assert.equal(read('0').cells[0].state, MISS);
+});
+
+/* --- the saturation drill: warm against dirty ---------------------------- */
+
+test('the saturation drill makes the colour it claims to', async () => {
+  // Measured on the sine probe this tool marks everything with. The odd side
+  // is a symmetric curve, which makes no even harmonics at all.
+  const { harmonicsOf, HEAT_DEFAULTS } = await import('../src/heat/shape.js');
+  const drill = TOOLS.saturation.exercises.drill;
+
+  for (const tier of ['easy', 'medium', 'hard']) {
+    for (let i = 0; i < 8; i += 1) {
+      const puzzle = drillPuzzle('saturation', tier, `heat-${tier}-${i}`);
+      const h = harmonicsOf(48000, { ...HEAT_DEFAULTS, ...drill.startOf(puzzle) });
+      const lead = h.even - h.odd;
+
+      if (puzzle.answer.colour === 'even') {
+        assert.ok(lead >= 8, `an even round leads by only ${lead.toFixed(1)} dB`);
+      } else {
+        assert.ok(lead <= -100, `an odd round has even harmonics at ${h.even.toFixed(1)} dB`);
+      }
+    }
+  }
+});
+
+test('the saturation drill matches its amounts across the two colours', async () => {
+  // Or the colour could be read off the volume and nobody would learn
+  // anything. Measured: within 1.3 dB, with the bands about 4 dB apart.
+  const { harmonicsOf, HEAT_DEFAULTS } = await import('../src/heat/shape.js');
+  const drill = TOOLS.saturation.exercises.drill;
+
+  const thdOf = (colour, amount) => harmonicsOf(48000, {
+    ...HEAT_DEFAULTS,
+    ...drill.startOf({ answer: { colour, amount } }),
+  }).thd;
+
+  const bands = [];
+  for (const amount of ['light', 'pushed', 'heavy']) {
+    const even = thdOf('even', amount);
+    const odd = thdOf('odd', amount);
+    assert.ok(Math.abs(even - odd) <= 1.4,
+      `${amount}: warm reads ${even.toFixed(1)} and dirty ${odd.toFixed(1)}`);
+    bands.push((even + odd) / 2);
+  }
+
+  for (let i = 1; i < bands.length; i += 1) {
+    assert.ok(bands[i] - bands[i - 1] >= 3,
+      `the amounts are only ${(bands[i] - bands[i - 1]).toFixed(1)} dB apart`);
+  }
+});
+
+test('the saturation drill scores the colour exact and the amount on a scale', () => {
+  const puzzle = { ...drillPuzzle('saturation', 'medium', 'col'),
+    answer: { colour: 'even', amount: 'pushed' } };
+  const read = (colour, amount) => scoreGuess({ colour, amount }, puzzle);
+
+  assert.ok(read('even', 'pushed').correct);
+  assert.equal(read('odd', 'pushed').cells[0].state, MISS, 'there is no nearly warm');
+  assert.equal(read('odd', 'pushed').cells[2].text, 'it was octaves');
+  assert.equal(read('even', 'light').cells[1].state, NEAR, 'one step of amount is close');
+  assert.ok(!read('even', 'light').correct);
+});
+
+/* --- the stereo drill: where it sits ------------------------------------- */
+
+test('the stereo drill pans the tool to the place it is asking about', () => {
+  const drill = TOOLS.panning.exercises.drill;
+  const places = { hardleft: -1, left: -0.66, halfleft: -0.33, centre: 0, halfright: 0.33, right: 0.66, hardright: 1 };
+
+  for (const tier of ['easy', 'medium', 'hard']) {
+    for (let i = 0; i < 10; i += 1) {
+      const puzzle = drillPuzzle('panning', tier, `pan-${tier}-${i}`);
+      assert.equal(drill.startOf(puzzle).pan, places[puzzle.answer.place]);
+    }
+  }
+
+  // And it is a mono source, because a pan is the only thing that has
+  // happened to it - on a stereo one the pan would destroy the width.
+  assert.equal(drill.source, 'instrument');
+});
+
+test('the stereo drill counts places on the field, not on the chips', () => {
+  // The easy tier offers three chips covering seven places, so "one chip out"
+  // there would be two thirds of the field.
+  const puzzle = { ...drillPuzzle('panning', 'easy', 'count'), answer: { place: 'centre' } };
+  assert.equal(scoreGuess({ place: 'hardleft' }, puzzle).cells[1].text, '3 places too far left');
+  assert.equal(scoreGuess({ place: 'hardright' }, puzzle).cells[1].text, '3 places too far right');
+  assert.equal(scoreGuess({ place: 'hardleft' }, puzzle).cells[0].state, MISS,
+    'two thirds of the field is not a near miss');
+});
+
+/* --- the delay drill: which note ----------------------------------------- */
+
+test('the delay drill sets the time its division asks for', async () => {
+  const { DIVISIONS, timeOf, ECHO_DEFAULTS } = await import('../src/echo/line.js');
+  const drill = TOOLS.delay.exercises.drill;
+
+  for (const tier of ['easy', 'medium', 'hard']) {
+    for (let i = 0; i < 10; i += 1) {
+      const puzzle = drillPuzzle('delay', tier, `echo-${tier}-${i}`);
+      const division = DIVISIONS.find((d) => d.id === puzzle.answer.division);
+      assert.ok(division, `${puzzle.answer.division} is not one of the delay's divisions`);
+      assert.equal(drill.startOf(puzzle).time, timeOf(division.beats));
+      assert.ok(drill.startOf(puzzle).mix > ECHO_DEFAULTS.mix * 0.8,
+        'the repeats have to be loud enough to count');
+    }
+  }
+});
+
+test('the delay drill reads a wrong division as a ratio, not a number of ms', () => {
+  // A quarter is 625.0 ms and an eighth 312.5, so one is twice the other
+  // wherever the tempo sits. Milliseconds would be a number about this track.
+  const puzzle = { ...drillPuzzle('delay', 'hard', 'ratio'), answer: { division: 'eighth' } };
+  const read = (division) => scoreGuess({ division }, puzzle);
+
+  assert.equal(read('eighth').cells[1].text, 'that is it');
+  assert.equal(read('quarter').cells[1].text, '2.00× too slow');
+  assert.equal(read('sixteenth').cells[1].text, '2.00× too fast');
+  assert.equal(read('dotted8').cells[1].text, '1.50× too slow');
+  assert.equal(read('dotted8').cells[0].state, NEAR, 'next door is next door');
+});
+
+/* --- the reverb drill: the one that is both picked and dialled ----------- */
+
+test('the reverb drill asks one question on a control and one with chips', () => {
+  for (const tier of ['easy', 'medium', 'hard']) {
+    const slots = slotsOf('reverb', tier);
+    assert.equal(slots.length, 2);
+
+    // The dialled one first, because that is the one that says which way to
+    // move and where the shell looks for it.
+    assert.equal(slots[0].kind, 'range');
+    assert.equal(slots[0].id, 'tail');
+    assert.equal(slots[1].kind, 'choice');
+    assert.ok(slots[0].hit < slots[0].near, 'close has to be wider than right');
+  }
+
+  // And it loosens with the tier, because this is dialled blind.
+  assert.ok(slotsOf('reverb', 'easy')[0].hit > slotsOf('reverb', 'hard')[0].hit);
+});
+
+test('the reverb drill answers with the tail it measured, not the knob', async () => {
+  // The two are not the same: a decay of 1.2 rings for 0.78 to 1.04 s. A
+  // drill marked on the control would be teaching that number.
+  const { makeImpulse } = await import('../src/verb/ir.js');
+  const { monoOf, rt60 } = await import('../src/fx/response.js');
+  const drill = TOOLS.reverb.exercises.drill;
+
+  for (const tier of ['easy', 'medium', 'hard']) {
+    for (let i = 0; i < 4; i += 1) {
+      const puzzle = drillPuzzle('reverb', tier, `room-${tier}-${i}`);
+      const room = drill.startOf(puzzle);
+      const measured = rt60(monoOf(makeImpulse(48000, { ...room, mix: 1 })), 48000);
+
+      assert.ok(Math.abs(measured - puzzle.answer.tail) < 0.01,
+        `${tier}: answers ${puzzle.answer.tail} s for a room that rings ${measured.toFixed(3)}`);
+      assert.ok(puzzle.answer.tail < room.decay,
+        'the room rings for less time than its decay control says');
+      assert.equal(room.preDelay, 0,
+        'a pre-delay would be a second answer to the how-big question');
+    }
+  }
+});
+
+test('the reverb drill tells a wrong length from a wrong space', () => {
+  const puzzle = {
+    ...drillPuzzle('reverb', 'hard', 'room-read'),
+    answer: { tail: 1.2, size: 'medium' },
+  };
+  const read = (tail, size) => scoreGuess({ tail, size }, puzzle);
+
+  assert.ok(read(1.2, 'medium').correct);
+  assert.equal(read(1.2, 'small').cells[2].text, 'right length, wrong space');
+  assert.equal(read(3.0, 'medium').cells[2].text, 'right space, wrong length');
+  assert.equal(read(3.0, 'small').cells[2].text, 'neither yet');
+  assert.match(read(3.0, 'medium').cells[0].text, /long$/, 'and says which way');
+  assert.match(read(0.5, 'medium').cells[0].text, /short$/);
 });

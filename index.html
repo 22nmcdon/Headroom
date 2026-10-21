@@ -42,6 +42,15 @@
 
     <nav class="modes" id="modes" role="radiogroup" aria-label="What to practise"></nav>
 
+    <!-- Two ways to use any of these tools: work at it, or be asked about it.
+         A state you are in, so: a pill, and it survives changing tool - which
+         is the whole point of having it, since a run of drills across all six
+         is the thing somebody wants to do. -->
+    <div class="kind-switch" role="radiogroup" aria-label="How to practise">
+      <button class="kind-option" type="button" data-kind="work" role="radio" aria-checked="true">Work at it</button>
+      <button class="kind-option" type="button" data-kind="drill" role="radio" aria-checked="false">Drills</button>
+    </div>
+
     <div class="setup">
       <label class="field">
         <span class="field-label">Difficulty</span>

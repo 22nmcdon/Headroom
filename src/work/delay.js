@@ -6,7 +6,7 @@ import { decayReading } from '../fx/response.js';
 import { distance } from '../gap.js';
 import { writeMs } from '../fx/panel.js';
 import { LOOP_BEAT } from '../audio.js';
-import { HIT, NEAR, MISS, logPick, toStep, pick } from './scoring.js';
+import { HIT, NEAR, MISS, onScale, logPick, toStep, pick } from './scoring.js';
 
 /**
  * The delay, and the one question everybody asks about one.
@@ -52,6 +52,32 @@ const LOCKED = { easy: 0.16, medium: 0.1, hard: 0.06 };
  * nothing there: what you compare against is the loop with no repeats on it,
  * which is what tells you whether yours is falling in with it.
  */
+/* --- the drill ------------------------------------------------------------ */
+
+/**
+ * Which note the echo is on, at this track's tempo.
+ *
+ * Measured, which here means computed from the loop's own 96 bpm: a quarter
+ * is 625.0 ms, a dotted eighth 468.8, an eighth 312.5, an eighth triplet
+ * 208.3 and a sixteenth 156.3. The neighbours are a ratio apart rather than a
+ * number - 1.33 between the quarter and the dotted eighth, 1.50 between the
+ * dotted eighth and the eighth, 1.50 and 1.33 going down - which is why the
+ * easy tier takes every other one and ends up with 4:2:1.
+ *
+ * `DIVISIONS` is the delay's own list, not a second copy of it: the five the
+ * sync menu offers that the ear can actually tell apart.
+ */
+const DIVISION_DRILL = {
+  easy: { ids: ['quarter', 'eighth', 'sixteenth'], near: 0 },
+  medium: { ids: ['quarter', 'dotted8', 'eighth', 'sixteenth'], near: 1 },
+  hard: { ids: DIVISIONS.map((d) => d.id), near: 1 },
+};
+
+const divisionAt = (id) => DIVISIONS.findIndex((d) => d.id === id);
+
+/** Enough repeats to hear the spacing, and not so many it turns into a wash. */
+const DRILL_ECHO = { feedback: 0.45, mix: 0.4, tone: 6000, lowCut: 120, pingPong: false };
+
 export const ECHO_EXERCISES = {
   match: {
     id: 'match',
@@ -69,7 +95,97 @@ export const ECHO_EXERCISES = {
     other: 'Dry',
     targetOf: (puzzle) => ({ ...ECHO_DEFAULTS, ...puzzle.answer }),
   },
+  drill: {
+    id: 'drill',
+    label: 'Which note is it on?',
+    drill: true,
+    ask: 'Which note value are these repeats on?',
+    lede: 'Nothing to dial here. There is a delay on the loop and it is in time '
+        + 'with it: say which note value it is on.',
+    opening: 'Play it, count along with the repeats, then name the division.',
+    tierBlurbs: {
+      easy: 'Quarter, eighth, sixteenth',
+      medium: 'And the dotted eighth',
+      hard: 'And the triplet',
+    },
+    // Drums, with the tempo they are in: a division only means anything
+    // against a pulse you can hear.
+    source: 'drums',
+    sourceOptions: { tempo: false },
+    other: 'Dry',
+    targetOf: () => ({ ...ECHO_DEFAULTS, mix: 0 }),
+
+    startOf: (puzzle) => ({
+      ...ECHO_DEFAULTS,
+      ...DRILL_ECHO,
+      time: timeOf(DIVISIONS[divisionAt(puzzle.answer.division)].beats),
+    }),
+    cleanOf: () => ({ ...ECHO_DEFAULTS, mix: 0 }),
+    restores: true,
+  },
 };
+
+/**
+ * Name the division.
+ *
+ * Exact, for being right: a dotted eighth is not nearly a quarter, it is the
+ * thing that makes a part sound like it is pulling against the bar instead of
+ * sitting on it, and marking that "close" would be teaching the opposite of
+ * the lesson. But a guess next door still earns the gold, because hearing a
+ * repeat at roughly the right speed and picking the wrong subdivision of it
+ * is a different mistake from not hearing it at all - 1.33 and 1.50 is what
+ * separates these, so next door is genuinely next door.
+ */
+function scoreDivision(state, puzzle) {
+  const { answer, tier } = puzzle;
+  const spec = DIVISION_DRILL[tier] ?? DIVISION_DRILL.medium;
+  const offered = DIVISIONS.filter((d) => spec.ids.includes(d.id));
+
+  const mark = onScale(
+    offered.findIndex((d) => d.id === state.division),
+    offered.findIndex((d) => d.id === answer.division),
+    { near: spec.near },
+  );
+
+  const guessed = DIVISIONS[divisionAt(state.division)];
+  const wanted = DIVISIONS[divisionAt(answer.division)];
+  const ratio = timeOf(guessed.beats) / timeOf(wanted.beats);
+
+  return {
+    correct: mark === HIT,
+    cells: [
+      { state: mark, text: guessed.label },
+      {
+        state: mark,
+        text: ratio === 1 ? 'that is it'
+          : `${(ratio > 1 ? ratio : 1 / ratio).toFixed(2)}× too ${ratio > 1 ? 'slow' : 'fast'}`,
+        narrow: true,
+      },
+    ],
+    why: [
+      {
+        label: 'What you picked',
+        value: `${guessed.label} - ${writeMs(timeOf(guessed.beats))}`,
+        how: 'Worked out from the loop\'s own tempo of 96 beats a minute, where '
+           + 'one beat is 625 ms and every division is a fraction of it.',
+      },
+      {
+        label: 'What it was',
+        value: `${wanted.label} - ${writeMs(timeOf(wanted.beats))}`,
+        how: 'Set on the delay\'s own time control, converted from the note value '
+           + 'against that same tempo - so the repeats really are on the grid.',
+      },
+      {
+        label: 'How far apart these are',
+        value: 'a ratio, not a number of milliseconds',
+        how: 'A quarter is 625.0 ms, a dotted eighth 468.8, an eighth 312.5, an '
+           + 'eighth triplet 208.3 and a sixteenth 156.3 - so neighbours sit 1.33 '
+           + 'or 1.50 apart whatever end of the list they are at. The easy tier '
+           + 'takes every other one, which makes it 4:2:1.',
+      },
+    ],
+  };
+}
 
 export const ECHO_WORK = {
   tool: 'delay',
@@ -91,12 +207,28 @@ export const ECHO_WORK = {
     hard: { label: 'Hard', blurb: 'And the routing', guesses: 4, tone: true, detail: true },
   },
 
-  /** The round is played on the plugin, so there is nothing to pick from. */
-  slots() {
-    return [];
+  /** Answered on the plugin, except in the drill, which asks with chips. */
+  slots(tier, settings) {
+    if (settings?.exercise !== 'drill') return [];
+
+    const spec = DIVISION_DRILL[tier] ?? DIVISION_DRILL.medium;
+    return [{
+      id: 'division',
+      kind: 'choice',
+      label: 'Which division',
+      options: DIVISIONS
+        .filter((d) => spec.ids.includes(d.id))
+        .map((d) => ({ id: d.id, symbol: d.label, name: `${Math.round(timeOf(d.beats))} ms` })),
+    }];
   },
 
   makePuzzle(rng, tier, settings) {
+    if (settings.exercise === 'drill') {
+      const spec = DIVISION_DRILL[tier] ?? DIVISION_DRILL.medium;
+      const division = pick(rng, DIVISIONS.filter((d) => spec.ids.includes(d.id)));
+      return { answer: { division: division.id } };
+    }
+
     if (settings.exercise === 'find') {
       // Only the well-spaced note values: the question is which one, and a
       // pair twelve per cent apart is a question about a stopwatch.
@@ -142,6 +274,8 @@ export const ECHO_WORK = {
     const { answer, tier } = puzzle;
     const guess = state;
     const exercise = puzzle?.settings?.exercise ?? 'match';
+    if (exercise === 'drill') return scoreDivision(guess, puzzle);
+
     const settings = { ...ECHO_DEFAULTS, ...guess };
     // Delays are built from numbers rather than recorded, so marking needs no
     // audio and comes out the same on every machine.
@@ -266,6 +400,22 @@ export const ECHO_WORK = {
 
   hints(puzzle) {
     const { answer, tier } = puzzle;
+
+    if ((puzzle?.settings?.exercise ?? 'match') === 'drill') {
+      const division = DIVISIONS[divisionAt(answer.division)];
+      const beats = division.beats;
+      return [
+        'Count the pulse of the loop out loud, then count the repeats against '
+          + 'it. The question is how many repeats fit in a beat.',
+        beats >= 1 ? 'There is about one repeat to the beat, or fewer.'
+          : beats >= 0.5 ? 'There are about two repeats to the beat.'
+          : 'There are three or four repeats to the beat.',
+        beats === 0.75 || beats === 1 / 3
+          ? `It does not land on the beat: it is ${beats === 0.75 ? 'dotted, so it drifts across the bar' : 'a triplet, so three of them fill the beat'}.`
+          : 'It lands squarely on the grid, so it is neither dotted nor a triplet.',
+      ];
+    }
+
     const settings = { ...ECHO_DEFAULTS, ...answer };
 
     if ((puzzle?.settings?.exercise ?? 'match') === 'find') {
@@ -293,6 +443,12 @@ export const ECHO_WORK = {
 
   reveal(puzzle) {
     const { answer } = puzzle;
+
+    if ((puzzle?.settings?.exercise ?? 'match') === 'drill') {
+      const division = DIVISIONS[divisionAt(answer.division)];
+      return { symbol: division.label, name: `${writeMs(timeOf(division.beats))} at this tempo` };
+    }
+
     const settings = { ...ECHO_DEFAULTS, ...answer };
 
     if ((puzzle?.settings?.exercise ?? 'match') === 'find') {
@@ -307,8 +463,20 @@ export const ECHO_WORK = {
     };
   },
 
+  /** What a guess says it heard, in `weak`'s own words. */
+  heard(guess, puzzle) {
+    if ((puzzle?.settings?.exercise ?? 'match') !== 'drill') return null;
+    const division = DIVISIONS[divisionAt(guess.division)];
+    if (!division) return null;
+    return { key: `division-${division.id}`, label: `the ${division.label} delay` };
+  },
+
   weak(puzzle) {
     const { answer } = puzzle;
+    if ((puzzle?.settings?.exercise ?? 'match') === 'drill') {
+      const division = DIVISIONS[divisionAt(answer.division)];
+      return { key: `division-${division.id}`, label: `the ${division.label} delay` };
+    }
     if ((puzzle?.settings?.exercise ?? 'match') === 'find') {
       return { key: answer.division, label: `the ${answer.division} delay` };
     }

@@ -4,7 +4,7 @@ import {
 import { makeBiquad, setBiquad, runBiquad } from '../comp/dsp.js';
 import { mulberry32 } from '../random.js';
 import { distance } from '../gap.js';
-import { HIT, NEAR, MISS, toStep, pick } from './scoring.js';
+import { HIT, NEAR, MISS, onScale, toStep, pick } from './scoring.js';
 
 /**
  * Where things sit, and how far apart they sit.
@@ -113,6 +113,51 @@ const writePan = (pan) => {
 const mean = (list) => list.reduce((a, b) => a + b, 0) / Math.max(1, list.length);
 const held = (db) => Math.max(-MOST_BALANCE, Math.min(MOST_BALANCE, db));
 
+/* --- the drill ------------------------------------------------------------ */
+
+/**
+ * Where a thing can be, and what somebody would call it.
+ *
+ * Seven places, measured on a mono instrument at this tool's own pan law:
+ * hard left reads +156.6 dB of balance - which is one channel closed and no
+ * balance at all - then +11.26, +4.72, 0.00, and the same back the other way.
+ * Four to six and a half decibels a step, which is a move anybody hears.
+ *
+ * A mono source, and that is the whole reason this drill is not also about
+ * width. Measured on the spread bed, panning it destroys the thing the width
+ * question is about: at hard left the width reads 0.00 dB whatever the width
+ * controls are set to, because one channel is shut, and even at two-thirds
+ * across it reads -2.7 dB for a narrow image and -2.6 for a wide one. The two
+ * questions fight, so this one asks the one that survives. How wide is the
+ * imager's own exercise, answered on the imager.
+ */
+const PLACES = [
+  { id: 'hardleft', pan: -1, symbol: 'Hard L', name: 'all the way' },
+  { id: 'left', pan: -0.66, symbol: 'Left', name: 'well over' },
+  { id: 'halfleft', pan: -0.33, symbol: 'Half L', name: 'a little over' },
+  { id: 'centre', pan: 0, symbol: 'Centre', name: 'up the middle' },
+  { id: 'halfright', pan: 0.33, symbol: 'Half R', name: 'a little over' },
+  { id: 'right', pan: 0.66, symbol: 'Right', name: 'well over' },
+  { id: 'hardright', pan: 1, symbol: 'Hard R', name: 'all the way' },
+];
+
+const placeAt = (id) => PLACES.findIndex((place) => place.id === id);
+
+/**
+ * Which places each tier offers, and how wide close is.
+ *
+ * Easy is the three anybody can hear with no training at all - one side, the
+ * other, or neither - and scores exact, because the chip beside the answer is
+ * two thirds of the field away. The finer tiers put the halves back in, where
+ * next door really is next door: four and a half decibels of balance from
+ * centre to half over, and six and a half from half over to well over.
+ */
+const PLACE_DRILL = {
+  easy: { places: ['hardleft', 'centre', 'hardright'], near: 0 },
+  medium: { places: ['hardleft', 'left', 'centre', 'right', 'hardright'], near: 1 },
+  hard: { places: PLACES.map((p) => p.id), near: 1 },
+};
+
 /**
  * The three exercises, in the shape a session can set up.
  *
@@ -147,7 +192,98 @@ export const IMAGE_EXERCISES = {
     faultOf: (puzzle) => puzzle.fault ?? { low: 2.3 },
     targetOf: () => ({ ...IMAGE_DEFAULTS }),
   },
+  drill: {
+    id: 'drill',
+    label: 'Where is it?',
+    drill: true,
+    ask: 'Where in the field is this sitting?',
+    lede: 'Nothing to dial here. One sound, somewhere between the speakers: say '
+        + 'where.',
+    opening: 'Play it. Centre it to check yourself, then say where it was.',
+    tierBlurbs: {
+      easy: 'One side, the other, or neither',
+      medium: 'Five places across the field',
+      hard: 'All seven places',
+    },
+    // Mono, so that a pan is the only thing that has happened to it.
+    source: 'instrument',
+    other: 'Centred',
+    faultOf: () => null,
+    targetOf: () => ({ ...IMAGE_DEFAULTS }),
+
+    startOf: (puzzle) => ({
+      ...IMAGE_DEFAULTS,
+      pan: PLACES[placeAt(puzzle.answer.place)].pan,
+      listen: 'stereo',
+    }),
+    cleanOf: () => ({ ...IMAGE_DEFAULTS, listen: 'stereo' }),
+    restores: true,
+  },
 };
+
+/**
+ * Name the place.
+ *
+ * Two readings for one chip, and the second is the one worth having: which
+ * way, and by how much. A pan told "wrong" leaves you guessing which
+ * direction; a pan told "two places to the left" is a correction.
+ */
+function scorePlacing(state, puzzle) {
+  const { answer, tier } = puzzle;
+  const spec = PLACE_DRILL[tier] ?? PLACE_DRILL.medium;
+  const offered = PLACES.filter((place) => spec.places.includes(place.id));
+
+  const mark = onScale(
+    offered.findIndex((p) => p.id === state.place),
+    offered.findIndex((p) => p.id === answer.place),
+    { near: spec.near },
+  );
+
+  const guessed = PLACES[placeAt(state.place)];
+  const wanted = PLACES[placeAt(answer.place)];
+  // Counted on the seven places rather than on the chips, because the easy
+  // tier only offers three of them and "one chip out" there is two thirds of
+  // the field.
+  const steps = placeAt(state.place) - placeAt(answer.place);
+  const away = Math.abs(steps);
+
+  return {
+    correct: mark === HIT,
+    cells: [
+      { state: mark, text: guessed.symbol },
+      {
+        state: mark,
+        text: away === 0 ? 'that is where it was'
+          : `${away} place${away === 1 ? '' : 's'} too far ${steps > 0 ? 'right' : 'left'}`,
+        narrow: true,
+      },
+    ],
+    why: [
+      {
+        label: 'Where it was',
+        value: `${wanted.symbol} - ${writePan(wanted.pan)}`,
+        how: 'Set on the imager\'s own pan control, which is the same law the '
+           + 'placing exercise is marked with.',
+      },
+      {
+        label: 'How far apart the places are',
+        value: '4 to 6 dB of balance a step',
+        how: 'Measured on a mono instrument through this tool: the seven places '
+           + 'read +156.6, +11.26, +4.72, 0.00 dB of balance and the same back '
+           + 'the other way. The outermost is one channel closed, which is not '
+           + 'a balance so much as the end of the room.',
+      },
+      {
+        label: 'Why there is no width question',
+        value: 'a pan destroys the thing it would ask about',
+        how: 'Measured on the spread bed: at hard left the width reads 0.00 dB '
+           + 'whatever the width controls say, because one channel is shut, and '
+           + 'two thirds across it reads -2.7 dB narrow against -2.6 wide. How '
+           + 'wide is the imager\'s own exercise, answered on the imager.',
+      },
+    ],
+  };
+}
 
 export const IMAGE_WORK = {
   tool: 'panning',
@@ -169,13 +305,27 @@ export const IMAGE_WORK = {
     hard: { label: 'Hard', blurb: 'Anywhere at all', guesses: 4, step: 0.1, bands: 3 },
   },
 
-  /** The round is played on the plugin, so there is nothing to pick from. */
-  slots() {
-    return [];
+  /** Answered on the plugin, except in the drill, which asks with chips. */
+  slots(tier, settings) {
+    if (settings?.exercise !== 'drill') return [];
+
+    const spec = PLACE_DRILL[tier] ?? PLACE_DRILL.medium;
+    return [{
+      id: 'place',
+      kind: 'choice',
+      label: 'Where it sits',
+      options: PLACES.filter((place) => spec.places.includes(place.id)),
+    }];
   },
 
   makePuzzle(rng, tier, settings) {
     const spec = this.tiers[tier];
+
+    if (settings.exercise === 'drill') {
+      const drill = PLACE_DRILL[tier] ?? PLACE_DRILL.medium;
+      const place = pick(rng, PLACES.filter((p) => drill.places.includes(p.id)));
+      return { answer: { place: place.id } };
+    }
 
     if (settings.exercise === 'mono') {
       // How far somebody else spread the low end before handing it over.
@@ -210,6 +360,8 @@ export const IMAGE_WORK = {
     const { answer, tier } = puzzle;
     const guess = state;
     const exercise = puzzle?.settings?.exercise ?? 'place';
+    if (exercise === 'drill') return scorePlacing(guess, puzzle);
+
     const settings = { ...IMAGE_DEFAULTS, ...guess, listen: 'stereo' };
     const material = fieldMaterial(puzzle);
     // The same envelope the plugin hands back, so the panel's number and this
@@ -434,6 +586,20 @@ export const IMAGE_WORK = {
     const { answer, tier } = puzzle;
     const exercise = puzzle?.settings?.exercise ?? 'place';
 
+    if (exercise === 'drill') {
+      const place = PLACES[placeAt(answer.place)];
+      const side = place.pan === 0 ? 'neither side'
+        : place.pan < 0 ? 'the left' : 'the right';
+      return [
+        'Centre it and back. What you are listening for is which speaker is '
+          + 'carrying more of it, not which one it is coming out of.',
+        `It is over to ${side}.`,
+        place.pan === 0
+          ? 'It is dead centre - the two channels are carrying the same level.'
+          : `It is ${Math.abs(place.pan) === 1 ? 'as far over as it goes' : Math.abs(place.pan) > 0.5 ? 'well over, but not all the way' : 'only a little over'}.`,
+      ];
+    }
+
     if (exercise === 'mono') {
       return [
         'The problem is down low, and it is width: there is too much on the '
@@ -479,6 +645,17 @@ export const IMAGE_WORK = {
     const { answer } = puzzle;
     const exercise = puzzle?.settings?.exercise ?? 'place';
 
+    if (exercise === 'drill') {
+      const place = PLACES[placeAt(answer.place)];
+      return {
+        symbol: place.symbol,
+        // writePan already says "Centre" for the middle, so repeating the
+        // percentage there reads as "Centre - up the middle - Centre".
+        name: place.pan === 0 ? 'up the middle, both channels level'
+          : `${place.name} - ${writePan(place.pan)}`,
+      };
+    }
+
     if (exercise === 'mono') {
       return {
         symbol: `${Math.round((puzzle?.fault?.low ?? 2.3) * 100)}%`,
@@ -497,9 +674,21 @@ export const IMAGE_WORK = {
     return { symbol: writePan(answer.pan), name: '' };
   },
 
+  /** What a guess says it heard, in `weak`'s own words. */
+  heard(guess, puzzle) {
+    if ((puzzle?.settings?.exercise ?? 'place') !== 'drill') return null;
+    const place = PLACES[placeAt(guess.place)];
+    if (!place) return null;
+    return { key: `place-${place.id}`, label: place.symbol.toLowerCase() };
+  },
+
   weak(puzzle) {
     const { answer } = puzzle;
     const exercise = puzzle?.settings?.exercise ?? 'place';
+    if (exercise === 'drill') {
+      const place = PLACES[placeAt(answer.place)];
+      return { key: `place-${place.id}`, label: place.symbol.toLowerCase() };
+    }
     if (exercise === 'mono') return { key: 'mono', label: 'mono compatibility' };
     if (exercise === 'match') return { key: 'width', label: 'width' };
 

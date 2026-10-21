@@ -114,28 +114,35 @@ export function wrongGuess(puzzle, nth = 0) {
 
   const slots = spec.slots(puzzle.tier, puzzle.settings);
 
-  const dialled = slots.filter((slot) => slot.kind === 'range');
-  if (dialled.length) {
-    return Object.fromEntries(dialled.map((slot) => {
+  // Both halves, because a drill may ask with both - the reverb's asks how
+  // long the tail is on a control and how big the room is with chips. What
+  // was here returned the dialled half alone the moment there was one, which
+  // left every chip in the guess undefined and handed the scorer a guess with
+  // a hole in it.
+  const dialled = Object.fromEntries(
+    slots.filter((slot) => slot.kind === 'range').map((slot) => {
       const answer = puzzle.answer[slot.id];
       const off = slot.near + 0.5 + nth * 0.25;
       const wrong = slot.unit === 'oct' || slot.unit === 'x'
         ? answer * 2 ** (answer * 2 ** off <= slot.max ? off : -off)
         : answer + (answer + off <= slot.max ? off : -off);
       return [slot.id, clamp(wrong, slot.min, slot.max)];
-    }));
-  }
+    }),
+  );
+
+  const chips = slots.filter((slot) => slot.kind !== 'range');
+  if (!chips.length) return dialled;
 
   let combinations = [{}];
-  for (const slot of slots) {
+  for (const slot of chips) {
     combinations = combinations.flatMap((partial) =>
       slot.options.map((option) => ({ ...partial, [slot.id]: option.id })));
   }
 
   const wrong = combinations.filter((guess) =>
-    slots.some((slot) => guess[slot.id] !== puzzle.answer[slot.id]));
+    chips.some((slot) => guess[slot.id] !== puzzle.answer[slot.id]));
 
-  return wrong[nth % wrong.length];
+  return { ...dialled, ...wrong[nth % wrong.length] };
 }
 
 /** Every mode and tier, with every exercise a mode offers. */

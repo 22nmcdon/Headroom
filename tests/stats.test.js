@@ -141,8 +141,8 @@ test('a round opens fresh, and nothing is kept per puzzle', () => {
   assert.equal(again.guesses.length, 0);
 
   assert.equal(getStats('eq', 'easy').played, 1);
-  assert.deepEqual(Object.keys(JSON.parse(localStorage.getItem('headroom.stats.v3')).buckets),
-    ['eq:easy'], 'one bucket, keyed by tool and tier and nothing else');
+  assert.deepEqual(Object.keys(JSON.parse(localStorage.getItem('headroom.stats.v4')).buckets),
+    ['eq:easy:work'], 'one bucket, keyed by tool, tier and kind and nothing else');
 });
 
 test('a v2 store is read as nothing rather than merged', () => {
@@ -157,8 +157,8 @@ test('a v2 store is read as nothing rather than merged', () => {
 test('a stored bucket from an older shape is filled in rather than thrown on', () => {
   // What comes back from a browser was written by whatever version of this
   // file the browser last ran. Reading a field added since should give a zero.
-  localStorage.setItem('headroom.stats.v3', JSON.stringify({
-    buckets: { 'eq:easy': { played: 3, won: 2 } },
+  localStorage.setItem('headroom.stats.v4', JSON.stringify({
+    buckets: { 'eq:easy:work': { played: 3, won: 2 } },
   }));
 
   const stats = getStats('eq', 'easy');
@@ -169,7 +169,7 @@ test('a stored bucket from an older shape is filled in rather than thrown on', (
 });
 
 test('corrupt storage degrades to empty stats instead of throwing', () => {
-  localStorage.setItem('headroom.stats.v3', '{not json');
+  localStorage.setItem('headroom.stats.v4', '{not json');
   const stats = getStats('eq', 'easy');
   assert.equal(stats.played, 0);
   assert.deepEqual(stats.attempts, Object.fromEntries(ATTEMPT_BANDS.map((b) => [b.id, 0])));
@@ -187,7 +187,7 @@ test('an export carries every bucket, and says what it is', () => {
   assert.equal(file.format, PROGRESS_FORMAT);
   assert.equal(file.exported, '2026-10-21T09:00:00.000Z');
   assert.ok(file.id, 'and carries an id, so the same file is not counted twice');
-  assert.equal(file.buckets['eq:easy'].played, 1);
+  assert.equal(file.buckets['eq:easy:work'].played, 1);
 
   // It is a file, so it has to survive being one.
   assert.deepEqual(JSON.parse(JSON.stringify(file)), file);
@@ -274,7 +274,7 @@ test('a bucket full of junk cannot corrupt the store', () => {
     format: PROGRESS_FORMAT,
     id: 'junk-1',
     buckets: {
-      'eq:easy': {
+      'eq:easy:work': {
         played: 'lots', won: -4, attempts: { '2': 1.7, nonsense: 9 },
         byAnswer: { mud: { seen: NaN, solved: 'two', label: 'mud' } },
       },
@@ -299,7 +299,7 @@ test('an import never leaves more solved than played', () => {
     app: 'headroom',
     format: PROGRESS_FORMAT,
     id: 'junk-2',
-    buckets: { 'eq:easy': { played: 1, won: 9, byAnswer: { mud: { seen: 1, solved: 5 } } } },
+    buckets: { 'eq:easy:work': { played: 1, won: 9, byAnswer: { mud: { seen: 1, solved: 5 } } } },
   });
 
   assert.equal(result.ok, true);
@@ -317,4 +317,116 @@ test('resetting clears what was imported too, so a file can be imported again', 
   resetStats();
   assert.equal(importProgress(file).ok, true, 'a reset is a reset');
   assert.equal(getStats('eq', 'easy').played, 1);
+});
+
+/* --- drills keep their own book ------------------------------------------ */
+
+const drillPuzzleFor = (band, move = 'boost', seed = 'd') => ({
+  mode: 'eq',
+  tier: 'medium',
+  settings: { exercise: 'drill' },
+  seed,
+  answer: { band, move },
+  fault: { type: 'peaking', frequency: 1000, gain: 6, q: 1.41, on: true },
+});
+
+test('a drill does not pool with the work on the same tool', () => {
+  // Working at a tool and being asked about one are different activities.
+  // Pooled, an EQ drill's accuracy would be averaged with the match
+  // exercise's and the dialog would report neither.
+  play(puzzleFor(MUD), [bandAt(MUD)]);
+  play(drillPuzzleFor('1k'), [{ band: '1k', move: 'boost' }]);
+
+  assert.equal(getStats('eq', 'easy', 'work').played, 1);
+  assert.equal(getStats('eq', 'medium', 'drill').played, 1);
+  assert.equal(getStats('eq', 'medium', 'work').played, 0, 'a tier of its own too');
+  assert.equal(getStats('eq', 'easy').played, 1, 'work is what you get if you do not say');
+});
+
+test('a drill records what was heard instead, once it is more than a slip', () => {
+  // The first guess rather than the last: it is the one made before any
+  // reading came back, so it is the only one that says what the ear did on
+  // its own.
+  for (let i = 0; i < 3; i += 1) {
+    play(drillPuzzleFor('2k', 'boost', `c${i}`), [
+      { band: '4k', move: 'boost' },
+      { band: '2k', move: 'boost' },
+    ]);
+  }
+
+  const stats = getStats('eq', 'medium', 'drill');
+  assert.equal(stats.byAnswer['octave-2k'].seen, 3);
+  assert.equal(stats.byAnswer['octave-2k'].confused['octave-4k'].n, 3);
+  assert.match(stats.byAnswer['octave-2k'].confused['octave-4k'].label, /4k/);
+});
+
+test('getting it right first time is not a confusion', () => {
+  play(drillPuzzleFor('2k', 'boost', 'right'), [{ band: '2k', move: 'boost' }]);
+  const kind = getStats('eq', 'medium', 'drill').byAnswer['octave-2k'];
+  assert.equal(kind.solved, 1);
+  assert.equal(kind.confused, undefined);
+});
+
+test('the weak spot says what it keeps being heard as', () => {
+  // Twice, not once: once is a slip, twice is the thing worth telling
+  // somebody.
+  play(drillPuzzleFor('2k', 'boost', 'w0'), [{ band: '8k', move: 'boost' }], { give: true });
+  assert.equal(weakestKind(getStats('eq', 'medium', 'drill'), 1).confusedWith, null,
+    'one wrong answer is a slip');
+
+  for (const seed of ['w1', 'w2']) {
+    play(drillPuzzleFor('2k', 'boost', seed), [{ band: '4k', move: 'boost' }], { give: true });
+  }
+  play(drillPuzzleFor('2k', 'boost', 'w3'), [{ band: '1k', move: 'boost' }], { give: true });
+
+  const weak = weakestKind(getStats('eq', 'medium', 'drill'));
+  assert.equal(weak.key, 'octave-2k');
+  assert.equal(weak.confusedWith.key, 'octave-4k', 'the commonest of them');
+  assert.equal(weak.confusedWith.n, 2);
+});
+
+test('a v3 store is carried across, because none of it could have been a drill', () => {
+  // Unlike v2, which was half the daily's and could not be. There were no
+  // drills when a v3 store was written, so every bucket in one is work.
+  resetStats();
+  localStorage.removeItem('headroom.stats.v4');
+  localStorage.setItem('headroom.stats.v3', JSON.stringify({
+    buckets: { 'eq:easy': { played: 7, won: 5 }, 'reverb:hard': { played: 2, won: 0 } },
+    imported: ['abc'],
+  }));
+
+  assert.equal(getStats('eq', 'easy', 'work').played, 7);
+  assert.equal(getStats('reverb', 'hard', 'work').won, 0);
+  assert.equal(getStats('reverb', 'hard', 'work').played, 2);
+  assert.equal(getStats('eq', 'easy', 'drill').played, 0, 'and nothing lands in the drill book');
+
+  // Written back under the new key, and the old one left alone.
+  const now = JSON.parse(localStorage.getItem('headroom.stats.v4'));
+  assert.deepEqual(Object.keys(now.buckets).sort(), ['eq:easy:work', 'reverb:hard:work']);
+  assert.deepEqual(now.imported, ['abc'], 'and it still knows what it has imported');
+  assert.ok(localStorage.getItem('headroom.stats.v3'), 'the old store is left where it is');
+});
+
+test('an import carries the confusions across, and refuses a bucket of an unknown kind', () => {
+  resetStats();
+  const result = importProgress({
+    app: 'headroom',
+    format: PROGRESS_FORMAT,
+    id: 'kinds-1',
+    buckets: {
+      'eq:medium:drill': {
+        played: 4, won: 1,
+        byAnswer: { 'octave-2k': { seen: 4, solved: 1, label: '2k (honk)', confused: { 'octave-4k': { n: 3, label: '4k (presence)' } } } },
+      },
+      'eq:easy:nonsense': { played: 9, won: 9 },
+      'eq:easy': { played: 9, won: 9 },
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.buckets, 1, 'only the one this app could have written');
+
+  const stats = getStats('eq', 'medium', 'drill');
+  assert.equal(stats.byAnswer['octave-2k'].confused['octave-4k'].n, 3);
+  assert.equal(getStats('eq', 'easy', 'work').played, 0, 'a two-part key is not a v4 bucket');
 });

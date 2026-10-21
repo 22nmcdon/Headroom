@@ -28,17 +28,24 @@ measured.
 > with nothing to run out of, a streak measured how recently you played rather
 > than how well you hear. A daily *drill* — one short question a day, the same
 > for everyone — is worth having and comes back on the drills. What replaces
-> all of it (identification drills, an analysis pillar, an optional guided
-> path) is being built in stages.
+> all of it is being built in stages: the identification drills are in, and an
+> analysis pillar and an optional guided path are not.
 
-| Mode | What you work with | Exercises |
-| --- | --- | --- |
-| **EQ** | **a channel EQ** — six bands you drag over a live spectrum, with the loop running | **Match** a target move · **Fix** a sample with a resonance in it |
-| **Compression** | **a compressor** — threshold, ratio, attack, release, knee, lookahead, a filtered sidechain and a key input | **Match** a target compressor · **Even out** a loop whose hits are all over the place · **Duck** one thing under another |
-| **Stereo** | **an imager** — mid/side width in three bands, two movable crossovers, a pan, and mono and side monitoring | **Place** a sound · **Match** a target image · **Rescue** a low end somebody spread too wide to survive mono |
-| **Reverb** | **a reverb** — decay, pre-delay, damping, early/late balance and mix | **Match** a room · **Fit** the tail to the tempo |
-| **Delay** | **a delay** — time or note division, feedback, ping-pong, a filtered repeat path and mix | **Match** a delay · **Find** the note it is on |
-| **Saturation** | **a saturator** — drive, bias, hardness, tone and a parallel mix, run eight times oversampled | **Match** how much · **Match** the colour · Build a warmth that is **even and not odd** |
+Two ways to use any of them, on a pill at the top: **work at it**, or be
+**drilled** on it. Working at a tool is matching a target, curing a fault,
+levelling a loop — you build the answer on the plugin. A drill puts the tool
+away and asks instead: which octave moved, how much reduction is that, warm or
+dirty, where is it, how big is the room, which note are the repeats on. The
+pill survives changing tool, so a run of all six drills is one click each.
+
+| Mode | What you work with | Exercises | The drill |
+| --- | --- | --- | --- |
+| **EQ** | **a channel EQ** — six bands you drag over a live spectrum, with the loop running | **Match** a target move · **Fix** a sample with a resonance in it | **Name the move**: which octave, and boosted or cut |
+| **Compression** | **a compressor** — threshold, ratio, attack, release, knee, lookahead, a filtered sidechain and a key input | **Match** a target compressor · **Even out** a loop whose hits are all over the place · **Duck** one thing under another | **How much is it doing**: 0 to 12 dB of reduction, level-matched |
+| **Stereo** | **an imager** — mid/side width in three bands, two movable crossovers, a pan, and mono and side monitoring | **Place** a sound · **Match** a target image · **Rescue** a low end somebody spread too wide to survive mono | **Where is it**: seven places across the field |
+| **Reverb** | **a reverb** — decay, pre-delay, damping, early/late balance and mix | **Match** a room · **Fit** the tail to the tempo | **How big, how long**: the space on chips, the tail on a dial |
+| **Delay** | **a delay** — time or note division, feedback, ping-pong, a filtered repeat path and mix | **Match** a delay · **Find** the note it is on | **Which note is it on**: five divisions at this tempo |
+| **Saturation** | **a saturator** — drive, bias, hardness, tone and a parallel mix, run eight times oversampled | **Match** how much · **Match** the colour · Build a warmth that is **even and not odd** | **Warm or dirty**: even harmonics against odd, and how hard |
 
 ### The EQ is a plugin
 
@@ -75,12 +82,52 @@ because that division is the whole ear skill — even harmonics are octaves and
 sound like the note getting larger, odd ones are fifths and sound like it
 breaking, and *warm* and *dirty* are those two piles of numbers.
 
+### The drills are calibrated, not guessed
+
+Every drill asks something the ear can actually hear, and what counts as
+"close" is a measurement rather than a judgement. The numbers are in the code
+beside the constants they set.
+
+- **Which octave moved.** The bed was rendered offline and read at the ten
+  octave centres from 31.5 Hz to 16 kHz, then rendered again through a +9 dB
+  octave-wide boost at each. **31.5 Hz and 16 kHz are not on the chips**: the
+  bed holds −20.1 dB and −32.7 dB there against its loudest octave, and the
+  same move lifts them 6.3 and 4.3 dB against 6.1–7.3 dB everywhere else. What
+  "close" means comes off the same renders — a move shows up in the octave next
+  door at about a third of its size and two octaves away at a tenth or less, so
+  next door is a near miss and two along is not.
+- **How much reduction.** "Gain reduction" has two meanings on a drum loop and
+  only one is audible. The meter's deepest moment is a transient: the same
+  compressor reads −16.5 dB with a 1 ms attack and −6.0 dB with a 60 ms one
+  while doing the same work. So the drill means *how much quieter the loop
+  got*, which is what auto-makeup puts back — and it puts it back, so the
+  question is not "which is louder". The six amounts are told apart by crest
+  factor, which climbs 21.6, 23.1, 24.9, 26.6, 28.8, 30.5 dB across them.
+- **Warm or dirty.** The odd side is a symmetric curve, which makes **no even
+  harmonics at all** — not few, 273 dB down — and the even side leads by at
+  least 8 dB. The two questions are independent by construction: the amounts
+  match across the colours to within 1.3 dB, or anybody would name the colour
+  off the volume.
+- **Where is it.** Seven places, 4 to 6 dB of balance apart, on a **mono**
+  source — because on a stereo one a pan destroys the thing a width question
+  would ask about: at hard left the width reads 0.00 dB whatever the controls
+  say. How wide is the imager's own exercise, answered on the imager.
+- **How big, how long.** The tail is marked on the **measured RT60** of the
+  room, not the number on the decay control: a decay of 1.2 rings for 0.78 to
+  1.04 s. Close is a ratio, because time is heard in ratios. Size is a separate
+  question because it is a separate thing to hear — six metres answers at
+  6.9 ms, eighteen at 20.7 and forty at 46.0.
+- **Which note.** A quarter is 625.0 ms at this tempo, a dotted eighth 468.8,
+  an eighth 312.5, a triplet 208.3, a sixteenth 156.3 — so neighbours sit 1.33
+  or 1.50 apart wherever you are in the list, and the easy tier takes every
+  other one for 4:2:1.
+
 **What is not here any more.** Four modes used to sit alongside these: name
 the chord, name the note, name the interval, name the figure. They were cut —
 a producer can have a very good pair of ears and never name a half-diminished
-seventh. What is coming in their place asks the same shape of question about
-the right subject: which band is boosted, how much reduction is that, even
-harmonics or odd.
+seventh. What replaced them asks the same shape of question about the right
+subject: which band is boosted, how much reduction is that, even harmonics or
+odd.
 
 ## Run it
 
@@ -161,18 +208,21 @@ that doing it right is audible rather than merely scored:
   additive partials, a kit built from filtered noise, and a four-piece bed
   (kick, bass, chord, hats) for the exercises that need something broadband to
   judge a move against.
-- **Per-tool progress**, per tier, including which kind of answer keeps
-  catching you out — and **Export** / **Import** in the stats dialog, because
-  one key in one browser's storage is not a copy. An import *adds* to what is
+- **An identification drill on every tool**, on three tiers each, with the
+  question, the chips and the tolerances all set by measurement rather than by
+  taste — see below.
+- **Per-tool progress**, per tier, and kept apart for work and for drills,
+  because they are different activities and pooling them would report neither.
+  It records which kind of answer keeps catching you out *and what you keep
+  hearing it as*: "2k (honk) is the one to work on — solved 40% of 5. You
+  usually hear it as 4k (presence)." Plus **Export** / **Import** in the stats
+  dialog, because one key in one browser's storage is not a copy. An import *adds* to what is
   already there rather than replacing it, so the same person on a phone and on
   a laptop keeps both halves; each export carries an id, so importing the same
   file twice counts it once.
 
 ## Not built yet
 
-- **Identification drills** — name the boosted band, judge the gain reduction,
-  tell even harmonics from odd. The DSP for every one of them already exists;
-  the exercises do not.
 - **The analysis pillar** — loading your own audio and having it read back to
   you: loudness, crest factor, spectral balance, stereo correlation per band.
 - **An optional guided path** through the material.
@@ -187,7 +237,8 @@ A tool is three files, composed by `src/bench/registry.js`:
 
 ```
 src/tools/eq.js     what it is, and open(el, {engine, onChange}) -> a live plugin
-src/work/eq.js      exercises over it: makePuzzle, score, hints, reveal, weak
+src/work/eq.js      exercises and drills over it: makePuzzle, score, hints,
+                    reveal, weak, heard
 src/notes/eq.js     the long prose, for the person using it
 ```
 
@@ -198,28 +249,42 @@ plugin down and stop the audio. Now the tool is what stays and an exercise is
 something that arrives, sets it up, and leaves.
 
 `src/bench/session.js` does the arriving and leaving. An exercise is data — a
-source, the A/B's name, `faultOf(puzzle)`, `targetOf(puzzle)` — and `attach`
-applies it in an order that matters: remember what the tool was doing, put the
-material on and **wait for it**, pin it to the puzzle, then fault, target,
-label, and the starting settings last so `onChange` fires once at the end.
+source, the A/B's name, `faultOf(puzzle)`, `targetOf(puzzle)`, `startOf(puzzle)`
+— and `attach` applies it in an order that matters: remember what the tool was
+doing, put the material on and **wait for it**, pin it to the puzzle, then
+fault, target, label, and the starting settings last so `onChange` fires once
+at the end. `startOf` is deliberately after the material: a drill that asks how
+much a compressor is doing has to set a compressor that does that much to
+*this* loop, which cannot be worked out until the loop exists. An exercise that
+drives the tool's own controls says `restores: true`, and `detach` puts them
+back — otherwise the next exercise opens with the last drill's answer on the
+knobs.
 `detach` puts back everything the exercise imposed and nothing else: the drawn
 answer, the lock, the fault, the A/B. Not where the controls ended up —
 somebody may want to keep working from the curve they just built.
 
 Every tool implements the same lifecycle: `state`/`setState`, `read`/`readNow`,
 `setSource(id, opts)`, `loadFile`, `setFault`, `setTarget`, `showTarget` (null
-clears), `nameAB`, `lock`/`unlock`, `source`, `abLabel`, `material`, `destroy`.
+clears), `nameAB`, `lock`/`unlock`, `source`, `abLabel`, `material`, `toggle`,
+`isPlaying`, `destroy`. The last two are the transport, and the shell needs
+them because a drill hides the tool and drives it from outside — the clean A/B
+a drill offers is `setFault(null)` and back, or `setState(clean)` and back,
+with the loop never stopping.
 `tests/session.test.js` holds the decisions to account against a fake tool made
 of nothing but promises — which is how attach → detach → attach gets tested at
 all, given that nothing in this app had ever reused a plugin.
 
 ### The exercise contract, in older words
 
-A tool's work is data and six functions. It says what it asks (`slots`), how to make a puzzle
-(`makePuzzle`), how to read a guess (`score(state, puzzle)`), what to say when
-somebody is stuck (`hints(puzzle)`), and what the answer was (`reveal`,
-`weak`). Nothing else in the app knows which tool is showing — the log, the
-picker and the stats are all built from what it returns.
+A tool's work is data and seven functions. It says what it asks (`slots(tier,
+settings)`), how to make a puzzle (`makePuzzle`), how to read a guess
+(`score(state, puzzle)`), what to say when somebody is stuck (`hints(puzzle)`),
+what the answer was (`reveal`, `weak`), and — for a drill — what a guess says
+it *heard* (`heard(guess, puzzle)`), in the same words `weak` uses for what was
+played. That last one is what lets the stats say "you keep hearing 2k as 4k":
+two keys in one namespace, compared. Nothing else in the app knows which tool
+is showing — the log, the picker and the stats are all built from what it
+returns.
 
 `score` takes two arguments where it took four: the answer and the tier both
 live on the puzzle already, and every scorer had grown a defensive
@@ -271,8 +336,12 @@ the tolerances that decide right from close — and renders as a control, with
 its value read back live and audible through `Play yours` before it is
 committed.
 
-All six are tools, so all six return no slots: a tool is answered on the tool.
-Slots are for the identification drills, which ask with chips.
+`slots` takes the settings, because which controls a round asks with is the
+exercise's business. A tool exercise returns none — a tool is answered on the
+tool — and a drill returns the chips, or in the reverb's case chips and a
+control. A drill also declares `drill: true`, which is how the shell knows to
+put the tool away: on every one of these the display *is* the answer, so the
+analyser would be drawing the boost and the harmonic bars even against odd.
 
 `tests/modes.test.js` holds every mode to that contract: that its own answer
 scores green in every cell, that every answer it can generate is answerable from

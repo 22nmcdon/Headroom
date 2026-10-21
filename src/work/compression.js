@@ -1,8 +1,8 @@
 import { COMP_DEFAULTS, analyse, runCompressor } from '../comp/dsp.js';
-import { reductionReading } from '../comp/reading.js';
+import { reductionReading, materialStamp } from '../comp/reading.js';
 import { distance } from '../gap.js';
 import { writeTime, writeRatio } from '../comp/plugin.js';
-import { HIT, NEAR, MISS, logPick, toStep } from './scoring.js';
+import { HIT, NEAR, MISS, onScale, logPick, toStep, pick } from './scoring.js';
 
 /**
  * The compressor, as the tool it is.
@@ -208,6 +208,116 @@ function materialOf(puzzle) {
 
 const settle = (guess) => ({ ...COMP_DEFAULTS, ...guess });
 
+/* --- the drill ------------------------------------------------------------ */
+
+/**
+ * How much it is doing, in the amounts an engineer says out loud.
+ *
+ * "Gain reduction" has two meanings on a drum loop and only one of them is a
+ * thing you can hear. The meter's needle is the deepest moment, and on drums
+ * with any attack at all that is a transient - measured here, the same
+ * compressor reads -16.5 dB at its deepest with a 1 ms attack and -6.0 dB
+ * with a 60 ms one, while doing much the same work to the body of the sound.
+ * What you hear is the other one: how much quieter the loop got overall,
+ * which is exactly the gain auto-makeup puts back. So that is what these
+ * numbers are, and it is what the solver below hits.
+ */
+const REDUCTIONS = [
+  { id: '0', db: 0, symbol: '0', name: 'none' },
+  { id: '2', db: 2, symbol: '2', name: 'a touch' },
+  { id: '4', db: 4, symbol: '4', name: 'gentle' },
+  { id: '6', db: 6, symbol: '6', name: 'working' },
+  { id: '9', db: 9, symbol: '9', name: 'hard' },
+  { id: '12', db: 12, symbol: '12', name: 'squashed' },
+];
+
+const reductionAt = (id) => REDUCTIONS.findIndex((r) => r.id === id);
+
+/**
+ * The compressor the drill sets, and which amounts it offers.
+ *
+ * Ratio and attack are fixed so the only thing that moves between rounds is
+ * how much it is doing, which is the question. 8:1 at 5 ms reaches the whole
+ * range on this loop - measured, the thresholds that hit 0, 2, 4, 6, 9 and 12
+ * dB are 0, -12.5, -17, -21.5, -30 and -41 - where a gentler 4:1 at 10 ms
+ * runs out at 11.3 dB with the threshold on the floor.
+ *
+ * What makes two of these sound different, level-matched, is the crest
+ * factor: peak over RMS, which is how much of the loop is transient and how
+ * much is body. Measured on the same renders it climbs 21.6, 23.1, 24.9,
+ * 26.6, 28.8, 30.5 dB across the six - 1.5 to 2.2 dB a step, every step in
+ * the same direction. That is the sound of it: the hits stay and everything
+ * between them comes up.
+ *
+ * `near` is one step where the steps are 2 dB, and nothing at the easy tier,
+ * whose three amounts are 4 and 5 dB apart - the same rule the EQ drill
+ * follows, and for the same reason.
+ */
+const REDUCTION_DRILL = {
+  easy: { amounts: ['0', '4', '9'], near: 0 },
+  medium: { amounts: REDUCTIONS.map((r) => r.id), near: 1 },
+  hard: { amounts: REDUCTIONS.map((r) => r.id), near: 0 },
+};
+
+/** Fixed, so that the only thing that changes between rounds is the amount. */
+const DRILL_SHAPE = { ratio: 8, attack: 5, release: 150, knee: 6 };
+
+/**
+ * The threshold that takes `want` decibels off this loop.
+ *
+ * Solved rather than stored, because the answer is a property of the audio:
+ * the same threshold does a different amount of work to a different loop, and
+ * the loop is rendered by the browser at a sample rate this code does not
+ * choose. Bisection over the threshold, with the compressor run over the
+ * material each time - fourteen passes, which is one more than enough to land
+ * inside a tenth of a decibel.
+ *
+ * This runs once per round, in `startOf`, which the session calls after the
+ * material has arrived and been pinned. Before that there is nothing to solve
+ * against.
+ */
+const solved = new Map();
+
+function thresholdFor(want, samples, rate) {
+  if (want <= 0) return 0;
+
+  // Kept, because the answer is a property of the loop and the loop does not
+  // change: the same six thresholds come out for every round of every tier.
+  // Fourteen passes over a five-second loop is about 300 ms, which is a
+  // noticeable stall to pay once and absurd to pay every round.
+  const held = `${materialStamp(samples)}:${rate}:${want}`;
+  if (solved.has(held)) return solved.get(held);
+
+  let low = -60;
+  let high = 0;
+  for (let i = 0; i < 14; i += 1) {
+    const mid = (low + high) / 2;
+    if (analyse(samples, rate, { ...COMP_DEFAULTS, ...DRILL_SHAPE, threshold: mid }).makeup < want) {
+      high = mid;
+    } else {
+      low = mid;
+    }
+  }
+
+  const threshold = toStep((low + high) / 2, 0.5);
+  solved.set(held, threshold);
+  return threshold;
+}
+
+/** The compressor that does this round's amount of work to this round's loop. */
+function drillSettings(puzzle) {
+  const { samples, rate } = materialOf(puzzle);
+  const want = REDUCTIONS[reductionAt(puzzle.answer.reduction)].db;
+  const threshold = thresholdFor(want, samples, rate);
+
+  // The makeup is the measured reduction put back, so that the two sides of
+  // the A/B are the same loudness. Without it the drill is "which one is
+  // quieter", which is a level test and not a compression test.
+  const settings = { ...COMP_DEFAULTS, ...DRILL_SHAPE, threshold, makeup: 0 };
+  settings.makeup = want <= 0 ? 0 : analyse(samples, rate, settings).makeup;
+  return settings;
+}
+
 /**
  * The three exercises, in the shape a session can set up.
  *
@@ -248,7 +358,93 @@ export const COMP_EXERCISES = {
     faultOf: () => null,
     targetOf: () => ({ ...COMP_DEFAULTS, mix: 0 }),
   },
+  drill: {
+    id: 'drill',
+    label: 'How much is it doing?',
+    drill: true,
+    ask: 'How much gain reduction is this compressor doing?',
+    lede: 'Nothing to dial here. A compressor is on the loop and the level has '
+        + 'been put back, so what is left to hear is how hard it is working.',
+    opening: 'Play it, flip to the uncompressed side, then say how much.',
+    tierBlurbs: {
+      easy: 'Three amounts, far apart',
+      medium: 'Six amounts, a step forgiven',
+      hard: 'Six amounts, exact',
+    },
+    source: 'drums',
+    sourceOptions: { key: null },
+    other: 'Untreated',
+    faultOf: () => null,
+    targetOf: () => ({ ...COMP_DEFAULTS, mix: 0 }),
+
+    // The compressor goes on the tool rather than into the material, because
+    // a compressor doing 6 dB is a compressor and not a faulty loop. Which
+    // means the tool's own controls are the answer - so `restores` puts them
+    // back on the way out, or the next exercise opens with them on the knobs.
+    startOf: (puzzle) => drillSettings(puzzle),
+    cleanOf: () => ({ ...COMP_DEFAULTS, mix: 0, makeup: 0 }),
+    restores: true,
+  },
 };
+
+/**
+ * Name the amount.
+ *
+ * Two readings for one chip, because a chip on its own only repeats the guess
+ * back. The second is the useful one: how far off, and which way - "two steps
+ * light" is a correction, "wrong" is not.
+ */
+function scoreReduction(state, puzzle) {
+  const { answer, tier } = puzzle;
+  const spec = REDUCTION_DRILL[tier] ?? REDUCTION_DRILL.medium;
+  const offered = REDUCTIONS.filter((r) => spec.amounts.includes(r.id));
+
+  const guessedAt = offered.findIndex((r) => r.id === state.reduction);
+  const answerAt = offered.findIndex((r) => r.id === answer.reduction);
+  const mark = onScale(guessedAt, answerAt, { near: spec.near });
+
+  const guessed = REDUCTIONS[reductionAt(state.reduction)];
+  const wanted = REDUCTIONS[reductionAt(answer.reduction)];
+  const off = guessed.db - wanted.db;
+
+  return {
+    correct: mark === HIT,
+    cells: [
+      { state: mark, text: `${guessed.symbol} dB · ${guessed.name}` },
+      {
+        state: mark,
+        text: off === 0 ? 'that is it'
+          : `${Math.abs(off)} dB too ${off > 0 ? 'much' : 'little'}`,
+        narrow: true,
+      },
+    ],
+    why: [
+      {
+        label: 'How far off',
+        value: off === 0 ? 'on it' : `${Math.abs(off)} dB ${off > 0 ? 'over' : 'under'}`,
+        how: 'In decibels of reduction, not in chips - the amounts on offer are '
+           + 'not evenly spaced, and the easy tier leaves some out.',
+      },
+      {
+        label: 'What reduction means here',
+        value: 'how much quieter the loop got',
+        how: 'Not the meter\'s deepest moment: on drums that is a transient, and '
+           + 'the same compressor reads -16.5 dB at its deepest with a 1 ms '
+           + 'attack and -6.0 dB with a 60 ms one while doing much the same '
+           + 'work. This is the overall level the compressor took off, which is '
+           + 'exactly what auto-makeup puts back - and what you can hear.',
+      },
+      {
+        label: 'What tells them apart',
+        value: 'the crest factor, about 2 dB a step',
+        how: 'Measured on this loop, level-matched: peak over RMS climbs 21.6, '
+           + '23.1, 24.9, 26.6, 28.8, 30.5 dB across the six amounts. The hits '
+           + 'stay where they are and everything between them comes up, which '
+           + 'is what more compression sounds like on drums.',
+      },
+    ],
+  };
+}
 
 export const COMP_WORK = {
   tool: 'compression',
@@ -270,13 +466,32 @@ export const COMP_WORK = {
     hard: { label: 'Hard', blurb: 'And the knee', guesses: 4, timing: true, knee: true },
   },
 
-  /** The round is played on the plugin, so there is nothing to pick from. */
-  slots() {
-    return [];
+  /**
+   * Answered on the plugin, except in the drill - which is a listening
+   * question, and asks with chips.
+   */
+  slots(tier, settings) {
+    if (settings?.exercise !== 'drill') return [];
+
+    const spec = REDUCTION_DRILL[tier] ?? REDUCTION_DRILL.medium;
+    return [{
+      id: 'reduction',
+      kind: 'choice',
+      label: 'How much reduction',
+      options: REDUCTIONS.filter((r) => spec.amounts.includes(r.id)),
+    }];
   },
 
   makePuzzle(rng, tier, settings) {
     const spec = this.tiers[tier];
+
+    if (settings.exercise === 'drill') {
+      const drill = REDUCTION_DRILL[tier] ?? REDUCTION_DRILL.medium;
+      const amount = pick(rng, REDUCTIONS.filter((r) => drill.amounts.includes(r.id)));
+      // The settings that produce it are not here: they depend on the loop,
+      // which does not exist yet. `startOf` works them out once it does.
+      return { answer: { reduction: amount.id } };
+    }
 
     if (settings.exercise === 'fix') {
       // The loop's hits are `uneven` dB apart. There is no set of knobs that
@@ -320,6 +535,8 @@ export const COMP_WORK = {
     const { answer, tier } = puzzle;
     const guess = state;
     const exercise = puzzle?.settings?.exercise ?? 'match';
+    if (exercise === 'drill') return scoreReduction(guess, puzzle);
+
     const material = materialOf(puzzle);
     const settings = settle(guess);
 
@@ -542,6 +759,23 @@ export const COMP_WORK = {
     const { answer, tier } = puzzle;
     const exercise = puzzle?.settings?.exercise ?? 'match';
 
+    if (exercise === 'drill') {
+      const amount = REDUCTIONS[reductionAt(answer.reduction)];
+      return [
+        amount.db === 0
+          ? 'Listen to the transients: if the hits still jump the way they do '
+            + 'untreated, nothing is being done to them at all.'
+          : 'Flip to the untreated side and back. The level is matched, so what '
+            + 'changes is how much of the loop sits between the hits.',
+        amount.db === 0 ? 'Nothing is being held down here.'
+          : amount.db <= 4 ? 'It is in the half an engineer would call polite - '
+            + 'you would have to be listening for it.'
+          : 'It is in the half you can hear without being told - the loop has '
+            + 'visibly less room in it.',
+        `An engineer would describe this one as ${amount.name}.`,
+      ];
+    }
+
     if (exercise === 'fix') {
       const uneven = puzzle?.uneven ?? 12;
       return [
@@ -580,6 +814,15 @@ export const COMP_WORK = {
     const { answer } = puzzle;
     const exercise = puzzle?.settings?.exercise ?? 'match';
 
+    if (exercise === 'drill') {
+      const amount = REDUCTIONS[reductionAt(answer.reduction)];
+      return {
+        symbol: `${amount.db} dB`,
+        name: amount.db === 0 ? 'of gain reduction, which is to say none at all'
+          : `of gain reduction, which an engineer would call ${amount.name}`,
+      };
+    }
+
     if (exercise === 'fix') {
       return {
         symbol: `${puzzle?.uneven ?? 12} dB apart`,
@@ -602,9 +845,22 @@ export const COMP_WORK = {
     };
   },
 
+  /** What a guess says it heard, in `weak`'s own words. */
+  heard(guess, puzzle) {
+    if ((puzzle?.settings?.exercise ?? 'match') !== 'drill') return null;
+    const amount = REDUCTIONS[reductionAt(guess.reduction)];
+    if (!amount) return null;
+    return { key: `reduction-${amount.id}`, label: `${amount.db} dB (${amount.name})` };
+  },
+
   weak(puzzle) {
     const { answer } = puzzle;
     const exercise = puzzle?.settings?.exercise ?? 'match';
+
+    if (exercise === 'drill') {
+      const amount = REDUCTIONS[reductionAt(answer.reduction)];
+      return { key: `reduction-${amount.id}`, label: `${amount.db} dB (${amount.name})` };
+    }
     if (exercise === 'fix') return { key: 'levelling', label: 'levelling a loop' };
     if (exercise === 'duck') return { key: 'sidechain', label: 'sidechain ducking' };
 

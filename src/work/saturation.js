@@ -3,7 +3,7 @@ import {
   harmonicsReading,
 } from '../heat/shape.js';
 import { distance } from '../gap.js';
-import { HIT, NEAR, MISS, toStep } from './scoring.js';
+import { HIT, NEAR, MISS, onScale, toStep, pick } from './scoring.js';
 
 /**
  * The harmonics a thing makes when you push it.
@@ -43,6 +43,81 @@ const EVEN_LEAD = { easy: 3, medium: 5, hard: 7 };
 const writeEven = (db) => `${db >= 0 ? '+' : ''}${db.toFixed(1)} dB`;
 
 
+/* --- the drill ------------------------------------------------------------ */
+
+/**
+ * The one distinction worth more than any amount of knob knowledge.
+ *
+ * Even harmonics are octaves and their neighbours, and they sound like the
+ * note getting larger. Odd ones are fifths and their neighbours, and they
+ * sound like it breaking. Warm and dirty are not vague words: they are those
+ * two piles of numbers, and this is the drill that is nothing but telling
+ * them apart.
+ */
+const COLOURS = [
+  { id: 'even', symbol: 'Even', name: 'warm, like octaves' },
+  { id: 'odd', symbol: 'Odd', name: 'dirty, like fifths' },
+];
+
+/** And how hard it is being pushed, which is a separate question. */
+const AMOUNTS = [
+  { id: 'light', symbol: 'A touch', name: 'barely there' },
+  { id: 'pushed', symbol: 'Pushed', name: 'plainly on' },
+  { id: 'heavy', symbol: 'Heavy', name: 'no hiding it' },
+];
+
+const colourAt = (id) => COLOURS.findIndex((c) => c.id === id);
+const amountAt = (id) => AMOUNTS.findIndex((a) => a.id === id);
+
+/**
+ * The settings behind each of the six, and why these six.
+ *
+ * Measured on the sine probe this tool marks everything with, at 48 kHz. The
+ * two questions have to be independent or the drill answers itself - if the
+ * even rounds were all quiet and the odd ones all loud, anybody would be
+ * naming the colour off the volume. So the amount is matched across the
+ * colours and the colour is unmistakable within each amount:
+ *
+ *   even  a touch  THD -21.3 dB   even harmonics lead the odd by 14.3 dB
+ *   even  pushed   THD -17.0 dB   lead 14.3 dB
+ *   even  heavy    THD -13.4 dB   lead  8.1 dB
+ *   odd   a touch  THD -22.6 dB   no even harmonics at all (-273 dB)
+ *   odd   pushed   THD -16.9 dB   no even harmonics at all
+ *   odd   heavy    THD -13.8 dB   no even harmonics at all
+ *
+ * The amounts are about four decibels of distortion apart and match across
+ * the two colours to within 1.3 dB. The odd side is a symmetric curve, which
+ * makes no even harmonics whatsoever - not "few", none - and the even side
+ * leads by at least eight decibels even where the drive is highest and the
+ * odd ones are catching up fastest.
+ *
+ * `mix` is what reaches the quiet amounts while keeping the lead: pulling the
+ * saturated signal back against the dry one lowers the whole series together,
+ * where backing the drive off would change the colour as well.
+ */
+const HEAT_DRILL_SETTINGS = {
+  'even:light': { bias: 0.7, drive: 8, hardness: 2.5, mix: 0.35 },
+  'even:pushed': { bias: 0.7, drive: 8, hardness: 2.5, mix: 0.7 },
+  'even:heavy': { bias: 0.7, drive: 12, hardness: 2.5, mix: 1 },
+  'odd:light': { bias: 0, drive: 12, hardness: 2.5, mix: 0.35 },
+  'odd:pushed': { bias: 0, drive: 14, hardness: 2.5, mix: 0.7 },
+  'odd:heavy': { bias: 0, drive: 16, hardness: 2.5, mix: 1 },
+};
+
+/**
+ * Which amounts each tier offers, and how wide close is.
+ *
+ * Easy leaves the middle one out, so the two on offer are about nine
+ * decibels of distortion apart rather than four. The colour is never a near
+ * miss at any tier: even and odd are two kinds, not two points on a scale,
+ * and there is no such thing as nearly warm.
+ */
+const HEAT_DRILL = {
+  easy: { amounts: ['light', 'heavy'], near: 0 },
+  medium: { amounts: AMOUNTS.map((a) => a.id), near: 1 },
+  hard: { amounts: AMOUNTS.map((a) => a.id), near: 0 },
+};
+
 /**
  * The three exercises, in the shape a session can set up.
  *
@@ -75,7 +150,98 @@ export const HEAT_EXERCISES = {
     faultOf: () => null,
     targetOf: () => ({ ...HEAT_DEFAULTS }),
   },
+  drill: {
+    id: 'drill',
+    label: 'Warm or dirty?',
+    drill: true,
+    ask: 'Is this warm or is it dirty, and how hard is it being pushed?',
+    lede: 'Nothing to dial here. Something is being driven: say whether what it '
+        + 'is making is octaves or fifths, and how much of it there is.',
+    opening: 'Play it against the clean side. Larger, or breaking?',
+    tierBlurbs: {
+      easy: 'Two amounts, nine decibels apart',
+      medium: 'Three amounts, a step forgiven',
+      hard: 'Three amounts, exact',
+    },
+    // A sustained instrument rather than the mix: harmonics are harmonics of
+    // something, and a note is something to hear them on.
+    source: 'instrument',
+    other: 'Clean',
+    faultOf: () => null,
+    targetOf: () => ({ ...HEAT_DEFAULTS }),
+
+    startOf: (puzzle) => ({ ...HEAT_DEFAULTS, ...HEAT_DRILL_SETTINGS[keyOf(puzzle.answer)] }),
+    cleanOf: () => ({ ...HEAT_DEFAULTS, mix: 0 }),
+    restores: true,
+  },
 };
+
+const keyOf = (answer) => `${answer.colour}:${answer.amount}`;
+
+/**
+ * Name the colour, name the amount.
+ *
+ * Three readings for two chips. The colour is exact or nothing - even and odd
+ * are two kinds and there is no such thing as nearly warm - and the amount is
+ * a scale, so being one step out on it is being one step out.
+ */
+function scoreColour(state, puzzle) {
+  const { answer, tier } = puzzle;
+  const spec = HEAT_DRILL[tier] ?? HEAT_DRILL.medium;
+  const offered = AMOUNTS.filter((a) => spec.amounts.includes(a.id));
+
+  const right = state.colour === answer.colour;
+  const amount = onScale(
+    offered.findIndex((a) => a.id === state.amount),
+    offered.findIndex((a) => a.id === answer.amount),
+    { near: spec.near },
+  );
+
+  const guessedColour = COLOURS[colourAt(state.colour)];
+  const guessedAmount = AMOUNTS[amountAt(state.amount)];
+  const steps = amountAt(state.amount) - amountAt(answer.amount);
+  const correct = right && amount === HIT;
+
+  return {
+    correct,
+    cells: [
+      { state: right ? HIT : MISS, text: guessedColour.symbol },
+      { state: amount, text: guessedAmount.symbol },
+      {
+        state: correct ? HIT : right ? NEAR : MISS,
+        text: !right ? (answer.colour === 'even' ? 'it was octaves' : 'it was fifths')
+          : steps === 0 ? 'that is it'
+          : `${Math.abs(steps)} step${Math.abs(steps) === 1 ? '' : 's'} too ${steps > 0 ? 'much' : 'little'}`,
+        narrow: true,
+      },
+    ],
+    why: [
+      {
+        label: 'Which harmonics',
+        value: answer.colour === 'even' ? 'even - octaves above' : 'odd - fifths above',
+        how: 'Measured on the sine this tool marks everything with. The odd side '
+           + 'is a symmetric curve, which makes no even harmonics at all - not '
+           + 'few, none, 273 dB down. The even side leads the odd by at least '
+           + '8 dB and usually 14.',
+      },
+      {
+        label: 'How hard',
+        value: `${AMOUNTS[amountAt(answer.amount)].symbol.toLowerCase()}`,
+        how: 'Total harmonic distortion, about four decibels a step: -21, -17 '
+           + 'and -13 dB. The easy tier leaves the middle one out, so its two '
+           + 'are nine decibels apart.',
+      },
+      {
+        label: 'Why they are separate questions',
+        value: 'the amounts match across the colours',
+        how: 'Within 1.3 dB. If the warm rounds were all quiet and the dirty '
+           + 'ones all loud, anybody would be naming the colour off the volume '
+           + 'and learning nothing - so the mix is pulled back rather than the '
+           + 'drive, which lowers the whole series without changing its shape.',
+      },
+    ],
+  };
+}
 
 export const HEAT_WORK = {
   tool: 'saturation',
@@ -97,13 +263,34 @@ export const HEAT_WORK = {
     hard: { label: 'Hard', blurb: 'The whole curve', guesses: 4, knobs: 5 },
   },
 
-  /** The round is played on the plugin, so there is nothing to pick from. */
-  slots() {
-    return [];
+  /** Answered on the plugin, except in the drill, which asks with chips. */
+  slots(tier, settings) {
+    if (settings?.exercise !== 'drill') return [];
+
+    const spec = HEAT_DRILL[tier] ?? HEAT_DRILL.medium;
+    return [
+      { id: 'colour', kind: 'choice', label: 'Which harmonics', options: COLOURS },
+      {
+        id: 'amount',
+        kind: 'choice',
+        label: 'How hard',
+        options: AMOUNTS.filter((a) => spec.amounts.includes(a.id)),
+      },
+    ];
   },
 
   makePuzzle(rng, tier, settings) {
     const spec = this.tiers[tier];
+
+    if (settings.exercise === 'drill') {
+      const drill = HEAT_DRILL[tier] ?? HEAT_DRILL.medium;
+      return {
+        answer: {
+          colour: pick(rng, COLOURS).id,
+          amount: pick(rng, AMOUNTS.filter((a) => drill.amounts.includes(a.id))).id,
+        },
+      };
+    }
 
     if (settings.exercise === 'even') {
       // How loud the even harmonics have to be. Kept away from both ends:
@@ -170,6 +357,8 @@ export const HEAT_WORK = {
     const { answer, tier } = puzzle;
     const guess = state;
     const exercise = puzzle?.settings?.exercise ?? 'amount';
+    if (exercise === 'drill') return scoreColour(state, puzzle);
+
     const rate = puzzle?.rate ?? 48000;
     // Readings, not raw series: the same envelope the plugin hands back, so
     // the number printed here and the number the panel shows are the same
@@ -350,6 +539,21 @@ export const HEAT_WORK = {
     const { answer, tier } = puzzle;
     const exercise = puzzle?.settings?.exercise ?? 'amount';
 
+    if (exercise === 'drill') {
+      const even = answer.colour === 'even';
+      const amount = AMOUNTS[amountAt(answer.amount)];
+      return [
+        'Flip to the clean side and back, and listen to what has been added '
+          + 'rather than to the note itself.',
+        even
+          ? 'What was added sits in octaves with the note, so the note sounds '
+            + 'bigger rather than rougher.'
+          : 'What was added sits a fifth and a third above, which is a chord '
+            + 'the note did not ask for - it sounds like something giving way.',
+        `There is ${amount.name === 'barely there' ? 'not much of it' : `quite a lot of it - ${amount.name}`}.`,
+      ];
+    }
+
     if (exercise === 'even') {
       return [
         'You will not get there by driving it harder: past a point the odd '
@@ -386,6 +590,15 @@ export const HEAT_WORK = {
     const { answer } = puzzle;
     const exercise = puzzle?.settings?.exercise ?? 'amount';
 
+    if (exercise === 'drill') {
+      const colour = COLOURS[colourAt(answer.colour)];
+      const amount = AMOUNTS[amountAt(answer.amount)];
+      return {
+        symbol: `${colour.symbol.toLowerCase()} harmonics`,
+        name: `${colour.name}, and ${amount.symbol.toLowerCase()} with it`,
+      };
+    }
+
     if (exercise === 'even') {
       return {
         symbol: writeEven(puzzle?.want ?? -20),
@@ -406,9 +619,19 @@ export const HEAT_WORK = {
     return { symbol: parts.join(' · '), name: '' };
   },
 
+  /** What a guess says it heard, in `weak`'s own words. */
+  heard(guess, puzzle) {
+    if ((puzzle?.settings?.exercise ?? 'amount') !== 'drill') return null;
+    if (colourAt(guess.colour) < 0) return null;
+    return { key: `colour-${guess.colour}`, label: `${guess.colour} harmonics` };
+  },
+
   weak(puzzle) {
     const { answer } = puzzle;
     const exercise = puzzle?.settings?.exercise ?? 'amount';
+    if (exercise === 'drill') {
+      return { key: `colour-${answer.colour}`, label: `${answer.colour} harmonics` };
+    }
     if (exercise === 'even') return { key: 'even', label: 'even harmonics' };
     if (exercise === 'match') return { key: 'colour', label: 'harmonic colour' };
     return { key: 'amount', label: 'how much drive' };

@@ -25,6 +25,13 @@ test('every tool is the same shape, so the shell never has to ask which it is', 
     for (const fn of ['slots', 'makePuzzle', 'score', 'hints', 'reveal', 'weak']) {
       assert.equal(typeof tool[fn], 'function', `${id} is missing ${fn}`);
     }
+
+    // And, where there is a drill, what a guess says it heard - which is what
+    // lets the stats say "you keep hearing 2k as 4k" rather than only "2k is
+    // the one to work on".
+    if (tool.exercises.drill) {
+      assert.equal(typeof tool.heard, 'function', `${id} has a drill and no heard()`);
+    }
     assert.ok(Object.keys(tool.tiers).length >= 2, `${id} needs tiers to be a tier`);
     assert.ok(Object.keys(tool.exercises).length >= 2, `${id} needs more than one exercise`);
   }

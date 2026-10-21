@@ -1,9 +1,9 @@
 import { VERB_DEFAULTS, makeImpulse, roomProfile } from '../verb/ir.js';
-import { decayCurve, decayReading, monoOf } from '../fx/response.js';
+import { decayCurve, decayReading, monoOf, rt60 } from '../fx/response.js';
 import { distance } from '../gap.js';
 import { writeSeconds } from '../verb/plugin.js';
 import { LOOP_BEAT } from '../audio.js';
-import { HIT, NEAR, MISS, logPick, toStep, pick } from './scoring.js';
+import { HIT, NEAR, MISS, onScale, dialled, logPick, toStep, pick } from './scoring.js';
 
 /**
  * The room, as a thing you build rather than a thing you name.
@@ -22,6 +22,74 @@ import { HIT, NEAR, MISS, logPick, toStep, pick } from './scoring.js';
  * their knobs were arrived at - the same decision the EQ and the compressor
  * make, for the same reason.
  */
+
+/* --- the drill ------------------------------------------------------------ */
+
+/**
+ * How big the space is, which is a different question from how long it rings.
+ *
+ * Size is where the first walls are, and what it does is set the gap before
+ * the room answers. Measured, with the pre-delay at zero so that nothing else
+ * is making a gap: six metres answers at 6.9 ms, eighteen at 20.7 and forty
+ * at 46.0. That is the slap you hear in front of the tail, and it is what
+ * tells a tiled bathroom from a church at the same decay time.
+ *
+ * Three, and exact or nothing at every tier. Small, medium and large are
+ * three kinds of space rather than three points on a scale, and a room that
+ * is nearly a hall is a room.
+ */
+const SIZES = [
+  { id: 'small', metres: 6, symbol: 'Small', name: 'a room' },
+  { id: 'medium', metres: 18, symbol: 'Medium', name: 'a hall' },
+  { id: 'large', metres: 40, symbol: 'Large', name: 'a church' },
+];
+
+const sizeAt = (id) => SIZES.findIndex((size) => size.id === id);
+
+/**
+ * What the tail is dialled against, and how close counts.
+ *
+ * The answer is the RT60 this app measures off the room it built, not the
+ * number on the decay control - they are not the same, and the ear hears the
+ * first. Measured: a decay of 0.5 rings for 0.35-0.44 s, 1.2 for 0.78-1.04,
+ * 2.6 for 1.67-1.88 and 5.0 for 3.15-3.32, the spread across the three sizes.
+ * So the control reads about half again as long as the room actually rings,
+ * and a drill marked on the control would be teaching that number.
+ *
+ * Close is a ratio, because time is heard in ratios: half a second against
+ * three quarters is an obviously different room, and three seconds against
+ * three and a quarter is not. A fifth of an octave is about 15 per cent.
+ * Loosened at the easy tier, because this is dialled blind - there is no
+ * second room to compare against, and judging a decay in the absolute is a
+ * good deal harder than telling two apart.
+ */
+const TAIL_DRILL = {
+  easy: { sizes: ['small', 'large'], decays: [0.8, 3.6], hit: 0.5, near: 1.0 },
+  medium: { sizes: SIZES.map((s) => s.id), decays: [0.5, 1.2, 2.6, 5.0], hit: 0.35, near: 0.7 },
+  hard: {
+    sizes: SIZES.map((s) => s.id),
+    decays: [0.5, 0.8, 1.2, 1.8, 2.6, 3.6, 5.0],
+    hit: 0.25,
+    near: 0.5,
+  },
+};
+
+/** The room a drill round is built from, and how long it actually rings. */
+function drillRoom(size, decay) {
+  return {
+    ...VERB_DEFAULTS,
+    size: SIZES[sizeAt(size)].metres,
+    decay,
+    // Zero, so that the gap before the room answers is the size and nothing
+    // else. A pre-delay would be a second answer to the same question.
+    preDelay: 0,
+    early: 0.45,
+    damping: 0.55,
+    mix: 0.45,
+  };
+}
+
+const measuredTail = (room) => rt60(monoOf(makeImpulse(48000, { ...room, mix: 1 })), 48000);
 
 /** What each exercise is played on, and what the other side of the A/B is. */
 
@@ -98,7 +166,103 @@ export const VERB_EXERCISES = {
     other: 'Dry',
     targetOf: () => ({ ...VERB_DEFAULTS, mix: 0 }),
   },
+  drill: {
+    id: 'drill',
+    label: 'How big, how long?',
+    drill: true,
+    ask: 'How long does this room ring, and how big is it?',
+    lede: 'There is a room on this sound. Say how long its tail runs, in '
+        + 'seconds, and whether the space is a room, a hall or a church.',
+    opening: 'Play it dry and wet. Listen for the gap before it answers, then '
+           + 'for how long it takes to go.',
+    tierBlurbs: {
+      easy: 'Two spaces, two lengths, 1.41× either way',
+      medium: 'Three spaces, 1.27× either way',
+      hard: 'Three spaces, 1.19× either way',
+    },
+    source: 'instrument',
+    other: 'Dry',
+    targetOf: () => ({ ...VERB_DEFAULTS, mix: 0 }),
+
+    startOf: (puzzle) => puzzle.room,
+    cleanOf: () => ({ ...VERB_DEFAULTS, mix: 0 }),
+    restores: true,
+  },
 };
+
+/**
+ * Name the size, dial the tail.
+ *
+ * The dialled reading comes first because it is the one that says which way
+ * to move, and because that is where the shell looks for it. `dialled` does
+ * the arithmetic in ratios - the unit is a factor, not a number of seconds -
+ * so a reading comes back as "1.4x long" rather than "0.6 s out", which is
+ * the difference between a correction and a number.
+ */
+function scoreRoom(state, puzzle) {
+  const { answer, tier } = puzzle;
+  const spec = TAIL_DRILL[tier] ?? TAIL_DRILL.medium;
+  const offered = SIZES.filter((size) => spec.sizes.includes(size.id));
+
+  const tail = dialled(state.tail, answer.tail, {
+    unit: 'x', hit: spec.hit, near: spec.near, below: 'short', above: 'long',
+  });
+  const size = onScale(
+    offered.findIndex((s) => s.id === state.size),
+    offered.findIndex((s) => s.id === answer.size),
+    // Exact or nothing: small, medium and large are three kinds of space, and
+    // a room that is nearly a hall is a room.
+    { near: 0 },
+  );
+
+  const guessed = SIZES[sizeAt(state.size)];
+  const correct = tail.state === HIT && size === HIT;
+
+  return {
+    correct,
+    cells: [
+      tail,
+      { state: size, text: guessed.symbol },
+      {
+        state: correct ? HIT : tail.state === HIT || size === HIT ? NEAR : MISS,
+        text: correct ? 'that is the room'
+          : size === HIT ? 'right space, wrong length'
+          : tail.state === HIT ? 'right length, wrong space'
+          : 'neither yet',
+        narrow: true,
+      },
+    ],
+    why: [
+      {
+        label: 'How long it rang',
+        value: `${writeSeconds(answer.tail)} measured`,
+        how: 'The RT60 of the room this round built, measured off its own '
+           + 'impulse rather than read off the decay control - the two are not '
+           + 'the same. A decay of 1.2 rings for 0.78 to 1.04 s and one of 5.0 '
+           + 'for 3.15 to 3.32, so the control reads about half again as long '
+           + 'as the room actually rings.',
+      },
+      {
+        label: 'Close is',
+        value: `${(2 ** spec.hit).toFixed(2)}x either way`,
+        how: 'A ratio, because time is heard in ratios: half a second against '
+           + 'three quarters is an obviously different room and three seconds '
+           + 'against three and a quarter is not. Wider at the easy tier, '
+           + 'because this is dialled blind - there is no second room to '
+           + 'compare against, and judging a decay in the absolute is harder '
+           + 'than telling two apart.',
+      },
+      {
+        label: 'What the size does',
+        value: `${SIZES[sizeAt(answer.size)].metres} m - the gap before it answers`,
+        how: 'Measured with the pre-delay at zero so nothing else is making a '
+           + 'gap: six metres answers at 6.9 ms, eighteen at 20.7 and forty at '
+           + '46.0. That slap in front of the tail is what tells a tiled '
+           + 'bathroom from a church at the same decay time.',
+      },
+    ],
+  };
+}
 
 export const VERB_WORK = {
   tool: 'reverb',
@@ -120,12 +284,53 @@ export const VERB_WORK = {
     hard: { label: 'Hard', blurb: 'And the walls and the tone', guesses: 4, shape: true, detail: true },
   },
 
-  /** The round is played on the plugin, so there is nothing to pick from. */
-  slots() {
-    return [];
+  /**
+   * Answered on the plugin, except in the drill - which is the one place in
+   * this app where something is both picked and dialled: how big is chips,
+   * and how long is a control with seconds written on it.
+   */
+  slots(tier, settings) {
+    if (settings?.exercise !== 'drill') return [];
+
+    const spec = TAIL_DRILL[tier] ?? TAIL_DRILL.medium;
+    return [
+      {
+        id: 'tail',
+        kind: 'range',
+        label: 'How long it rings',
+        min: 0.2,
+        max: 4,
+        // Dialled in log space, so a given distance along it is the same
+        // ratio wherever you are - which is how the ear hears a decay.
+        log: true,
+        start: 1.2,
+        format: (seconds) => writeSeconds(seconds),
+        unit: 'x',
+        hit: spec.hit,
+        near: spec.near,
+        below: 'short',
+        above: 'long',
+      },
+      {
+        id: 'size',
+        kind: 'choice',
+        label: 'How big the space is',
+        options: SIZES.filter((size) => spec.sizes.includes(size.id)),
+      },
+    ];
   },
 
   makePuzzle(rng, tier, settings) {
+    if (settings.exercise === 'drill') {
+      const spec = TAIL_DRILL[tier] ?? TAIL_DRILL.medium;
+      const size = pick(rng, SIZES.filter((s) => spec.sizes.includes(s.id)));
+      const room = drillRoom(size.id, pick(rng, spec.decays));
+
+      // Measured off the room, not read off its decay control. One impulse
+      // and one curve, about 14 ms.
+      return { room, answer: { tail: toStep(measuredTail(room), 0.005), size: size.id } };
+    }
+
     if (settings.exercise === 'tempo') {
       const division = pick(rng, PRE_DIVISIONS);
       return {
@@ -168,6 +373,8 @@ export const VERB_WORK = {
   /* ---------- marking ---------- */
 
   score(state, puzzle) {
+    if (puzzle?.settings?.exercise === 'drill') return scoreRoom(state, puzzle);
+
     const { answer, tier } = puzzle;
     const guess = state;
     const exercise = puzzle?.settings?.exercise ?? 'match';
@@ -315,6 +522,20 @@ export const VERB_WORK = {
 
   hints(puzzle) {
     const { answer, tier } = puzzle;
+
+    if ((puzzle?.settings?.exercise ?? 'match') === 'drill') {
+      const size = SIZES[sizeAt(answer.size)];
+      return [
+        'Flip to dry and back. The gap before the room answers is the size of '
+          + 'it, and how long it takes to disappear is the tail.',
+        answer.tail < 0.8 ? 'The tail is under a second - it is gone quickly.'
+          : answer.tail < 2 ? 'The tail runs somewhere between one and two seconds.'
+          : 'The tail runs well over two seconds, which is a long space.',
+        `The gap before it answers puts it at about ${size.metres} metres across, `
+          + `which is ${size.name}.`,
+      ];
+    }
+
     if ((puzzle?.settings?.exercise ?? 'match') === 'tempo') {
       return [
         `The room has to be gone by the time the next hit lands - `
@@ -340,6 +561,15 @@ export const VERB_WORK = {
 
   reveal(puzzle) {
     const { answer } = puzzle;
+
+    if ((puzzle?.settings?.exercise ?? 'match') === 'drill') {
+      const size = SIZES[sizeAt(answer.size)];
+      return {
+        symbol: writeSeconds(answer.tail),
+        name: `in ${size.name}, about ${size.metres} metres across`,
+      };
+    }
+
     if ((puzzle?.settings?.exercise ?? 'match') === 'tempo') {
       return {
         symbol: `${answer.clearBy === 1 ? 'one beat' : 'two beats'}`,
@@ -355,8 +585,20 @@ export const VERB_WORK = {
     };
   },
 
+  /** What a guess says it heard, in `weak`'s own words. */
+  heard(guess, puzzle) {
+    if ((puzzle?.settings?.exercise ?? 'match') !== 'drill') return null;
+    const size = SIZES[sizeAt(guess.size)];
+    if (!size) return null;
+    return { key: `size-${size.id}`, label: `${size.symbol.toLowerCase()} rooms` };
+  },
+
   weak(puzzle) {
     const { answer } = puzzle;
+    if ((puzzle?.settings?.exercise ?? 'match') === 'drill') {
+      const size = SIZES[sizeAt(answer.size)];
+      return { key: `size-${size.id}`, label: `${size.symbol.toLowerCase()} rooms` };
+    }
     if ((puzzle?.settings?.exercise ?? 'match') === 'tempo') {
       return { key: 'in time', label: 'rooms that fit the track' };
     }

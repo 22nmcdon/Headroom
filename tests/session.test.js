@@ -283,3 +283,96 @@ test('clearing the bench takes the exercise off', async () => {
   assert.equal(tool.now.locked, false);
   assert.equal(tool.now.target, null);
 });
+
+/* --- a drill drives the tool's own controls ------------------------------ */
+
+test('startOf is asked of the puzzle, and asked after the material has arrived', async () => {
+  // The order is the point. A drill that asks how much a compressor is doing
+  // has to set a compressor that does that much to THIS loop, and until the
+  // loop exists there is nothing to work it out against.
+  const tool = fakeTool({ material: { rate: 48000, samples: 'the loop' } });
+  const puzzle = {};
+
+  let sawMaterial = null;
+  await attach(tool, {
+    source: 'drums',
+    other: 'Untreated',
+    startOf: (p) => {
+      sawMaterial = p.material;
+      return { drive: 7, tone: 'warm' };
+    },
+  }, puzzle);
+
+  assert.deepEqual(sawMaterial, { rate: 48000, samples: 'the loop' },
+    'startOf was asked before the material was pinned');
+  assert.deepEqual(tool.now.state, { drive: 7, tone: 'warm' });
+
+  const order = tool.calls.map(([name]) => name);
+  assert.ok(order.indexOf('material') < order.lastIndexOf('setState'),
+    'the settings have to land after the material');
+});
+
+test('startOf wins over a fixed start, and a fixed start over what was there', async () => {
+  const both = fakeTool();
+  await attach(both, { source: 'mix', other: 'Target', start: { drive: 1 }, startOf: () => ({ drive: 9 }) });
+  assert.equal(both.now.state.drive, 9);
+
+  const fixed = fakeTool();
+  await attach(fixed, { source: 'mix', other: 'Target', start: { drive: 1 } });
+  assert.equal(fixed.now.state.drive, 1);
+
+  // And an exercise that sets nothing leaves the controls where they were,
+  // which is what lets somebody keep working from the curve they just built.
+  const neither = fakeTool();
+  neither.setState({ drive: 4 });
+  await attach(neither, { source: 'mix', other: 'Target' });
+  assert.equal(neither.now.state.drive, 4);
+});
+
+test('an exercise that set the controls puts them back, and one that did not does not', async () => {
+  // Otherwise the next exercise opens with the last drill's answer sitting on
+  // the knobs, which is the answer to a round that has just been played.
+  const tool = fakeTool();
+  tool.setState({ drive: 3, tone: 'flat' });
+
+  const detach = await attach(tool, {
+    source: 'mix',
+    other: 'Clean',
+    startOf: () => ({ drive: 11, tone: 'hot' }),
+    restores: true,
+  });
+  assert.deepEqual(tool.now.state, { drive: 11, tone: 'hot' });
+
+  await detach();
+  assert.deepEqual(tool.now.state, { drive: 3, tone: 'flat' }, 'put back as it was found');
+
+  // Without `restores`, somebody may want to keep working from where the
+  // exercise left them, and the settings stay.
+  const kept = fakeTool();
+  kept.setState({ drive: 3 });
+  const release = await attach(kept, { source: 'mix', other: 'Target', start: { drive: 8 } });
+  await release();
+  assert.equal(kept.now.state.drive, 8);
+});
+
+test('a drill still undoes everything else an exercise imposes', async () => {
+  const tool = fakeTool();
+  const detach = await attach(tool, {
+    source: 'drums',
+    other: 'Clean',
+    faultOf: () => ({ uneven: 9 }),
+    targetOf: () => ({ drive: 2 }),
+    startOf: () => ({ drive: 11 }),
+    restores: true,
+  });
+  tool.lock();
+
+  await detach();
+  const after = tool.now;
+  assert.equal(after.fault, null);
+  assert.equal(after.target, null);
+  assert.equal(after.shown, null);
+  assert.equal(after.locked, false);
+  assert.equal(after.label, 'Target', 'the A/B gets its old name back');
+  assert.equal(after.source, 'mix');
+});
