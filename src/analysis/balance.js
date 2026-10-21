@@ -42,6 +42,26 @@ export const THIRDS = Array.from({ length: 29 }, (_, i) => {
  */
 export const TILT = 3;
 
+/**
+ * What each of those is called.
+ *
+ * A third-octave band's centre is an irrational number and its name is not:
+ * the band at 1000 * 2 ** (-4/3) is 396.85 Hz and every engineer alive calls
+ * it 400. Printing the arithmetic instead of the name - "16.7 dB at 397 Hz" -
+ * is the sort of thing that makes a reading look like a bug.
+ */
+export const THIRD_NAMES = [
+  '25', '31.5', '40', '50', '63', '80', '100', '125', '160', '200',
+  '250', '315', '400', '500', '630', '800', '1k', '1.25k', '1.6k', '2k',
+  '2.5k', '3.15k', '4k', '5k', '6.3k', '8k', '10k', '12.5k', '16k',
+];
+
+/** The name of the band nearest a frequency, for a reading to print. */
+export const nameOfThird = (hz) => {
+  const at = THIRDS.indexOf(Number(hz));
+  return at < 0 ? `${Math.round(hz)} Hz` : `${THIRD_NAMES[at]} Hz`.replace('k Hz', ' kHz');
+};
+
 const tiltAt = (hz) => TILT * Math.log2(hz / 1000);
 
 /**
@@ -125,7 +145,7 @@ export function balanceGap(mine, theirs) {
     const apart = a.bands[hz] - b.bands[hz];
     if (Math.abs(apart) > Math.abs(off)) {
       off = apart;
-      where = Number(hz) >= 1000 ? `${(Number(hz) / 1000).toFixed(1)} kHz` : `${Math.round(hz)} Hz`;
+      where = nameOfThird(hz);
       hotter = apart;
     }
   }

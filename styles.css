@@ -782,7 +782,10 @@ input.knob-value:focus {
 
 /* Your own material. A filled button, because it is the one thing here that
    reaches outside the page. */
-.eq-transport .file-btn {
+/* Not scoped to the transport any more: the analysis view has one of these
+   too and it is not a plugin. Every plugin's transport is still an
+   `.eq-transport`, so nothing there changes. */
+.file-btn {
   display: inline-block;
   background: var(--charcoal);
   color: var(--cream);
@@ -796,8 +799,8 @@ input.knob-value:focus {
   font-weight: 500;
   cursor: pointer;
 }
-.eq-transport .file-btn:hover { background: var(--blush-deep); border-color: var(--blush-deep); }
-.eq-transport .file-btn input { display: none; }
+.file-btn:hover { background: var(--blush-deep); border-color: var(--blush-deep); }
+.file-btn input { display: none; }
 
 /* The A/B. One of them is on, the way a switch on a desk is. */
 .eq-ab { display: flex; border: 1px solid var(--line); border-radius: 30px; overflow: hidden; }
@@ -1437,3 +1440,169 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
 /* Pressed means you are listening to the clean side, which is a state you are
    in rather than a thing you did. */
 .drill-transport .link-btn[aria-pressed="true"] { color: var(--blush-deep); }
+
+/* --- the two halves of the app ------------------------------------------- */
+
+/* Above the tools, because it is above them in the hierarchy: two different
+   things to do with this page rather than two ways of doing one. */
+.view-switch {
+  flex: 1 1 100%;
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--line);
+  padding-block: 2px 0;
+  margin-top: 4px;
+}
+.view-option {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: 7px 2px 6px;
+  margin-right: 22px;
+  font-family: var(--sans);
+  font-size: 11px;
+  line-height: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  font-weight: 500;
+  color: var(--text-soft);
+}
+.view-option:hover { color: var(--blush-deep); }
+.view-option[aria-checked="true"] {
+  color: var(--text);
+  border-bottom-color: var(--charcoal);
+}
+
+/* --- the analysis view --------------------------------------------------- */
+
+.analysis-head { margin-bottom: 18px; }
+
+.analysis-slots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px 28px;
+  margin-top: 8px;
+}
+
+/* One row per slot, wrapping at a phone width rather than squeezing. */
+.analysis-slot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  flex: 1 1 320px;
+}
+.slot-name {
+  font-family: var(--serif);
+  font-size: 15px;
+  min-width: 72px;
+}
+.slot-what {
+  flex: 1 1 100%;
+  font-size: 12px;
+  color: var(--text-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+.analysis-note {
+  font-size: 13.5px;
+  color: var(--text);
+  border-left: 2px solid var(--blush);
+  padding-left: 10px;
+  margin: 0 0 20px;
+  max-width: 64ch;
+}
+
+/* The numbers. Tabular, in the serif, the way every reading in this app is. */
+.analysis-figures {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px 30px;
+  margin-bottom: 26px;
+}
+.figure { display: flex; flex-direction: column; gap: 2px; min-width: 92px; }
+.figure strong {
+  font-family: var(--serif);
+  font-size: 23px;
+  line-height: 26px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.figure span {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--text-soft);
+}
+.figure-off {
+  font-style: normal;
+  font-size: 11px;
+  color: var(--blush-deep);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The height is set here rather than on the element. A canvas with a width
+   of 100% and no height keeps its attribute aspect ratio, which on a wide
+   screen made a 200-pixel chart 580 pixels tall. */
+.analysis-canvas {
+  display: block;
+  width: 100%;
+  height: 210px;
+  margin: 10px 0 18px;
+  background: var(--cream-2);
+  border: 1px solid var(--line);
+  border-radius: 1px;
+}
+
+/* What the lines on a chart are. Two shapes and two colours rather than four
+   colours: solid is yours and dashed is the reference, in both pictures. */
+.analysis-key {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  font-size: 11px;
+  color: var(--text-soft);
+  margin: -8px 0 22px;
+}
+.analysis-key span { display: inline-flex; align-items: center; gap: 6px; }
+.key-line { width: 20px; height: 0; border-top: 2px solid var(--charcoal); }
+.key-line.is-crest { border-color: var(--gold); }
+.key-line.is-reference { border-top-style: dashed; border-color: var(--blush-deep); }
+.key-line.is-crest.is-reference { border-color: var(--gold); }
+
+/* The width, band by band. A bar rather than a curve: six bands is a chart. */
+.analysis-bands { display: flex; flex-direction: column; gap: 7px; margin-top: 10px; }
+.band-row {
+  display: grid;
+  grid-template-columns: 42px 1fr 64px 86px;
+  align-items: center;
+  gap: 10px;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+.band-name { color: var(--text-soft); text-align: right; }
+.band-track {
+  position: relative;
+  height: 14px;
+  background: var(--cream-2);
+  border: 1px solid var(--line);
+  border-radius: 1px;
+  overflow: hidden;
+}
+.band-fill { height: 100%; background: var(--wash-strong); }
+/* Where the reference sits, as a line rather than a second bar: two bars on
+   one row is a chart nobody can read at a glance. */
+.band-mark {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--blush-deep);
+}
+.band-read { color: var(--text); }
+.band-mono { color: var(--text-soft); }
+
+@media (max-width: 560px) {
+  .band-row { grid-template-columns: 36px 1fr 56px; }
+  .band-mono { display: none; }
+}

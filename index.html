@@ -40,6 +40,15 @@
       </div>
     </div>
 
+    <!-- The top of the hierarchy, and the only control above the tools: two
+         different things to do with this app rather than two ways of doing
+         one. Working at a tool asks you a question; the analysis view does
+         not ask anything, it reads a track back. -->
+    <div class="view-switch" role="radiogroup" aria-label="What this page is for">
+      <button class="view-option" type="button" data-view="tools" role="radio" aria-checked="true">Tools</button>
+      <button class="view-option" type="button" data-view="analysis" role="radio" aria-checked="false">Analysis</button>
+    </div>
+
     <nav class="modes" id="modes" role="radiogroup" aria-label="What to practise"></nav>
 
     <!-- Two ways to use any of these tools: work at it, or be asked about it.
@@ -64,7 +73,13 @@
 </div>
 
 <main class="wrap">
-  <section class="sheet-section">
+  <!-- The analysis view, which is not a tool and has no round: no tiers, no
+       exercise, no dock, nothing to submit. -->
+  <section class="sheet-section" id="analysis-view" hidden>
+    <div class="sheet" id="analysisSheet"></div>
+  </section>
+
+  <section class="sheet-section" id="tools-view">
     <div class="sheet">
       <p class="lede" id="lede"></p>
       <p class="advice" id="advice" hidden></p>

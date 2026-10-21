@@ -13,6 +13,7 @@ import { engraveNote } from './engrave.js';
 import { renderPicker, syncPicker, pickerState, dialValue } from './bench/picker.js';
 import { makeLog } from './bench/log.js';
 import { notesFor } from './notes/index.js';
+import { AnalysisPage } from './analysis/page.js';
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -46,6 +47,10 @@ const ui = {
   // 'work' or 'drill'. Not per tool: it is how you are practising, not what
   // you are practising, and it survives switching tools on purpose.
   kind: 'work',
+  // 'tools' or 'analysis'. The top of the hierarchy: two different things to
+  // do with this app rather than two ways of doing one.
+  view: 'tools',
+  analysis: null,
   // How this drill's clean A/B takes its subject out and puts it back. Null
   // whenever the round is not a drill, or has nothing to compare against.
   clean: null,
@@ -155,6 +160,45 @@ function settleKind() {
   }
   ui.chosen[ui.mode] = { ...ui.chosen[ui.mode], exercise: first.id };
   return undefined;
+}
+
+/**
+ * Show one of the two halves of the app.
+ *
+ * Everything above the sheet belongs to the tools, so all of it goes: the
+ * tool strip, the work-or-drills pill, the difficulty row, the status, and
+ * the dock with its submit button. The analysis view has no round to submit.
+ *
+ * The analysis page is built the first time it is asked for and kept after
+ * that, the same bargain the tools get: it holds decoded audio and a set of
+ * readings over it, and throwing those away because somebody looked at an EQ
+ * for a moment would mean decoding the file again.
+ */
+function syncView() {
+  const analysing = ui.view === 'analysis';
+
+  for (const button of document.querySelectorAll('[data-view]')) {
+    button.setAttribute('aria-checked', button.dataset.view === ui.view ? 'true' : 'false');
+  }
+
+  $('#tools-view').hidden = analysing;
+  $('#analysis-view').hidden = !analysing;
+  $('#modes').hidden = analysing;
+  $('#dock').hidden = analysing;
+  document.querySelector('.kind-switch').hidden = analysing;
+  document.querySelector('.setup').hidden = analysing;
+  $('#puzzleStatus').hidden = analysing;
+
+  $('#modeMark').textContent = analysing ? 'Analysis' : tool().label;
+  $('#modeBlurb').textContent = analysing
+    ? 'read a track back' : tool().blurb.toLowerCase();
+
+  if (!analysing) return;
+
+  // The tool keeps playing otherwise, under a page that does not show it.
+  if (ui.tool?.isPlaying?.()) ui.tool.toggle?.();
+  if (!ui.analysis) ui.analysis = new AnalysisPage($('#analysisSheet'), { engine });
+  ui.analysis.show();
 }
 
 function syncKind() {
@@ -717,6 +761,41 @@ async function uploadProgress(input) {
 /* ---------- the cheat sheet ---------- */
 
 function fillHelp() {
+  // The analysis view is not a tool and the tool's help does not describe it.
+  // Pressing ? there used to explain the EQ.
+  if (ui.view === 'analysis') {
+    $('#helpMode').textContent = 'Analysis';
+    $('#helpLede').textContent = 'The half of this app that asks nothing. Put a piece of '
+      + 'audio in front of it and it tells you what is in there.';
+    $('#helpList').innerHTML = [
+      ['Two slots, because a meter is for comparing.',
+       'Yours in the first, something you like the sound of in the second. Every '
+       + 'number then carries the difference between them underneath it.'],
+      ['Your own files, or something this app can make.',
+       'A wav, an mp3 or an m4a off your disk - nothing is uploaded, it is decoded '
+       + 'in this browser - or one of the loops the tools use, so there is '
+       + 'something to look at before you load anything.'],
+      ['Loudness is measured the way a broadcaster measures it.',
+       'ITU-R BS.1770, gated: silence and the quiet ends of a piece are thrown '
+       + 'away so the number describes how loud the thing sounds when it is '
+       + 'sounding. True peak is read between the samples, because a file that '
+       + 'reads -0.1 dBFS can still clip a converter.'],
+      ['Crest factor is the one that shows limiting.',
+       'Peak over RMS. The figure for a whole track averages its loud parts with '
+       + 'its quiet ones, so the tightest moment anywhere in it is printed beside '
+       + 'the overall - that is where the limiter was working hardest.'],
+      ['The spectrum is tilted, and that is on purpose.',
+       'Three decibels an octave, so a balanced mix reads level and what stands '
+       + 'out on the line is what stands out in the room. It is normalised to '
+       + 'itself, so two mixes with the same tonality at different levels draw '
+       + 'the same line.'],
+      ['A long track takes a moment.',
+       'About seven seconds for three minutes of stereo. Nothing leaves this '
+       + 'browser while it does.'],
+    ].map(([lead, detail]) => `<li><b>${lead}</b><span>${detail}</span></li>`).join('');
+    return;
+  }
+
   $('#helpMode').textContent = tool().label;
   $('#helpLede').textContent = tool().lede;
 
@@ -752,6 +831,14 @@ function fillHelp() {
 /* ---------- events ---------- */
 
 function wire() {
+  for (const button of document.querySelectorAll('[data-view]')) {
+    button.addEventListener('click', () => {
+      if (ui.view === button.dataset.view) return;
+      ui.view = button.dataset.view;
+      syncView();
+    });
+  }
+
   for (const button of document.querySelectorAll('[data-kind]')) {
     button.addEventListener('click', () => {
       if (ui.kind === button.dataset.kind) return;
@@ -862,6 +949,9 @@ function wire() {
 
   document.addEventListener('keydown', (e) => {
     if (e.target.matches('input, select, textarea') || document.querySelector('dialog[open]')) return;
+    // The transport and the submit both belong to a round, and the analysis
+    // view does not have one.
+    if (ui.view === 'analysis') return;
     if (e.code === 'Space') {
       e.preventDefault();
       // Space is the transport wherever a musician meets one.
@@ -877,6 +967,7 @@ syncKind();
 fillTiers();
 fillSettings();
 wire();
+syncView();
 startGame();
 
 // A first visit gets the rules. Failing open is the right way round: a private

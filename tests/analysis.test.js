@@ -10,7 +10,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { crestOf, crestReading, crestGap, CREST_WINDOW_MS } from '../src/analysis/dynamics.js';
-import { balanceOf, balanceReading, balanceGap, THIRDS, TILT } from '../src/analysis/balance.js';
+import {
+  balanceOf, balanceReading, balanceGap, THIRDS, THIRD_NAMES, TILT, nameOfThird,
+} from '../src/analysis/balance.js';
 import { widthReading, widthGap } from '../src/analysis/width.js';
 import { distance } from '../src/gap.js';
 
@@ -131,6 +133,19 @@ test('two tracks can be compared on dynamics, through the shared distance', () =
 
 /* --- spectral balance ----------------------------------------------------- */
 
+test('each third is named the way an engineer names it, not by its centre', () => {
+  // The band at 1000 * 2 ** (-4/3) is 396.85 Hz and everybody calls it 400.
+  assert.equal(THIRD_NAMES.length, THIRDS.length);
+  assert.equal(nameOfThird(THIRDS[12]), '400 Hz');
+  assert.equal(nameOfThird(1000), '1 kHz');
+  assert.equal(nameOfThird(THIRDS[26]), '10 kHz');
+  assert.equal(nameOfThird(16000), '16 kHz');
+  assert.equal(nameOfThird(THIRDS[0]), '25 Hz');
+
+  // And the names are in the order the centres are.
+  for (let i = 1; i < THIRDS.length; i += 1) assert.ok(THIRDS[i] > THIRDS[i - 1]);
+});
+
 test('the grid is thirds of an octave, on the round numbers', () => {
   assert.equal(THIRDS.length, 29);
   assert.ok(THIRDS.includes(1000));
@@ -193,7 +208,7 @@ test('two spectra are compared at their worst third, not averaged', () => {
 
   const gap = distance(flat, bumped);
   assert.ok(Math.abs(gap.off - 6) < 0.1, `the bump read as ${gap.off.toFixed(2)} dB`);
-  assert.equal(gap.where, '1.0 kHz');
+  assert.equal(gap.where, '1 kHz', 'and names the band the way an engineer does');
   assert.ok(balanceGap(bumped, flat).detail.hotter > 0, 'and mine is the hot one');
 });
 

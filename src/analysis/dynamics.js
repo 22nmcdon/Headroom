@@ -52,6 +52,42 @@ function windowOf(channels, from, to) {
 }
 
 /**
+ * The track cut into step-length pieces, each with its peak and its power.
+ *
+ * Every window is four of these in a row, so the pieces are measured once and
+ * the windows are four lookups. What was here walked every sample of every
+ * window, and the windows overlap by three quarters - on a four-minute track
+ * that is four times the work for the same answer.
+ *
+ * Pieces rather than a running total, because a peak is not a sum: the
+ * largest value in a window cannot be got by subtracting one running total
+ * from another, and the largest of four pieces is exactly the largest of the
+ * window they make.
+ */
+function piecesOf(channels, step, samples) {
+  const pieces = [];
+
+  for (let at = 0; at < samples; at += step) {
+    const to = Math.min(samples, at + step);
+    let peak = 0;
+    let power = 0;
+
+    for (const channel of channels) {
+      for (let i = at; i < to; i += 1) {
+        const value = channel[i];
+        const size = value < 0 ? -value : value;
+        if (size > peak) peak = size;
+        power += value * value;
+      }
+    }
+
+    pieces.push({ peak, power, count: (to - at) * channels.length });
+  }
+
+  return pieces;
+}
+
+/**
  * Crest factor over the whole thing, and window by window.
  *
  * Windows under the floor are dropped rather than printed: the crest factor
@@ -64,12 +100,23 @@ export function crestOf(channels, rate) {
   const samples = Math.min(...channels.map((channel) => channel.length));
 
   const whole = windowOf(channels, 0, samples);
+  const pieces = piecesOf(channels, step, samples);
+  const per = Math.max(1, Math.round(length / step));
   const over = [];
 
-  for (let at = 0; at + length <= samples; at += step) {
-    const { peak, rms } = windowOf(channels, at, at + length);
+  for (let first = 0; first + per <= pieces.length; first += 1) {
+    let peak = 0;
+    let power = 0;
+    let count = 0;
+    for (let i = first; i < first + per; i += 1) {
+      if (pieces[i].peak > peak) peak = pieces[i].peak;
+      power += pieces[i].power;
+      count += pieces[i].count;
+    }
+
+    const rms = Math.sqrt(power / Math.max(1, count));
     if (db(rms) < QUIET_FLOOR) continue;
-    over.push({ at: at / rate, crest: db(peak) - db(rms) });
+    over.push({ at: (first * step) / rate, crest: db(peak) - db(rms) });
   }
 
   return {

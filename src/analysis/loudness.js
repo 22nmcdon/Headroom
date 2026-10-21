@@ -130,6 +130,26 @@ export function kWeight(samples, rate) {
 }
 
 /**
+ * A running total of the squares, so that a block is two lookups.
+ *
+ * What was here walked every sample of every block. The blocks overlap by
+ * three quarters and the short-term window is three seconds, so each sample
+ * was visited thirty times for the short reading alone - on a four-minute
+ * track that is six hundred million multiplications and several seconds of a
+ * page that has stopped answering. A running total visits each sample once
+ * and every block after that is a subtraction.
+ *
+ * Doubles, and the precision is not in question: the values are at most one,
+ * so a four-minute total is about ten million and a double carries fifteen
+ * significant figures.
+ */
+function squaresOf(channel) {
+  const out = new Float64Array(channel.length + 1);
+  for (let i = 0; i < channel.length; i += 1) out[i + 1] = out[i] + channel[i] * channel[i];
+  return out;
+}
+
+/**
  * The mean square of each channel over every block, and the loudness of the
  * block they make together.
  *
@@ -142,18 +162,20 @@ export function kWeight(samples, rate) {
  * unity, but the sum is written as a sum so that the day something is not
  * stereo this is a change of data rather than a change of arithmetic.
  */
-function blocksOf(channels, rate, ms) {
+function blocksOf(channels, rate, ms, prepared = null) {
   const length = Math.round((rate * ms) / 1000);
   const step = Math.round((rate * BLOCK_STEP_MS) / 1000);
   const samples = Math.min(...channels.map((c) => c.length));
+  // Handed in where a caller wants more than one window length off the same
+  // audio: the running totals are a Float64Array per channel as long as the
+  // track, and building them twice is eighty megabytes nobody needed.
+  const running = prepared ?? channels.map(squaresOf);
   const blocks = [];
 
   for (let at = 0; at + length <= samples; at += step) {
     let sum = 0;
-    for (const channel of channels) {
-      let power = 0;
-      for (let i = at; i < at + length; i += 1) power += channel[i] * channel[i];
-      sum += power / length; // every weight here is 1
+    for (const total of running) {
+      sum += (total[at + length] - total[at]) / length; // every weight here is 1
     }
     blocks.push({ at: at / rate, z: sum, lufs: OFFSET + 10 * Math.log10(Math.max(sum, 1e-20)) });
   }
@@ -181,8 +203,8 @@ const loudnessOf = (blocks) => {
  * silence honestly is, rather than a large negative number that looks like a
  * measurement.
  */
-export function integrated(channels, rate) {
-  const blocks = blocksOf(channels, rate, BLOCK_MS);
+export function integrated(channels, rate, prepared = null) {
+  const blocks = blocksOf(channels, rate, BLOCK_MS, prepared);
   const heard = blocks.filter((block) => block.lufs > ABSOLUTE_GATE);
   if (!heard.length) return { lufs: -Infinity, blocks, kept: 0 };
 
@@ -203,6 +225,10 @@ export function integrated(channels, rate) {
 export const shortTerm = (channels, rate) =>
   blocksOf(channels, rate, SHORT_MS).map(({ at, lufs }) => ({ at, lufs }));
 
+/** The same blocks, for a caller that wants both readings off them. */
+const shortBlocks = (channels, rate, prepared = null) =>
+  blocksOf(channels, rate, SHORT_MS, prepared);
+
 /**
  * The loudness range, as EBU Tech 3342 defines it.
  *
@@ -212,8 +238,8 @@ export const shortTerm = (channels, rate) =>
  * far apart the quiet parts and the loud parts of a piece sit, which is the
  * thing people mean when they say a master has been flattened.
  */
-export function loudnessRange(channels, rate) {
-  const blocks = blocksOf(channels, rate, SHORT_MS)
+export function loudnessRange(channels, rate, over = null) {
+  const blocks = (over ?? shortBlocks(channels, rate))
     .filter((block) => block.lufs > ABSOLUTE_GATE);
   if (!blocks.length) return 0;
 
@@ -244,35 +270,46 @@ export function loudnessRange(channels, rate) {
 // Four times, which is the least BS.1770 will accept at these rates. Named
 // for the peak because the saturator oversamples too, eight times, for a
 // different reason - and one flattened scope holds both names.
+// Four times, which is the least BS.1770 will accept at these rates. Named
+// for the peak because the saturator oversamples too, eight times, for a
+// different reason - and one flattened scope holds both names.
 export const PEAK_OVERSAMPLE = 4;
 
 /**
- * An odd number of taps, so there is a middle one.
+ * The interpolator, as one prototype filter split into four phases.
  *
- * With an even count the sinc's centre and the window's centre sit half a
- * sample apart, and the filter at phase zero does not hand back the sample it
- * was given. Odd, the middle tap is exactly 1 and every other is exactly 0 at
- * phase zero, which is the property that makes the first test below - that
- * the two peaks agree on a signal that lands on the grid - mean anything.
+ * Forty-nine taps in total, which is twelve or thirteen per phase - near
+ * enough what BS.1770's own worked example uses, and four times less work
+ * than giving every phase forty-nine of its own, which is what this did
+ * first. The length is odd and the centre is a multiple of four on purpose:
+ * phase zero then has a single tap of exactly 1 and the rest exactly 0, so
+ * the filter hands back the sample it was given rather than a number very
+ * close to it.
  */
-const PEAK_TAPS = 49;
-const CENTRE = (PEAK_TAPS - 1) / 2;
+const PROTOTYPE = 49;
+const PROTO_CENTRE = 24;
+const PEAK_DELAY = PROTO_CENTRE / PEAK_OVERSAMPLE;
 
 const sinc = (x) => (Math.abs(x) < 1e-9 ? 1 : Math.sin(Math.PI * x) / (Math.PI * x));
 
-/** One polyphase bank: PEAK_TAPS coefficients per phase. */
 function interpolator() {
+  const proto = new Float64Array(PROTOTYPE);
+  for (let n = 0; n < PROTOTYPE; n += 1) {
+    // Blackman, which keeps the stopband down far enough that the filter's
+    // own ripple is not mistaken for an inter-sample peak.
+    const w = 0.42 - 0.5 * Math.cos((2 * Math.PI * n) / (PROTOTYPE - 1))
+      + 0.08 * Math.cos((4 * Math.PI * n) / (PROTOTYPE - 1));
+    // Cut off at the original Nyquist, which is a quarter of the way up the
+    // oversampled band - hence the four in the sinc.
+    proto[n] = sinc((n - PROTO_CENTRE) / PEAK_OVERSAMPLE) * w;
+  }
+
+  // One branch per phase: the taps whose index is that phase, modulo four.
   const phases = [];
   for (let p = 0; p < PEAK_OVERSAMPLE; p += 1) {
-    const taps = new Float64Array(PEAK_TAPS);
-    for (let i = 0; i < PEAK_TAPS; i += 1) {
-      // Blackman, which keeps the stopband down far enough that the filter's
-      // own ripple is not mistaken for an inter-sample peak.
-      const w = 0.42 - 0.5 * Math.cos((2 * Math.PI * i) / (PEAK_TAPS - 1))
-        + 0.08 * Math.cos((4 * Math.PI * i) / (PEAK_TAPS - 1));
-      taps[i] = sinc(i - CENTRE - p / PEAK_OVERSAMPLE) * w;
-    }
-    phases.push(taps);
+    const taps = [];
+    for (let n = p; n < PROTOTYPE; n += PEAK_OVERSAMPLE) taps.push(proto[n]);
+    phases.push(Float64Array.from(taps));
   }
   return phases;
 }
@@ -282,37 +319,59 @@ const PHASES = interpolator();
 /**
  * How far under the sample peak a sample has to be before it is skipped.
  *
- * Interpolating every sample of a four-minute track is two billion
- * multiplications and several seconds of a frozen page. It is also wasted:
- * the overshoot between two samples is bounded, and a sample nine decibels
- * under the loudest one in the file cannot have a peak beside it that beats
- * the loudest one. The theoretical worst case for a band-limited signal is
- * about 3 dB, at half the sample rate; nine is three times the margin.
+ * The overshoot between two samples is bounded - about 3 dB at worst for a
+ * band-limited signal, at half the sample rate - so a sample nine decibels
+ * under the loudest in the file cannot have a peak beside it that beats the
+ * loudest. Nine is three times that margin.
  */
 const WORTH_LOOKING = -9;
 
-/** The true peak of one channel, in dBTP. */
+/**
+ * The true peak of one channel, in dBTP.
+ *
+ * Only the samples a peak could be near are interpolated, and there are two
+ * tests for that. The first is the margin above. The second is that the
+ * reconstructed signal's maxima sit beside the sample maxima: a sample lower
+ * than both its neighbours has the waveform passing through it on the way
+ * somewhere, and that somewhere is one of the samples this does look at.
+ *
+ * Neither is a shortcut past the measurement, and both are needed: a loud
+ * dense master has most of its samples inside the margin, and a quiet
+ * passage has most of them outside it.
+ */
 export function truePeakOf(samples) {
   let peak = 0;
-  for (let i = 0; i < samples.length; i += 1) peak = Math.max(peak, Math.abs(samples[i]));
+  for (let i = 0; i < samples.length; i += 1) {
+    const size = samples[i] < 0 ? -samples[i] : samples[i];
+    if (size > peak) peak = size;
+  }
   if (peak === 0) return -Infinity;
 
   const worth = peak * 10 ** (WORTH_LOOKING / 20);
   let best = peak;
 
-  for (let i = 0; i < samples.length; i += 1) {
-    if (Math.abs(samples[i]) < worth) continue;
+  const sizeAt = (i) => {
+    if (i < 0 || i >= samples.length) return 0;
+    return samples[i] < 0 ? -samples[i] : samples[i];
+  };
 
-    // The peak between this sample and the next, which means the phases
-    // starting at it - and at the one before, whose later phases reach here.
-    for (const start of [i - 1, i]) {
-      if (start < 0) continue;
+  for (let i = 0; i < samples.length; i += 1) {
+    const here = sizeAt(i);
+    if (here < worth) continue;
+    // `>=` on both sides rather than `>`, so a pair of equal samples
+    // straddling the peak is not skipped by both of them.
+    if (here < sizeAt(i - 1) || here < sizeAt(i + 1)) continue;
+
+    // The output phases around this sample. `PEAK_DELAY` is the filter's own
+    // delay in input samples, taken off so that phase zero lands on `i`.
+    for (const at of [i + PEAK_DELAY - 1, i + PEAK_DELAY]) {
       for (const taps of PHASES) {
         let sum = 0;
-        const from = Math.max(0, CENTRE - start);
-        const to = Math.min(PEAK_TAPS, samples.length + CENTRE - start);
-        for (let t = from; t < to; t += 1) sum += samples[start + t - CENTRE] * taps[t];
-        const value = Math.abs(sum);
+        for (let k = 0; k < taps.length; k += 1) {
+          const from = at - k;
+          if (from >= 0 && from < samples.length) sum += samples[from] * taps[k];
+        }
+        const value = sum < 0 ? -sum : sum;
         if (value > best) best = value;
       }
     }
@@ -337,7 +396,12 @@ export function samplePeakOf(samples) {
  */
 export function loudnessReading(channels, rate, { source = null } = {}) {
   const weighted = channels.map((channel) => kWeight(channel, rate));
-  const { lufs, kept } = integrated(weighted, rate);
+  // The running totals, once. Every block of every length comes off these.
+  const running = weighted.map(squaresOf);
+  const { lufs, kept } = integrated(weighted, rate, running);
+  // One pass of three-second blocks, read twice: the shape over time and the
+  // range are the same measurement asked two questions.
+  const over = shortBlocks(weighted, rate, running);
 
   return readingOf({
     tool: 'analysis',
@@ -350,8 +414,8 @@ export function loudnessReading(channels, rate, { source = null } = {}) {
     values: {
       integrated: lufs,
       blocks: kept,
-      range: loudnessRange(weighted, rate),
-      short: shortTerm(weighted, rate),
+      range: loudnessRange(weighted, rate, over),
+      short: over.map(({ at, lufs: value }) => ({ at, lufs: value })),
       truePeak: Math.max(...channels.map(truePeakOf)),
       samplePeak: Math.max(...channels.map(samplePeakOf)),
     },

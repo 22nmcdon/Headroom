@@ -31,8 +31,11 @@ measured.
 > all of it is being built in stages: the identification drills are in, and an
 > analysis pillar and an optional guided path are not.
 
-Two ways to use any of them, on a pill at the top: **work at it**, or be
-**drilled** on it. Working at a tool is matching a target, curing a fault,
+The app has two halves, on a switch above everything: **Tools**, which is all
+of the below, and **Analysis**, which asks nothing and reads a track back.
+
+Within the tools there are two ways to use any of them, on a pill: **work at
+it**, or be **drilled** on it. Working at a tool is matching a target, curing a fault,
 levelling a loop — you build the answer on the plugin. A drill puts the tool
 away and asks instead: which octave moved, how much reduction is that, warm or
 dirty, where is it, how big is the room, which note are the repeats on. The
@@ -81,6 +84,39 @@ same series are the same answer. The bars are gold for even and pink for odd,
 because that division is the whole ear skill — even harmonics are octaves and
 sound like the note getting larger, odd ones are fifths and sound like it
 breaking, and *warm* and *dirty* are those two piles of numbers.
+
+### The analysis view
+
+The other half of the app, on the switch at the top. No tiers, no exercise, no
+dock, nothing to submit: you put a piece of audio in front of it and it tells
+you what is in there.
+
+Two slots, because almost every real use of a meter is a comparison — yours
+against a record you like is most of what a mastering engineer does with these
+numbers. Either slot takes a file off your disk or one of the loops this app
+synthesises, so there is something to look at before you load anything. What
+comes back:
+
+- **Loudness**, **range**, **true peak**, **crest**, the **tightest** moment
+  anywhere in the track, and what a **fold to mono** would cost the bottom
+  end — with the difference against the reference under each one, because
+  working that out in your head is what the tile is meant to save.
+- **Where the weight sits**: the long-term average spectrum, a third of an
+  octave at a time, tilted so a balanced mix reads level.
+- **How it moves**: short-term loudness and crest factor second by second, on
+  one picture, because a loudness that holds while the crest drops is a
+  limiter doing the holding.
+- **How wide it is**: band by band, with what each band loses in mono.
+
+The comparison line comes from the same `distance` every exercise in this app
+is marked with, so "16.7 dB at 400 Hz" means the same thing in both places.
+
+Measured, on a three-minute stereo file at 44.1 kHz: about seven seconds to
+read, of which the loudness is three and the width two and a half. The page
+says what it is doing and gets a chance to paint it before the main thread
+stops answering — doing the work inside the frame callback blocks the very
+paint it was waiting for, so the message would appear after it had finished
+happening.
 
 ### The drills are calibrated, not guessed
 
@@ -222,11 +258,6 @@ that doing it right is audible rather than merely scored:
   file twice counts it once.
 
 ## Not built yet
-
-- **A view for the analysis readings.** The measurements are in — loudness,
-  crest factor, spectral balance and width all read back in the standard
-  envelope, with a `distance` so two tracks can be compared — but there is no
-  page that shows them yet, so nothing in the app calls them.
 - **An optional guided path** through the material.
 - **A mix exercise mode** — the six tools over a few stems, with a mixer, and
   scored on the whole master.
@@ -421,6 +452,8 @@ src/fx/             what more than one tool needs: FFT, impulse response
 src/notes/          what each tool is for, in prose, for the person using it
 src/read.js         the reading envelope: what a measurement is, and of what
 src/gap.js          comparing two readings without knowing their kind
+src/analysis/       the other half: loudness, crest, balance, width, and the
+                    page that shows them
 src/tools/          one file per tool: what it is, and how to open one
 src/work/           one file per tool: the exercises over it, and the marking
 src/bench/          the registry, the session, the picker, the attempt log
