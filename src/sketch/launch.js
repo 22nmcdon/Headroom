@@ -54,5 +54,31 @@ export function booking(from, to, state) {
   };
 }
 
+/**
+ * The launch a clip's follow action implies, if it has one.
+ *
+ * A clip that is on its `after`-th pass hands over at the tick that pass
+ * ends on, which is its anchor plus that many of its own lengths. Returned
+ * rather than queued, so the arithmetic is checkable without a clock and
+ * the one place that queues things stays the one place.
+ *
+ * Null whenever there is nothing to do: no follow, nothing playing,
+ * something already queued (a press beats a follow, every time - the person
+ * is in the room and the clip is not), or a last scene with nowhere right
+ * to go.
+ */
+export function following(state, clip, scenes) {
+  if (!clip?.follow || state.scene === null || state.next) return null;
+  if (!(clip.length > 0)) return null;
+
+  const { after, then } = clip.follow;
+  const at = state.anchor + after * clip.length;
+
+  if (then === 'stop') return { at, scene: null };
+  if (then === 'first') return { at, scene: 0 };
+  // `next`, which at the end of the row has nowhere to go but silence.
+  return { at, scene: state.scene + 1 < scenes ? state.scene + 1 : null };
+}
+
 const playing = (from, to, scene, anchor) =>
   (scene === null || to <= from ? [] : [{ from, to, scene, anchor }]);

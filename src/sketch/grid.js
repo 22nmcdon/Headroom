@@ -32,7 +32,7 @@
 import {
   newProject, setClip, setTrack, setProject, setNotes, setLength,
   clipAt, trackAt, sceneOf, sceneHasAnything, barTicks, sceneToMidi, isTake,
-  addScene, dropScene, MOST_SCENES,
+  addScene, dropScene, MOST_SCENES, setFollow, MOST_PASSES,
 } from './project.js';
 import {
   STEP_DIVISIONS, divisionOf, SCALES, SCALE_IDS, ROOT_NAMES,
@@ -67,6 +67,10 @@ const EFFECT_LABELS = {
 };
 
 const plural = (count, one, many) => `${count} ${count === 1 ? one : many}`;
+
+/** What a follow action does, in a word and in a glyph. */
+const FOLLOW_SAYS = { next: 'the next one', first: 'back to scene 1', stop: 'stop' };
+const FOLLOW_MARK = { next: '→', first: '↺', stop: '■' };
 
 /** A number, without the trailing zeroes nobody reads. */
 const trim = (value) => String(Number(value.toFixed(2)));
@@ -364,6 +368,22 @@ export class SketchPage {
         this.project, this.at.track, this.at.scene,
         Number(bars.dataset.bars) * barTicks(this.project),
       ));
+      return;
+    }
+
+    const passes = event.target.closest('[data-passes]');
+    if (passes && this.at) {
+      const count = Number(passes.dataset.passes);
+      this.change(setFollow(this.project, this.at.track, this.at.scene,
+        count ? { after: count, then: this.clip().follow?.then ?? 'next' } : null));
+      return;
+    }
+
+    const then = event.target.closest('[data-then]');
+    if (then && this.at) {
+      const was = this.clip().follow;
+      this.change(setFollow(this.project, this.at.track, this.at.scene,
+        { after: was?.after ?? 1, then: then.dataset.then }));
       return;
     }
 
@@ -807,8 +827,11 @@ export class SketchPage {
       ${project.scenes.map((scene, column) => {
         const clip = clipAt(project, index, column);
         return `
-          <button class="cell" type="button" data-cell="${index}:${column}" data-full="${Boolean(clip)}">
+          <button class="cell" type="button" data-cell="${index}:${column}"
+                  data-full="${Boolean(clip)}" data-follows="${clip?.follow?.then ?? ''}"
+                  ${clip?.follow ? `title="${clip.follow.after}× then ${FOLLOW_SAYS[clip.follow.then]}"` : ''}>
             <span class="cell-what">${clip ? clipSays(clip, perBar) : '+'}</span>
+            ${clip?.follow ? `<span class="cell-follow">${clip.follow.after}×${FOLLOW_MARK[clip.follow.then]}</span>` : ''}
           </button>`;
       }).join('')}
       <span class="scene-edit"></span>`).join('');
@@ -894,6 +917,27 @@ export class SketchPage {
                       aria-pressed="${count === bars}">${count}</button>`).join('')}
           </span>
         </div>
+        <div class="editor-row">
+          <span class="editor-label">Repeat</span>
+          <span class="chips">
+            <button class="chip" type="button" data-passes="0"
+                    aria-pressed="${!clip.follow}" title="Loop until you press something else">∞</button>
+            ${[1, 2, 4, MOST_PASSES].map((count) => `
+              <button class="chip" type="button" data-passes="${count}"
+                      aria-pressed="${clip.follow?.after === count}">${count}×</button>`).join('')}
+          </span>
+        </div>
+
+        ${!clip.follow ? '' : `
+        <div class="editor-row">
+          <span class="editor-label">Then</span>
+          <span class="chips">
+            ${[['next', 'the next one'], ['first', 'back to 1'], ['stop', 'stop']].map(([id, what]) => `
+              <button class="chip" type="button" data-then="${id}"
+                      aria-pressed="${clip.follow.then === id}">${what}</button>`).join('')}
+          </span>
+        </div>`}
+
         <div class="editor-row">
           <span class="editor-label">Grid</span>
           <span class="chips">

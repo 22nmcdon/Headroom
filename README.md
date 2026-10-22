@@ -318,7 +318,15 @@ that doing it right is audible rather than merely scored:
   in the stems. A sketch opens with a **Voice** track for exactly that — no
   step grid, no chords, just Record — because the reason to have a sketchpad
   on a phone at all is that the idea arrives when the phone is the only thing
-  to hand. Recordings live in this browser's IndexedDB beside the
+  to hand.
+
+  A clip **loops until you press something else**, which is what a clip grid
+  is for — but it can also be told to hand over: *2× then the next one*, or
+  *back to 1*, or *stop*. Set a few and the sketch plays itself through. A
+  press always beats a follow. Measured, rendering three scenes at three
+  octaves offline: *2× then next* all the way reads C2 C2 C3 C3 C4 C4 and
+  then silence, and *1× then next, 1× then back to 1* alternates for as long
+  as you let it. Recordings live in this browser's IndexedDB beside the
   sketch, because four bars of audio is a hundred times what localStorage is
   for. The six tools are the inserts. It keeps itself in this
   browser as you work, and there are two ways out: a **Type 1 MIDI file** of

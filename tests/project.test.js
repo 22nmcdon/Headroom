@@ -15,7 +15,7 @@ import {
   newProject, clipOf, trackOf, setClip, setTrack, setNotes, setProject,
   clipAt, trackAt, sceneOf, sceneHasAnything, barTicks, repeat,
   sceneToMidi, serialise, parse, PROJECT_FORMAT, SCENES, setLength,
-  addScene, dropScene, MOST_SCENES, STARTER,
+  addScene, dropScene, MOST_SCENES, STARTER, setFollow, followOf, MOST_PASSES,
 } from '../src/sketch/project.js';
 import { readMidi, PPQ, DRUM_CHANNEL } from '../src/sketch/midi.js';
 import { INSTRUMENT_IDS } from '../src/core/instrument.js';
@@ -383,4 +383,36 @@ test('a file whose tracks and scenes disagree is made to agree', () => {
 
   const back = parse(raw);
   for (const track of back.tracks) assert.equal(track.slots.length, back.scenes.length);
+});
+
+test('a clip loops for ever unless it is told not to', () => {
+  // The default is the thing a clip grid is for: keep a loop going while
+  // you work on the next thing.
+  assert.equal(clipOf().follow, null);
+  assert.equal(followOf(null), null);
+  assert.equal(followOf({ after: 0 }), null);
+  assert.equal(followOf({ after: -2, then: 'next' }), null);
+  assert.equal(followOf({ after: 'soon' }), null);
+});
+
+test('a follow is clamped to something the grid can actually do', () => {
+  assert.deepEqual(followOf({ after: 3, then: 'first' }), { after: 3, then: 'first' });
+  assert.deepEqual(followOf({ after: 500, then: 'stop' }), { after: MOST_PASSES, then: 'stop' });
+  assert.deepEqual(followOf({ after: 2.4, then: 'next' }), { after: 2, then: 'next' });
+  // Something a later version added, read by this one.
+  assert.deepEqual(followOf({ after: 2, then: 'somewhere else' }), { after: 2, then: 'next' });
+});
+
+test('a follow goes on a clip and survives being written out', () => {
+  let project = setNotes(newProject(), 1, 0, [{ pitch: 40, start: 0 }]);
+  project = setFollow(project, 1, 0, { after: 4, then: 'first' });
+
+  assert.deepEqual(clipAt(project, 1, 0).follow, { after: 4, then: 'first' });
+  assert.deepEqual(parse(serialise(project)).tracks[1].slots[0].follow,
+    { after: 4, then: 'first' });
+
+  // And it comes off again.
+  assert.equal(clipAt(setFollow(project, 1, 0, null), 1, 0).follow, null);
+  // An empty slot has nothing to put one on.
+  assert.equal(setFollow(project, 3, 2, { after: 1, then: 'next' }), project);
 });

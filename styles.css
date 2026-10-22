@@ -2350,3 +2350,18 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
   max-width: 52ch;
 }
 .editor-outs [data-mic][aria-pressed="true"] { color: var(--rust); font-weight: 500; }
+
+/* A clip that hands over says so on its face, so the shape of an
+   arrangement can be read off the grid without opening every clip. */
+.cell { position: relative; }
+.cell-follow {
+  position: absolute;
+  right: 3px;
+  bottom: 2px;
+  font-size: 8.5px;
+  letter-spacing: 0.04em;
+  color: var(--text-soft);
+  pointer-events: none;
+}
+.cell[data-live="true"] .cell-follow { color: var(--cream); }
+.cell[data-follows="stop"] .cell-follow { color: var(--rust); }

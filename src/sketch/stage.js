@@ -21,7 +21,7 @@
 import { transportFor, nextBar } from './transport.js';
 import { makeTrack, playPieces } from '../core/track.js';
 import { makeEffect } from '../core/effects.js';
-import { booking, queue, resting } from './launch.js';
+import { booking, following, queue, resting } from './launch.js';
 import { clipAt, isTake } from './project.js';
 import { optionsFor, paramsFor } from './knobs.js';
 
@@ -147,6 +147,17 @@ export async function makeStage(ctx, project, {
     };
 
     row.off = playPieces(clock, track, (from, to) => {
+      // Asked before the window is booked, not after: a follow landing
+      // inside it has to be queued first so that `booking` splits there -
+      // the old clip up to the handover and the new one after it, which is
+      // the same thing a press on the next bar line gets.
+      const due = following(
+        row.launch,
+        clipAt(current, index, row.launch.scene),
+        current.scenes.length,
+      );
+      if (due && due.at < to) row.launch = queue(row.launch, due.scene, due.at);
+
       const { pieces, state } = booking(from, to, row.launch);
       row.launch = state;
 

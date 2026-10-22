@@ -51,9 +51,33 @@ export const SCENES = 4;
 export const MOST_SCENES = 8;
 
 /** A clip, with everything it does not say filled in. */
+/** What a clip can do when it has gone round enough times. */
+export const THEN = ['next', 'first', 'stop'];
+
+/** The most passes a clip will count before doing it. */
+export const MOST_PASSES = 8;
+
+/**
+ * A clip's follow action, or null for the thing it does by default.
+ *
+ * Null is looping until somebody presses something else, which is what a
+ * clip grid is *for* - you keep a loop going while you work on the next
+ * thing. A follow is the option on top, for when the idea has a shape and
+ * you want to hear it go through rather than drive it by hand.
+ */
+export const followOf = (follow) => {
+  if (!follow) return null;
+  const after = Math.round(Number(follow.after));
+  if (!Number.isFinite(after) || after < 1) return null;
+  return {
+    after: Math.min(MOST_PASSES, after),
+    then: THEN.includes(follow.then) ? follow.then : 'next',
+  };
+};
+
 export const clipOf = ({
   id = null, length = PPQ * 4, notes = [], name = '', division = 'eighth', chords = '',
-  take = null,
+  take = null, follow = null,
 } = {}) => ({
   id: id ?? `clip-${Math.random().toString(36).slice(2, 8)}`,
   name,
@@ -63,6 +87,7 @@ export const clipOf = ({
   // here is the thread back to it - and a clip whose take has gone is a
   // clip that plays nothing, which is why they are swept together.
   take: take ? String(take) : null,
+  follow: followOf(follow),
   // The line of chord symbols this clip was made from, when it was made from
   // one. Kept so that coming back to it shows what was typed rather than
   // only the notes it became - which is the difference between a part you
@@ -255,6 +280,13 @@ export function setLength(project, track, scene, length) {
   const here = clipAt(project, track, scene);
   if (!here) return project;
   return setClip(project, track, scene, { ...here, length, notes: fit(here, length) });
+}
+
+/** What this clip does when it has been round enough times. Null keeps it looping. */
+export function setFollow(project, track, scene, follow) {
+  const here = clipAt(project, track, scene);
+  if (!here) return project;
+  return setClip(project, track, scene, { ...here, follow });
 }
 
 /* --- out of here ------------------------------------------------------------ */

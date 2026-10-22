@@ -987,6 +987,13 @@ function fillHelp() {
        + 'voiced to move as little as possible from the chord before it — so four '
        + 'symbols sound like a progression rather than four separate chords. The '
        + 'line is kept with the clip, so you can come back and change a symbol.'],
+      ['A clip loops until you press something else.',
+       'That is the default and it stays the default — it is what a clip grid is '
+       + 'for. But a clip can also be told to hand over: Repeat 2× then the next '
+       + 'one, or back to 1, or stop. Set a few of those and the sketch plays '
+       + 'itself through, which is how an idea with a shape gets heard as one. '
+       + 'Pressing a clip always beats a follow — you are in the room and it is '
+       + 'not.'],
       ['Or sing it, when it is not notes at all.',
        'The Voice track is there for exactly that: no step grid, no chords, just '
        + 'Record. Whatever the microphone hears is cut to the nearest whole bar and '
