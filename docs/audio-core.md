@@ -212,6 +212,78 @@ In the order the sketchpad plan wants them:
   EQ player calls `tuneSections` itself - which is why nothing caught it
   until a track insert was given something to do.
 
+## Should the DSP be C++?
+
+Asked, measured, and the answer for now is no - but the reasoning that
+matters is narrower than it first looks.
+
+**Most of this backend is already C++.** Web Audio's own nodes are C++ inside
+the browser: the EQ is `BiquadFilterNode`s, the reverb and delay are a
+`ConvolverNode`, and the faders, pans, splitters, buffer sources and safety
+limiter are all native. Exactly three processors run this project's own JS on
+the audio thread - the compressor, the saturator and the imager - plus a
+capture worklet that only exists while something is recording. So the
+question is not C++ against JS. It is whether those three should be
+WebAssembly.
+
+Two arguments that sound good and are not:
+
+- *"Wasm means two implementations."* It need not. Node runs WebAssembly, so
+  one compiled kernel could be loaded by the worklet and by `node --test`
+  alike, and `heat/shape.js` being simultaneously the sound, the scoring and
+  the test would survive. The real cost is a C++ toolchain and a build step
+  in a project whose README says there is neither - which is a simplicity
+  argument, not a correctness one.
+- *"Base64 inflates the artifact by a third."* A third of the wasm, not of
+  the app. These kernels are tens of kilobytes; it would add perhaps 20-40 KB
+  to 957 KB.
+
+The argument that actually decides it is headroom, and headroom is a
+measurement. Rendering offline and timing it - wall time over audio time, so
+1.0 means a second of DSP a second and nothing left over - on this
+repository's own machine, an Intel Xeon at 2.10 GHz:
+
+| what | load |
+| --- | --- |
+| a four-track sketch, no inserts | 0.07 |
+| an EQ on each track | 0.12 |
+| EQ and compressor on each | 0.16 |
+| EQ, compressor and saturator on each | 0.42 |
+| **all six effects on all four tracks** | **0.73** |
+
+And the saturator alone, which is the one worth watching - eight times
+oversampled through a 257-tap filter, about 392 multiply-adds per sample per
+channel:
+
+| instances | 1 | 2 | 4 | 8 | 12 | 16 | 24 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| load | 0.08 | 0.14 | 0.32 | 0.52 | 0.86 | 1.09 | 1.73 |
+
+Twelve saturators at once is the ceiling on this machine. A realistic mix
+sits at 0.42, which is a little over twice the headroom it needs. The
+compressor and the imager cost about a twelfth of what the saturator does:
+twelve of either reads 0.08.
+
+One thing that is already right and would have been a reason to move: **the
+processors do not allocate while running.** Every buffer in `shaperCore` -
+the polyphase table, both ring buffers, the dry delay, the biquad state - is
+built once in the closure, and `step()` contains no `new`, no `push` and no
+`slice`. Garbage collection pauses are what usually glitches browser audio
+before raw arithmetic does, and a large part of why wasm *feels* faster is
+that it cannot allocate behind your back. That advantage is already taken.
+
+**What is still open: a phone.** Chrome's CPU throttling (`Emulation.
+setCPUThrottlingRate`) does not reach the Web Audio render thread - measured,
+the numbers at 4x are identical to the numbers at 1x - so a phone cannot be
+emulated from here. `dev/load.html` is the experiment: open it on the device
+and it runs exactly the table above and says what that device can hold.
+
+The rule, if the number comes back tight: port **only** the saturator kernel,
+behind the `{ id, in, out, set, destroy }` interface `core/effect.js` already
+fixes, and run the same wasm in the tests so there is still one
+implementation. Nothing else is close enough to the limit to be worth a
+toolchain.
+
 ## What the sketchpad is measured at
 
 Rendered offline, at 48 kHz, through `makeStage` with its transport driven by

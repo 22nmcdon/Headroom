@@ -337,6 +337,17 @@ that doing it right is audible rather than merely scored:
 - Any server, account or automatic sync. Progress lives in `localStorage`, and
   the way it moves between browsers is the exported file.
 
+## What this device can run
+
+`dev/load.html` renders Headroom's own DSP offline and times it, which is the
+only load measurement that means the same thing on every device — on a real
+one the audio clock belongs to the sound card and keeps perfect time whether
+or not the thread managed to fill the buffer. Open it on a phone and it says
+what that phone can hold. On a 2.10 GHz Xeon a four-track sketch with an EQ,
+a compressor and a saturator on every track costs 0.42 of a core, and all six
+effects on all four tracks costs 0.73. See `docs/audio-core.md` for why the
+saturator is the one to watch and what would make it worth moving out of JS.
+
 ## Adding a tool
 
 A tool is three files, composed by `src/bench/registry.js`:

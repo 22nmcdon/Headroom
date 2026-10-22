@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Headroom — what this device can run</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='13'>&#9834;</text></svg>" />
+<link rel="stylesheet" href="../styles.css" />
+<style>
+  body { padding: 24px 0 48px; }
+  .load-head { margin-bottom: 18px; }
+  .load-rows { display: flex; flex-direction: column; gap: 2px; margin: 18px 0; }
+  .load-row {
+    display: grid;
+    grid-template-columns: 1fr 72px 1fr;
+    gap: 10px;
+    align-items: center;
+    padding: 7px 0;
+    border-bottom: 1px solid var(--line);
+    font-size: 13px;
+  }
+  .load-what { color: var(--text); }
+  .load-num {
+    font-family: var(--serif);
+    font-size: 17px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    color: var(--charcoal);
+  }
+  /* Both of these are spans, and a height on an inline span does nothing -
+     which is a bar that draws as an empty groove however full it is. */
+  .load-bar {
+    display: block;
+    height: 8px;
+    background: var(--cream-2);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .load-fill { display: block; height: 8px; background: var(--sage); }
+  .load-fill.is-tight { background: var(--gold); }
+  .load-fill.is-over { background: var(--rust); }
+  .load-verdict {
+    font-size: 15px;
+    border-left: 2px solid var(--blush);
+    padding-left: 12px;
+    margin: 20px 0;
+    max-width: 58ch;
+  }
+  .load-about { font-size: 12.5px; color: var(--text-soft); max-width: 62ch; }
+  .load-about code { font-family: var(--mono); font-size: 11.5px; }
+  .load-go {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 16px;
+    margin: 20px 0;
+  }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <div class="sheet-head load-head">
+    <span class="style-mark">Load</span>
+    <h1 class="sheet-title">Headroom</h1>
+    <span class="sheet-credit">what this device can run</span>
+  </div>
+
+  <p class="load-about">
+    Open this on the device you care about — a phone is the point of it. It
+    renders Headroom's own DSP offline and times it: <b>load</b> is the share
+    of one core a second of audio costs, so 0.5 means half a core and anything
+    over 1.0 cannot be done in real time at all. The saturator is the one to
+    watch; at eight times oversampling with a 257-tap filter it costs about
+    twelve times what the compressor or the imager do.
+  </p>
+
+  <div class="load-go">
+    <button class="submit-btn" type="button" id="go">Measure this device</button>
+    <span class="fine" id="where"></span>
+  </div>
+
+  <div class="load-rows" id="rows"></div>
+  <p class="load-verdict" id="verdict" hidden></p>
+  <p class="load-about" id="about"></p>
+</div>
+
+<script type="module">
+import { makeEffect } from '../src/core/effects.js';
+import { paramsFor } from '../src/sketch/knobs.js';
+import { makeStage } from '../src/sketch/stage.js';
+import { Transport } from '../src/sketch/transport.js';
+import { pieceOf } from '../src/mix/piece.js';
+import { setTrack } from '../src/sketch/project.js';
+
+const $ = (sel) => document.querySelector(sel);
+const rows = $('#rows');
+
+/** Where the colour changes. Over one is impossible; over 0.7 has no room. */
+const TIGHT = 0.7;
+
+const add = (what, load, note = '') => {
+  const over = load > 1 ? 'is-over' : load > TIGHT ? 'is-tight' : '';
+  rows.insertAdjacentHTML('beforeend', `
+    <div class="load-row">
+      <span class="load-what">${what}${note ? ` <span class="fine">· ${note}</span>` : ''}</span>
+      <span class="load-num">${load.toFixed(3)}</span>
+      <span class="load-bar"><span class="load-fill ${over}"
+        style="width:${Math.min(100, load * 100).toFixed(1)}%"></span></span>
+    </div>`);
+};
+
+const say = (line) => { $('#where').textContent = line; };
+
+/** Noise, so the shaper has something real to work on. */
+function noiseInto(ctx, seconds) {
+  const buffer = ctx.createBuffer(2, Math.ceil(ctx.sampleRate * seconds), ctx.sampleRate);
+  for (let c = 0; c < 2; c += 1) {
+    const data = buffer.getChannelData(c);
+    for (let i = 0; i < data.length; i += 1) data[i] = (Math.random() * 2 - 1) * 0.2;
+  }
+  const source = ctx.createBufferSource();
+  source.buffer = buffer;
+  return source;
+}
+
+const SETTINGS = {
+  saturation: { drive: 9, bias: 0.3, mix: 1 },
+  compression: { threshold: -24, ratio: 4 },
+  panning: { low: 1.4, mid: 1, high: 1.6 },
+};
+
+/**
+ * `count` effects of one kind, spread over four parallel chains, rendered
+ * offline. The number that comes back is wall time over audio time.
+ *
+ * Offline rather than live, because it is the only measurement that means
+ * the same thing everywhere: on a real device the audio clock is the sound
+ * card's, and it keeps perfect time whether or not the thread managed to
+ * fill the buffer. Timing the render is timing the work itself.
+ */
+async function loadOf(kind, count, seconds = 4, rate = 48000) {
+  const Offline = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+  const ctx = new Offline(2, Math.ceil(rate * seconds), rate);
+  const source = noiseInto(ctx, seconds);
+
+  const quiet = ctx.createGain();
+  quiet.gain.value = 0.02;
+
+  for (let track = 0; track < 4; track += 1) {
+    let at = source;
+    const mine = Math.floor(count / 4) + (track < count % 4 ? 1 : 0);
+    for (let i = 0; i < mine; i += 1) {
+      const effect = await makeEffect(ctx, kind, { settings: paramsFor(kind, SETTINGS[kind]) });
+      at.connect(effect.in);
+      at = effect.out;
+    }
+    at.connect(quiet);
+  }
+  quiet.connect(ctx.destination);
+  source.start(0);
+
+  const started = performance.now();
+  await ctx.startRendering();
+  return (performance.now() - started) / 1000 / seconds;
+}
+
+/** The real sketchpad: four instruments playing clips, with inserts on them. */
+async function sketchLoad(inserts, seconds = 8, rate = 48000) {
+  const Offline = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+  let project = pieceOf('short-night');
+  for (let i = 0; i < 4; i += 1) project = setTrack(project, i, { inserts, send: 0.2 });
+
+  const ctx = new Offline(2, Math.ceil(rate * seconds), rate);
+  let clock = 0;
+  const hand = new Transport({
+    now: () => clock, every: () => null, clear: () => {}, lookahead: 0, bpm: project.bpm,
+  });
+  const stage = await makeStage(ctx, project, { out: ctx.destination, transport: hand });
+  stage.launchScene(0);
+  stage.play(0);
+  for (clock = 0; clock < seconds; clock = Math.min(seconds, clock + 0.05)) {
+    hand.pass();
+    if (clock === seconds) break;
+  }
+
+  const started = performance.now();
+  await ctx.startRendering();
+  const load = (performance.now() - started) / 1000 / seconds;
+  stage.destroy();
+  return load;
+}
+
+const pause = () => new Promise((done) => setTimeout(done, 60));
+
+async function measure() {
+  $('#go').disabled = true;
+  rows.innerHTML = '';
+  $('#verdict').hidden = true;
+
+  // A live context first, for the gesture and for the device's own rate.
+  const live = new (window.AudioContext || window.webkitAudioContext)();
+  const rate = live.sampleRate;
+
+  say('Warming up…');
+  await loadOf('saturation', 1, 1);
+  await pause();
+
+  const found = {};
+
+  for (const [label, inserts] of [
+    ['A sketch, no inserts', []],
+    ['An EQ on each track', ['eq']],
+    ['EQ and compressor on each', ['eq', 'compression']],
+    ['EQ, compressor, saturator on each', ['eq', 'compression', 'saturation']],
+    ['All six, on all four tracks', ['eq', 'compression', 'panning', 'reverb', 'delay', 'saturation']],
+  ]) {
+    say(`Rendering: ${label.toLowerCase()}…`);
+    const load = await sketchLoad(inserts);
+    found[inserts.length] = load;
+    add(label, load);
+    await pause();
+  }
+
+  rows.insertAdjacentHTML('beforeend',
+    '<div class="load-row"><span class="load-what"><b>Saturators alone</b></span><span></span><span></span></div>');
+
+  let last = 0;
+  for (const count of [1, 2, 4, 8, 12, 16, 24, 32, 48]) {
+    say(`Rendering: ${count} saturators…`);
+    const load = await loadOf('saturation', count);
+    add(`${count} saturator${count === 1 ? '' : 's'}`, load);
+    if (load <= 1) last = count;
+    await pause();
+    if (load > 1.6) break;
+  }
+
+  say('');
+  $('#go').disabled = false;
+  $('#go').textContent = 'Measure again';
+
+  const realistic = found[3] ?? 0;
+  const verdict = realistic > TIGHT
+    ? `A realistic mix costs ${realistic.toFixed(2)} of a core here, which is tight. `
+      + 'This is the device that argues for moving the saturator kernel out of JS.'
+    : `A realistic mix — an EQ, a compressor and a saturator on each of four tracks — `
+      + `costs ${realistic.toFixed(2)} of a core here, about ${(1 / realistic).toFixed(1)}× `
+      + 'headroom. On this device, staying in JS is the right call.';
+
+  $('#verdict').textContent = `${verdict} This device runs about ${last} saturators at once `
+    + 'before the DSP stops fitting in real time at all.';
+  $('#verdict').hidden = false;
+
+  $('#about').innerHTML = `Measured at ${rate / 1000} kHz, rendering offline. `
+    + `<code>${navigator.hardwareConcurrency ?? '?'}</code> logical cores reported. `
+    + `<code>${navigator.userAgent}</code>`;
+
+  live.close();
+}
+
+$('#go').addEventListener('click', () => measure().catch((why) => {
+  say('');
+  $('#verdict').hidden = false;
+  $('#verdict').textContent = `That did not finish: ${why.message}`;
+  $('#go').disabled = false;
+}));
+</script>
+</body>
+</html>
