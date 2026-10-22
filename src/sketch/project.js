@@ -36,11 +36,16 @@ export const SCENES = 4;
 
 /** A clip, with everything it does not say filled in. */
 export const clipOf = ({
-  id = null, length = PPQ * 4, notes = [], name = '', division = 'eighth',
+  id = null, length = PPQ * 4, notes = [], name = '', division = 'eighth', chords = '',
 } = {}) => ({
   id: id ?? `clip-${Math.random().toString(36).slice(2, 8)}`,
   name,
   length,
+  // The line of chord symbols this clip was made from, when it was made from
+  // one. Kept so that coming back to it shows what was typed rather than
+  // only the notes it became - which is the difference between a part you
+  // can edit and a part you have to retype.
+  chords: String(chords ?? '').slice(0, 200),
   // How it was drawn, kept with it: a drum part in sixteenths and a chord
   // part in quarters are the same clip grid at two settings, and reopening
   // one at the other's is a clip whose notes sit between the lines.

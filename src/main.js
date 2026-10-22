@@ -957,6 +957,11 @@ function fillHelp() {
        'The panel then shows the grid you draw on: rows are the notes of the key '
        + 'you are in, columns are a division of the bar, and a tap is a note. '
        + 'With the clock running, what you draw is heard on the next pass.'],
+      ['Or type the chords, which is faster than drawing them.',
+       'A line like "Cm7 | A♭maj7 | E♭ | B♭" fills the clip, one chord a bar, '
+       + 'voiced to move as little as possible from the chord before it — so four '
+       + 'symbols sound like a progression rather than four separate chords. The '
+       + 'line is kept with the clip, so you can come back and change a symbol.'],
       ['The six tools are the inserts.',
        'The same EQ, compressor, imager, room, delay and saturator the exercises '
        + 'are about, on a track, in series - so what you learned on the bench is '

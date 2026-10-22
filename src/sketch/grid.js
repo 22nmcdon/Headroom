@@ -39,6 +39,7 @@ import {
 } from './steps.js';
 import { loadSketch, saveSketch, sketchFile, readSketchFile } from './store.js';
 import { knobsFor, writeKnob, tidy } from './knobs.js';
+import { chordNotes, parseProgression } from './chords.js';
 import { makeStage } from './stage.js';
 import { zipStems } from './stems.js';
 import { INSTRUMENT_IDS } from '../core/instrument.js';
@@ -59,6 +60,9 @@ const EFFECT_LABELS = {
 };
 
 const plural = (count, one, many) => `${count} ${count === 1 ? one : many}`;
+
+/** A number, without the trailing zeroes nobody reads. */
+const trim = (value) => String(Number(value.toFixed(2)));
 
 /** One knob's spec, for reading a dragged value back out. */
 const knobOf = (effect, id) => knobsFor(effect).find((knob) => knob.id === id) ?? { step: 0.1 };
@@ -289,6 +293,11 @@ export class SketchPage {
       return;
     }
 
+    if (event.target.closest('[data-chords-go]') && this.at) {
+      this.layChords();
+      return;
+    }
+
     if (event.target.closest('[data-clear]') && this.at) {
       const clip = this.clip();
       this.change(setNotes(this.project, this.at.track, this.at.scene, [], clip.length));
@@ -347,6 +356,8 @@ export class SketchPage {
     if (!this.at) return;
     const { track } = this.at;
 
+    if (event.target.closest('[data-chords]')) { this.layChords(); return; }
+
     const pick = event.target.closest('[data-instrument]');
     if (pick) {
       this.change(setTrack(this.project, track, { instrument: pick.value }));
@@ -355,6 +366,68 @@ export class SketchPage {
 
     const name = event.target.closest('[data-track-name]');
     if (name) this.change(setTrack(this.project, track, { name: name.value || 'Track' }));
+  }
+
+  /**
+   * A line of chord symbols, as the clip's notes.
+   *
+   * Replaces what is there rather than adding to it: a line of symbols is a
+   * statement of what the part is, and anybody typing one over a part they
+   * drew has changed their mind about it. The line itself is kept on the
+   * clip, so coming back to it shows what was typed rather than only what it
+   * became.
+   */
+  layChords() {
+    const input = this.parts.editor.querySelector('[data-chords]');
+    const said = this.parts.editor.querySelector('[data-chord-said]');
+    if (!input || !this.at) return;
+
+    const line = input.value;
+    const read = parseProgression(line);
+    const missed = read.filter((piece) => !piece.chord).map((piece) => piece.text);
+    const clip = this.clip();
+
+    if (!read.length) {
+      if (said) said.textContent = '';
+      return;
+    }
+
+    if (!read.some((piece) => piece.chord)) {
+      if (said) said.textContent = `Nothing in that is a chord: ${missed.join(', ')}.`;
+      return;
+    }
+
+    const notes = chordNotes(line, clip.length, { velocity: 72 });
+    this.change(setClip(this.project, this.at.track, this.at.scene, {
+      ...clip, chords: line, notes,
+    }));
+
+    const after = this.parts.editor.querySelector('[data-chord-said]');
+    if (!after) return;
+
+    const laid = read.length - missed.length;
+    const bars = clip.length / laid / barTicks(this.project);
+    const each = bars === 1 ? 'one a bar'
+      : bars > 1 ? `one every ${trim(bars)} bars`
+        : `${trim(1 / bars)} a bar`;
+
+    // A chord can easily want a note the key does not have, and a note the
+    // key does not have has no row to appear on. Said out loud, because a
+    // part that plays notes nothing on screen shows is otherwise a mystery.
+    const rows = new Set(rowsFor(trackAt(this.project, this.at.track), this.project.key)
+      .map((row) => row.pitch % 12));
+    const hidden = new Set(notes.map((note) => note.pitch % 12).filter((pc) => !rows.has(pc)));
+
+    after.textContent = [
+      missed.length
+        ? `${plural(laid, 'chord', 'chords')} in. Not a chord: ${missed.join(', ')}.`
+        : `${plural(laid, 'chord', 'chords')} in, ${each}.`,
+      hidden.size
+        ? `${plural(hidden.size, 'note', 'notes')} in there `
+          + `${hidden.size === 1 ? 'is' : 'are'} outside the key — set the scale to `
+          + 'Chromatic to see them on the grid.'
+        : '',
+    ].filter(Boolean).join(' ');
   }
 
   /* --- the audio ----------------------------------------------------------- */
@@ -532,6 +605,15 @@ export class SketchPage {
           </span>
         </div>
       </div>
+
+      ${track.instrument === 'kit' ? '' : `
+        <div class="editor-row chord-row">
+          <span class="editor-label">Chords</span>
+          <input class="chord-line" type="text" data-chords placeholder="Cm7 | A♭maj7 | E♭ | B♭"
+                 value="${clip.chords ?? ''}">
+          <button class="chip" type="button" data-chords-go>Put them in</button>
+        </div>
+        <p class="fine chord-said" data-chord-said></p>`}
 
       <div class="steps" style="--cols: ${wide}">${rows}</div>
 
