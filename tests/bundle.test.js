@@ -111,6 +111,7 @@ const NOT_WIRED_IN_YET = [
   'core/instrument.js',
   'core/track.js',
   'sketch/midi.js',
+  'sketch/project.js',
   'sketch/transport.js',
 ];
 
