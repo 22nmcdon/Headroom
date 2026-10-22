@@ -278,6 +278,16 @@ the numbers at 4x are identical to the numbers at 1x - so a phone cannot be
 emulated from here. `dev/load.html` is the experiment: open it on the device
 and it runs exactly the table above and says what that device can hold.
 
+**It has to be served over HTTPS**, and the page refuses to run otherwise
+rather than printing a number it cannot stand behind. `AudioWorklet` is only
+exposed on a secure origin: measured, `http://127.0.0.1` gets it and
+`http://192.0.2.2` does not, so a laptop serving over plain HTTP to a phone
+on the same wifi would have the compressor, saturator and imager all fall
+back to a main-thread path that does not run in an offline render at all -
+and the numbers would come back far too good. `file://` does not work either:
+it is a secure context and `audioWorklet` exists, but `addModule` on a blob
+URL fails from an opaque origin. GitHub Pages, or a tunnel, or nothing.
+
 The rule, if the number comes back tight: port **only** the saturator kernel,
 behind the `{ id, in, out, set, destroy }` interface `core/effect.js` already
 fixes, and run the same wasm in the tests so there is still one

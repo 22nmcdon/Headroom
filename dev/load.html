@@ -86,6 +86,8 @@
 </div>
 
 <script type="module">
+import { installWorklet } from '../src/fx/worklet.js';
+import { saturatorSource } from '../src/heat/node.js';
 import { makeEffect } from '../src/core/effects.js';
 import { paramsFor } from '../src/sketch/knobs.js';
 import { makeStage } from '../src/sketch/stage.js';
@@ -193,10 +195,46 @@ async function sketchLoad(inserts, seconds = 8, rate = 48000) {
 
 const pause = () => new Promise((done) => setTimeout(done, 60));
 
+/**
+ * Whether the three worklet processors can actually run here.
+ *
+ * This is the whole reason the page has a guard. `AudioWorklet` is only
+ * exposed on a secure origin, and on an insecure one `installWorklet`
+ * returns false and the compressor, saturator and imager each fall back to
+ * a main-thread path that does not run in an offline render at all. The
+ * measurement would come back flatteringly low and mean nothing, which is
+ * worse than no measurement.
+ *
+ * So: ask the real installer on a real context, and refuse if it says no.
+ */
+async function workletsWork() {
+  const Offline = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+  const ctx = new Offline(2, 4410, 44100);
+  if (!ctx.audioWorklet) return false;
+  return installWorklet(ctx, saturatorSource());
+}
+
 async function measure() {
   $('#go').disabled = true;
   rows.innerHTML = '';
   $('#verdict').hidden = true;
+
+  if (!await workletsWork()) {
+    $('#go').disabled = false;
+    $('#verdict').hidden = false;
+    $('#verdict').innerHTML = window.isSecureContext
+      ? 'This browser would not load an audio worklet, so the compressor, the '
+        + 'saturator and the imager cannot be measured here. Everything below '
+        + 'would be the main-thread fallback, which is a different number '
+        + 'about a different thing.'
+      : `<b>This page needs a secure origin.</b> It is on <code>${location.protocol}//${location.host || '…'}</code>, `
+        + 'and <code>AudioWorklet</code> is only given to HTTPS and to localhost. '
+        + 'Without it the saturator falls back to a path that does not run in an '
+        + 'offline render, and every number here would come back far too good. '
+        + 'Serve it over HTTPS — GitHub Pages, or a tunnel to your laptop — and try again.';
+    say('');
+    return;
+  }
 
   // A live context first, for the gesture and for the device's own rate.
   const live = new (window.AudioContext || window.webkitAudioContext)();
