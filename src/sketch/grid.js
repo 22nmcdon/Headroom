@@ -1182,11 +1182,11 @@ export class SketchPage {
               ${knobsFor(effect).map((knob) => {
                 const value = set[knob.id];
                 return `
-                  <label class="knob">
-                    <span class="knob-label">${knob.label}</span>
+                  <label class="insert-knob">
+                    <span class="insert-knob-name">${knob.label}</span>
                     <input type="range" data-knob="${knob.id}" data-effect="${effect}"
                            min="${knob.min}" max="${knob.max}" step="${knob.step}" value="${value}">
-                    <span class="knob-read" data-knob-read>${writeKnob(knob, value)}</span>
+                    <span class="insert-knob-read" data-knob-read>${writeKnob(knob, value)}</span>
                   </label>`;
               }).join('')}
             </div>

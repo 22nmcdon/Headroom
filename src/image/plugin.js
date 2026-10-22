@@ -96,7 +96,7 @@ export class ImagePlugin {
 
   build() {
     this.el.innerHTML = `
-      <div class="image">
+      <div class="plugin image">
         <div class="plugin-head">
           <span class="plugin-name">Stereo image</span>
           <span class="plugin-trim" id="imageTrim"></span>

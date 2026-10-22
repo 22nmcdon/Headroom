@@ -86,7 +86,7 @@ export class VerbPlugin {
 
   build() {
     this.el.innerHTML = `
-      <div class="verb">
+      <div class="plugin verb">
         <div class="plugin-head">
           <span class="plugin-name">Reverb</span>
           <span class="plugin-trim" id="verbTrim"></span>

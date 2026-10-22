@@ -96,7 +96,7 @@ export class CompPlugin {
     const keyed = Boolean(this.player.key);
 
     this.el.innerHTML = `
-      <div class="comp">
+      <div class="plugin comp">
         <div class="plugin-head">
           <span class="plugin-name">Compressor</span>
           <span class="plugin-trim" id="compTrim"></span>

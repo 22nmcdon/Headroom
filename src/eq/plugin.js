@@ -134,13 +134,13 @@ export class EQPlugin {
 
   build() {
     this.el.innerHTML = `
-      <div class="eq${this.role === 'insert' ? ' is-insert' : ''}">
-        <div class="eq-head">
-          <span class="eq-name">Channel EQ</span>
-          <span class="eq-trim" id="eqTrim"></span>
-          <span class="eq-read" id="eqRead"></span>
+      <div class="plugin eq${this.role === 'insert' ? ' is-insert' : ''}">
+        <div class="plugin-head">
+          <span class="plugin-name">Channel EQ</span>
+          <span class="plugin-trim" id="eqTrim"></span>
+          <span class="plugin-read" id="eqRead"></span>
         </div>
-        <div class="eq-display">
+        <div class="plugin-panel eq-display">
           <canvas class="eq-canvas" id="eqCanvas" tabindex="0"
                   aria-label="The curve. Arrow keys move the selected band."></canvas>
         </div>

@@ -124,7 +124,7 @@ export class HeatPlugin {
 
   build() {
     this.el.innerHTML = `
-      <div class="heat">
+      <div class="plugin heat">
         <div class="plugin-head">
           <span class="plugin-name">Saturation</span>
           <span class="plugin-trim" id="heatTrim"></span>

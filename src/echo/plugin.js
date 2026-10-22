@@ -86,7 +86,7 @@ export class EchoPlugin {
 
   build() {
     this.el.innerHTML = `
-      <div class="echo">
+      <div class="plugin echo">
         <div class="plugin-head">
           <span class="plugin-name">Delay</span>
           <span class="plugin-trim" id="echoTrim"></span>
