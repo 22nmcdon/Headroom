@@ -1,13 +1,13 @@
 import {
-  ECHO_DEFAULTS, SYNC_DIVISIONS, SHORTEST_TIME, LONGEST_TIME, MOST_FEEDBACK,
-  makeEcho, timeOf, nearestDivision,
+  ECHO_DEFAULTS, SYNC_DIVISIONS, makeEcho, timeOf, nearestDivision,
+  ECHO_LIMITS,
 } from './line.js';
 import {
   RESPONSE_BANDS, DECAY_FLOOR, decayProfile, decayTimes, wetDryImpulse, decayReading, decayAxis
 } from '../fx/response.js';
 import { ImpulsePlayer } from '../fx/player.js';
 import { notReady, stampOf } from '../read.js';
-import { dialOf, offDial, sizeOf, readyCanvas, decayX, decayY, writeMs, watchSize } from '../fx/panel.js';
+import { dialOf, offDial, sizeOf, readyCanvas, decayX, decayY, writeMs, watchSize, span } from '../fx/panel.js';
 import { LOOP_BEAT } from '../audio.js';
 import { writeHertz } from '../comp/plugin.js';
 
@@ -30,11 +30,11 @@ const BARS_SHOWN = 4;    // beats of the track across the repeats panel
 
 /** Every knob, and how it reads. */
 const ECHO_KNOBS = [
-  { id: 'time', name: 'Time', min: SHORTEST_TIME, max: LONGEST_TIME, log: true, write: writeMs },
-  { id: 'feedback', name: 'Feedback', min: 0, max: MOST_FEEDBACK, step: 0.01, write: (v) => `${Math.round(v * 100)} %` },
-  { id: 'tone', name: 'Tone', min: 500, max: 20000, log: true, write: writeHertz },
-  { id: 'lowCut', name: 'Low cut', min: 20, max: 800, log: true, write: writeHertz },
-  { id: 'mix', name: 'Mix', min: 0, max: 1, step: 0.01, write: (v) => `${Math.round(v * 100)} %` },
+  { id: 'time', name: 'Time', ...span(ECHO_LIMITS.time), log: true, write: writeMs },
+  { id: 'feedback', name: 'Feedback', ...span(ECHO_LIMITS.feedback), step: 0.01, write: (v) => `${Math.round(v * 100)} %` },
+  { id: 'tone', name: 'Tone', ...span(ECHO_LIMITS.tone), log: true, write: writeHertz },
+  { id: 'lowCut', name: 'Low cut', ...span(ECHO_LIMITS.lowCut), log: true, write: writeHertz },
+  { id: 'mix', name: 'Mix', ...span(ECHO_LIMITS.mix), step: 0.01, write: (v) => `${Math.round(v * 100)} %` },
 ];
 
 const ECHO_TINTS = { low: '--rust', mid: '--gold', high: '--enclosure' };

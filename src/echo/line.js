@@ -28,6 +28,23 @@ export const SHORTEST_TIME = 20;
 export const MOST_FEEDBACK = 0.8;
 
 /**
+ * How far each of those may be moved, which is where a plugin's knob ends.
+ *
+ * Here rather than in the plugin because two things now need it: the plugin,
+ * to lay out a slider, and the sketchpad, which stores an insert's settings
+ * and has to put a loaded file's numbers back inside the range the processor
+ * expects. Two tables would be two tables to keep in step, and the day they
+ * drift is the day a saved sketch loads as a different sound.
+ */
+export const ECHO_LIMITS = {
+  time: [SHORTEST_TIME, LONGEST_TIME],
+  feedback: [0, MOST_FEEDBACK],
+  tone: [500, 20000],
+  lowCut: [20, 800],
+  mix: [0, 1],
+};
+
+/**
  * The note values a delay is set to, as fractions of a beat.
  *
  * Spread out on purpose. Every adjacent pair here is at least a third apart,

@@ -1,11 +1,11 @@
-import { VERB_DEFAULTS, MOST_DECAY, makeImpulse } from './ir.js';
+import { VERB_DEFAULTS, makeImpulse, VERB_LIMITS } from './ir.js';
 import {
   RESPONSE_BANDS, DECAY_FLOOR, decayProfile, decayTimes, rt60, bandOf, monoOf, wetDryImpulse, decayReading, decayAxis
 } from '../fx/response.js';
 import { ImpulsePlayer } from '../fx/player.js';
 import { writeHertz } from '../comp/plugin.js';
 import { notReady, stampOf } from '../read.js';
-import { dialOf, offDial, sizeOf, readyCanvas, decayX, decayY, watchSize } from '../fx/panel.js';
+import { dialOf, offDial, sizeOf, readyCanvas, decayX, decayY, watchSize, span } from '../fx/panel.js';
 
 /**
  * The reverb, as a plugin.
@@ -24,14 +24,14 @@ export const writeSeconds = (s) => (s >= 1 ? `${s.toFixed(2)} s` : `${Math.round
 
 /** Every knob, and how it reads. */
 const VERB_KNOBS = [
-  { id: 'preDelay', name: 'Pre-delay', min: 0, max: 200, step: 1, write: (v) => `${Math.round(v)} ms` },
-  { id: 'decay', name: 'Decay', min: 0.2, max: MOST_DECAY, log: true, write: (v) => writeSeconds(v) },
-  { id: 'size', name: 'Size', min: 4, max: 60, log: true, write: (v) => `${Math.round(v)} m` },
-  { id: 'damping', name: 'HF decay', min: 0.2, max: 1, step: 0.01, write: (v) => `× ${v.toFixed(2)}` },
-  { id: 'early', name: 'Early', min: 0, max: 0.8, step: 0.01, write: (v) => `${Math.round(v * 100)} %` },
-  { id: 'lowCut', name: 'Low cut', min: 20, max: 800, log: true, write: writeHertz },
-  { id: 'highCut', name: 'High cut', min: 1500, max: 20000, log: true, write: writeHertz },
-  { id: 'mix', name: 'Mix', min: 0, max: 1, step: 0.01, write: (v) => `${Math.round(v * 100)} %` },
+  { id: 'preDelay', name: 'Pre-delay', ...span(VERB_LIMITS.preDelay), step: 1, write: (v) => `${Math.round(v)} ms` },
+  { id: 'decay', name: 'Decay', ...span(VERB_LIMITS.decay), log: true, write: (v) => writeSeconds(v) },
+  { id: 'size', name: 'Size', ...span(VERB_LIMITS.size), log: true, write: (v) => `${Math.round(v)} m` },
+  { id: 'damping', name: 'HF decay', ...span(VERB_LIMITS.damping), step: 0.01, write: (v) => `× ${v.toFixed(2)}` },
+  { id: 'early', name: 'Early', ...span(VERB_LIMITS.early), step: 0.01, write: (v) => `${Math.round(v * 100)} %` },
+  { id: 'lowCut', name: 'Low cut', ...span(VERB_LIMITS.lowCut), log: true, write: writeHertz },
+  { id: 'highCut', name: 'High cut', ...span(VERB_LIMITS.highCut), log: true, write: writeHertz },
+  { id: 'mix', name: 'Mix', ...span(VERB_LIMITS.mix), step: 0.01, write: (v) => `${Math.round(v * 100)} %` },
 ];
 
 /** The three bands wear the same warm-to-cool ramp the EQ's regions do. */

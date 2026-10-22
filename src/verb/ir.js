@@ -61,6 +61,26 @@ const SPEED = 343;
 
 /** The longest room on offer, plus room for it to finish. */
 export const MOST_DECAY = LONGEST_TAIL;
+
+/**
+ * How far each of those may be moved, which is where a plugin's knob ends.
+ *
+ * Here rather than in the plugin because two things now need it: the plugin,
+ * to lay out a slider, and the sketchpad, which stores an insert's settings
+ * and has to put a loaded file's numbers back inside the range the processor
+ * expects. Two tables would be two tables to keep in step, and the day they
+ * drift is the day a saved sketch loads as a different sound.
+ */
+export const VERB_LIMITS = {
+  preDelay: [0, 200],
+  decay: [0.2, MOST_DECAY],
+  size: [4, 60],
+  damping: [0.2, 1],
+  early: [0, 0.8],
+  lowCut: [20, 800],
+  highCut: [1500, 20000],
+  mix: [0, 1],
+};
 const CACHE_SECONDS = MOST_DECAY * 1.1 + 0.5;
 
 /**

@@ -108,6 +108,28 @@ export const COMP_DEFAULTS = {
 export const MOST_LOOKAHEAD = 0.02;
 
 /**
+ * How far each of those may be moved, which is where a plugin's knob ends.
+ *
+ * Here rather than in the plugin because two things now need it: the plugin,
+ * to lay out a slider, and the sketchpad, which stores an insert's settings
+ * and has to put a loaded file's numbers back inside the range the processor
+ * expects. Two tables would be two tables to keep in step, and the day they
+ * drift is the day a saved sketch loads as a different sound.
+ */
+export const COMP_LIMITS = {
+  threshold: [-60, 0],
+  ratio: [1, 20],
+  attack: [0.1, 200],
+  release: [5, 2000],
+  knee: [0, 24],
+  makeup: [-12, 24],
+  mix: [0, 1],
+  lookahead: [0, MOST_LOOKAHEAD * 1000],
+  scHigh: [20, 1000],
+  scLow: [200, 20000],
+};
+
+/**
  * How fast the peak detector's envelope falls away, in seconds.
  *
  * Short enough to follow a drum hit, long enough to ride over the individual

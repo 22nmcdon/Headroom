@@ -35,6 +35,24 @@ export const IMAGE_DEFAULTS = {
 /** How wide the widest setting goes. */
 export const WIDEST = 2.5;
 
+/**
+ * How far each of those may be moved, which is where a plugin's knob ends.
+ *
+ * Here rather than in the plugin because two things now need it: the plugin,
+ * to lay out a slider, and the sketchpad, which stores an insert's settings
+ * and has to put a loaded file's numbers back inside the range the processor
+ * expects. Two tables would be two tables to keep in step, and the day they
+ * drift is the day a saved sketch loads as a different sound.
+ */
+export const IMAGE_LIMITS = {
+  low: [0, WIDEST],
+  mid: [0, WIDEST],
+  high: [0, WIDEST],
+  lowMid: [80, 800],
+  midHigh: [1500, 10000],
+  pan: [-1, 1],
+};
+
 /** The bands an image is read in - finer than the three it is worked in. */
 export const IMAGE_BANDS = [
   { id: 'sub', label: '40', low: 30, high: 90 },

@@ -8,6 +8,14 @@ import { LONGEST_TAIL, DECAY_FLOOR } from './response.js';
 // canvas up for the screen it is on, turning a knob's range into a slider's
 // and back, and the axis that a decay is drawn against.
 
+/**
+ * A limit pair, as the two keys a knob wants.
+ *
+ * So that a plugin's knob and the sketchpad's clamp read the same numbers out
+ * of the same table rather than each carrying a copy.
+ */
+export const span = ([min, max]) => ({ min, max });
+
 /** A knob's range, as a slider's. Log knobs are dialled in octaves. */
 export const dialOf = (knob, value) => (knob.log
   ? {

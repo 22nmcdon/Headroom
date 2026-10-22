@@ -14,11 +14,11 @@
 // The defaults here are read from the real ones rather than written out
 // again, so a plugin whose resting state changes changes here too.
 
-import { COMP_DEFAULTS } from '../comp/dsp.js';
-import { HEAT_DEFAULTS } from '../heat/shape.js';
-import { IMAGE_DEFAULTS } from '../image/field.js';
-import { VERB_DEFAULTS } from '../verb/ir.js';
-import { ECHO_DEFAULTS } from '../echo/line.js';
+import { COMP_DEFAULTS, COMP_LIMITS } from '../comp/dsp.js';
+import { HEAT_DEFAULTS, HEAT_LIMITS } from '../heat/shape.js';
+import { IMAGE_DEFAULTS, IMAGE_LIMITS } from '../image/field.js';
+import { VERB_DEFAULTS, VERB_LIMITS } from '../verb/ir.js';
+import { ECHO_DEFAULTS, ECHO_LIMITS } from '../echo/line.js';
 import { EFFECT_IDS } from '../core/effects.js';
 import { RESTING_Q } from '../eq/filters.js';
 
@@ -93,6 +93,21 @@ const REST = {
   saturation: HEAT_DEFAULTS,
 };
 
+/**
+ * And how far each one may be moved, from the same place.
+ *
+ * The EQ has none because its stored settings are not an effect's settings:
+ * four numbers that `TONE` builds a strip out of, each with a panel knob of
+ * its own to be clamped by.
+ */
+const LIMITS = {
+  compression: COMP_LIMITS,
+  panning: IMAGE_LIMITS,
+  reverb: VERB_LIMITS,
+  delay: ECHO_LIMITS,
+  saturation: HEAT_LIMITS,
+};
+
 export const knobsFor = (id) => KNOBS[id] ?? [];
 
 /** What an insert's panel holds when nothing has been touched. */
@@ -104,17 +119,41 @@ export const restFor = (id) => Object.fromEntries(
  * A stored settings object, with everything missing filled in and everything
  * impossible taken out.
  *
- * Every value is put back through its own knob, so a file written by a later
- * version with a control this one does not have loads without it, and a
- * number outside the range is clamped rather than handed to a filter.
+ * Every setting the effect has, not only the three or four on the panel. The
+ * panel is a view onto the same object the plugin edits - an insert opens
+ * the real plugin, and a compressor's knee set there has to survive being
+ * saved and loaded or the practice is against something that forgets.
+ *
+ * A value is kept only where the effect has one of that kind to begin with,
+ * so a file written by a later version with a control this one does not have
+ * loads without it; and a number is clamped to the plugin's own range, so
+ * nothing hands a five-thousand-second decay to an impulse builder.
  */
 export function tidy(id, stored = {}) {
-  const rest = restFor(id);
-  const out = { ...rest };
+  const whole = REST[id] ?? {};
+  const limits = LIMITS[id] ?? {};
+  const out = { ...whole };
 
+  for (const [key, resting] of Object.entries(whole)) {
+    const value = stored[key];
+    if (value === undefined || value === null) continue;
+
+    if (typeof resting === 'number') {
+      const number = Number(value);
+      if (!Number.isFinite(number)) continue;
+      const [low, high] = limits[key] ?? [-Infinity, Infinity];
+      out[key] = Math.max(low, Math.min(high, number));
+    } else if (typeof value === typeof resting) {
+      out[key] = value;
+    }
+  }
+
+  // The panel's own knobs on top, clamped to the panel's own ranges, because
+  // those are what the slider can express and the slider is what wrote them.
   for (const knob of knobsFor(id)) {
     const value = Number(stored[knob.id]);
     if (!Number.isFinite(value)) continue;
+    if (limits[knob.id]) continue;
     out[knob.id] = Math.max(knob.min, Math.min(knob.max, value));
   }
 

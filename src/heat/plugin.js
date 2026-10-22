@@ -1,10 +1,11 @@
 import {
-  HEAT_DEFAULTS, HARMONICS, HEAT_FLOOR, HARMONIC_AXIS, LEAST_TONE, MOST_TONE,
-  MOST_DRIVE, MOST_HARDNESS, harmonicsOf, harmonicsReading, transferCurve,
+  HEAT_DEFAULTS, HARMONICS, HEAT_FLOOR, HARMONIC_AXIS, MOST_TONE,
+  harmonicsOf, harmonicsReading, transferCurve,
+  HEAT_LIMITS,
 } from './shape.js';
 import { notReady, stampOf } from '../read.js';
 import { HeatPlayer } from './player.js';
-import { dialOf, offDial, readyCanvas, watchSize } from '../fx/panel.js';
+import { dialOf, offDial, readyCanvas, watchSize, span } from '../fx/panel.js';
 import { writeHertz } from '../comp/plugin.js';
 
 /**
@@ -39,40 +40,35 @@ const HEAT_KNOBS = [
   {
     id: 'drive',
     name: 'Drive',
-    min: 0,
-    max: MOST_DRIVE,
+    ...span(HEAT_LIMITS.drive),
     step: 0.5,
     write: (v) => `${v.toFixed(1)} dB`,
   },
   {
     id: 'bias',
     name: 'Bias',
-    min: 0,
-    max: 1,
+    ...span(HEAT_LIMITS.bias),
     step: 0.01,
     write: (v) => (v < 0.02 ? 'Symmetric' : `${Math.round(v * 100)}%`),
   },
   {
     id: 'hardness',
     name: 'Hardness',
-    min: 1,
-    max: MOST_HARDNESS,
+    ...span(HEAT_LIMITS.hardness),
     step: 0.05,
     write: (v) => (v < 1.6 ? `Soft · ${v.toFixed(1)}` : v > 4 ? `Hard · ${v.toFixed(1)}` : v.toFixed(1)),
   },
   {
     id: 'tone',
     name: 'Tone',
-    min: LEAST_TONE,
-    max: MOST_TONE,
+    ...span(HEAT_LIMITS.tone),
     log: true,
     write: (v) => (v >= MOST_TONE - 1 ? 'Open' : writeHertz(v)),
   },
   {
     id: 'mix',
     name: 'Mix',
-    min: 0,
-    max: 1,
+    ...span(HEAT_LIMITS.mix),
     step: 0.01,
     write: (v) => `${Math.round(v * 100)}%`,
   },

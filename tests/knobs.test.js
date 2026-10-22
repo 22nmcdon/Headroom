@@ -12,10 +12,21 @@ import {
   KNOBS, knobsFor, restFor, tidy, tidyAll, paramsFor, optionsFor, writeKnob, EQ_REST,
 } from '../src/sketch/knobs.js';
 import { EFFECT_IDS } from '../src/core/effects.js';
-import { COMP_DEFAULTS } from '../src/comp/dsp.js';
-import { HEAT_DEFAULTS } from '../src/heat/shape.js';
-import { IMAGE_DEFAULTS } from '../src/image/field.js';
+import { COMP_DEFAULTS, COMP_LIMITS } from '../src/comp/dsp.js';
+import { HEAT_DEFAULTS, HEAT_LIMITS } from '../src/heat/shape.js';
+import { IMAGE_DEFAULTS, IMAGE_LIMITS } from '../src/image/field.js';
+import { VERB_DEFAULTS, VERB_LIMITS } from '../src/verb/ir.js';
+import { ECHO_DEFAULTS, ECHO_LIMITS } from '../src/echo/line.js';
 import { newProject, setTrack, serialise, parse } from '../src/sketch/project.js';
+
+/** The five that are their own settings. The EQ's four are not. */
+const WHOLE = {
+  compression: [COMP_DEFAULTS, COMP_LIMITS],
+  panning: [IMAGE_DEFAULTS, IMAGE_LIMITS],
+  reverb: [VERB_DEFAULTS, VERB_LIMITS],
+  delay: [ECHO_DEFAULTS, ECHO_LIMITS],
+  saturation: [HEAT_DEFAULTS, HEAT_LIMITS],
+};
 
 test('every effect has knobs, and every knob a workable range', () => {
   for (const id of EFFECT_IDS) {
@@ -80,13 +91,50 @@ test('an effect is given its settings under the key its maker wants', () => {
 });
 
 test('a value out of range is clamped and a value that is not one is ignored', () => {
-  assert.equal(tidy('reverb', { decay: 99 }).decay, 5);
-  assert.equal(tidy('reverb', { decay: -4 }).decay, 0.2);
+  // The plugin's range, not the panel's: an insert opens the real plugin, so
+  // the decay a sketch can hold is the decay a room can be set to - eight
+  // seconds - rather than the five the panel's own slider reaches.
+  assert.equal(tidy('reverb', { decay: 99 }).decay, VERB_LIMITS.decay[1]);
+  assert.equal(tidy('reverb', { decay: -4 }).decay, VERB_LIMITS.decay[0]);
   assert.equal(tidy('reverb', { decay: 'loud' }).decay, restFor('reverb').decay);
   assert.equal(tidy('reverb', {}).decay, restFor('reverb').decay);
 
   // A control a later version added and this one does not have.
   assert.equal(tidy('reverb', { shimmer: 1 }).shimmer, undefined);
+});
+
+test('an insert keeps every setting the effect has, not only the panel\'s few', () => {
+  // The case this is here for: somebody opens the compressor on a track,
+  // sets the knee and the makeup - neither of which is on the panel - and
+  // reloads. Dropping them would be a plugin that forgets, which is worse
+  // than one that was never there.
+  const kept = tidy('compression', { threshold: -24, knee: 1.5, makeup: 6, detector: 'rms' });
+  assert.equal(kept.threshold, -24);
+  assert.equal(kept.knee, 1.5);
+  assert.equal(kept.makeup, 6);
+  assert.equal(kept.detector, 'rms');
+
+  // Every key the effect has, so a worklet is never handed a partial object.
+  assert.deepEqual(Object.keys(kept).sort(), Object.keys(COMP_DEFAULTS).sort());
+
+  // Kinds are respected: a number where a string belongs is not a setting.
+  assert.equal(tidy('compression', { detector: 7 }).detector, COMP_DEFAULTS.detector);
+  assert.equal(tidy('compression', { sidechain: 'yes' }).sidechain, COMP_DEFAULTS.sidechain);
+  assert.equal(tidy('compression', { sidechain: true }).sidechain, true);
+});
+
+test('every numeric setting an effect has can be clamped', () => {
+  // A setting with no limit is a setting a loaded file could put anywhere,
+  // and some of them - a decay, a delay time - buy an allocation with it.
+  for (const [id, [defaults, limits]] of Object.entries(WHOLE)) {
+    for (const [key, value] of Object.entries(defaults)) {
+      if (typeof value !== 'number') continue;
+      assert.ok(limits[key], `${id}.${key} has no limit`);
+      const [low, high] = limits[key];
+      assert.ok(high > low, `${id}.${key} has no range`);
+      assert.ok(value >= low && value <= high, `${id}.${key} rests outside its own range`);
+    }
+  }
 });
 
 test('settings for an effect that does not exist are dropped', () => {

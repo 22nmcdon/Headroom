@@ -1,6 +1,6 @@
-import { staticGain, COMP_DEFAULTS } from './dsp.js';
+import { staticGain, COMP_DEFAULTS, COMP_LIMITS } from './dsp.js';
 import { CompPlayer } from './player.js';
-import { dialOf, offDial, sizeOf, readyCanvas, watchSize } from '../fx/panel.js';
+import { dialOf, offDial, sizeOf, readyCanvas, watchSize, span } from '../fx/panel.js';
 import { FRAME_MS, materialStamp } from './reading.js';
 import { notReady, stampOf } from '../read.js';
 
@@ -32,20 +32,20 @@ export const writeHertz = (hz) => (hz >= 1000 ? `${(hz / 1000).toFixed(1)} kHz` 
 
 /** Everything with a knob on it, and how each one reads. */
 const COMP_KNOBS = [
-  { id: 'threshold', name: 'Threshold', min: -60, max: 0, step: 0.5, write: (v) => `${v.toFixed(1)} dB` },
-  { id: 'ratio', name: 'Ratio', min: 1, max: 20, log: true, write: writeRatio },
-  { id: 'attack', name: 'Attack', min: 0.1, max: 200, log: true, write: writeTime },
-  { id: 'release', name: 'Release', min: 5, max: 2000, log: true, write: writeTime },
-  { id: 'knee', name: 'Knee', min: 0, max: 24, step: 0.5, write: (v) => `${v.toFixed(1)} dB` },
-  { id: 'makeup', name: 'Makeup', min: -12, max: 24, step: 0.5, write: writeDbValue },
-  { id: 'mix', name: 'Mix', min: 0, max: 1, step: 0.01, write: (v) => `${Math.round(v * 100)} %` },
-  { id: 'lookahead', name: 'Lookahead', min: 0, max: 20, step: 0.5, write: writeTime },
+  { id: 'threshold', name: 'Threshold', ...span(COMP_LIMITS.threshold), step: 0.5, write: (v) => `${v.toFixed(1)} dB` },
+  { id: 'ratio', name: 'Ratio', ...span(COMP_LIMITS.ratio), log: true, write: writeRatio },
+  { id: 'attack', name: 'Attack', ...span(COMP_LIMITS.attack), log: true, write: writeTime },
+  { id: 'release', name: 'Release', ...span(COMP_LIMITS.release), log: true, write: writeTime },
+  { id: 'knee', name: 'Knee', ...span(COMP_LIMITS.knee), step: 0.5, write: (v) => `${v.toFixed(1)} dB` },
+  { id: 'makeup', name: 'Makeup', ...span(COMP_LIMITS.makeup), step: 0.5, write: writeDbValue },
+  { id: 'mix', name: 'Mix', ...span(COMP_LIMITS.mix), step: 0.01, write: (v) => `${Math.round(v * 100)} %` },
+  { id: 'lookahead', name: 'Lookahead', ...span(COMP_LIMITS.lookahead), step: 0.5, write: writeTime },
 ];
 
 /** The detector's own controls - the half of a compressor nobody touches. */
 const COMP_SIDECHAIN = [
-  { id: 'scHigh', name: 'Key high-pass', min: 20, max: 1000, log: true, write: writeHertz },
-  { id: 'scLow', name: 'Key low-pass', min: 200, max: 20000, log: true, write: writeHertz },
+  { id: 'scHigh', name: 'Key high-pass', ...span(COMP_LIMITS.scHigh), log: true, write: writeHertz },
+  { id: 'scLow', name: 'Key low-pass', ...span(COMP_LIMITS.scLow), log: true, write: writeHertz },
 ];
 
 /** The colours, read off the page so the plugin follows whatever light it is in. */

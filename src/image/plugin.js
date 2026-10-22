@@ -1,9 +1,10 @@
 import {
-  IMAGE_DEFAULTS, IMAGE_BANDS, IMAGE_FLOOR, IMAGE_AXIS, WIDEST, imageReading, widthOf,
+  IMAGE_DEFAULTS, IMAGE_BANDS, IMAGE_FLOOR, IMAGE_AXIS, imageReading, widthOf,
+  IMAGE_LIMITS,
 } from './field.js';
 import { notReady, stampOf } from '../read.js';
 import { ImagePlayer } from './player.js';
-import { dialOf, offDial, sizeOf, readyCanvas, watchSize } from '../fx/panel.js';
+import { dialOf, offDial, sizeOf, readyCanvas, watchSize, span } from '../fx/panel.js';
 import { writeHertz } from '../comp/plugin.js';
 
 /**
@@ -25,16 +26,15 @@ const widthY = (db, height) => height - ((db - IMAGE_FLOOR) / (WIDTH_TOP - IMAGE
 
 /** Every knob, and how it reads. */
 const IMAGE_KNOBS = [
-  { id: 'low', name: 'Low width', min: 0, max: WIDEST, step: 0.01, write: (v) => `${Math.round(v * 100)} %` },
-  { id: 'mid', name: 'Mid width', min: 0, max: WIDEST, step: 0.01, write: (v) => `${Math.round(v * 100)} %` },
-  { id: 'high', name: 'High width', min: 0, max: WIDEST, step: 0.01, write: (v) => `${Math.round(v * 100)} %` },
-  { id: 'lowMid', name: 'Low ends at', min: 80, max: 800, log: true, write: writeHertz },
-  { id: 'midHigh', name: 'Top starts at', min: 1500, max: 10000, log: true, write: writeHertz },
+  { id: 'low', name: 'Low width', ...span(IMAGE_LIMITS.low), step: 0.01, write: (v) => `${Math.round(v * 100)} %` },
+  { id: 'mid', name: 'Mid width', ...span(IMAGE_LIMITS.mid), step: 0.01, write: (v) => `${Math.round(v * 100)} %` },
+  { id: 'high', name: 'High width', ...span(IMAGE_LIMITS.high), step: 0.01, write: (v) => `${Math.round(v * 100)} %` },
+  { id: 'lowMid', name: 'Low ends at', ...span(IMAGE_LIMITS.lowMid), log: true, write: writeHertz },
+  { id: 'midHigh', name: 'Top starts at', ...span(IMAGE_LIMITS.midHigh), log: true, write: writeHertz },
   {
     id: 'pan',
     name: 'Pan',
-    min: -1,
-    max: 1,
+    ...span(IMAGE_LIMITS.pan),
     step: 0.01,
     write: (v) => (Math.abs(v) < 0.02 ? 'Centre' : `${Math.round(Math.abs(v) * 100)}% ${v < 0 ? 'left' : 'right'}`),
   },
