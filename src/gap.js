@@ -21,6 +21,7 @@ import { loudnessGap } from './analysis/loudness.js';
 import { crestGap } from './analysis/dynamics.js';
 import { balanceGap } from './analysis/balance.js';
 import { widthGap } from './analysis/width.js';
+import { placementGap } from './mix/placement.js';
 import { comparable, gapOf } from './read.js';
 
 /**
@@ -46,6 +47,10 @@ const GAPS = {
   crest: crestGap,
   balance: balanceGap,
   width: widthGap,
+  // Where things sit left to right, which `width` is blind to: a mono part
+  // panned anywhere is correlated between the channels, so a width reading
+  // sees no side at all and a mirror image of a mix scores as the mix.
+  placement: placementGap,
 };
 
 /** Which kinds can be compared at all. */

@@ -48,6 +48,7 @@
     <div class="view-switch" role="radiogroup" aria-label="What this page is for">
       <button class="view-option" type="button" data-view="tools" role="radio" aria-checked="true">Tools</button>
       <button class="view-option" type="button" data-view="analysis" role="radio" aria-checked="false">Analysis</button>
+      <button class="view-option" type="button" data-view="mix" role="radio" aria-checked="false">Mix</button>
       <button class="view-option" type="button" data-view="sketch" role="radio" aria-checked="false">Sketch</button>
     </div>
 
@@ -79,6 +80,13 @@
        exercise, no dock, nothing to submit. -->
   <section class="sheet-section" id="analysis-view" hidden>
     <div class="sheet" id="analysisSheet"></div>
+  </section>
+
+  <!-- The mix exercise: four stems, a desk, and a mix to match. Not a tool
+       either - it is all six of them at once, over several parts, and what it
+       marks is the master. -->
+  <section class="sheet-section" id="mix-view" hidden>
+    <div class="sheet" id="mixSheet"></div>
   </section>
 
   <!-- The sketchpad, which is not a tool either: no round, no tier, nothing

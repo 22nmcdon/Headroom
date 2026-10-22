@@ -147,6 +147,45 @@ export function getStats(mode, tier, kind = 'work') {
  * Keeping that straight here is what lets the mastery table mean something
  * later, without a flag having to be invented for it.
  */
+/**
+ * A mix round, recorded.
+ *
+ * Its own entry point rather than a sixth caller of `recordGame`, because a
+ * mix round is not a puzzle over a tool: there is no mode to look up, no
+ * exercise, and what keeps catching somebody out is a reading rather than a
+ * band. The bucket it writes is the same shape as every other one, so the
+ * numbers come back out through `getStats` with nothing special about them.
+ */
+export function recordMix({ tier, attempts, solved, worst, label }) {
+  const store = read();
+  const key = bucketKey(MIX_MODE, tier, MIX_MODE);
+  const bucket = fill(store.buckets[key]);
+
+  bucket.played += 1;
+  if (solved) {
+    bucket.won += 1;
+    bucket.attempts[attemptBand(attempts).id] += 1;
+  }
+
+  // What keeps catching you out, which here is which of the five readings
+  // was furthest outside its tolerance when you got there - or when you
+  // gave up on it.
+  const seen = bucket.byAnswer[worst] ?? { seen: 0, solved: 0, label };
+  seen.seen += 1;
+  if (solved) seen.solved += 1;
+  bucket.byAnswer[worst] = seen;
+
+  store.buckets[key] = bucket;
+  write(store);
+  return bucket;
+}
+
+/** What the mix exercise is called in a bucket key. */
+export const MIX_MODE = 'mix';
+
+/** What has been done at a tier of the mix exercise. */
+export const mixStats = (tier) => getStats(MIX_MODE, tier, MIX_MODE);
+
 export function recordGame(game) {
   const { puzzle, guesses, status } = game;
   const spec = toolOf(puzzle.mode);

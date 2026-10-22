@@ -22,6 +22,7 @@
 // the loud one and a track's fader is where that is dealt with.
 
 import { midiToFreq } from '../audio.js';
+import { mulberry32 } from '../random.js';
 
 /** What a caller may rely on. */
 export const INSTRUMENT_SHAPE = ['id', 'out', 'noteOn', 'noteOff', 'allOff', 'destroy'];
@@ -362,12 +363,22 @@ export const makeSynth = (ctx, options = {}) =>
  * connects to the master and an instrument has to be able to go through a
  * track's own effects and fader.
  */
+/** Any number; what matters is that it is the same one every time. */
+const KIT_SEED = 0x5ea5e;
+
 export function makeKit(ctx) {
   const kit = base(ctx, 'kit');
 
+  // Seeded, not random. A snare built from Math.random is a different snare
+  // every time the kit is made - which nobody can hear on its own, and which
+  // means two renders of the same four bars are two different pieces of
+  // audio. Measured before this was seeded: rendering one unchanged mix
+  // twice read 0.28 dB apart on crest and 1.83 dB apart on the top of the
+  // spectrum, which is a scoring floor nobody could ever get under.
   const noise = ctx.createBuffer(1, Math.floor(ctx.sampleRate * 0.5), ctx.sampleRate);
   const data = noise.getChannelData(0);
-  for (let i = 0; i < data.length; i += 1) data[i] = Math.random() * 2 - 1;
+  const next = mulberry32(KIT_SEED);
+  for (let i = 0; i < data.length; i += 1) data[i] = next() * 2 - 1;
 
   const PIECES = {
     kick: { from: 92, to: 44, decay: 0.24, peak: 0.9 },

@@ -1962,3 +1962,188 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
   .sketch-pos { font-size: 19px; min-width: 46px; }
   .sketch-name { width: 120px; }
 }
+
+/* --- the mix exercise ------------------------------------------------------ */
+
+/* Here the five pigments DO mean what they mean everywhere else, because this
+   is a round and it is marked: sage is inside the tolerance, gold is close,
+   rust is not. The desk itself stays in ink and accent. */
+
+.mix-head { margin-bottom: 16px; }
+.mix-title {
+  font-size: 22px;
+  margin: 2px 0 6px;
+}
+.mix-setup {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px 20px;
+  margin-top: 10px;
+}
+
+.mix-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 18px;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+.mix-pos {
+  font-family: var(--serif);
+  font-size: 20px;
+  color: var(--charcoal);
+  font-variant-numeric: tabular-nums;
+  margin-left: auto;
+}
+
+/* Two mixes, one after the other, without the clock stopping - which is the
+   control this exercise is really about. */
+.ab-switch { display: flex; gap: 0; }
+.ab-option {
+  background: none;
+  border: 1px solid var(--line);
+  padding: 5px 12px;
+  font-family: var(--sans);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--text-soft);
+}
+.ab-option:first-child { border-radius: 14px 0 0 14px; }
+.ab-option:last-child { border-radius: 0 14px 14px 0; border-left: none; }
+.ab-option:hover { color: var(--blush-deep); }
+.ab-option[aria-checked="true"] {
+  background: var(--charcoal);
+  border-color: var(--charcoal);
+  color: var(--cream);
+}
+
+/* Four strips. Side by side where there is room, stacked where there is not -
+   a desk is wide, and a phone is the one place it cannot be. */
+.strips {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+  margin: 18px 0;
+}
+@media (min-width: 720px) {
+  .strips { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+}
+
+.strip {
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--paper);
+  padding: 10px 12px 8px;
+  min-width: 0;
+}
+.strip-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 8px;
+}
+.strip-name { font-family: var(--serif); font-size: 15px; color: var(--charcoal); }
+.strip-db {
+  font-family: var(--serif);
+  font-size: 15px;
+  color: var(--blush-deep);
+  font-variant-numeric: tabular-nums;
+}
+
+.strip-dial {
+  display: grid;
+  grid-template-columns: 38px 1fr 34px;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.strip-label {
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--text-soft);
+}
+.strip-dial input[type="range"] { width: 100%; accent-color: var(--blush-deep); }
+.strip-dial input[type="range"]:disabled { accent-color: var(--line); }
+.strip-read {
+  font-size: 11px;
+  color: var(--text-soft);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+/* The level has no reading beside it - it is in the head, in the serif, where
+   the one number anybody looks at belongs. */
+.strip-dial:first-of-type { grid-template-columns: 38px 1fr; }
+
+.strip-outs { display: flex; gap: 6px; margin-top: 8px; }
+.strip-btn {
+  flex: 1;
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  padding: 3px 0;
+  font-family: var(--sans);
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-soft);
+}
+.strip-btn:hover { color: var(--blush-deep); }
+.strip-btn[aria-pressed="true"] {
+  background: var(--charcoal);
+  border-color: var(--charcoal);
+  color: var(--cream);
+}
+
+/* The marking. Five readings, each with its own colour and its own address. */
+.mix-result { margin: 18px 0 8px; }
+.marks {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+  margin: 8px 0 10px;
+}
+.mark {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 8px 10px;
+  border-radius: 3px;
+  border-left: 3px solid var(--unresolved);
+  background: var(--paper);
+}
+.mark[data-mark="hit"] { border-left-color: var(--sage); }
+.mark[data-mark="near"] { border-left-color: var(--gold); }
+.mark[data-mark="miss"] { border-left-color: var(--rust); }
+.mark-name { font-size: 12px; color: var(--text); }
+.mark-off {
+  font-family: var(--serif);
+  font-size: 17px;
+  color: var(--charcoal);
+  font-variant-numeric: tabular-nums;
+}
+.mark-where { font-size: 10.5px; color: var(--text-soft); }
+
+.mix-foot {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px 18px;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+@media (max-width: 560px) {
+  .mix-title { font-size: 19px; }
+  .mix-pos { font-size: 17px; margin-left: 0; }
+  .strip-dial { grid-template-columns: 34px 1fr 30px; }
+}

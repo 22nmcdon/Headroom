@@ -284,9 +284,29 @@ that doing it right is audible rather than merely scored:
   a laptop keeps both halves; each export carries an id, so importing the same
   file twice counts it once.
 
+- **A mix exercise mode** — four stems, a desk, and a mix to match. Three
+  tiers: levels, then levels and placement, then the whole desk including how
+  much room each part is in. **You are marked on the master, not on the
+  faders**: both mixes are rendered offline and read, and five measurements
+  are put side by side — how loud, the tonal balance, where things sit, how
+  wide, how dynamic. Any set of moves that arrives at the same balance is the
+  answer. The A/B swaps which mix the clock is playing *without stopping the
+  clock*, which is the only way anybody hears a difference this small. The
+  drums never move: something has to be the level everything else is set
+  against.
+- **A sketchpad** — a clip grid, four tracks by four scenes, where a tap
+  launches a clip on the next bar line and the panel under it is where you
+  draw the notes. The six tools are the inserts. It keeps itself in this
+  browser as you work, and the way out is a **Type 1 MIDI file** of the scene
+  you are on, looped to four bars, with a track per part and the drums on
+  channel 10 — so it opens in Logic named and in the right places.
+
 ## Not built yet
-- **A mix exercise mode** — the six tools over a few stems, with a mixer, and
-  scored on the whole master.
+- **A sample player**, behind the instrument interface the synthesised ones
+  already sit behind.
+- **Stem export** from the sketchpad, which is an offline render of each track.
+- **Insert settings** on a sketchpad or mix track: the six are available, at
+  their defaults, and nothing yet edits a compressor's threshold from there.
 - Any server, account or automatic sync. Progress lives in `localStorage`, and
   the way it moves between browsers is the exported file.
 

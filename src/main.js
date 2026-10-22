@@ -16,6 +16,7 @@ import { makeLog } from './bench/log.js';
 import { notesFor } from './notes/index.js';
 import { AnalysisPage } from './analysis/page.js';
 import { SketchPage } from './sketch/grid.js';
+import { MixPage } from './mix/page.js';
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -54,6 +55,7 @@ const ui = {
   // one. Each is built the first time it is asked for and kept after that.
   view: 'tools',
   analysis: null,
+  mix: null,
   sketch: null,
   // How this drill's clean A/B takes its subject out and puts it back. Null
   // whenever the round is not a drill, or has nothing to compare against.
@@ -167,11 +169,12 @@ function settleKind() {
 }
 
 /** The three things this page is for. The ids match the sections and buttons. */
-const VIEWS = ['tools', 'analysis', 'sketch'];
+const VIEWS = ['tools', 'analysis', 'mix', 'sketch'];
 
 /** What the chart's head says when the page is not a tool. */
 const VIEW_HEAD = {
   analysis: { mark: 'Analysis', blurb: 'read a track back' },
+  mix: { mark: 'Mix', blurb: 'four parts, one balance' },
   sketch: { mark: 'Sketch', blurb: 'get the idea down' },
 };
 
@@ -213,10 +216,16 @@ function syncView() {
   // is not background music.
   if (!working && ui.tool?.isPlaying?.()) ui.tool.toggle?.();
   if (view !== 'sketch') ui.sketch?.hide();
+  if (view !== 'mix') ui.mix?.hide();
 
   if (view === 'analysis') {
     if (!ui.analysis) ui.analysis = new AnalysisPage($('#analysisSheet'), { engine });
     ui.analysis.show();
+  }
+
+  if (view === 'mix') {
+    if (!ui.mix) ui.mix = new MixPage($('#mixSheet'), { engine });
+    ui.mix.show();
   }
 
   if (view === 'sketch') {
@@ -898,6 +907,40 @@ function fillHelp() {
     return;
   }
 
+  // The mix exercise is all six tools at once over several parts, so none of
+  // the six helps describes it either.
+  if (ui.view === 'mix') {
+    $('#helpMode').textContent = 'Mix';
+    $('#helpLede').textContent = 'Four parts, one balance, and a mix to match. '
+      + 'Everything the six tools teach, asked at once.';
+    $('#helpList').innerHTML = [
+      ['You are marked on the master, not on the faders.',
+       'Both mixes are rendered and read, and the five readings are put side by '
+       + 'side. Any set of moves that arrives at the same balance is the answer — '
+       + 'there is no single set of positions to find.'],
+      ['Yours, then the one to match, without stopping.',
+       'The A/B swaps which mix the clock is playing and leaves the clock running, '
+       + 'which is the only way anybody has ever heard a difference this small. '
+       + 'Moving a fader brings you back to yours.'],
+      ['The drums do not move.',
+       'Something has to be the level everything else is set against, and on every '
+       + 'desk in the world it is the drums. Without one, the right mix at the '
+       + 'wrong loudness would come back every time.'],
+      ['Mute and solo are how you listen, not part of the mix.',
+       'What gets rendered and marked has everything in it, whatever is soloed '
+       + 'when you press submit.'],
+      ['Five readings, each with its own address.',
+       'How loud, the tonal balance, where things sit, how wide, how dynamic. The '
+       + 'tolerance beside each one is what counts as a match at this difficulty, '
+       + 'and every one of them has to be inside it.'],
+      ['It takes a moment.',
+       'A submit renders four bars of four parts twice over and reads five '
+       + 'measurements off each. About a second and a half, in this browser, with '
+       + 'nothing leaving it.'],
+    ].map(([lead, detail]) => `<li><b>${lead}</b><span>${detail}</span></li>`).join('');
+    return;
+  }
+
   // Nor does the tool's help describe the sketchpad, which is the one part of
   // this app that does not mark you on anything.
   if (ui.view === 'sketch') {
@@ -1102,8 +1145,8 @@ function wire() {
     if (e.target.matches('input, select, textarea') || document.querySelector('dialog[open]')) return;
     // Space is the transport wherever a musician meets one - including on the
     // sketchpad, where it is the clock rather than a loop.
-    if (ui.view === 'sketch') {
-      if (e.code === 'Space') { e.preventDefault(); ui.sketch?.toggle?.(); }
+    if (ui.view === 'sketch' || ui.view === 'mix') {
+      if (e.code === 'Space') { e.preventDefault(); ui[ui.view]?.toggle?.(); }
       return;
     }
     // The submit belongs to a round, and the analysis view does not have one.
