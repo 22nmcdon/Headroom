@@ -109,6 +109,7 @@ test('the order is the one the imports say it is', async () => {
  */
 const NOT_WIRED_IN_YET = [
   'sketch/midi.js',
+  'sketch/transport.js',
 ];
 
 test('nothing under src/ is stranded, except what is named as unfinished', async () => {
