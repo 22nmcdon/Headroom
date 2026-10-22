@@ -961,10 +961,12 @@ function fillHelp() {
        'The same EQ, compressor, imager, room, delay and saturator the exercises '
        + 'are about, on a track, in series - so what you learned on the bench is '
        + 'what is on the sketch.'],
-      ['Out of here as a MIDI file.',
-       'The scene you are on, every clip in it, looped to four bars, as a Type 1 '
-       + 'file with a track per part and the drums on channel 10. Open it in '
-       + 'Logic and the parts arrive named and in the right places.'],
+      ['Out of here as a MIDI file, or as the stems.',
+       'The MIDI is the scene you are on, looped to four bars, as a Type 1 file '
+       + 'with a track per part and the drums on channel 10. The stems are the '
+       + 'same thing as audio - a 24-bit wav a track, plus the shared room and '
+       + 'the mix, with the MIDI alongside them. Everything in the archive starts '
+       + 'together and is the same length, so it all drops onto bar one.'],
       ['It keeps itself in this browser.',
        'Saved on every edit, so a reload does not cost you the idea. There is no '
        + 'account and no server, so Save a copy is the only backup there is.'],

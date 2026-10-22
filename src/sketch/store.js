@@ -63,11 +63,18 @@ export const sketchFile = (project) => ({
   format: PROJECT_FORMAT,
 });
 
-const slug = (name) => String(name ?? '')
+/**
+ * A name, as something a filesystem will take.
+ *
+ * Here rather than beside the exporter because this file is where a sketch
+ * becomes a file, and two of these would drift the first time one of them
+ * learned about a character the other had not met.
+ */
+export const slug = (name, most = 40) => String(name ?? '')
   .toLowerCase()
   .replace(/[^a-z0-9]+/g, '-')
   .replace(/^-+|-+$/g, '')
-  .slice(0, 40);
+  .slice(0, most);
 
 /** And back. Null when the file is not a sketch, which is a sentence to print. */
 export const readSketchFile = (text) => parse(text);

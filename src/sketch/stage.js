@@ -125,6 +125,17 @@ export async function makeStage(ctx, project, { out = ctx.destination, transport
     rowAt: (index) => rows[index]?.track ?? null,
 
     /**
+     * The two places a stem export has to tap.
+     *
+     * `mix` is everything, before the limiter, because a stem through a
+     * limiter that was reacting to the other three is a stem nobody can put
+     * back together. `room` is the shared return, which is a stem of its own
+     * for the same reason it is a shared send: the parts are in one room,
+     * and splitting that room four ways would be four rooms.
+     */
+    get taps() { return { mix: bus, room: returns }; },
+
+    /**
      * The project changed.
      *
      * Notes need nothing done: the schedule reads clips out of the project
@@ -198,10 +209,18 @@ export async function makeStage(ctx, project, { out = ctx.destination, transport
      * sketchpad that resumed where it stopped would put a clip's phase
      * somewhere nobody chose.
      */
-    play() {
+    /**
+     * Start the clock, from the top.
+     *
+     * `at` is when, in audio time, and the default of a breath from now is
+     * what a press of Play wants. An offline render passes zero: a stem that
+     * began sixty milliseconds in would be sixty milliseconds late against
+     * the MIDI file beside it, which is a flam on every downbeat.
+     */
+    play(at = ctx.currentTime + 0.06) {
       if (clock.playing) return;
       for (const row of rows) row.launch = resting(row.launch.next?.scene ?? row.launch.scene, 0);
-      clock.start(ctx.currentTime + 0.06, 0);
+      clock.start(at, 0);
     },
 
     stop() {

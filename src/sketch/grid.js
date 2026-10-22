@@ -40,6 +40,7 @@ import {
 import { loadSketch, saveSketch, sketchFile, readSketchFile } from './store.js';
 import { knobsFor, writeKnob, tidy } from './knobs.js';
 import { makeStage } from './stage.js';
+import { zipStems } from './stems.js';
 import { INSTRUMENT_IDS } from '../core/instrument.js';
 import { EFFECT_IDS } from '../core/effects.js';
 import { PPQ } from './midi.js';
@@ -151,6 +152,7 @@ export class SketchPage {
         <div class="sketch-foot">
           <span class="action-group">
             <button class="link-btn" type="button" data-export>Export the scene</button>
+            <button class="link-btn" type="button" data-stems>Export the stems</button>
             <button class="link-btn" type="button" data-save>Save a copy</button>
             <button class="link-btn" type="button" data-open>Open one</button>
             <button class="link-btn" type="button" data-fresh>Start again</button>
@@ -208,6 +210,7 @@ export class SketchPage {
     ));
 
     this.el.querySelector('[data-export]').addEventListener('click', () => this.exportScene());
+    this.el.querySelector('[data-stems]').addEventListener('click', () => this.exportStems());
     this.el.querySelector('[data-save]').addEventListener('click', () => this.saveCopy());
     this.el.querySelector('[data-open]').addEventListener('click', () => parts.file.click());
     this.el.querySelector('[data-fresh]').addEventListener('click', () => this.fresh());
@@ -657,9 +660,7 @@ export class SketchPage {
   }
 
   exportScene() {
-    const scene = this.at?.scene
-      ?? [...Array(SCENES).keys()].find((index) => sceneHasAnything(this.project, index))
-      ?? 0;
+    const scene = this.whichScene();
 
     if (!sceneHasAnything(this.project, scene)) {
       this.tell('There is nothing in that scene yet.');
@@ -672,6 +673,51 @@ export class SketchPage {
 
     const parts = sceneOf(this.project, scene).length;
     this.tell(`Saved ${plural(parts, 'track', 'tracks')} as ${name} — four bars at ${this.project.bpm} bpm.`);
+  }
+
+  /** Which scene an export means: the one being edited, else the first with anything in it. */
+  whichScene() {
+    return this.at?.scene
+      ?? [...Array(SCENES).keys()].find((index) => sceneHasAnything(this.project, index))
+      ?? 0;
+  }
+
+  /**
+   * The same scene as audio: a wav a track, the room, the mix, and the MIDI.
+   *
+   * It takes a second or two and the page cannot say much while it does - an
+   * offline render holds the thread - so the button says what is happening
+   * and comes back when it is done.
+   */
+  async exportStems() {
+    const scene = this.whichScene();
+    if (!sceneHasAnything(this.project, scene)) {
+      this.tell('There is nothing in that scene yet.');
+      return;
+    }
+
+    const button = this.el.querySelector('[data-stems]');
+    if (button.disabled) return;
+    button.disabled = true;
+    button.textContent = 'Rendering…';
+    this.tell('Rendering the stems — a second or two.');
+
+    try {
+      const made = await zipStems(this.project, scene, { bars: 4 });
+      if (!made) { this.tell('There is nothing in that scene yet.'); return; }
+
+      this.give(new Blob([made.bytes], { type: 'application/zip' }), made.name);
+      const parts = made.stems.filter((stem) => stem.kind === 'track').length;
+      const megs = Math.round(made.bytes.length / 1e6);
+      this.tell(`Saved ${made.name} — ${plural(parts, 'stem', 'stems')}, the room, the mix and `
+        + `the MIDI, every one of them ${made.stems[0].seconds} seconds long and starting `
+        + `together. ${megs} MB: twenty-four bit, which is what a stem should be.`);
+    } catch (why) {
+      this.tell(`The stems could not be rendered: ${why.message}`);
+    } finally {
+      button.disabled = false;
+      button.textContent = 'Export the stems';
+    }
   }
 
   saveCopy() {

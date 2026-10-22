@@ -140,10 +140,18 @@ In the order the sketchpad plan wants them:
    that plays can be driven by hand through an `OfflineAudioContext` — which
    is how it is measured, and what stem export will use.
 
+5. ~~**Stem export.**~~ **Done**, in `src/sketch/stems.js`, with a WAV
+   writer and a ZIP writer beside it. One render, not one a track: every
+   stem is a tap on the same graph at the same moment, so they line up by
+   construction. Measured on a four-track scene - the four stems plus the
+   room sum back to the mix stem to within **−141.8 dBFS** on the worst
+   sample, every file is exactly 14.000 s at 48 kHz and 24 bits, all of them
+   start together, and `unzip -t` and Python's `wave` and `mido` all read
+   the archive.
+
 ## What is left
 
-5. **A sample player**, behind the instrument interface.
-6. **Stem export**, which is an offline render of each track.
+6. **A sample player**, behind the instrument interface.
 7. **Reordering a track's inserts.** They go on in the order they are
    pressed and come off by name; a chain is in series, so the order is
    audible, and there is no way to change it but to take them all off.

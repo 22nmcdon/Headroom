@@ -297,14 +297,16 @@ that doing it right is audible rather than merely scored:
 - **A sketchpad** — a clip grid, four tracks by four scenes, where a tap
   launches a clip on the next bar line and the panel under it is where you
   draw the notes. The six tools are the inserts. It keeps itself in this
-  browser as you work, and the way out is a **Type 1 MIDI file** of the scene
-  you are on, looped to four bars, with a track per part and the drums on
-  channel 10 — so it opens in Logic named and in the right places.
+  browser as you work, and there are two ways out: a **Type 1 MIDI file** of
+  the scene you are on, looped to four bars, with a track per part and the
+  drums on channel 10 — so it opens in Logic named and in the right places —
+  or the **stems**, as an archive of 24-bit wavs, one a track plus the shared
+  room and the mix, with that same MIDI file alongside them. Everything in it
+  starts together and is the same length, so it all drops onto bar one.
 
 ## Not built yet
 - **A sample player**, behind the instrument interface the synthesised ones
   already sit behind.
-- **Stem export** from the sketchpad, which is an offline render of each track.
 - **Insert settings on a mix-exercise strip.** A sketchpad track's inserts
   have three or four controls each; the mix desk's four stems are still
   level, pan and send only.
