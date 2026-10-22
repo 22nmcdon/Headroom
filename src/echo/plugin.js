@@ -7,7 +7,7 @@ import {
 } from '../fx/response.js';
 import { ImpulsePlayer } from '../fx/player.js';
 import { notReady, stampOf } from '../read.js';
-import { dialOf, offDial, sizeOf, readyCanvas, decayX, decayY, writeMs } from '../fx/panel.js';
+import { dialOf, offDial, sizeOf, readyCanvas, decayX, decayY, writeMs, watchSize } from '../fx/panel.js';
 import { LOOP_BEAT } from '../audio.js';
 import { writeHertz } from '../comp/plugin.js';
 
@@ -218,7 +218,7 @@ export class EchoPlugin {
       .addEventListener('change', (e) => this.loadFile(e.target.files?.[0]));
 
     this.resize = () => { this.restage(); this.draw(); };
-    window.addEventListener('resize', this.resize);
+    this.unwatch = watchSize(this.el, this.resize);
   }
 
   /** Whatever the sample picker is now set to, rebuilt from the start. */
@@ -669,7 +669,7 @@ export class EchoPlugin {
   destroy() {
     this.gone = true;
     cancelAnimationFrame(this.frame);
-    window.removeEventListener('resize', this.resize);
+    this.unwatch?.();
     this.player.destroy();
   }
 }

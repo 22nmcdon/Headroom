@@ -38,7 +38,11 @@ export function readyCanvas(canvas) {
   if (!width || !height) return null;
 
   const dpr = window.devicePixelRatio || 1;
-  if (canvas.width !== Math.round(width * dpr)) {
+  // Both, not just the width. A panel that changes height and keeps its
+  // width - which is what happens when a plugin's deck gets a row taller
+  // beside it - was left drawing at the old height and stretched to fit,
+  // which on the EQ put the frequency axis off the bottom of the display.
+  if (canvas.width !== Math.round(width * dpr) || canvas.height !== Math.round(height * dpr)) {
     canvas.width = Math.round(width * dpr);
     canvas.height = Math.round(height * dpr);
   }
@@ -64,6 +68,29 @@ export const decayX = (t, width) => (t <= DECAY_FROM
   : (Math.log2(t / DECAY_FROM) / Math.log2(LONGEST_TAIL / DECAY_FROM)) * width);
 
 export const decayY = (db, height) => (db / DECAY_FLOOR) * height;
+
+/**
+ * Redraw when the box changes, not only when the window does.
+ *
+ * Every panel here listened for `resize` on the window, which is the one
+ * thing that moves them the window knows about. A deck that gains a row
+ * beside the display, a fold opening, a band type with one knob fewer: all
+ * change the box with the window sitting still, and all left the canvas
+ * drawing at the size it had before.
+ *
+ * Returns the way to stop. Safe against a redraw that resizes the bitmap,
+ * because a panel's canvas is out of flow and so cannot change the box that
+ * is being watched.
+ */
+export function watchSize(el, redraw) {
+  window.addEventListener('resize', redraw);
+  const watch = typeof ResizeObserver === 'function' ? new ResizeObserver(() => redraw()) : null;
+  watch?.observe(el);
+  return () => {
+    window.removeEventListener('resize', redraw);
+    watch?.disconnect();
+  };
+}
 
 /** A length of time, said the way a plugin says it. */
 export const writeMs = (ms) => (ms >= 1000 ? `${(ms / 1000).toFixed(2)} s` : `${Math.round(ms)} ms`);

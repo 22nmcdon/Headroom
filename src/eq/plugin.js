@@ -4,6 +4,7 @@ import {
 } from './filters.js';
 import { EQPlayer } from './player.js';
 import { stampOf } from '../read.js';
+import { readyCanvas, sizeOf, watchSize } from '../fx/panel.js';
 
 const LOW = 20;
 const HIGH = 20000;
@@ -416,7 +417,7 @@ export class EQPlugin {
       .addEventListener('change', (e) => this.loadFile(e.target.files?.[0]));
 
     this.resize = () => this.draw();
-    window.addEventListener('resize', this.resize);
+    this.unwatch = watchSize(this.el, this.resize);
   }
 
   /** Where the whole curve sits at one frequency - where a handle belongs. */
@@ -663,10 +664,7 @@ export class EQPlugin {
 
   /* ---------- drawing ---------- */
 
-  size() {
-    const box = this.canvas.getBoundingClientRect();
-    return { width: box.width, height: box.height };
-  }
+  size() { return sizeOf(this.canvas); }
 
   draw() {
     // A plugin that has been taken off the sheet stops drawing. Its setters
@@ -674,19 +672,11 @@ export class EQPlugin {
     // land after it has been torn down, and writing to elements that are no
     // longer in the page is how a clean handover throws.
     if (this.gone) return;
-    const { width, height } = this.size();
-    if (!width || !height) return;
-
-    const dpr = window.devicePixelRatio || 1;
-    if (this.canvas.width !== Math.round(width * dpr)) {
-      this.canvas.width = Math.round(width * dpr);
-      this.canvas.height = Math.round(height * dpr);
-    }
+    const ready = readyCanvas(this.canvas);
+    if (!ready) return;
+    const { c, width, height } = ready;
 
     const ink = palette(this.el);
-    const c = this.canvas.getContext('2d');
-    c.setTransform(dpr, 0, 0, dpr, 0, 0);
-    c.clearRect(0, 0, width, height);
 
     this.drawGrid(c, width, height, ink);
     this.drawSpectrum(c, width, height, ink);
@@ -1086,6 +1076,6 @@ export class EQPlugin {
     // effect itself belongs to the track and is not this view's to end.
     this.player.destroy?.();
     cancelAnimationFrame(this.frame);
-    window.removeEventListener('resize', this.resize);
+    this.unwatch?.();
   }
 }

@@ -4,7 +4,7 @@ import {
 } from './shape.js';
 import { notReady, stampOf } from '../read.js';
 import { HeatPlayer } from './player.js';
-import { dialOf, offDial, readyCanvas } from '../fx/panel.js';
+import { dialOf, offDial, readyCanvas, watchSize } from '../fx/panel.js';
 import { writeHertz } from '../comp/plugin.js';
 
 /**
@@ -253,7 +253,7 @@ export class HeatPlugin {
       .addEventListener('change', (e) => this.loadFile(e.target.files?.[0]));
 
     this.resize = () => this.draw();
-    window.addEventListener('resize', this.resize);
+    this.unwatch = watchSize(this.el, this.resize);
   }
 
 
@@ -701,7 +701,7 @@ export class HeatPlugin {
   destroy() {
     this.gone = true;
     clearTimeout(this.soon);
-    window.removeEventListener('resize', this.resize);
+    this.unwatch?.();
     this.player.destroy();
   }
 }

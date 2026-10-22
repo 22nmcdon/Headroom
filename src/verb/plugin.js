@@ -5,7 +5,7 @@ import {
 import { ImpulsePlayer } from '../fx/player.js';
 import { writeHertz } from '../comp/plugin.js';
 import { notReady, stampOf } from '../read.js';
-import { dialOf, offDial, sizeOf, readyCanvas, decayX, decayY } from '../fx/panel.js';
+import { dialOf, offDial, sizeOf, readyCanvas, decayX, decayY, watchSize } from '../fx/panel.js';
 
 /**
  * The reverb, as a plugin.
@@ -182,7 +182,7 @@ export class VerbPlugin {
       .addEventListener('change', (e) => this.loadFile(e.target.files?.[0]));
 
     this.resize = () => { this.restage(); this.draw(); };
-    window.addEventListener('resize', this.resize);
+    this.unwatch = watchSize(this.el, this.resize);
   }
 
 
@@ -667,7 +667,7 @@ export class VerbPlugin {
   destroy() {
     this.gone = true;
     cancelAnimationFrame(this.frame);
-    window.removeEventListener('resize', this.resize);
+    this.unwatch?.();
     this.player.destroy();
   }
 }

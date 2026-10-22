@@ -568,13 +568,6 @@ body, .sheet, .dock, .top-bar, dialog { transition: background-color 280ms ease,
   height: clamp(200px, 34vh, 320px);
   overflow: hidden;
 }
-.eq-canvas {
-  width: 100%;
-  height: 100%;
-  display: block;
-  /* The pointer is dragging a band, not scrolling the page. */
-  touch-action: none;
-}
 /* It takes focus, because the arrow keys move the selected band - so it has
    to be able to say that it has it. */
 .eq-canvas:focus-visible { outline: 2px solid var(--blush-deep); outline-offset: -2px; }
@@ -910,10 +903,18 @@ input.knob-value:focus {
   border-radius: 1px;
   overflow: hidden;
 }
+/* Laid into the panel rather than filling it from the inside. A canvas with
+   `height: 100%` of a panel whose own height is not a definite number falls
+   back to its bitmap's height, which grows the panel, which resizes the
+   bitmap on the next frame: the display crept 16 pixels taller every time it
+   was drawn. Out of flow it has no intrinsic height to give. */
 .plugin-panel canvas {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   display: block;
+  /* The pointer is dragging a band, not scrolling the page. */
   touch-action: none;
 }
 
@@ -2600,7 +2601,7 @@ button.insert-name:hover { color: var(--charcoal); }
    back. */
 @media (max-height: 560px) {
   .wrap { padding-inline: 16px; }
-  .sheet { padding: 14px 16px; }
+  .sheet { padding: 10px 12px; }
   .top-bar { gap: 4px 14px; }
   .sheet-head { margin-bottom: 2px; }
   .sheet-title { font-size: 16px; }
@@ -2617,5 +2618,106 @@ button.insert-name:hover { color: var(--charcoal); }
   .step { height: 17px; }
   .steps { gap: 1px; }
   .step-name { font-size: 9px; }
+
+  /* The furniture above the work, measured at 932x430: the header alone was
+     218 of the 430, and the sheet's own prose and the dock took most of what
+     was left, so the plugin began below the fold and ran 595 past it. Here
+     the header is a toolbar rather than six stacked rows, and the prose that
+     the dock restates in fewer words goes. */
+  .top-bar { padding-block: 6px; gap: 3px 12px; }
+  .style-mark, .sheet-credit { display: none; }
+  /* Each of these takes a line of its own by asking for one - `flex: 1 1 100%`
+     in a wrapping row. Six lines is right when width is the scarce
+     direction; here it is height, so they pack instead. */
+  .view-switch, .modes, .setup { flex: 0 1 auto; }
+  .view-switch { margin-top: 0; padding-block: 0; }
+  .modes { padding-block: 0; }
+  .setup { padding-bottom: 0; }
+  .kind-switch { margin: 0; }
+  .mode-pill, .kind-option, .ab-btn { padding: 5px 12px; }
+  .view-option { padding-block: 5px; }
+  .sheet-section { padding-block: 8px 8px; }
+  .lede { display: none; }
+  .first-line { margin-block: 0 6px; }
+  .notes { margin-bottom: 6px; }
+  .notes-open { padding-block: 3px; }
+  /* Which key does what is not something a phone on its side needs told. */
+  .eq-hint { display: none; }
+
+  /* The dock on one line: what you did on the left, what to do about it on
+     the right. It reserved 46 pixels for a verdict that is usually one line
+     and put the legend on a row of its own under it. */
+  .dock { padding-block: 8px 10px; }
+  .dock > .wrap {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 18px;
+  }
+  .feedback { flex: 1 1 260px; min-height: 0; margin-bottom: 0; }
+  .dock-foot { margin-top: 0; }
+  .dock-foot .legend { display: none; }
+}
+
+/* A plugin on a short, wide screen - a phone on its side, which is how most
+   of this is used - lays out the way a plugin window does rather than the way
+   a page does: the display down the left, the deck beside it, the title above
+   both and the monitoring below. Stacked, the six of them ran 358 to 620
+   pixels tall on a 430-pixel screen. */
+@media (max-height: 560px) and (min-width: 740px) {
+  .plugin {
+    display: grid;
+    grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+    align-content: start;
+  }
+
+  /* The deck runs down the right, ruled off from the display beside it.
+     Everything that is not the deck is put back after this rule rather than
+     before it: the selectors weigh the same, so their order is what decides
+     which one a child ends up obeying. */
+  .plugin > *:nth-child(n+2) { grid-column: 2; border-left: 1px solid var(--line); }
+
+  /* The title above both columns, the monitoring below both. */
+  .plugin > .plugin-head,
+  .plugin > .eq-transport { grid-column: 1 / -1; border-left: none; }
+
+  /* The display takes the left column for as many rows as the deck needs.
+     Spanning past the last of them costs nothing: the rows it opens are
+     empty, and an empty row is no height at all. */
+  .plugin > .eq-display,
+  .plugin > .comp-display,
+  .plugin > .heat-display,
+  .plugin > .image-display,
+  .plugin > .echo-display,
+  .plugin > .verb-display {
+    grid-column: 1;
+    grid-row: 2 / span 20;
+    border-left: none;
+    /* Stretched to whatever the deck beside it comes to - which is what a
+       grid item does when its height is `auto` - with a floor for a deck
+       with very little on it. */
+    height: auto;
+    /* Tall enough that a plugin with a short deck still fills the screen
+       rather than sitting in a band across the middle of it. */
+    min-height: min(300px, 68vh);
+  }
+
+  .plugin > * { padding: 8px 12px; }
+  .plugin > .plugin-head { padding-block: 6px; }
+  .plugin > .plugin-panel { margin: 8px 12px; }
+
+  /* Three bays across, which at this column width is what fits without the
+     numbers wrapping, and three is what makes the usual counts - three, six,
+     eight - come out as whole rows. */
+  .plugin-controls, .eq-controls { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; }
+  .knob { padding: 4px 6px 1px; }
+  .knob-name { font-size: 9px; letter-spacing: 0.1em; }
+  .knob-value { font-size: 13px; }
+  .knob-dial { height: 17px; }
+
+  /* Six bands in a column this wide wrap five and one, and the one that is
+     left over stretches across the row looking like something else. Two
+     rows of three. */
+  .eq-bands { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; }
 }
 
