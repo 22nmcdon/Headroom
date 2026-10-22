@@ -121,6 +121,12 @@ export class Transport {
     this.startedAt = 0;
     this.scheduled = 0; // ticks booked so far
     this.timer = null;
+    // Said outright rather than read off the timer handle. `setInterval`
+    // returns something truthy in a browser, but a transport driven by hand -
+    // an offline render, a test - hands back whatever its `every` returns,
+    // and a clock that reports itself stopped while it is running quietly
+    // turns every bar-line launch into an immediate one.
+    this.running = false;
     this.listeners = new Set();
     this.pending = [];
   }
@@ -141,7 +147,7 @@ export class Transport {
     this.perBar = ticksPerBar(beats, value, this.ppq);
   }
 
-  get playing() { return this.timer !== null; }
+  get playing() { return this.running; }
 
   /** When a tick happens, in audio time. The whole reason there is no drift. */
   timeOf(tick) { return this.startedAt + tick * this.perTick; }
@@ -193,6 +199,7 @@ export class Transport {
     this.scheduled = from;
     // Book the first window before the timer's first wake, or the opening
     // beat is a quarter of a second late.
+    this.running = true;
     this.pass();
     this.timer = this.every(this.interval, () => this.pass());
   }
@@ -200,6 +207,7 @@ export class Transport {
   stop() {
     if (!this.playing) return;
     this.scheduled = this.tick;
+    this.running = false;
     this.clear(this.timer);
     this.timer = null;
     this.pending = [];

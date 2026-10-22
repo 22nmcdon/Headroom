@@ -387,3 +387,18 @@ test('a tempo that is not a tempo is refused', () => {
   assert.throws(() => t.setTempo(0), /not a tempo/);
   assert.throws(() => t.setTempo(-96), /not a tempo/);
 });
+
+test('a transport says whether it is running, rather than guessing from a handle', () => {
+  // A browser's setInterval hands back a number; a transport driven by hand -
+  // an offline render, or a test - hands back whatever its `every` returns,
+  // and nothing says that has to be truthy. A clock that reported itself
+  // stopped while it was running would turn every launch quantised to a bar
+  // line into one that lands immediately.
+  const clock = new Transport({ now: () => 0, every: () => null, clear: () => {} });
+
+  assert.equal(clock.playing, false);
+  clock.start(0, 0);
+  assert.equal(clock.playing, true);
+  clock.stop();
+  assert.equal(clock.playing, false);
+});

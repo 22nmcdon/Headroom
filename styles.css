@@ -1680,3 +1680,285 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
   .path-step { grid-template-columns: 20px 1fr; }
   .path-where { grid-column: 2; }
 }
+
+/* --- the sketchpad -------------------------------------------------------- */
+
+/* The one place in this app with no round and no marking, so none of the five
+   pigments appear here. State is said in ink and accent instead - charcoal
+   fill for what is sounding, blush for what is waiting for a bar line - which
+   leaves sage, gold and rust meaning exactly what they mean everywhere else. */
+
+.sketch-head { margin-bottom: 18px; }
+
+.sketch-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px 18px;
+  margin-top: 8px;
+}
+.sketch-bar .submit-btn { min-width: 78px; }
+
+/* The position, in the serif and tabular, the way every reading here is. */
+.sketch-pos {
+  font-family: var(--serif);
+  font-size: 22px;
+  color: var(--charcoal);
+  font-variant-numeric: tabular-nums;
+  min-width: 56px;
+}
+
+.sketch-name { width: 150px; }
+.sketch-bpm { width: 72px; }
+
+.sketch-name, .sketch-bpm, .track-rename {
+  font-family: var(--sans);
+  font-size: 13px;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--paper);
+  color: var(--text);
+}
+
+/* The grid and the panel that goes with it. One column at a phone width, two
+   where there is room - which is the whole of the answer to desktop versus
+   phone: the same markup, placed differently. */
+.sketch-body {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 24px 28px;
+  align-items: start;
+}
+@media (min-width: 900px) {
+  .sketch-body { grid-template-columns: minmax(260px, 0.85fr) minmax(0, 1.15fr); }
+}
+
+/* Tracks across, scenes down. One grid rather than a row of grids, so the
+   columns line up with the heads without anything measuring anything. */
+.sketch-grid {
+  display: grid;
+  grid-template-columns: 30px repeat(var(--tracks, 4), minmax(0, 1fr));
+  gap: 5px;
+}
+
+.grid-track {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 0 2px 4px;
+  border-bottom: 1px solid var(--line);
+  min-width: 0;
+}
+.track-name {
+  font-family: var(--serif);
+  font-size: 13px;
+  color: var(--charcoal);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.track-what {
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.track-mute {
+  align-self: flex-start;
+  margin-top: 2px;
+  padding: 0 5px;
+  font-size: 9.5px;
+  letter-spacing: 0.1em;
+  line-height: 15px;
+  color: var(--text-soft);
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+}
+.track-mute[aria-pressed="true"] {
+  background: var(--charcoal);
+  border-color: var(--charcoal);
+  color: var(--cream);
+}
+
+/* The scene's own button, which launches the whole row. */
+.scene-launch {
+  background: none;
+  border: none;
+  border-right: 1px solid var(--line);
+  font-family: var(--serif);
+  font-size: 14px;
+  color: var(--text-soft);
+  padding: 0 6px 0 0;
+}
+.scene-launch:hover { color: var(--blush-deep); }
+
+.cell {
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--paper);
+  color: var(--text-soft);
+  font-family: var(--sans);
+  font-size: 10.5px;
+  text-align: center;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.cell-what { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* An empty slot is an invitation, not a control: dashed, and it says so. */
+.cell[data-full="false"] {
+  border-style: dashed;
+  background: none;
+  font-size: 15px;
+  color: var(--line);
+}
+.cell[data-full="false"]:hover { color: var(--blush-deep); border-color: var(--blush); }
+.cell[data-full="true"]:hover { background: var(--wash); }
+
+/* Being edited: an outline, which is not a state the audio is in. */
+.cell[data-chosen="true"] { border-color: var(--charcoal); border-style: solid; }
+
+/* Waiting for the bar line. */
+.cell[data-queued="true"] {
+  border-color: var(--blush-deep);
+  background: var(--wash);
+  color: var(--text);
+}
+
+/* Sounding. The strongest thing on the page, because it is the thing you are
+   listening to. */
+.cell[data-live="true"] {
+  background: var(--charcoal);
+  border-color: var(--charcoal);
+  color: var(--cream);
+}
+
+/* --- the panel ------------------------------------------------------------ */
+
+.sketch-editor {
+  border-left: 2px solid var(--line);
+  padding-left: 16px;
+  min-width: 0;
+}
+.editor-empty {
+  font-size: 13.5px;
+  color: var(--text-soft);
+  margin: 0;
+  max-width: 44ch;
+}
+.editor-title {
+  font-size: 17px;
+  margin: 2px 0 10px;
+}
+.editor-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  margin-bottom: 8px;
+}
+.editor-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--text-soft);
+  min-width: 56px;
+}
+.chips { display: flex; flex-wrap: wrap; gap: 4px; }
+
+/* A chip is a setting you are on, so it reads like the pills above: quiet
+   until it is the one, then ink. */
+.chip {
+  padding: 3px 9px;
+  font-family: var(--sans);
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--text-soft);
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+}
+.chip:hover { color: var(--blush-deep); border-color: var(--blush); }
+.chip[aria-pressed="true"] {
+  background: var(--charcoal);
+  border-color: var(--charcoal);
+  color: var(--cream);
+}
+
+/* The step grid. Rows are the notes of the key, columns a division of the bar.
+   A fixed row height rather than square cells: square at a desktop width
+   would make fifteen rows into a page of its own. */
+.steps {
+  display: grid;
+  grid-template-columns: 44px repeat(var(--cols, 8), minmax(0, 1fr));
+  gap: 2px;
+  margin: 12px 0 14px;
+}
+.step-name {
+  background: none;
+  border: none;
+  padding: 0 6px 0 0;
+  font-family: var(--mono);
+  font-size: 10px;
+  text-align: right;
+  color: var(--text-soft);
+  white-space: nowrap;
+}
+.step-name:hover { color: var(--rust); }
+.step-name.is-root { color: var(--charcoal); }
+
+.step {
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  background: var(--paper);
+}
+/* The beat, so a bar can be counted without counting. */
+.step[data-beat="true"] { border-left-color: var(--blush); }
+.step:hover { background: var(--wash); }
+.step[data-on="true"] {
+  background: var(--charcoal);
+  border-color: var(--charcoal);
+}
+
+.editor-outs { gap: 8px 16px; }
+
+.editor-track {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+.editor-dials .field { flex: 1 1 110px; }
+.editor-dials input[type="range"] { width: 100%; accent-color: var(--blush-deep); }
+
+.sketch-foot {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px 18px;
+  margin-top: 22px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+@media (max-width: 560px) {
+  /* The panel loses its rule and becomes a block under the grid, which is
+     where it already is at this width - the rule only reads as a column. */
+  .sketch-editor { border-left: none; padding-left: 0; border-top: 1px solid var(--line); padding-top: 16px; }
+  .cell { min-height: 46px; font-size: 9.5px; }
+  .step { height: 18px; }
+  .steps { grid-template-columns: 34px repeat(var(--cols, 8), minmax(0, 1fr)); gap: 1px; }
+  .step-name { font-size: 9px; padding-right: 4px; }
+  .sketch-pos { font-size: 19px; min-width: 46px; }
+  .sketch-name { width: 120px; }
+}

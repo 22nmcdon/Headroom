@@ -133,25 +133,59 @@ In the order the sketchpad plan wants them:
    `notesIn` is the pure arithmetic between a clip and the transport's
    windows, and it is where the loop-point off-by-one lives.
 
+4. ~~**A clip grid.**~~ **Done**, in `src/sketch/`. A project is data
+   (`project.js`), a launch is arithmetic (`launch.js`), the step editor is
+   arithmetic (`steps.js`), the graph is `stage.js`, and the page is
+   `grid.js`. The stage takes its transport as an option, so the same code
+   that plays can be driven by hand through an `OfflineAudioContext` — which
+   is how it is measured, and what stem export will use.
+
 ## What is left
 
-4. **A clip grid.** Scenes, launch, and somewhere to put all of the above.
 5. **A sample player**, behind the instrument interface.
 6. **Stem export**, which is an offline render of each track.
+7. **Reordering a track's inserts.** They go on in the order they are
+   pressed and come off by name; a chain is in series, so the order is
+   audible, and there is no way to change it but to take them all off.
 
-## Open questions this survey does not settle
+## Questions this survey raised, and what they came to
 
-- **Where the master limiter goes.** The plan asks for a safety limiter on the
-  output. Headroom's master is a plain gain at 0.7 and the practice side has
-  never needed one; adding it changes what every existing reading is taken
-  through, so it belongs after the mixer rather than on `engine.out`.
-- **Whether the worklets survive going offline.** Stem export renders each
-  track through an `OfflineAudioContext`, and a worklet has to be added to
-  that context's module list too. The saturator's eight-times oversampling is
-  the one most likely to be expensive at render time.
-- **Phone versus desktop.** Still open, and it is not only a layout question:
-  a clip grid wide enough to be useful and a set of insert chains are
-  different amounts of screen, and the plan's own Phase 3 gate is a phone one.
-  The working assumption is desktop-first with the grid and launch reachable
-  on a phone and the editing depth a tap further away, but that is an
-  assumption and not a decision.
+- **Where the master limiter goes.** Settled: on the sketchpad's own bus, in
+  `stage.js`, after the mixer and before `engine.out`. A limiter on the
+  engine's master would change what every existing reading is taken through.
+  It is a compressor at 20:1 a decibel under full scale — a safety net, not a
+  mastering limiter. Measured: four tracks of a scene render at −8.1 dBFS,
+  so on anything like normal material it never engages at all.
+
+- **Phone versus desktop.** Settled, in `grid.js`, and the answer is that the
+  *grid* is the same at both sizes and the *depth* moves. Four tracks by four
+  scenes is sixteen buttons; at 430 px those are cells of about eighty, which
+  is a comfortable target. The clip editor, the instrument and the inserts
+  live in one panel, which CSS places as a column beside the grid above
+  900 px and as a block under it below — one set of markup, two placements,
+  and a `scrollIntoView` on a slot press so that the panel comes up when it
+  is the thing below rather than the thing beside. Checked at 430 and 1280:
+  no sideways scroll at either.
+
+- **Whether the worklets survive going offline.** Still open, and still the
+  stem-export question. What is now known is that the *instruments* do not,
+  without help: `onended` never fires during an offline render, so nothing
+  was ever forgotten, and the voice cap silenced a bass part after sixteen
+  notes. `base.hold` now sweeps voices whose tails ended before the note
+  being added starts, which is true on either clock.
+
+## What the sketchpad is measured at
+
+Rendered offline, at 48 kHz, through `makeStage` with its transport driven by
+hand:
+
+- **No drift.** A kick on every beat at 96 bpm lands at 0.065 s and then every
+  0.625 s to 11.940 s — nineteen hits, and the last is as exact as the first.
+- **A launch lands on the bar line.** A clip pressed at 3.30 s, a third of the
+  way through the second bar, is queued for tick 3840 and the note at 4.435 s
+  is still the old clip while the note at 5.060 s is the new one. 5.060 is the
+  bar line.
+- **Four tracks peak at −8.1 dBFS**, so nothing is working the limiter.
+- **The export is what Logic opens.** A scene with a bass and a kit comes out
+  as a Type 1 file, 480 ppq, 10.00 s, the bass on channel 1 with program 33
+  and the kit on channel 10, each one-bar clip looped to four bars.

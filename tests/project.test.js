@@ -14,7 +14,7 @@ import assert from 'node:assert/strict';
 import {
   newProject, clipOf, trackOf, setClip, setTrack, setNotes, setProject,
   clipAt, trackAt, sceneOf, sceneHasAnything, barTicks, repeat,
-  sceneToMidi, serialise, parse, PROJECT_FORMAT, SCENES,
+  sceneToMidi, serialise, parse, PROJECT_FORMAT, SCENES, setLength,
 } from '../src/sketch/project.js';
 import { readMidi, PPQ, DRUM_CHANNEL } from '../src/sketch/midi.js';
 import { INSTRUMENT_IDS } from '../src/core/instrument.js';
@@ -284,4 +284,45 @@ test('a project with nonsense in it loads with the nonsense taken out', () => {
   assert.equal(loaded.tracks.length, 1, 'and the things that are not tracks are dropped');
   assert.equal(loaded.tracks[0].instrument, 'synth');
   assert.deepEqual(loaded.tracks[0].inserts, ['eq']);
+});
+
+test('a sketch is in a key, and nonsense in it reads as the default', () => {
+  assert.deepEqual(newProject().key, { root: 0, scale: 'minor' });
+  assert.deepEqual(newProject({ key: { root: 14, scale: 'major' } }).key, { root: 2, scale: 'major' });
+  assert.deepEqual(newProject({ key: { scale: 'lydian-ish' } }).key, { root: 0, scale: 'minor' });
+
+  // And setting half of it leaves the other half alone.
+  const moved = setProject(newProject({ key: { root: 7, scale: 'dorian' } }), { key: { root: 5 } });
+  assert.deepEqual(moved.key, { root: 5, scale: 'dorian' });
+});
+
+test('a clip remembers the grid it was drawn on', () => {
+  assert.equal(clipOf().division, 'eighth');
+  assert.equal(clipOf({ division: 'sixteenth' }).division, 'sixteenth');
+  assert.equal(clipOf({ division: 'quavers please' }).division, 'eighth');
+});
+
+test('a key survives being written out and read back', () => {
+  const key = { root: 3, scale: 'pentatonic' };
+  assert.deepEqual(parse(serialise(newProject({ key }))).key, key);
+  // And a project written before keys existed gets the default rather than
+  // nothing, so the editor always has rows to draw.
+  const old = JSON.parse(serialise(newProject()));
+  delete old.key;
+  assert.deepEqual(parse(old).key, { root: 0, scale: 'minor' });
+});
+
+test('shortening a clip through the project drops what no longer fits', () => {
+  const bar = barTicks(newProject());
+  let project = setNotes(newProject(), 0, 0, [
+    { pitch: 60, start: 0, length: PPQ },
+    { pitch: 62, start: bar, length: PPQ },
+  ], bar * 2);
+
+  project = setLength(project, 0, 0, bar);
+  assert.equal(clipAt(project, 0, 0).length, bar);
+  assert.deepEqual(clipAt(project, 0, 0).notes.map((note) => note.pitch), [60]);
+
+  // An empty slot is left as it is rather than given a clip.
+  assert.equal(clipAt(setLength(project, 1, 3, bar), 1, 3), null);
 });

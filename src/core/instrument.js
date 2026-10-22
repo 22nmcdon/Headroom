@@ -24,7 +24,7 @@
 import { midiToFreq } from '../audio.js';
 
 /** What a caller may rely on. */
-export const INSTRUMENT_SHAPE = ['id', 'out', 'noteOn', 'noteOff', 'destroy'];
+export const INSTRUMENT_SHAPE = ['id', 'out', 'noteOn', 'noteOff', 'allOff', 'destroy'];
 
 export function isInstrument(instrument) {
   if (!instrument || typeof instrument !== 'object') return false;
@@ -57,6 +57,16 @@ function base(ctx, id) {
   const live = new Map(); // pitch -> the voices currently sounding on it
   let gone = false;
 
+  /** Everything whose tail ended before `when`, forgotten. */
+  const sweep = (when) => {
+    for (const [pitch, held] of live) {
+      const left = held.filter((voice) => !(voice.until <= when));
+      if (left.length === held.length) continue;
+      if (left.length) live.set(pitch, left);
+      else live.delete(pitch);
+    }
+  };
+
   const forget = (pitch, voice) => {
     const held = live.get(pitch);
     if (!held) return;
@@ -73,14 +83,56 @@ function base(ctx, id) {
     get voices() { return [...live.values()].reduce((n, held) => n + held.length, 0); },
     get gone() { return gone; },
 
-    /** Remember a voice so `noteOff` and `destroy` can find it. */
-    hold(pitch, voice) {
+    /**
+     * Remember a voice so `noteOff` and `destroy` can find it.
+     *
+     * `when` is the time the voice starts, which is what the sweep needs: a
+     * voice whose tail was over before this one began is nothing but a
+     * number in a map.
+     */
+    hold(pitch, voice, when = -Infinity) {
+      // Anything whose tail is already over, by the time this note starts,
+      // goes first. `onended` below is the accurate signal and the one that
+      // does the work live - but it fires on a real clock, and an offline
+      // render has none: everything is scheduled and then rendered at once,
+      // so nothing is ever ended while the booking is happening, and the
+      // voice cap would silence the instrument a few bars in. Measured
+      // before this swept: a bass part on every beat went quiet after
+      // sixteen notes, which is the cap divided by three partials.
+      sweep(when);
+
       if (!live.has(pitch)) live.set(pitch, []);
       live.get(pitch).push(voice);
       // `onended` rather than a timer: the node knows when it stopped and a
       // timer would be another clock to drift against.
       voice.node.onended = () => forget(pitch, voice);
       return voice;
+    },
+
+    /**
+     * Everything sounding or booked, gone - quickly rather than instantly.
+     *
+     * The booked half is the point. A transport books a lookahead ahead, so
+     * when somebody presses stop there are already notes scheduled that have
+     * not started; letting go of the list would leave them to sound into the
+     * silence. Each one's envelope is cancelled and its node stopped, which
+     * covers a voice that is playing and one that never got to.
+     *
+     * A short fade rather than a cut, because a gain that goes to zero in one
+     * sample is a click, and a click on the stop button sounds like a fault.
+     */
+    silence(at = ctx.currentTime) {
+      for (const held of live.values()) {
+        for (const voice of held) {
+          voice.node.onended = null;
+          try {
+            voice.gain.gain.cancelScheduledValues(at);
+            voice.gain.gain.setTargetAtTime(1e-4, at, 0.005);
+          } catch { /* a voice already finished with */ }
+          try { voice.node.stop(at + 0.05); } catch { /* already stopped */ }
+        }
+      }
+      live.clear();
     },
 
     /** Everything sounding on a pitch, taken off the list. */
@@ -150,7 +202,7 @@ function struck(ctx, kit, { partials, decayOf, peak }) {
  * ends - which is the shape every pad and every bass line in the world is,
  * and the reason `noteOff` has to mean something on this one.
  */
-function held(ctx, kit, { wave = 'sawtooth', cutoff = 2400, attack = 0.01, release = 0.12, peak = 0.2 }) {
+function sustaining(ctx, kit, { wave = 'sawtooth', cutoff = 2400, attack = 0.01, release = 0.12, peak = 0.2 }) {
   return (pitch, velocity, when) => {
     const osc = ctx.createOscillator();
     osc.type = wave;
@@ -176,13 +228,16 @@ function held(ctx, kit, { wave = 'sawtooth', cutoff = 2400, attack = 0.01, relea
     // which on a dropped message is exactly what happens.
     osc.stop(when + 30);
 
-    return [{ node: osc, gain, release, top }];
+    // Far out, because a held voice has no end until it is let go - and a
+    // number rather than nothing, so the sweep above can reason about it.
+    return [{ node: osc, gain, release, top, until: when + 30 }];
   };
 }
 
 /** Stop a held voice, with its release. */
 function letGo(voice, when) {
   const { gain, release } = voice;
+  voice.until = when + (release ?? 0.1);
   try {
     gain.gain.cancelScheduledValues(when);
     gain.gain.setValueAtTime(Math.max(gain.gain.value, 1e-5), when);
@@ -252,19 +307,19 @@ function instrumentOf(ctx, id, voicer, { sustains = false } = {}) {
       if (kit.voices >= MOST_VOICES) return null;
 
       const made = makeVoice(pitch, velocity, when);
-      for (const voice of made) kit.hold(pitch, voice);
+      for (const voice of made) kit.hold(pitch, voice, when);
       return made;
     },
 
     noteOff(pitch, when = ctx.currentTime) {
-      const held2 = kit.take(pitch);
+      const sounding = kit.take(pitch);
       if (!sustains) {
         // A struck voice is already on its way out; damping it early is what
         // a piano's dampers do, and on a drum it does nothing worth doing.
-        for (const voice of held2) kit.hold(pitch, voice);
+        for (const voice of sounding) kit.hold(pitch, voice);
         return;
       }
-      for (const voice of held2) letGo(voice, when);
+      for (const voice of sounding) letGo(voice, when);
     },
 
     /** Start and end in one call, which is what a sequencer has. */
@@ -272,6 +327,9 @@ function instrumentOf(ctx, id, voicer, { sustains = false } = {}) {
       this.noteOn(pitch, velocity, when);
       if (sustains) this.noteOff(pitch, when + Math.max(0.01, seconds));
     },
+
+    /** Stop, including what is booked and has not sounded yet. */
+    allOff: (when = ctx.currentTime) => kit.silence(when),
 
     destroy: () => kit.destroy(),
   };
@@ -295,7 +353,7 @@ export const makeBass = (ctx) => instrumentOf(ctx, 'bass', (c, kit) => struck(c,
 
 /** The synth: one filtered oscillator that holds until it is let go. */
 export const makeSynth = (ctx, options = {}) =>
-  instrumentOf(ctx, 'synth', (c, kit) => held(c, kit, options), { sustains: true });
+  instrumentOf(ctx, 'synth', (c, kit) => sustaining(c, kit, options), { sustains: true });
 
 /**
  * The kit: three pieces, played by the General MIDI pitch.
@@ -352,13 +410,14 @@ export function makeKit(ctx) {
 
       node.start(when);
       node.stop(when + piece.decay + 0.05);
-      return [kit.hold(pitch, { node, gain, until: when + piece.decay })];
+      return [kit.hold(pitch, { node, gain, until: when + piece.decay }, when)];
     },
 
     // A drum has no note-off. Said rather than left out, so that a sequencer
     // sending one is not a crash and not a surprise.
     noteOff() {},
     play(pitch, velocity, when) { this.noteOn(pitch, velocity, when); },
+    allOff: (when = ctx.currentTime) => kit.silence(when),
     destroy: () => kit.destroy(),
   };
 }

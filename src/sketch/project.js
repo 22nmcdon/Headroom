@@ -18,6 +18,7 @@ import { PPQ, writeMidi } from './midi.js';
 import { ticksPerBar } from './transport.js';
 import { INSTRUMENT_IDS, GM_PROGRAM } from '../core/instrument.js';
 import { EFFECT_IDS } from '../core/effects.js';
+import { DIVISION_IDS, SCALE_IDS, fit } from './steps.js';
 
 /** The shape of a stored project. Bumped when a file written today stops loading. */
 export const PROJECT_FORMAT = 1;
@@ -33,10 +34,16 @@ export const STARTER = [
 export const SCENES = 4;
 
 /** A clip, with everything it does not say filled in. */
-export const clipOf = ({ id = null, length = PPQ * 4, notes = [], name = '' } = {}) => ({
+export const clipOf = ({
+  id = null, length = PPQ * 4, notes = [], name = '', division = 'eighth',
+} = {}) => ({
   id: id ?? `clip-${Math.random().toString(36).slice(2, 8)}`,
   name,
   length,
+  // How it was drawn, kept with it: a drum part in sixteenths and a chord
+  // part in quarters are the same clip grid at two settings, and reopening
+  // one at the other's is a clip whose notes sit between the lines.
+  division: DIVISION_IDS.includes(division) ? division : 'eighth',
   notes: notes
     .map((note) => ({
       pitch: Math.max(0, Math.min(127, Math.round(note.pitch))),
@@ -72,13 +79,22 @@ export const trackOf = ({
   slots: Array.from({ length: SCENES }, (_, i) => (slots[i] ? clipOf(slots[i]) : null)),
 });
 
+/** What key a sketch is in, which is what the editor's rows are built from. */
+export const sketchKey = ({ root = 0, scale = 'minor' } = {}) => ({
+  root: Number.isInteger(root) ? ((root % 12) + 12) % 12 : 0,
+  scale: SCALE_IDS.includes(scale) ? scale : 'minor',
+});
+
 /** A new sketch. */
-export const newProject = ({ name = 'Untitled', bpm = 96, beats = 4, value = 4 } = {}) => ({
+export const newProject = ({
+  name = 'Untitled', bpm = 96, beats = 4, value = 4, key = {},
+} = {}) => ({
   format: PROJECT_FORMAT,
   name,
   bpm,
   beats,
   value,
+  key: sketchKey(key),
   scenes: Array.from({ length: SCENES }, (_, i) => ({ id: `scene-${i + 1}`, name: `${i + 1}` })),
   tracks: STARTER.map(trackOf),
 });
@@ -133,7 +149,11 @@ export const setTrack = (project, track, next) => withTracks(project, replace(
 ));
 
 /** Change the project's own settings. */
-export const setProject = (project, next) => ({ ...project, ...next });
+export const setProject = (project, next) => ({
+  ...project,
+  ...next,
+  key: sketchKey({ ...project.key, ...(next.key ?? {}) }),
+});
 
 /** Put notes in a clip, making the clip if the slot was empty. */
 export function setNotes(project, track, scene, notes, length = null) {
@@ -143,6 +163,19 @@ export function setNotes(project, track, scene, notes, length = null) {
     length: length ?? here?.length ?? barTicks(project),
     notes,
   }));
+}
+
+/**
+ * Change how long a clip is, dropping anything that no longer fits.
+ *
+ * Notes kept past a shortened end are notes that exist, cannot be seen, and
+ * reappear when it is lengthened again - which arrives as a bug report about
+ * notes coming from nowhere.
+ */
+export function setLength(project, track, scene, length) {
+  const here = clipAt(project, track, scene);
+  if (!here) return project;
+  return setClip(project, track, scene, { ...here, length, notes: fit(here, length) });
 }
 
 /* --- out of here ------------------------------------------------------------ */
@@ -255,6 +288,7 @@ export function parse(text) {
     format: PROJECT_FORMAT,
     name: String(raw.name ?? 'Untitled'),
     bpm: Number.isFinite(bpm) && bpm > 0 ? bpm : 96,
+    key: sketchKey(raw.key ?? {}),
     beats: Number.isInteger(raw.beats) && raw.beats > 0 ? raw.beats : 4,
     value: [1, 2, 4, 8, 16, 32].includes(raw.value) ? raw.value : 4,
     scenes,

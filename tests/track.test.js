@@ -138,3 +138,26 @@ test('there is a ceiling on how many notes can sound at once', () => {
   // stop answering before anybody heard the problem.
   assert.ok(MOST_VOICES > 16 && MOST_VOICES <= 128);
 });
+
+test('an anchored clip plays from its own beginning, not the one on the wall', () => {
+  // Press a two-bar clip on bar three and you should hear its first bar. The
+  // unanchored reading of the same window is its third bar, which is the clip
+  // somebody wrote minus the part they wrote first.
+  const clip = makeClip({
+    id: 'two',
+    length: BAR * 2,
+    notes: [{ pitch: 60, start: 0 }, { pitch: 72, start: BAR }],
+  });
+
+  assert.deepEqual(notesIn(clip, BAR * 2, BAR * 3).map((n) => n.pitch), [60]);
+  assert.deepEqual(notesIn(clip, BAR * 2, BAR * 3, BAR * 2).map((n) => n.pitch), [60]);
+  assert.deepEqual(notesIn(clip, BAR * 3, BAR * 4, BAR * 2).map((n) => n.pitch), [72]);
+  // And an anchor an odd number of bars in moves the whole thing with it.
+  assert.deepEqual(notesIn(clip, BAR * 3, BAR * 4, BAR * 3).map((n) => n.pitch), [60]);
+});
+
+test('an anchored clip comes back with the tick it really sounds at', () => {
+  const clip = makeClip({ id: 'one', length: BAR, notes: [{ pitch: 60, start: PPQ }] });
+  const [note] = notesIn(clip, BAR * 5, BAR * 6, BAR * 5);
+  assert.equal(note.at, BAR * 5 + PPQ);
+});

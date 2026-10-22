@@ -107,13 +107,7 @@ test('the order is the one the imports say it is', async () => {
  * Every line here is a promise to come back. Delete it when the sketchpad has
  * a page.
  */
-const NOT_WIRED_IN_YET = [
-  'core/instrument.js',
-  'core/track.js',
-  'sketch/midi.js',
-  'sketch/project.js',
-  'sketch/transport.js',
-];
+const NOT_WIRED_IN_YET = [];
 
 test('nothing under src/ is stranded, except what is named as unfinished', async () => {
   // The inverse of the old check, and the one it could never make: the list is

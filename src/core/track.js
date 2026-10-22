@@ -143,14 +143,20 @@ export const makeClip = ({ id, length, notes = [] }) => ({
  * A note that starts before the window and is still sounding inside it is not
  * here, and should not be: it was already booked by the window that contained
  * its start, and booking it again would play it twice.
+ *
+ * `anchor` is the tick the clip is counted from - where it was launched. The
+ * default of zero counts from the start of time, which is what a clip that
+ * was always playing wants; a clip launched on bar three wants bar three, so
+ * that pressing it plays its first bar rather than wherever the global grid
+ * happens to be in it.
  */
-export function notesIn(clip, from, to) {
+export function notesIn(clip, from, to, anchor = 0) {
   const found = [];
 
-  for (const piece of loopWindows(from, to, clip.length)) {
+  for (const piece of loopWindows(from - anchor, to - anchor, clip.length)) {
     for (const note of clip.notes) {
       if (note.start >= piece.from && note.start < piece.to) {
-        found.push({ ...note, at: note.start + piece.offset });
+        found.push({ ...note, at: note.start + piece.offset + anchor });
       }
     }
   }
@@ -159,24 +165,41 @@ export function notesIn(clip, from, to) {
 }
 
 /**
- * Put a clip on a track, driven by a transport.
+ * Put whatever a track should be playing on it, driven by a transport.
  *
- * Returns the unsubscribe, because a clip that is swapped out has to stop
- * being asked. The booking itself is three lines: what sounds in this window,
- * when each one is in audio time, and the instrument's own `play`.
+ * `pick(from, to)` is asked once a window, and hands back the pieces of it to
+ * book: a clip, the span of ticks to take from it, and the tick its phase is
+ * counted from. Pieces rather than one clip because a launch landing inside a
+ * window splits it - the old clip up to the bar line, the new one after it -
+ * and that is the one thing a clip grid cannot do without.
+ *
+ * Returns the unsubscribe, because a track that goes away has to stop being
+ * asked.
  */
-export function playClip(transport, track, getClip) {
+export function playPieces(transport, track, pick) {
   return transport.onSchedule((from, to, timeOf) => {
-    const clip = typeof getClip === 'function' ? getClip() : getClip;
-    if (!clip?.notes?.length) return;
+    for (const piece of pick(from, to) ?? []) {
+      if (!piece.clip?.notes?.length) continue;
 
-    for (const note of notesIn(clip, from, to)) {
-      track.instrument.play(
-        note.pitch,
-        note.velocity,
-        timeOf(note.at),
-        note.length * transport.perTick,
-      );
+      for (const note of notesIn(piece.clip, piece.from, piece.to, piece.anchor ?? 0)) {
+        track.instrument.play(
+          note.pitch,
+          note.velocity,
+          timeOf(note.at),
+          note.length * transport.perTick,
+        );
+      }
     }
   });
 }
+
+/**
+ * One clip, always playing, from the start of time.
+ *
+ * The simple case, and the one anything without a grid of scenes wants.
+ */
+export const playClip = (transport, track, getClip) => playPieces(
+  transport,
+  track,
+  (from, to) => [{ clip: typeof getClip === 'function' ? getClip() : getClip, from, to }],
+);

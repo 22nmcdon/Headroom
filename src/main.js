@@ -15,6 +15,7 @@ import { renderPicker, syncPicker, pickerState, dialValue } from './bench/picker
 import { makeLog } from './bench/log.js';
 import { notesFor } from './notes/index.js';
 import { AnalysisPage } from './analysis/page.js';
+import { SketchPage } from './sketch/grid.js';
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -48,10 +49,12 @@ const ui = {
   // 'work' or 'drill'. Not per tool: it is how you are practising, not what
   // you are practising, and it survives switching tools on purpose.
   kind: 'work',
-  // 'tools' or 'analysis'. The top of the hierarchy: two different things to
-  // do with this app rather than two ways of doing one.
+  // Which of the three this page is being used as. The top of the hierarchy:
+  // different things to do with this app rather than different ways of doing
+  // one. Each is built the first time it is asked for and kept after that.
   view: 'tools',
   analysis: null,
+  sketch: null,
   // How this drill's clean A/B takes its subject out and puts it back. Null
   // whenever the round is not a drill, or has nothing to compare against.
   clean: null,
@@ -163,43 +166,63 @@ function settleKind() {
   return undefined;
 }
 
+/** The three things this page is for. The ids match the sections and buttons. */
+const VIEWS = ['tools', 'analysis', 'sketch'];
+
+/** What the chart's head says when the page is not a tool. */
+const VIEW_HEAD = {
+  analysis: { mark: 'Analysis', blurb: 'read a track back' },
+  sketch: { mark: 'Sketch', blurb: 'get the idea down' },
+};
+
 /**
- * Show one of the two halves of the app.
+ * Show one of the three things this app is.
  *
- * Everything above the sheet belongs to the tools, so all of it goes: the
- * tool strip, the work-or-drills pill, the difficulty row, the status, and
- * the dock with its submit button. The analysis view has no round to submit.
+ * Everything above the sheet belongs to the tools, so all of it goes when the
+ * page is not one: the tool strip, the work-or-drills pill, the difficulty
+ * row, the status, and the dock with its submit button. Neither of the other
+ * two has a round to submit.
  *
- * The analysis page is built the first time it is asked for and kept after
- * that, the same bargain the tools get: it holds decoded audio and a set of
- * readings over it, and throwing those away because somebody looked at an EQ
- * for a moment would mean decoding the file again.
+ * Each page is built the first time it is asked for and kept after that, the
+ * same bargain the tools get: the analysis page holds decoded audio and the
+ * readings over it, the sketchpad holds a graph of four instruments, and
+ * throwing either away because somebody looked at an EQ for a moment would
+ * mean building it again.
  */
 function syncView() {
-  const analysing = ui.view === 'analysis';
+  const { view } = ui;
+  const working = view === 'tools';
 
   for (const button of document.querySelectorAll('[data-view]')) {
-    button.setAttribute('aria-checked', button.dataset.view === ui.view ? 'true' : 'false');
+    button.setAttribute('aria-checked', button.dataset.view === view ? 'true' : 'false');
   }
 
-  $('#tools-view').hidden = analysing;
-  $('#analysis-view').hidden = !analysing;
-  $('#modes').hidden = analysing;
-  $('#dock').hidden = analysing;
-  document.querySelector('.kind-switch').hidden = analysing;
-  document.querySelector('.setup').hidden = analysing;
-  $('#puzzleStatus').hidden = analysing;
+  for (const id of VIEWS) $(`#${id}-view`).hidden = id !== view;
 
-  $('#modeMark').textContent = analysing ? 'Analysis' : tool().label;
-  $('#modeBlurb').textContent = analysing
-    ? 'read a track back' : tool().blurb.toLowerCase();
+  $('#modes').hidden = !working;
+  $('#dock').hidden = !working;
+  document.querySelector('.kind-switch').hidden = !working;
+  document.querySelector('.setup').hidden = !working;
+  $('#puzzleStatus').hidden = !working;
 
-  if (!analysing) return;
+  $('#modeMark').textContent = working ? tool().label : VIEW_HEAD[view].mark;
+  $('#modeBlurb').textContent = working
+    ? tool().blurb.toLowerCase() : VIEW_HEAD[view].blurb;
 
-  // The tool keeps playing otherwise, under a page that does not show it.
-  if (ui.tool?.isPlaying?.()) ui.tool.toggle?.();
-  if (!ui.analysis) ui.analysis = new AnalysisPage($('#analysisSheet'), { engine });
-  ui.analysis.show();
+  // Whatever was sounding in the page being left stops: a page you cannot see
+  // is not background music.
+  if (!working && ui.tool?.isPlaying?.()) ui.tool.toggle?.();
+  if (view !== 'sketch') ui.sketch?.hide();
+
+  if (view === 'analysis') {
+    if (!ui.analysis) ui.analysis = new AnalysisPage($('#analysisSheet'), { engine });
+    ui.analysis.show();
+  }
+
+  if (view === 'sketch') {
+    if (!ui.sketch) ui.sketch = new SketchPage($('#sketchSheet'), { engine });
+    ui.sketch.show();
+  }
 }
 
 function syncKind() {
@@ -875,6 +898,39 @@ function fillHelp() {
     return;
   }
 
+  // Nor does the tool's help describe the sketchpad, which is the one part of
+  // this app that does not mark you on anything.
+  if (ui.view === 'sketch') {
+    $('#helpMode').textContent = 'Sketch';
+    $('#helpLede').textContent = 'Somewhere to put an idea before it goes. It is a '
+      + 'sketchpad, not a DAW: four tracks, four scenes, and a way out to Logic.';
+    $('#helpList').innerHTML = [
+      ['Tracks across, scenes down.',
+       'A row is a scene - everything in one row plays together, and the number '
+       + 'on the left launches the lot. Tap a slot and it comes in on the next '
+       + 'bar, which is why parts land together rather than wherever your finger '
+       + 'happened to be.'],
+      ['Tap an empty slot and there is a clip in it.',
+       'The panel then shows the grid you draw on: rows are the notes of the key '
+       + 'you are in, columns are a division of the bar, and a tap is a note. '
+       + 'With the clock running, what you draw is heard on the next pass.'],
+      ['The six tools are the inserts.',
+       'The same EQ, compressor, imager, room, delay and saturator the exercises '
+       + 'are about, on a track, in series - so what you learned on the bench is '
+       + 'what is on the sketch.'],
+      ['Out of here as a MIDI file.',
+       'The scene you are on, every clip in it, looped to four bars, as a Type 1 '
+       + 'file with a track per part and the drums on channel 10. Open it in '
+       + 'Logic and the parts arrive named and in the right places.'],
+      ['It keeps itself in this browser.',
+       'Saved on every edit, so a reload does not cost you the idea. There is no '
+       + 'account and no server, so Save a copy is the only backup there is.'],
+      ['Space plays and stops.',
+       'As it does everywhere a musician meets a transport.'],
+    ].map(([lead, detail]) => `<li><b>${lead}</b><span>${detail}</span></li>`).join('');
+    return;
+  }
+
   $('#helpMode').textContent = tool().label;
   $('#helpLede').textContent = tool().lede;
 
@@ -1044,12 +1100,16 @@ function wire() {
 
   document.addEventListener('keydown', (e) => {
     if (e.target.matches('input, select, textarea') || document.querySelector('dialog[open]')) return;
-    // The transport and the submit both belong to a round, and the analysis
-    // view does not have one.
+    // Space is the transport wherever a musician meets one - including on the
+    // sketchpad, where it is the clock rather than a loop.
+    if (ui.view === 'sketch') {
+      if (e.code === 'Space') { e.preventDefault(); ui.sketch?.toggle?.(); }
+      return;
+    }
+    // The submit belongs to a round, and the analysis view does not have one.
     if (ui.view === 'analysis') return;
     if (e.code === 'Space') {
       e.preventDefault();
-      // Space is the transport wherever a musician meets one.
       Promise.resolve(ui.tool?.toggle?.()).then(syncTransport);
     }
     if (e.key === 'Enter' && !$('#submit').disabled) onSubmit();
