@@ -94,16 +94,37 @@ test('the order is the one the imports say it is', async () => {
   assert.equal(new Set(order).size, order.length, 'a module appears once');
 });
 
-test('nothing under src/ is stranded', async () => {
+/**
+ * Files that are written and not yet wired in, named one at a time.
+ *
+ * The sketchpad is being built before it has anywhere to appear: the MIDI
+ * exporter is finished, tested and reachable from nothing, which is the one
+ * case this check cannot tell from somebody forgetting. So it is listed here
+ * rather than waved through by a pattern, and the list is checked exactly -
+ * a new stranded file somewhere else still fails, and wiring one of these in
+ * without taking it off the list fails too.
+ *
+ * Every line here is a promise to come back. Delete it when the sketchpad has
+ * a page.
+ */
+const NOT_WIRED_IN_YET = [
+  'sketch/midi.js',
+];
+
+test('nothing under src/ is stranded, except what is named as unfinished', async () => {
   // The inverse of the old check, and the one it could never make: the list is
   // now the closure of what main.js imports, so "you forgot to add it" cannot
   // happen - but "you wrote it and never wired it up" still can, and used to
   // look exactly like a file that was deliberately left out.
-  assert.deepEqual(await stranded(), [], 'these files are not reachable from main.js');
+  assert.deepEqual(await stranded(), NOT_WIRED_IN_YET,
+    'these files are not reachable from main.js');
 
   const every = await allSources();
-  assert.equal(MODULES.length, every.length);
-  assert.deepEqual([...MODULES].sort(), every, 'the bundle carries every source file');
+  assert.equal(MODULES.length + NOT_WIRED_IN_YET.length, every.length);
+  assert.deepEqual(
+    [...MODULES, ...NOT_WIRED_IN_YET].sort(), every,
+    'the bundle carries every source file but the ones named above',
+  );
 });
 
 test('the bundle builds from an order derived fresh, not a cached one', async () => {
