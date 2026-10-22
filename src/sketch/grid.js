@@ -36,7 +36,7 @@ import {
 } from './project.js';
 import {
   STEP_DIVISIONS, divisionOf, SCALES, SCALE_IDS, ROOT_NAMES,
-  rowsFor, columnsOf, filled, toggleCell, clearRow,
+  rowsFor, columnsOf, filled, toggleCell, clearRow, columnOf,
 } from './steps.js';
 import { loadSketch, saveSketch, sketchFile, readSketchFile } from './store.js';
 import { knobsFor, writeKnob, tidy, paramsFor } from './knobs.js';
@@ -343,18 +343,27 @@ export class SketchPage {
       const clip = this.clip();
       const division = divisionOf(clip.division).ticks;
       const notes = toggleCell(clip, pitch, column, division);
+      const on = notes.length > (clip.notes?.length ?? 0);
 
       // Heard, not just drawn. Somebody sketching knows the sound they are
       // after and not that it is called B flat, so a grid that only lights
       // up is a grid you have to decode - and the note a tap just put down
       // is the one thing nobody should have to press play to hear. Only on
       // the way in: taking a note out should not play it.
-      if (notes.length > (clip.notes?.length ?? 0)) this.sound(pitch);
+      if (on) this.sound(pitch);
 
+      // One attribute, not a redraw. Rebuilding the panel replaced every
+      // step button on the page - nine hundred and sixty of them on a
+      // four-bar clip in sixteenths - which cost several milliseconds a tap
+      // and, worse, destroyed the button under the finger while the finger
+      // was still on it. Measured before this: every one of twelve taps
+      // rebuilt the whole grid, at 7.2 ms a tap on a desktop.
+      step.dataset.on = String(on);
       this.change(setNotes(
         this.project, this.at.track, this.at.scene,
         notes, clip.length,
-      ));
+      ), { keep: true });
+      this.markCell(this.at.track, this.at.scene);
       return;
     }
 
@@ -526,12 +535,23 @@ export class SketchPage {
     const at = stage.tick;
 
     this.taps = [...this.taps, drift(at, step, clip.length)].slice(-8);
+    const notes = tapInto(clip, pitch, at, step);
+
     this.change(setNotes(
       this.project, this.at.track, this.at.scene,
-      tapInto(clip, pitch, at, step), clip.length,
-    ));
+      notes, clip.length,
+    ), { keep: true });
 
-    // Said after the redraw, because the redraw replaced the line it goes on.
+    // The one cell the hit landed on, lit without rebuilding the rest -
+    // which matters most here, where the taps come in a rhythm.
+    const landed = notes.find((note) => !clip.notes.includes(note));
+    if (landed) {
+      const button = this.parts.editor
+        .querySelector(`[data-step="${landed.pitch}:${columnOf(landed.start, step)}"]`);
+      if (button) button.dataset.on = 'true';
+    }
+    this.markCell(this.at.track, this.at.scene);
+
     const off = timing(this.taps);
     const beats = Math.abs(off) / PPQ;
     this.sayTap(Math.abs(beats) < 0.04
@@ -1174,6 +1194,25 @@ export class SketchPage {
             </label>`).join('')}
         </div>
       </div>`;
+  }
+
+  /**
+   * One cell of the grid, brought up to date without redrawing the grid.
+   *
+   * What a cell says is how many notes are in it, which changes on every
+   * tap - and the grid is behind the panel at a phone width, so redrawing
+   * all of it to change one word is work nobody can even see.
+   */
+  markCell(track, scene) {
+    const cell = this.parts.grid.querySelector(`[data-cell="${track}:${scene}"]`);
+    if (!cell) return;
+
+    const clip = clipAt(this.project, track, scene);
+    cell.dataset.full = String(Boolean(clip));
+    cell.dataset.follows = clip?.follow?.then ?? '';
+
+    const what = cell.querySelector('.cell-what');
+    if (what) what.textContent = clip ? clipSays(clip, barTicks(this.project)) : '+';
   }
 
   /**
