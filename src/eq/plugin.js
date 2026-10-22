@@ -91,7 +91,23 @@ function palette(el) {
  * numbers underneath. What it is not is a quiz about the plugin.
  */
 export class EQPlugin {
-  constructor(el, { engine, bands, onChange, source = 'mix' }) {
+  /**
+   * `player` and `role` are what let this same interface be two things.
+   *
+   * As a tool it builds its own player and runs its own loop, which is what
+   * an exercise needs. As an insert on a sketchpad track it is handed a
+   * player that is a view onto an effect already in somebody's signal path,
+   * and the half of the furniture that belongs to an exercise - the A/B
+   * against a target, the sample picker, the file button - goes away,
+   * because a plugin on a track has a track for its material and a
+   * transport of its own.
+   *
+   * Built here rather than passed in by default so that nothing that
+   * already opens a tool has to know this option exists.
+   */
+  constructor(el, {
+    engine, bands, onChange, source = 'mix', player = null, role = 'tool',
+  }) {
     this.el = el;
     this.engine = engine;
     this.bands = bands;
@@ -103,7 +119,8 @@ export class EQPlugin {
     this.monitoring = source;
     this.selected = this.bands.findIndex((band) => band.type === 'peaking');
     this.target = null; // drawn only once the round is over
-    this.player = new EQPlayer(engine, this.bands);
+    this.role = role;
+    this.player = player ?? new EQPlayer(engine, this.bands);
     this.interactive = true;
     this.tilt = 0;        // decibels per octave added to the drawn spectrum
     this.holding = false; // whether the peaks are being held
@@ -117,7 +134,7 @@ export class EQPlugin {
 
   build() {
     this.el.innerHTML = `
-      <div class="eq">
+      <div class="eq${this.role === 'insert' ? ' is-insert' : ''}">
         <div class="eq-head">
           <span class="eq-name">Channel EQ</span>
           <span class="eq-trim" id="eqTrim"></span>
@@ -1064,6 +1081,10 @@ export class EQPlugin {
   destroy() {
     this.gone = true;
     this.player.stop();
+    // Whatever the player is, it is told to let go of what it made. An
+    // insert's adapter drops an analyser; a tool's player stops a loop. The
+    // effect itself belongs to the track and is not this view's to end.
+    this.player.destroy?.();
     cancelAnimationFrame(this.frame);
     window.removeEventListener('resize', this.resize);
   }

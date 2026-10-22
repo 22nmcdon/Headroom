@@ -340,6 +340,11 @@ that doing it right is audible rather than merely scored:
 - **A sample player**, behind the instrument interface the synthesised ones
   already sit behind. Recordings play as clips; nothing yet plays one back
   at a pitch.
+- **The other five plugins as inserts.** Tapping the EQ on a sketchpad track
+  opens the real EQ — the same curve, the same drag, the same analyser —
+  pointed at the effect already in that track's signal path. The seam is a
+  plugin taking its player as an argument instead of building one; the other
+  five follow the same shape.
 - **Insert settings on a mix-exercise strip.** A sketchpad track's inserts
   have three or four controls each; the mix desk's four stems are still
   level, pan and send only.

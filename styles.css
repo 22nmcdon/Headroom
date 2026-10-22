@@ -1740,8 +1740,7 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
    phone - and a page that puts the thing you just tapped where you are
    already looking needs no instruction at all. */
 @media (max-width: 899px) {
-  .sketch-body[data-open="clip"] .sketch-grid,
-  .sketch-body[data-open="track"] .sketch-grid { display: none; }
+  .sketch-body:not([data-open="none"]) .sketch-grid { display: none; }
   .sketch-body[data-open="none"] .sketch-editor { display: none; }
 }
 
@@ -2365,3 +2364,28 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
 }
 .cell[data-live="true"] .cell-follow { color: var(--cream); }
 .cell[data-follows="stop"] .cell-follow { color: var(--rust); }
+
+/* The EQ as an insert on a track rather than as an exercise: no A/B against
+   a target, no sample picker, no file to load. The track is the material
+   and the sketchpad is the transport. Hidden rather than left out, so the
+   wiring attaches to the same markup either way - and `display: none`
+   rather than `hidden`, so none of it is in the tab order. */
+.eq.is-insert .eq-transport { display: none; }
+
+/* An insert whose full interface can be opened says so, and the ones whose
+   cannot yet look like what they are: a label. */
+button.insert-name {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--blush-deep);
+  cursor: pointer;
+}
+button.insert-name:hover { color: var(--charcoal); }
+
+/* The plugin gets the width of the panel and no furniture of its own. */
+.plugin-host { min-width: 0; }

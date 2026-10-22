@@ -39,7 +39,9 @@ import {
   rowsFor, columnsOf, filled, toggleCell, clearRow,
 } from './steps.js';
 import { loadSketch, saveSketch, sketchFile, readSketchFile } from './store.js';
-import { knobsFor, writeKnob, tidy } from './knobs.js';
+import { knobsFor, writeKnob, tidy, paramsFor } from './knobs.js';
+import { insertPlayer } from './insert.js';
+import { EQPlugin } from '../eq/plugin.js';
 import { chordNotes, parseProgression } from './chords.js';
 import { tapInto, drift, timing } from './tap.js';
 import { Recorder, canRecord, barsFor, fitTo, loudestIn, SILENCE } from './record.js';
@@ -134,6 +136,11 @@ export class SketchPage {
     // The microphone, opened on first use and kept; and the recordings this
     // sketch can play, by id, shared with the stage so it reads them live.
     this.mic = null;
+    // The plugin interface currently open on an insert, if any. One at a
+    // time: each holds an analyser, and eight of them reading FFTs for
+    // pages nobody is looking at is a sketchpad that gets slower the more
+    // you work on it.
+    this.plugin = null;
     this.recording = false;
     this.takes = new Map();
 
@@ -348,6 +355,13 @@ export class SketchPage {
         this.project, this.at.track, this.at.scene,
         notes, clip.length,
       ));
+      return;
+    }
+
+    const plugin = event.target.closest('[data-open-plugin]');
+    if (plugin && this.owning !== null) {
+      this.open = { kind: 'plugin', track: this.owning, effect: plugin.dataset.openPlugin };
+      this.draw();
       return;
     }
 
@@ -579,6 +593,11 @@ export class SketchPage {
 
     if (!await this.mic.ask()) {
       this.mic = null;
+    // The plugin interface currently open on an insert, if any. One at a
+    // time: each holds an analyser, and eight of them reading FFTs for
+    // pages nobody is looking at is a sketchpad that gets slower the more
+    // you work on it.
+    this.plugin = null;
       this.tell('The microphone is not available — it may have been refused, '
         + 'or this page may not be on a secure connection.');
       return;
@@ -852,6 +871,17 @@ export class SketchPage {
   drawPanel() {
     const kind = this.open?.kind ?? 'none';
 
+    // Whatever was open before this is not open now. A plugin holds an
+    // analyser and a redraw loop, and a second one left running behind the
+    // page is the kind of leak that only shows up as a flat battery.
+    if (kind !== 'plugin') this.closePlugin();
+
+    if (kind === 'plugin') {
+      this.parts.body.dataset.open = 'plugin';
+      this.drawPlugin();
+      return;
+    }
+
     if (kind === 'track') {
       this.parts.body.dataset.open = 'track';
       this.parts.editor.innerHTML = this.trackPanel(this.open.track);
@@ -872,6 +902,82 @@ export class SketchPage {
         plays together, and the number at the top launches the lot. Tap a
         track's name on the left for its instrument, its inserts and its level.
       </p>`;
+  }
+
+  /**
+   * The real plugin, on a track's insert.
+   *
+   * It is mounted against the live effect in that track's chain, so moving
+   * a band moves the sound coming out of the track - there is no copy and
+   * nothing to apply. What is saved is the same few numbers the knobs use,
+   * so a sketch written by somebody who never opened this reads the same.
+   */
+  async drawPlugin() {
+    const { track: index, effect } = this.open;
+    const track = trackAt(this.project, index);
+
+    this.parts.editor.innerHTML = `
+      ${this.back()}
+      <p class="panel-where">
+        <button class="link-btn" type="button" data-to-track="${index}">${track.name}</button>
+        <span>· ${EFFECT_LABELS[effect] ?? effect}</span>
+      </p>
+      <div class="plugin-host" data-plugin-host></div>`;
+
+    const host = this.parts.editor.querySelector('[data-plugin-host]');
+    const stage = await this.ready();
+
+    // Between the await and here somebody may have gone somewhere else.
+    if (this.open?.kind !== 'plugin' || this.open.effect !== effect) return;
+
+    const live = stage.rowAt(index)?.chain?.effects.find((each) => each.id === effect);
+    if (!live) {
+      host.innerHTML = '<p class="editor-empty">That insert is not on this track.</p>';
+      return;
+    }
+
+    const player = insertPlayer(this.engine.ctx, live, { transport: stage.transport });
+    this.plugin = new EQPlugin(host, {
+      engine: this.engine,
+      bands: paramsFor(effect, track.settings[effect]),
+      role: 'insert',
+      player,
+      onChange: () => this.fromPlugin(index, effect),
+    });
+  }
+
+  /**
+   * A move made on the plugin, written back to the project.
+   *
+   * The plugin is the authority while it is open - it is pointed at the
+   * live effect - so this only has to keep the stored settings in step, and
+   * does it without a redraw: rebuilding the panel under a drag would take
+   * the band out from under the finger.
+   */
+  fromPlugin(index, effect) {
+    const bands = this.plugin?.bands;
+    if (!bands) return;
+
+    const track = trackAt(this.project, index);
+    const value = (id) => bands.find((band) => band.id === id);
+
+    this.change(setTrack(this.project, index, {
+      settings: {
+        ...track.settings,
+        [effect]: {
+          low: value('ls')?.gain ?? 0,
+          mid: value('p1')?.gain ?? 0,
+          midHz: value('p1')?.frequency ?? 800,
+          high: value('hs')?.gain ?? 0,
+        },
+      },
+    }), { keep: true });
+  }
+
+  /** The open plugin, closed. Its effect stays on the track. */
+  closePlugin() {
+    this.plugin?.destroy?.();
+    this.plugin = null;
   }
 
   /** The way back to the grid. On screen only at a width that hides it. */
@@ -1034,7 +1140,12 @@ export class SketchPage {
           const set = tidy(effect, track.settings[effect]);
           return `
           <div class="insert">
-            <span class="insert-name">${EFFECT_LABELS[effect] ?? effect}</span>
+            ${effect === 'eq' ? `
+              <button class="insert-name is-open" type="button" data-open-plugin="${effect}"
+                      title="Open the ${EFFECT_LABELS[effect]} itself">
+                ${EFFECT_LABELS[effect] ?? effect} ↗
+              </button>`
+              : `<span class="insert-name">${EFFECT_LABELS[effect] ?? effect}</span>`}
             <div class="insert-knobs">
               ${knobsFor(effect).map((knob) => {
                 const value = set[knob.id];
@@ -1264,6 +1375,7 @@ export class SketchPage {
   /** Left for another view: the clock stops, because it is not background music. */
   hide() {
     this.watch(false);
+    this.closePlugin();
     if (this.recording) { this.mic?.stop(); this.recording = false; }
     this.stage?.stop();
     this.paint();
@@ -1271,8 +1383,14 @@ export class SketchPage {
 
   destroy() {
     this.watch(false);
+    this.closePlugin();
     this.mic?.close();
     this.mic = null;
+    // The plugin interface currently open on an insert, if any. One at a
+    // time: each holds an analyser, and eight of them reading FFTs for
+    // pages nobody is looking at is a sketchpad that gets slower the more
+    // you work on it.
+    this.plugin = null;
     this.stage?.destroy();
     this.stage = null;
   }

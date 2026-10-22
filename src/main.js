@@ -1003,8 +1003,11 @@ function fillHelp() {
        + 'which carry the sound.'],
       ['The six tools are the inserts.',
        'The same EQ, compressor, imager, room, delay and saturator the exercises '
-       + 'are about, on a track, in series - so what you learned on the bench is '
-       + 'what is on the sketch.'],
+       + 'are about, on a track, in series — so what you learned on the bench is '
+       + 'what is on the sketch. Each gets a few controls on the track page, and '
+       + 'the EQ\'s name opens the whole plugin: the same curve and the same drag '
+       + 'as the exercise, pointed at the effect in that track\'s signal path. The '
+       + 'other five will follow.'],
       ['Out of here as a MIDI file, or as the stems.',
        'The MIDI is the scene you are on, looped to four bars, as a Type 1 file '
        + 'with a track per part and the drums on channel 10. The stems are the '

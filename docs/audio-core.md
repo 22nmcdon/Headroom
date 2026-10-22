@@ -162,10 +162,13 @@ In the order the sketchpad plan wants them:
 ## What is left
 
 7. **A sample player**, behind the instrument interface.
-8. **Reordering a track's inserts.** They go on in the order they are
+8. **The other five plugins as inserts.** The EQ is mountable on a track's
+   insert; the rest are not yet. The seam is cut and the EQ is the template,
+   which is how everything else in this repository got built.
+9. **Reordering a track's inserts.** They go on in the order they are
    pressed and come off by name; a chain is in series, so the order is
    audible, and there is no way to change it but to take them all off.
-9. **Insert settings on a mix-exercise strip.** The sketchpad's tracks have
+10. **Insert settings on a mix-exercise strip.** The sketchpad's tracks have
    them; the mix desk's four stems are still level, pan and send only.
 
 ## Questions this survey raised, and what they came to
