@@ -957,6 +957,11 @@ function fillHelp() {
        'The panel then shows the grid you draw on: rows are the notes of the key '
        + 'you are in, columns are a division of the bar, and a tap is a note. '
        + 'With the clock running, what you draw is heard on the next pass.'],
+      ['Or tap the drums in, which is faster than drawing them.',
+       'Three pads on a kit track. They make a sound whether or not you are '
+       + 'recording; press Record and play, and every hit lands on the nearest '
+       + 'line of the grid — the nearest, not the one before, because a hit a '
+       + 'hair early is a hit on the beat.'],
       ['Or type the chords, which is faster than drawing them.',
        'A line like "Cm7 | A♭maj7 | E♭ | B♭" fills the clip, one chord a bar, '
        + 'voiced to move as little as possible from the chord before it — so four '

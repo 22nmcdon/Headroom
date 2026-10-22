@@ -40,6 +40,8 @@ import {
 import { loadSketch, saveSketch, sketchFile, readSketchFile } from './store.js';
 import { knobsFor, writeKnob, tidy } from './knobs.js';
 import { chordNotes, parseProgression } from './chords.js';
+import { tapInto, drift, timing } from './tap.js';
+import { KIT_ROWS } from './steps.js';
 import { makeStage } from './stage.js';
 import { zipStems } from './stems.js';
 import { INSTRUMENT_IDS } from '../core/instrument.js';
@@ -112,6 +114,10 @@ export class SketchPage {
     this.at = null; // the slot being edited: { track, scene }
     this.frame = null;
     this.said = '';
+    // Whether a pad press is being written down as well as heard, and the
+    // run of how far out the last few were.
+    this.arming = false;
+    this.taps = [];
 
     this.build();
     this.wire();
@@ -253,6 +259,19 @@ export class SketchPage {
   }
 
   editorClick(event) {
+    const pad = event.target.closest('[data-pad]');
+    if (pad) { this.hitPad(Number(pad.dataset.pad)); return; }
+
+    if (event.target.closest('[data-arm]') && this.at) {
+      this.arming = !this.arming;
+      this.taps = [];
+      event.target.closest('[data-arm]').setAttribute('aria-pressed', String(this.arming));
+      this.sayTap(this.arming
+        ? 'Armed. Press play and tap — every hit lands on the nearest line of the grid.'
+        : '');
+      return;
+    }
+
     const step = event.target.closest('[data-step]');
     if (step && this.at) {
       const [pitch, column] = step.dataset.step.split(':').map(Number);
@@ -366,6 +385,48 @@ export class SketchPage {
 
     const name = event.target.closest('[data-track-name]');
     if (name) this.change(setTrack(this.project, track, { name: name.value || 'Track' }));
+  }
+
+  /**
+   * A pad pressed: heard now, and written down if the clip is armed.
+   *
+   * Heard either way. A pad that only works while recording is a pad nobody
+   * can find the sound of, and hearing the kit is half of why anybody taps
+   * rather than draws.
+   */
+  async hitPad(pitch) {
+    const stage = await this.ready();
+    const track = stage.rowAt(this.at?.track ?? 0);
+    track?.instrument?.play(pitch, 110, this.engine.ctx.currentTime, 0.2);
+
+    if (!this.arming || !this.at || !stage.playing) {
+      if (this.arming && !stage.playing) this.sayTap('Press play first — a tap needs a clock.');
+      return;
+    }
+
+    const clip = this.clip();
+    const step = divisionOf(clip.division).ticks;
+    const at = stage.tick;
+
+    this.taps = [...this.taps, drift(at, step, clip.length)].slice(-8);
+    this.change(setNotes(
+      this.project, this.at.track, this.at.scene,
+      tapInto(clip, pitch, at, step), clip.length,
+    ));
+
+    // Said after the redraw, because the redraw replaced the line it goes on.
+    const off = timing(this.taps);
+    const beats = Math.abs(off) / PPQ;
+    this.sayTap(Math.abs(beats) < 0.04
+      ? `${plural(this.taps.length, 'hit', 'hits')} in, and your time is good.`
+      : `${plural(this.taps.length, 'hit', 'hits')} in — you are running `
+        + `${off < 0 ? 'ahead of' : 'behind'} the grid by about `
+        + `${Math.round(Math.abs(off))} ticks. They are on the lines anyway.`);
+  }
+
+  sayTap(line) {
+    const where = this.parts.editor.querySelector('[data-tap-said]');
+    if (where) where.textContent = line;
   }
 
   /**
@@ -605,6 +666,17 @@ export class SketchPage {
           </span>
         </div>
       </div>
+
+      ${track.instrument !== 'kit' ? '' : `
+        <div class="editor-row pad-row">
+          <span class="editor-label">Tap it</span>
+          <span class="pads">
+            ${[...KIT_ROWS].reverse().map((row) => `
+              <button class="pad" type="button" data-pad="${row.pitch}">${row.label}</button>`).join('')}
+          </span>
+          <button class="chip" type="button" data-arm aria-pressed="${this.arming}">Record</button>
+        </div>
+        <p class="fine chord-said" data-tap-said></p>`}
 
       ${track.instrument === 'kit' ? '' : `
         <div class="editor-row chord-row">

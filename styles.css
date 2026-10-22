@@ -2197,3 +2197,30 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
 }
 .chord-line::placeholder { color: var(--line); font-style: italic; }
 .chord-said { margin: -4px 0 8px; min-height: 1em; }
+
+/* Three pads, for the part of a sketch that is faster played than drawn. */
+.pad-row { gap: 8px 12px; }
+.pads { display: flex; gap: 6px; flex: 1 1 auto; }
+.pad {
+  flex: 1 1 0;
+  min-width: 56px;
+  padding: 10px 6px;
+  font-family: var(--sans);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text);
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  /* A pad is for hitting repeatedly, and a double tap on a phone is a zoom
+     unless something says otherwise. */
+  touch-action: manipulation;
+  user-select: none;
+}
+.pad:hover { border-color: var(--blush); color: var(--blush-deep); }
+.pad:active {
+  background: var(--charcoal);
+  border-color: var(--charcoal);
+  color: var(--cream);
+}
