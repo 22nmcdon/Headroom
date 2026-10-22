@@ -1755,27 +1755,45 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
   color: var(--text);
 }
 
-/* The grid and the panel that goes with it. One column at a phone width, two
-   where there is room - which is the whole of the answer to desktop versus
-   phone: the same markup, placed differently. */
+/* The grid and the panel that goes with it. The same markup at every size;
+   what changes is how many columns there are and when. */
 .sketch-body {
   display: grid;
   grid-template-columns: 1fr;
   gap: 24px 28px;
   align-items: start;
 }
-@media (min-width: 900px) {
-  .sketch-body { grid-template-columns: minmax(280px, 0.9fr) minmax(0, 1.1fr); }
+
+/* Nothing open: the clips are the page, at every width. The panel used to
+   hold a column open with a sentence saying there was nothing in it, which
+   on a phone on its side meant half the scenes squeezed out to make room
+   for a hint. The hint goes under the grid instead, where it is read once
+   and then scrolled past. */
+.sketch-body[data-open="none"] > .sketch-editor {
+  border-left: none;
+  padding-left: 0;
 }
 
-/* Below that width there is room for one thing, so opening a clip or a track
-   replaces the grid rather than appearing under it. A panel under a grid is
-   a panel nobody scrolls to, which is what made this hard to get around on a
-   phone - and a page that puts the thing you just tapped where you are
-   already looking needs no instruction at all. */
-@media (max-width: 899px) {
-  .sketch-body:not([data-open="none"]) .sketch-grid { display: none; }
-  .sketch-body[data-open="none"] .sketch-editor { display: none; }
+/* Something open, and the width for both: side by side. 740 is a phone on
+   its side, which is the size this is mostly used at. */
+@media (min-width: 740px) {
+  .sketch-body:not([data-open="none"]) {
+    grid-template-columns: minmax(230px, 0.8fr) minmax(0, 1.2fr);
+  }
+}
+@media (min-width: 900px) {
+  .sketch-body:not([data-open="none"]) {
+    grid-template-columns: minmax(280px, 0.9fr) minmax(0, 1.1fr);
+  }
+}
+
+/* Narrower than that there is room for one thing, so opening a clip or a
+   track replaces the grid rather than appearing under it. A panel under a
+   grid is a panel nobody scrolls to, which is what made this hard to get
+   around on a phone - and a page that puts the thing you just tapped where
+   you are already looking needs no instruction at all. */
+@media (max-width: 739px) {
+  .sketch-body:not([data-open="none"]) > .grid-scroll { display: none; }
 }
 
 /* And where both fit, the way back is not a thing anybody needs. */
@@ -1791,7 +1809,7 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
   color: var(--text-soft);
 }
 .panel-back:hover { color: var(--blush-deep); }
-@media (max-width: 899px) {
+@media (max-width: 739px) {
   .panel-back { display: block; }
 }
 
@@ -1978,10 +1996,11 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
 
 /* --- the panel ------------------------------------------------------------ */
 
-.sketch-editor {
-  border-left: 2px solid var(--line);
-  padding-left: 16px;
-  min-width: 0;
+.sketch-editor { min-width: 0; }
+/* The rule down the left only reads as a column when there is a column
+   beside it; narrower than this the panel is the whole page. */
+@media (min-width: 740px) {
+  .sketch-editor { border-left: 2px solid var(--line); padding-left: 16px; }
 }
 .editor-empty {
   font-size: 13.5px;
@@ -2105,12 +2124,6 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
   margin-top: 22px;
   padding-top: 14px;
   border-top: 1px solid var(--line);
-}
-
-@media (max-width: 899px) {
-  /* The rule down the left only reads as a column when there is a column
-     beside it, and at this width the panel is the whole page. */
-  .sketch-editor { border-left: none; padding-left: 0; }
 }
 
 @media (max-width: 560px) {
@@ -2568,13 +2581,3 @@ button.insert-name:hover { color: var(--charcoal); }
   .step-name { font-size: 9px; }
 }
 
-/* A phone on its side is about 740 to 930 points across, which is plenty
-   for the grid and the clip side by side - and side by side is what
-   landscape is good for, because stacking them is what costs height. */
-@media (min-width: 740px) and (max-width: 899px) {
-  .sketch-body { grid-template-columns: minmax(230px, 0.8fr) minmax(0, 1.2fr); }
-  .sketch-body:not([data-open="none"]) .sketch-grid { display: grid; }
-  .sketch-body[data-open="none"] .sketch-editor { display: block; }
-  .panel-back { display: none; }
-  .sketch-editor { border-left: 2px solid var(--line); padding-left: 16px; }
-}
