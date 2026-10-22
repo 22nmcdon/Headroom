@@ -120,12 +120,24 @@ In the order the sketchpad plan wants them:
    and the delay needed a live `ConvolverNode`, because their players
    pre-render the wet signal rather than convolving — same impulse builder,
    different place.
-2. **An instrument interface.** `{ noteOn(pitch, velocity, when), noteOff(pitch,
-   when), out, setParams, destroy }`, with two engines behind it: a sample
-   player and a small synth. `Engine.note()` and `Engine.drum()` are the
-   starting material for the second one.
-3. **A track.** An instrument, a chain of effects, a gain and a pan, into a
-   bus. Which is both a sketchpad track and a mix-mode stem.
+2. ~~**An instrument interface.**~~ **Done**, in `src/core/instrument.js`.
+   `{ id, out, noteOn, noteOff, play, destroy }`, with four synthesised
+   instruments behind it — a piano, a bass, a kit on the General MIDI drum
+   map, and a synth that actually sustains. Times are audio times, so the
+   transport books a bar ahead and nothing has to be awake when a note
+   sounds. A sample player goes behind the same interface later; writing the
+   interface first is what stops the second engine inventing its own shape.
+3. ~~**A track.**~~ **Done**, in `src/core/track.js`. An instrument, a chain
+   of inserts, a fader, an equal-power pan and a post-fader send, into a bus
+   — which is a sketchpad track and a mix-mode stem and the same object.
+   `notesIn` is the pure arithmetic between a clip and the transport's
+   windows, and it is where the loop-point off-by-one lives.
+
+## What is left
+
+4. **A clip grid.** Scenes, launch, and somewhere to put all of the above.
+5. **A sample player**, behind the instrument interface.
+6. **Stem export**, which is an offline render of each track.
 
 ## Open questions this survey does not settle
 

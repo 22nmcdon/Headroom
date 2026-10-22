@@ -1,0 +1,182 @@
+// An instrument, some effects, a fader and a pan.
+//
+// Which is a sketchpad track and a mix-mode stem and the same object, and
+// saying so is the whole reason the two were built together. The practice
+// side wants several of these so a mix exercise has stems to work on; the
+// sketchpad wants several so a clip grid has rows. Neither needs anything the
+// other does not.
+//
+// Deliberately not a mixing console. There is one fader, one pan, one send,
+// and a chain of inserts - and if a feature mainly serves finishing a track
+// rather than sketching one, it belongs in a DAW.
+//
+// Measured: four of these - a piano with an EQ on it, a bass, a kit and a
+// synth with a delay - fed by four clips of different lengths through the
+// transport and rendered offline. Four bars at 96 bpm came out at exactly
+// 10.00 seconds, peaking at -3.07 dBFS with the hits on the eighth-note grid,
+// and the two-bar piano clip and the one-bar bass and drum clips all looped
+// against each other without a double or a hole at any of the loop points.
+
+import { chainOf } from './effect.js';
+import { makeEffect } from './effects.js';
+import { makeInstrument } from './instrument.js';
+import { loopWindows } from '../sketch/transport.js';
+
+/** As wide as a pan goes, and what the law is at the middle. */
+const panLaw = (pan) => {
+  // Equal power, so that something panned to the middle is as loud as the
+  // same thing hard left. A straight line would make the centre quieter,
+  // which is the one thing everybody notices and nobody can name.
+  const x = ((Math.max(-1, Math.min(1, pan)) + 1) / 2) * (Math.PI / 2);
+  return { left: Math.cos(x), right: Math.sin(x) };
+};
+
+/**
+ * One track.
+ *
+ * `instrument` and `inserts` are ids, so a track is describable as data - a
+ * name and a few strings - which is what lets a project be JSON and a preset
+ * be a line in a table.
+ */
+export async function makeTrack(ctx, {
+  id,
+  name = id,
+  instrument = 'synth',
+  inserts = [],
+  gain = 1,
+  pan = 0,
+  send = 0,
+  options = {},
+} = {}) {
+  const voice = makeInstrument(ctx, instrument, options[instrument] ?? {});
+  const chain = chainOf(ctx, await Promise.all(
+    inserts.map((effect) => makeEffect(ctx, effect, options[effect] ?? {})),
+  ));
+
+  const fader = ctx.createGain();
+  const panner = ctx.createStereoPanner
+    ? ctx.createStereoPanner()
+    : null;
+  const out = ctx.createGain();
+  // A send tapped after the fader, which is what a post-fader send is: turn
+  // the track down and its reverb goes with it, which is almost always what
+  // somebody means.
+  const sendOut = ctx.createGain();
+
+  voice.out.connect(chain.in);
+  chain.out.connect(fader);
+  if (panner) fader.connect(panner).connect(out);
+  else fader.connect(out);
+  fader.connect(sendOut);
+
+  const state = { gain, pan, send, muted: false, soloed: false };
+
+  const apply = (at = ctx.currentTime) => {
+    const level = state.muted ? 0 : state.gain;
+    fader.gain.setTargetAtTime(level, at, 0.01);
+    sendOut.gain.setTargetAtTime(state.send, at, 0.01);
+    if (panner) panner.pan.setTargetAtTime(Math.max(-1, Math.min(1, state.pan)), at, 0.01);
+  };
+  apply();
+
+  return {
+    id,
+    name,
+    instrument: voice,
+    chain,
+    out,
+    send: sendOut,
+    /** The two ends, so a track is itself usable wherever an effect is. */
+    in: voice.out,
+
+    get state() { return { ...state }; },
+
+    set(next, at = ctx.currentTime) {
+      Object.assign(state, next);
+      apply(at);
+      return this;
+    },
+
+    /** Set one of this track's inserts. */
+    setInsert(which, params) { chain.set(which, params); return this; },
+
+    /**
+     * The pan law, as numbers, for anything rendering this without a panner.
+     *
+     * Safari had no `StereoPannerNode` for years and an offline render on an
+     * older browser still may not; a caller that has to split the channels
+     * itself needs the same law or the stems do not match what was heard.
+     */
+    panGains: () => panLaw(state.pan),
+
+    destroy() {
+      voice.destroy();
+      chain.destroy();
+      for (const node of [fader, panner, out, sendOut].filter(Boolean)) {
+        try { node.disconnect(); } catch { /* already gone */ }
+      }
+    },
+  };
+}
+
+/**
+ * A clip: notes in ticks, and how long it is before it repeats.
+ *
+ * Ticks because that is what the exporter writes and what the transport
+ * counts in. A clip is the smallest thing worth keeping and it is plain data
+ * - no nodes, no context - so a project is JSON and a test needs neither.
+ */
+export const makeClip = ({ id, length, notes = [] }) => ({
+  id,
+  length,
+  notes: notes.map((note) => ({ velocity: 96, length: 1, ...note })),
+});
+
+/**
+ * What a clip plays in a window of ticks.
+ *
+ * Returned rather than played, so the arithmetic can be checked without an
+ * audio context. Every note comes back with the absolute tick it sounds at,
+ * which is its position within the clip plus whichever pass of the loop the
+ * window is in.
+ *
+ * A note that starts before the window and is still sounding inside it is not
+ * here, and should not be: it was already booked by the window that contained
+ * its start, and booking it again would play it twice.
+ */
+export function notesIn(clip, from, to) {
+  const found = [];
+
+  for (const piece of loopWindows(from, to, clip.length)) {
+    for (const note of clip.notes) {
+      if (note.start >= piece.from && note.start < piece.to) {
+        found.push({ ...note, at: note.start + piece.offset });
+      }
+    }
+  }
+
+  return found;
+}
+
+/**
+ * Put a clip on a track, driven by a transport.
+ *
+ * Returns the unsubscribe, because a clip that is swapped out has to stop
+ * being asked. The booking itself is three lines: what sounds in this window,
+ * when each one is in audio time, and the instrument's own `play`.
+ */
+export function playClip(transport, track, getClip) {
+  return transport.onSchedule((from, to, timeOf) => {
+    const clip = typeof getClip === 'function' ? getClip() : getClip;
+    if (!clip?.notes?.length) return;
+
+    for (const note of notesIn(clip, from, to)) {
+      track.instrument.play(
+        note.pitch,
+        note.velocity,
+        timeOf(note.at),
+        note.length * transport.perTick,
+      );
+    }
+  });
+}

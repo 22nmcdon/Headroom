@@ -108,6 +108,8 @@ test('the order is the one the imports say it is', async () => {
  * a page.
  */
 const NOT_WIRED_IN_YET = [
+  'core/instrument.js',
+  'core/track.js',
   'sketch/midi.js',
   'sketch/transport.js',
 ];
