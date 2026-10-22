@@ -95,16 +95,20 @@ function heatPalette(el) {
 }
 
 export class HeatPlugin {
-  constructor(el, { engine, settings, onChange, source = 'mix', fault = null }) {
+  constructor(el, {
+    engine, settings, onChange, source = 'mix', fault = null,
+    player = null, role = 'tool',
+  }) {
     this.el = el;
     this.engine = engine;
     this.settings = settings;
     this.onChange = onChange;
+    this.role = role;
     this.interactive = true;
     this.target = null;
     this.reading = null;
 
-    this.player = new HeatPlayer(engine, { source });
+    this.player = player ?? new HeatPlayer(engine, { source });
     this.player.setFault(fault);
 
     this.build();
@@ -120,7 +124,7 @@ export class HeatPlugin {
 
   build() {
     this.el.innerHTML = `
-      <div class="plugin heat">
+      <div class="plugin heat${this.role === 'insert' ? ' is-insert' : ''}">
         <div class="plugin-head">
           <span class="plugin-name">Saturation</span>
           <span class="plugin-trim" id="heatTrim"></span>

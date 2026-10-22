@@ -54,18 +54,22 @@ function verbPalette(el) {
 }
 
 export class VerbPlugin {
-  constructor(el, { engine, settings, onChange, source = 'instrument' }) {
+  constructor(el, {
+    engine, settings, onChange, source = 'instrument',
+    player = null, role = 'tool',
+  }) {
     this.el = el;
     this.engine = engine;
     this.settings = settings;
     this.onChange = onChange;
+    this.role = role;
     this.interactive = true;
     this.target = null;      // drawn only once the round is over
     this.impulse = null;
     this.profile = null;
     this.columns = null;
 
-    this.player = new ImpulsePlayer(engine, {
+    this.player = player ?? new ImpulsePlayer(engine, {
       source,
       impulseOf: makeImpulse,
       defaults: VERB_DEFAULTS,
@@ -74,6 +78,10 @@ export class VerbPlugin {
     this.build();
     this.restage();
     this.draw();
+
+    // Open on a track: there is no Play in here to start the picture moving,
+    // so it follows the sketchpad's transport from the moment it opens.
+    if (this.role === 'insert') this.playing(true);
 
     // Rendered rather than played, so the room is on the screen before
     // anybody presses anything.
@@ -86,7 +94,7 @@ export class VerbPlugin {
 
   build() {
     this.el.innerHTML = `
-      <div class="plugin verb">
+      <div class="plugin verb${this.role === 'insert' ? ' is-insert' : ''}">
         <div class="plugin-head">
           <span class="plugin-name">Reverb</span>
           <span class="plugin-trim" id="verbTrim"></span>
@@ -260,8 +268,15 @@ export class VerbPlugin {
     this.frame = null;
     if (!on) { this.writeReadout(); return; }
 
+    // An insert has no Play of its own - the sketchpad's transport is the
+    // one that runs - so the loop is started when the plugin opens and
+    // paints only while there is something going through, plus the one
+    // frame after it stops so the picture settles rather than freezing
+    // mid-swing.
     const tick = () => {
-      this.writeReadout();
+      const live = this.role !== 'insert' || Boolean(this.player.playing);
+      if (live || this.wasLive) this.writeReadout();
+      this.wasLive = live;
       this.frame = requestAnimationFrame(tick);
     };
     tick();

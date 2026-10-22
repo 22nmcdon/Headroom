@@ -39,6 +39,25 @@ const TONE = (values) => [
   { id: 'hs', type: 'highshelf', frequency: 6000, gain: values.high, q: RESTING_Q.highshelf, slope: 12, on: values.high !== 0 },
 ];
 
+/**
+ * And back again: a strip the EQ has been editing, as the four values an
+ * insert stores.
+ *
+ * The inverse of `TONE`, written beside it so the two are read together.
+ * Everything else's plugin edits the effect's own settings object and needs
+ * nothing like this; the EQ is the one whose stored shape is not the shape
+ * its interface works in.
+ */
+export function fromTone(bands = []) {
+  const at = (id) => bands.find((band) => band.id === id);
+  return {
+    low: at('ls')?.gain ?? EQ_REST.low,
+    mid: at('p1')?.gain ?? EQ_REST.mid,
+    midHz: at('p1')?.frequency ?? EQ_REST.midHz,
+    high: at('hs')?.gain ?? EQ_REST.high,
+  };
+}
+
 /** Three or four a piece, in the order a hand would reach for them. */
 export const KNOBS = {
   eq: [

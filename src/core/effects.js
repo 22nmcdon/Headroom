@@ -200,6 +200,15 @@ async function compEffect(ctx, { settings = COMP_DEFAULTS } = {}) {
     set(next) { live.set({ ...live.settings, ...next }); return this; },
     /** The deepest reduction since anyone last looked, which the worklet reports. */
     read: () => live.pending,
+    /**
+     * The same number, and asking resets it.
+     *
+     * Which is what a meter needs and `read` deliberately is not: `read` is
+     * a measurement anyone may take without changing anything, and a meter
+     * that never cleared its counter would sit at the deepest reduction of
+     * the session for the rest of it.
+     */
+    readReduction: () => live.readReduction(),
     destroy() {
       try { live.out.disconnect(); } catch { /* gone */ }
       try { live.node?.disconnect(); } catch { /* gone */ }

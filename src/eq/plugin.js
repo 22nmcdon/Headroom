@@ -129,6 +129,10 @@ export class EQPlugin {
 
     this.build();
     this.draw();
+
+    // Open on a track: there is no Play in here to start the picture moving,
+    // so it follows the sketchpad's transport from the moment it opens.
+    if (this.role === 'insert') this.playing(true);
   }
 
   /* ---------- the furniture ---------- */
@@ -638,8 +642,15 @@ export class EQPlugin {
     this.frame = null;
     if (!on) return;
 
+    // An insert has no Play of its own - the sketchpad's transport is the
+    // one that runs - so the loop is started when the plugin opens and
+    // paints only while there is something going through, plus the one
+    // frame after it stops so the picture settles rather than freezing
+    // mid-swing.
     const tick = () => {
-      this.draw();
+      const live = this.role !== 'insert' || Boolean(this.player.playing);
+      if (live || this.wasLive) this.draw();
+      this.wasLive = live;
       this.frame = requestAnimationFrame(tick);
     };
     tick();

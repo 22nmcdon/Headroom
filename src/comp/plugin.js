@@ -69,21 +69,29 @@ function compPalette(el) {
 }
 
 export class CompPlugin {
-  constructor(el, { engine, settings, onChange, source = 'drums', key = null, uneven = 0 }) {
+  constructor(el, {
+    engine, settings, onChange, source = 'drums', key = null, uneven = 0,
+    player = null, role = 'tool',
+  }) {
     this.el = el;
     this.engine = engine;
     this.settings = settings;
     this.onChange = onChange;
+    this.role = role;
     this.interactive = true;
     this.target = null;      // drawn only once the round is over
     this.meterGr = 0;
     this.columns = null;
 
-    this.player = new CompPlayer(engine, { source, key, uneven });
+    this.player = player ?? new CompPlayer(engine, { source, key, uneven });
     this.player.setSettings(this.settings);
 
     this.build();
     this.draw();
+
+    // Open on a track: there is no Play in here to start the picture moving,
+    // so it follows the sketchpad's transport from the moment it opens.
+    if (this.role === 'insert') this.playing(true);
 
     // The loop is rendered rather than played, so the trace can be there
     // before anybody presses anything.
@@ -96,7 +104,7 @@ export class CompPlugin {
     const keyed = Boolean(this.player.key);
 
     this.el.innerHTML = `
-      <div class="plugin comp">
+      <div class="plugin comp${this.role === 'insert' ? ' is-insert' : ''}">
         <div class="plugin-head">
           <span class="plugin-name">Compressor</span>
           <span class="plugin-trim" id="compTrim"></span>
@@ -385,8 +393,15 @@ export class CompPlugin {
     this.frame = null;
     if (!on) { this.draw(); return; }
 
+    // An insert has no Play of its own - the sketchpad's transport is the
+    // one that runs - so the loop is started when the plugin opens and
+    // paints only while there is something going through, plus the one
+    // frame after it stops so the picture settles rather than freezing
+    // mid-swing.
     const tick = () => {
-      this.draw();
+      const live = this.role !== 'insert' || Boolean(this.player.playing);
+      if (live || this.wasLive) this.draw();
+      this.wasLive = live;
       this.frame = requestAnimationFrame(tick);
     };
     tick();

@@ -55,11 +55,15 @@ function echoPalette(el) {
 }
 
 export class EchoPlugin {
-  constructor(el, { engine, settings, onChange, source = 'instrument', tempo = true }) {
+  constructor(el, {
+    engine, settings, onChange, source = 'instrument', tempo = true,
+    player = null, role = 'tool',
+  }) {
     this.el = el;
     this.engine = engine;
     this.settings = settings;
     this.onChange = onChange;
+    this.role = role;
     this.tempo = tempo;   // whether the track's grid is on offer
     this.interactive = true;
     this.target = null;
@@ -67,7 +71,7 @@ export class EchoPlugin {
     this.profile = null;
     this.columns = null;
 
-    this.player = new ImpulsePlayer(engine, {
+    this.player = player ?? new ImpulsePlayer(engine, {
       source,
       impulseOf: makeEcho,
       defaults: ECHO_DEFAULTS,
@@ -76,6 +80,10 @@ export class EchoPlugin {
     this.build();
     this.restage();
     this.draw();
+
+    // Open on a track: there is no Play in here to start the picture moving,
+    // so it follows the sketchpad's transport from the moment it opens.
+    if (this.role === 'insert') this.playing(true);
 
     this.player.prepare()
       .then(() => this.queue())
@@ -86,7 +94,7 @@ export class EchoPlugin {
 
   build() {
     this.el.innerHTML = `
-      <div class="plugin echo">
+      <div class="plugin echo${this.role === 'insert' ? ' is-insert' : ''}">
         <div class="plugin-head">
           <span class="plugin-name">Delay</span>
           <span class="plugin-trim" id="echoTrim"></span>
@@ -314,8 +322,15 @@ export class EchoPlugin {
     this.frame = null;
     if (!on) { this.writeReadout(); return; }
 
+    // An insert has no Play of its own - the sketchpad's transport is the
+    // one that runs - so the loop is started when the plugin opens and
+    // paints only while there is something going through, plus the one
+    // frame after it stops so the picture settles rather than freezing
+    // mid-swing.
     const tick = () => {
-      this.writeReadout();
+      const live = this.role !== 'insert' || Boolean(this.player.playing);
+      if (live || this.wasLive) this.writeReadout();
+      this.wasLive = live;
       this.frame = requestAnimationFrame(tick);
     };
     tick();

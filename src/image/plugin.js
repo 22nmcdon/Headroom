@@ -69,11 +69,15 @@ function agreement(correlation, ink) {
 }
 
 export class ImagePlugin {
-  constructor(el, { engine, settings, onChange, source = 'mix', fault = null }) {
+  constructor(el, {
+    engine, settings, onChange, source = 'mix', fault = null,
+    player = null, role = 'tool',
+  }) {
     this.el = el;
     this.engine = engine;
     this.settings = settings;
     this.onChange = onChange;
+    this.role = role;
     this.interactive = true;
     this.target = null;
     // One envelope, not a bare profile beside a timestamp that was started
@@ -81,11 +85,15 @@ export class ImagePlugin {
     // envelope now answers, and answered it for nobody.
     this.reading = null;
 
-    this.player = new ImagePlayer(engine, { source });
+    this.player = player ?? new ImagePlayer(engine, { source });
     this.player.setFault(fault);
 
     this.build();
     this.draw();
+
+    // Open on a track: there is no Play in here to start the picture moving,
+    // so it follows the sketchpad's transport from the moment it opens.
+    if (this.role === 'insert') this.playing(true);
 
     this.player.prepare()
       .then(() => { this.measure(); this.draw(); })
@@ -96,7 +104,7 @@ export class ImagePlugin {
 
   build() {
     this.el.innerHTML = `
-      <div class="plugin image">
+      <div class="plugin image${this.role === 'insert' ? ' is-insert' : ''}">
         <div class="plugin-head">
           <span class="plugin-name">Stereo image</span>
           <span class="plugin-trim" id="imageTrim"></span>
@@ -402,8 +410,15 @@ export class ImagePlugin {
     this.frame = null;
     if (!on) { this.draw(); return; }
 
+    // An insert has no Play of its own - the sketchpad's transport is the
+    // one that runs - so the loop is started when the plugin opens and
+    // paints only while there is something going through, plus the one
+    // frame after it stops so the picture settles rather than freezing
+    // mid-swing.
     const tick = () => {
-      this.draw();
+      const live = this.role !== 'insert' || Boolean(this.player.playing);
+      if (live || this.wasLive) this.draw();
+      this.wasLive = live;
       this.frame = requestAnimationFrame(tick);
     };
     tick();
@@ -479,7 +494,8 @@ export class ImagePlugin {
     c.textAlign = 'left';
     c.fillText('side', 4, middle.y - 4);
     c.textAlign = 'left';
-    c.fillText(this.player.playing ? 'the field' : 'the field · press play', 6, height - 6);
+    const idle = this.role === 'insert' ? 'the field · play the sketch' : 'the field · press play';
+    c.fillText(this.player.playing ? 'the field' : idle, 6, height - 6);
   }
 
   drawBands(ink) {

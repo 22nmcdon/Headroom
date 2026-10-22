@@ -73,6 +73,19 @@ export function chainOf(ctx, effects = []) {
       return this;
     },
 
+    /**
+     * What feeds one of them: the chain's own input, or the one in front.
+     *
+     * An effect knows where its signal goes and not where it came from, and
+     * a meter that shows what went in has to tap the thing upstream. The
+     * chain is the only thing that knows which that is.
+     */
+    feeding(which) {
+      const index = typeof which === 'number' ? which : effects.findIndex((e) => e.id === which);
+      if (index < 0) return null;
+      return index === 0 ? entry : effects[index - 1].out;
+    },
+
     destroy() {
       // Disconnect before destroying, and in the order the signal runs: a
       // node taken apart while something upstream is still feeding it is how

@@ -2474,7 +2474,27 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
    and the sketchpad is the transport. Hidden rather than left out, so the
    wiring attaches to the same markup either way - and `display: none`
    rather than `hidden`, so none of it is in the tab order. */
-.eq.is-insert .eq-transport { display: none; }
+/* An insert is a view onto a track's own signal, so the half of a plugin
+   that belongs to an exercise is not there to be used: there is no loop to
+   play, no answer to A/B against and no file to open. Those controls go, and
+   the transport at the top of the sketchpad is the one that matters. */
+.plugin.is-insert > .eq-transport { display: none; }
+
+/* And the monitoring that needs a player with two sides to it. What an
+   insert hears is what the track hears - the Listen switches would be
+   buttons that did nothing, which is worse than a button that is not
+   there. The settings beside them stay: a detector is a setting, a
+   ping-pong is a setting, and both do on a track what they do on a loop. */
+.plugin.is-insert > .heat-routing,
+.plugin.is-insert > .image-routing,
+.plugin.is-insert .listen-btn { display: none; }
+
+/* The compressor's middle panel is its reduction over the loop, hit by hit.
+   There is no loop on a track - the material is whatever the clip is this
+   bar - so the panel would be an empty box with a scale down the side. The
+   curve and the meters are both live, and they are what is left. */
+.plugin.is-insert .comp-panel-trace { display: none; }
+.plugin.is-insert .comp-display { grid-template-columns: minmax(140px, 1fr) 58px; }
 
 /* An insert whose full interface can be opened says so, and the ones whose
    cannot yet look like what they are: a label. */
@@ -2659,65 +2679,72 @@ button.insert-name:hover { color: var(--charcoal); }
   .dock-foot .legend { display: none; }
 }
 
-/* A plugin on a short, wide screen - a phone on its side, which is how most
-   of this is used - lays out the way a plugin window does rather than the way
-   a page does: the display down the left, the deck beside it, the title above
-   both and the monitoring below. Stacked, the six of them ran 358 to 620
-   pixels tall on a 430-pixel screen. */
-@media (max-height: 560px) and (min-width: 740px) {
-  .plugin {
-    display: grid;
-    grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
-    align-content: start;
-  }
+/* Wherever a plugin is put, that is what decides its shape - not the window.
+   The same plugin opens on a tool's page with the width of the sheet and on
+   a track's insert in a panel beside the clip grid, and at 447 points the
+   two-column form below put `THRESHOLD` in a 66-point bay. */
+.surface, .plugin-host { container-type: inline-size; }
 
-  /* The deck runs down the right, ruled off from the display beside it.
-     Everything that is not the deck is put back after this rule rather than
-     before it: the selectors weigh the same, so their order is what decides
-     which one a child ends up obeying. */
-  .plugin > *:nth-child(n+2) { grid-column: 2; border-left: 1px solid var(--line); }
+/* A plugin on a short screen with the width for it - a phone on its side,
+   which is how most of this is used - lays out the way a plugin window does
+   rather than the way a page does: the display down the left, the deck
+   beside it, the title above both and the monitoring below. Stacked, the six
+   of them ran 358 to 620 pixels tall on a 430-pixel screen. */
+@media (max-height: 560px) {
+ @container (min-width: 700px) {
+    .plugin {
+      display: grid;
+      grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+      align-content: start;
+    }
 
-  /* The title above both columns, the monitoring below both. */
-  .plugin > .plugin-head,
-  .plugin > .eq-transport { grid-column: 1 / -1; border-left: none; }
+    /* The deck runs down the right, ruled off from the display beside it.
+       Everything that is not the deck is put back after this rule rather than
+       before it: the selectors weigh the same, so their order is what decides
+       which one a child ends up obeying. */
+    .plugin > *:nth-child(n+2) { grid-column: 2; border-left: 1px solid var(--line); }
 
-  /* The display takes the left column for as many rows as the deck needs.
-     Spanning past the last of them costs nothing: the rows it opens are
-     empty, and an empty row is no height at all. */
-  .plugin > .eq-display,
-  .plugin > .comp-display,
-  .plugin > .heat-display,
-  .plugin > .image-display,
-  .plugin > .echo-display,
-  .plugin > .verb-display {
-    grid-column: 1;
-    grid-row: 2 / span 20;
-    border-left: none;
-    /* Stretched to whatever the deck beside it comes to - which is what a
-       grid item does when its height is `auto` - with a floor for a deck
-       with very little on it. */
-    height: auto;
-    /* Tall enough that a plugin with a short deck still fills the screen
-       rather than sitting in a band across the middle of it. */
-    min-height: min(300px, 68vh);
-  }
+    /* The title above both columns, the monitoring below both. */
+    .plugin > .plugin-head,
+    .plugin > .eq-transport { grid-column: 1 / -1; border-left: none; }
 
-  .plugin > * { padding: 8px 12px; }
-  .plugin > .plugin-head { padding-block: 6px; }
-  .plugin > .plugin-panel { margin: 8px 12px; }
+    /* The display takes the left column for as many rows as the deck needs.
+       Spanning past the last of them costs nothing: the rows it opens are
+       empty, and an empty row is no height at all. */
+    .plugin > .eq-display,
+    .plugin > .comp-display,
+    .plugin > .heat-display,
+    .plugin > .image-display,
+    .plugin > .echo-display,
+    .plugin > .verb-display {
+      grid-column: 1;
+      grid-row: 2 / span 20;
+      border-left: none;
+      /* Stretched to whatever the deck beside it comes to - which is what a
+         grid item does when its height is `auto` - with a floor for a deck
+         with very little on it. */
+      height: auto;
+      /* Tall enough that a plugin with a short deck still fills the screen
+         rather than sitting in a band across the middle of it. */
+      min-height: min(300px, 68vh);
+    }
 
-  /* Three bays across, which at this column width is what fits without the
-     numbers wrapping, and three is what makes the usual counts - three, six,
-     eight - come out as whole rows. */
-  .plugin-controls, .eq-controls { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; }
-  .knob { padding: 4px 6px 1px; }
-  .knob-name { font-size: 9px; letter-spacing: 0.1em; }
-  .knob-value { font-size: 13px; }
-  .knob-dial { height: 17px; }
+    .plugin > * { padding: 8px 12px; }
+    .plugin > .plugin-head { padding-block: 6px; }
+    .plugin > .plugin-panel { margin: 8px 12px; }
 
-  /* Six bands in a column this wide wrap five and one, and the one that is
-     left over stretches across the row looking like something else. Two
-     rows of three. */
-  .eq-bands { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; }
+    /* Three bays across, which at this column width is what fits without the
+       numbers wrapping, and three is what makes the usual counts - three, six,
+       eight - come out as whole rows. */
+    .plugin-controls, .eq-controls { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; }
+    .knob { padding: 4px 6px 1px; }
+    .knob-name { font-size: 9px; letter-spacing: 0.1em; }
+    .knob-value { font-size: 13px; }
+    .knob-dial { height: 17px; }
+
+    /* Six bands in a column this wide wrap five and one, and the one that is
+       left over stretches across the row looking like something else. Two
+       rows of three. */
+    .eq-bands { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; }
+ }
 }
-

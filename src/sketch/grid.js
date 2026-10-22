@@ -39,9 +39,14 @@ import {
   rowsFor, columnsOf, filled, toggleCell, clearRow, columnOf,
 } from './steps.js';
 import { loadSketch, saveSketch, sketchFile, readSketchFile } from './store.js';
-import { knobsFor, writeKnob, tidy, paramsFor } from './knobs.js';
+import { knobsFor, writeKnob, tidy, optionsFor, fromTone } from './knobs.js';
 import { insertPlayer } from './insert.js';
 import { EQPlugin } from '../eq/plugin.js';
+import { CompPlugin } from '../comp/plugin.js';
+import { HeatPlugin } from '../heat/plugin.js';
+import { ImagePlugin } from '../image/plugin.js';
+import { EchoPlugin } from '../echo/plugin.js';
+import { VerbPlugin } from '../verb/plugin.js';
 import { tapInto, drift, timing } from './tap.js';
 import { Recorder, canRecord, barsFor, fitTo, loudestIn, SILENCE } from './record.js';
 import {
@@ -53,6 +58,21 @@ import { zipStems } from './stems.js';
 import { INSTRUMENT_IDS, isVoice } from '../core/instrument.js';
 import { EFFECT_IDS } from '../core/effects.js';
 import { PPQ } from './midi.js';
+
+/**
+ * The six interfaces, by the ids their effects already go under.
+ *
+ * Every one of them takes `player`, so every one of them can be pointed at
+ * an insert in a track's chain instead of at a loop of its own.
+ */
+const PLUGINS = {
+  eq: EQPlugin,
+  compression: CompPlugin,
+  saturation: HeatPlugin,
+  panning: ImagePlugin,
+  delay: EchoPlugin,
+  reverb: VerbPlugin,
+};
 
 /** How long a clip can be, in bars. A sketchpad, not an arranger. */
 const LENGTHS = [1, 2, 4];
@@ -945,16 +965,25 @@ export class SketchPage {
     // Between the await and here somebody may have gone somewhere else.
     if (this.open?.kind !== 'plugin' || this.open.effect !== effect) return;
 
-    const live = stage.rowAt(index)?.chain?.effects.find((each) => each.id === effect);
-    if (!live) {
+    const chain = stage.rowAt(index)?.chain;
+    const live = chain?.effects.find((each) => each.id === effect);
+    const Plugin = PLUGINS[effect];
+    if (!live || !Plugin) {
       host.innerHTML = '<p class="editor-empty">That insert is not on this track.</p>';
       return;
     }
 
-    const player = insertPlayer(this.engine.ctx, live, { transport: stage.transport });
-    this.plugin = new EQPlugin(host, {
+    const player = insertPlayer(this.engine.ctx, live, {
+      transport: stage.transport,
+      // What is in front of it in the chain, which is the only thing that
+      // knows what went into this insert - a compressor's meter shows both
+      // sides and an effect can only see its own output.
+      before: chain.feeding(effect),
+    });
+
+    this.plugin = new Plugin(host, {
       engine: this.engine,
-      bands: paramsFor(effect, track.settings[effect]),
+      ...optionsFor(effect, track.settings[effect]),
       role: 'insert',
       player,
       onChange: () => this.fromPlugin(index, effect),
@@ -970,22 +999,16 @@ export class SketchPage {
    * the band out from under the finger.
    */
   fromPlugin(index, effect) {
-    const bands = this.plugin?.bands;
-    if (!bands) return;
+    // The EQ is the one whose interface does not work in the shape the
+    // project stores - a strip of bands against four numbers - so it is the
+    // one that needs translating. Everything else edits the effect's own
+    // settings object, which is what is kept.
+    const settings = effect === 'eq' ? fromTone(this.plugin?.bands) : this.plugin?.settings;
+    if (!settings) return;
 
     const track = trackAt(this.project, index);
-    const value = (id) => bands.find((band) => band.id === id);
-
     this.change(setTrack(this.project, index, {
-      settings: {
-        ...track.settings,
-        [effect]: {
-          low: value('ls')?.gain ?? 0,
-          mid: value('p1')?.gain ?? 0,
-          midHz: value('p1')?.frequency ?? 800,
-          high: value('hs')?.gain ?? 0,
-        },
-      },
+      settings: { ...track.settings, [effect]: { ...settings } },
     }), { keep: true });
   }
 
@@ -1172,12 +1195,10 @@ export class SketchPage {
           const set = tidy(effect, track.settings[effect]);
           return `
           <div class="insert">
-            ${effect === 'eq' ? `
-              <button class="insert-name is-open" type="button" data-open-plugin="${effect}"
-                      title="Open the ${EFFECT_LABELS[effect]} itself">
-                ${EFFECT_LABELS[effect] ?? effect} ↗
-              </button>`
-              : `<span class="insert-name">${EFFECT_LABELS[effect] ?? effect}</span>`}
+            <button class="insert-name is-open" type="button" data-open-plugin="${effect}"
+                    title="Open the ${EFFECT_LABELS[effect] ?? effect} itself">
+              ${EFFECT_LABELS[effect] ?? effect} ↗
+            </button>
             <div class="insert-knobs">
               ${knobsFor(effect).map((knob) => {
                 const value = set[knob.id];
