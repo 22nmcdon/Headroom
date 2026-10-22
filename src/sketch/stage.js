@@ -22,7 +22,7 @@ import { transportFor, nextBar } from './transport.js';
 import { makeTrack, playPieces } from '../core/track.js';
 import { makeEffect } from '../core/effects.js';
 import { booking, queue, resting } from './launch.js';
-import { clipAt } from './project.js';
+import { clipAt, isTake } from './project.js';
 import { optionsFor, paramsFor } from './knobs.js';
 
 /** The shared room. Short and bright: a sketch wants space, not a cathedral. */
@@ -56,7 +56,9 @@ const graphStamp = (track) => `${track.instrument}|${track.inserts.join(',')}`;
  * buffer as readily as it can be played - which is what stem export will be,
  * and what the tests of this file are.
  */
-export async function makeStage(ctx, project, { out = ctx.destination, transport } = {}) {
+export async function makeStage(ctx, project, {
+  out = ctx.destination, transport, takes = new Map(),
+} = {}) {
   const bus = ctx.createGain();
   const limiter = safety(ctx);
   bus.connect(limiter).connect(out);
@@ -76,6 +78,53 @@ export async function makeStage(ctx, project, { out = ctx.destination, transport
   let current = project;
   const rows = [];
 
+  /**
+   * One pass of a recording, booked.
+   *
+   * A take plays from the top of each pass of its own loop, so what has to
+   * be found is the passes that begin inside this window - which is the
+   * same arithmetic the notes get, with one event a pass instead of many.
+   *
+   * Sources are remembered so that stopping can stop them: a buffer booked
+   * a bar ahead will play into the silence otherwise, exactly as a note
+   * would.
+   */
+  const bookTake = (row, piece) => {
+    const buffer = takes.get(piece.clip.take);
+    if (!buffer) return;
+
+    const length = piece.clip.length;
+    const anchor = piece.anchor ?? 0;
+    const first = Math.ceil((piece.from - anchor) / length);
+    const last = Math.ceil((piece.to - anchor) / length);
+
+    for (let pass = first; pass < last; pass += 1) {
+      const at = anchor + pass * length;
+      if (at < piece.from || at >= piece.to) continue;
+
+      const source = ctx.createBufferSource();
+      source.buffer = buffer;
+      source.connect(row.track.chain.in);
+      source.start(clock.timeOf(at));
+      // Never longer than the clip it is in: a take a shade too long would
+      // overlap the next pass of itself.
+      source.stop(clock.timeOf(at + length));
+      source.onended = () => {
+        row.sounding = row.sounding.filter((each) => each !== source);
+      };
+      row.sounding.push(source);
+    }
+  };
+
+  /** Everything a row has booked, stopped. */
+  const hush = (row, at = ctx.currentTime) => {
+    for (const source of row.sounding) {
+      try { source.stop(at); } catch { /* already stopped */ }
+      try { source.disconnect(); } catch { /* already gone */ }
+    }
+    row.sounding = [];
+  };
+
   /** One row: a live track, where it is in the grid, and its subscription. */
   const build = async (spec, index) => {
     const track = await makeTrack(ctx, {
@@ -93,18 +142,32 @@ export async function makeStage(ctx, project, { out = ctx.destination, transport
     track.send.connect(verb.in);
     track.set({ muted: spec.muted });
 
-    const row = { track, stamp: graphStamp(spec), launch: resting(), off: null };
+    const row = {
+      track, stamp: graphStamp(spec), launch: resting(), off: null, sounding: [],
+    };
+
     row.off = playPieces(clock, track, (from, to) => {
       const { pieces, state } = booking(from, to, row.launch);
       row.launch = state;
-      return pieces.map((piece) => ({ ...piece, clip: clipAt(current, index, piece.scene) }));
+
+      const booked = pieces.map((piece) => ({
+        ...piece, clip: clipAt(current, index, piece.scene),
+      }));
+
+      // A recording is not notes, so `playPieces` has nothing to do with it:
+      // every pass of the loop is one buffer, started at the tick that pass
+      // begins on and playing through this track's own inserts and fader.
+      for (const piece of booked) if (isTake(piece.clip)) bookTake(row, piece);
+
+      return booked.filter((piece) => !isTake(piece.clip));
     });
+
     return row;
   };
 
   rows.push(...await Promise.all(current.tracks.map(build)));
 
-  const tear = (row) => { row.off?.(); row.track.destroy(); };
+  const tear = (row) => { row.off?.(); hush(row); row.track.destroy(); };
 
   /** When a launch lands: the next bar line if running, now if not. */
   const when = () => (clock.playing ? nextBar(clock.scheduled, clock.perBar) : 0);
@@ -120,6 +183,9 @@ export async function makeStage(ctx, project, { out = ctx.destination, transport
     get state() {
       return rows.map(({ launch }) => ({ scene: launch.scene, next: launch.next }));
     },
+
+    /** The recordings this stage can play, by id. Shared, so it is live. */
+    takes,
 
     /** A row's live track, for anything that wants to meter or re-insert it. */
     rowAt: (index) => rows[index]?.track ?? null,
@@ -228,6 +294,7 @@ export async function makeStage(ctx, project, { out = ctx.destination, transport
       for (const row of rows) {
         row.launch = resting(row.launch.scene, 0);
         row.track.instrument.allOff?.(ctx.currentTime);
+        hush(row);
       }
     },
 

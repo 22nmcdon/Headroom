@@ -2224,3 +2224,15 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
   border-color: var(--charcoal);
   color: var(--cream);
 }
+
+/* An audio clip has no grid to draw on, and says so rather than showing an
+   empty one. */
+.take-note {
+  font-size: 13px;
+  color: var(--text);
+  border-left: 2px solid var(--blush);
+  padding-left: 10px;
+  margin: 14px 0;
+  max-width: 52ch;
+}
+.editor-outs [data-mic][aria-pressed="true"] { color: var(--rust); font-weight: 500; }

@@ -967,6 +967,11 @@ function fillHelp() {
        + 'voiced to move as little as possible from the chord before it — so four '
        + 'symbols sound like a progression rather than four separate chords. The '
        + 'line is kept with the clip, so you can come back and change a symbol.'],
+      ['Or record it, when it is not notes at all.',
+       'Record into this slot takes whatever the microphone hears, cuts it to the '
+       + 'nearest whole bar and puts it in the slot as a clip. It loops with '
+       + 'everything else, goes through that track\'s inserts and fader, and comes '
+       + 'out in the stems. The recordings live in this browser, beside the sketch.'],
       ['The six tools are the inserts.',
        'The same EQ, compressor, imager, room, delay and saturator the exercises '
        + 'are about, on a track, in series - so what you learned on the bench is '

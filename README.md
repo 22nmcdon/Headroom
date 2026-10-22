@@ -305,7 +305,14 @@ that doing it right is audible rather than merely scored:
   rule and it drifts — a ii-V-I ends an octave above where it started. A kit
   track gets three **pads** instead: press Record, play, and every hit lands
   on the nearest line of the grid — the nearest, not the one before, because
-  a hit a hair early is a hit on the beat played by somebody with good time. The six tools are the inserts. It keeps itself in this
+  a hit a hair early is a hit on the beat played by somebody with good time.
+  And when the idea is not notes at all — a hummed line, a guitar part —
+  **Record into this slot** takes whatever the microphone hears, cuts it to
+  the nearest whole bar, and puts it in the slot as a clip that loops with
+  everything else, runs through that track's inserts and fader, and comes out
+  in the stems. Recordings live in this browser's IndexedDB beside the
+  sketch, because four bars of audio is a hundred times what localStorage is
+  for. The six tools are the inserts. It keeps itself in this
   browser as you work, and there are two ways out: a **Type 1 MIDI file** of
   the scene you are on, looped to four bars, with a track per part and the
   drums on channel 10 — so it opens in Logic named and in the right places —
@@ -315,7 +322,8 @@ that doing it right is audible rather than merely scored:
 
 ## Not built yet
 - **A sample player**, behind the instrument interface the synthesised ones
-  already sit behind.
+  already sit behind. Recordings play as clips; nothing yet plays one back
+  at a pitch.
 - **Insert settings on a mix-exercise strip.** A sketchpad track's inserts
   have three or four controls each; the mix desk's four stems are still
   level, pan and send only.

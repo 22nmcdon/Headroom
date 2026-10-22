@@ -37,7 +37,9 @@ const fileName = (name) => slug(name, 32) || 'track';
  * Returned as channel arrays rather than as files, so the same render can be
  * read by the analysis side as readily as it can be written to disk.
  */
-export async function renderStems(project, scene, { bars = 4, rate = STEM_RATE, tail = STEM_TAIL } = {}) {
+export async function renderStems(project, scene, {
+  bars = 4, rate = STEM_RATE, tail = STEM_TAIL, takes = new Map(),
+} = {}) {
   const Offline = window.OfflineAudioContext || window.webkitOfflineAudioContext;
 
   const rows = sceneOf(project, scene);
@@ -69,7 +71,13 @@ export async function renderStems(project, scene, { bars = 4, rate = STEM_RATE, 
   sink.gain.value = 0;
   sink.connect(ctx.destination);
 
-  const stage = await makeStage(ctx, project, { out: sink, transport });
+  // The recordings have to come with the project. A take lives in a buffer
+  // the page is holding, not in the project, so a render that did not take
+  // the map would quietly produce a silent stem for every recorded track.
+  const takeBuffers = new Map();
+  for (const [id, buffer] of takes) takeBuffers.set(id, await atRate(ctx, buffer, rate));
+
+  const stage = await makeStage(ctx, project, { out: sink, transport, takes: takeBuffers });
   const merger = ctx.createChannelMerger(pairs * 2);
   merger.connect(ctx.destination);
 
@@ -132,6 +140,37 @@ export async function renderStems(project, scene, { bars = 4, rate = STEM_RATE, 
     ].map((stem) => ({ ...stem, rate, seconds: rendered.duration }));
 }
 
+/**
+ * A buffer belonging to one context, as a buffer belonging to another.
+ *
+ * An AudioBuffer is not tied to a context, but its sample rate is: handing
+ * a 44.1 kHz recording to a 48 kHz render plays it fast and sharp. Resampled
+ * here, linearly, which is enough for a sketch and is the only resampler
+ * this app has any need of.
+ */
+async function atRate(ctx, buffer, rate) {
+  if (buffer.sampleRate === rate) return buffer;
+
+  const ratio = rate / buffer.sampleRate;
+  const frames = Math.max(1, Math.round(buffer.length * ratio));
+  const out = ctx.createBuffer(buffer.numberOfChannels, frames, rate);
+
+  for (let channel = 0; channel < buffer.numberOfChannels; channel += 1) {
+    const from = buffer.getChannelData(channel);
+    const to = out.getChannelData(channel);
+    for (let i = 0; i < frames; i += 1) {
+      const at = i / ratio;
+      const left = Math.floor(at);
+      const part = at - left;
+      const a = from[Math.min(left, from.length - 1)];
+      const b = from[Math.min(left + 1, from.length - 1)];
+      to[i] = a + (b - a) * part;
+    }
+  }
+
+  return out;
+}
+
 /** The loudest sample in a stem, in decibels, for saying what came out. */
 export function peakOf(channels) {
   let peak = 0;
@@ -150,8 +189,8 @@ export function peakOf(channels) {
  * up. They are: every stem starts at tick zero of the scene, and so does the
  * file.
  */
-export async function zipStems(project, scene, { bars = 4, rate = STEM_RATE } = {}) {
-  const stems = await renderStems(project, scene, { bars, rate });
+export async function zipStems(project, scene, { bars = 4, rate = STEM_RATE, takes } = {}) {
+  const stems = await renderStems(project, scene, { bars, rate, takes });
   if (!stems.length) return null;
 
   const folder = `${fileName(project.name)}-scene-${scene + 1}`;

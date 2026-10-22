@@ -149,13 +149,23 @@ In the order the sketchpad plan wants them:
    start together, and `unzip -t` and Python's `wave` and `mido` all read
    the archive.
 
+6. ~~**Recording.**~~ **Done**, in `src/sketch/record.js` and `takes.js`.
+   Captured on the audio thread through a worklet rather than with
+   `MediaRecorder`, because a take has to begin on a bar line to be any use
+   in a loop and a bar line is an audio time. Cut to the nearest whole bar,
+   stored as WAV bytes in IndexedDB - four bars of audio is a hundred times
+   what localStorage is for - and played by the stage as a buffer a pass,
+   through the track's own inserts and fader. Verified with Chromium's fake
+   microphone: five seconds in, two bars out, 44.1 kHz 24-bit 220500 frames,
+   surviving a reload and launching again.
+
 ## What is left
 
-6. **A sample player**, behind the instrument interface.
-7. **Reordering a track's inserts.** They go on in the order they are
+7. **A sample player**, behind the instrument interface.
+8. **Reordering a track's inserts.** They go on in the order they are
    pressed and come off by name; a chain is in series, so the order is
    audible, and there is no way to change it but to take them all off.
-8. **Insert settings on a mix-exercise strip.** The sketchpad's tracks have
+9. **Insert settings on a mix-exercise strip.** The sketchpad's tracks have
    them; the mix desk's four stems are still level, pan and send only.
 
 ## Questions this survey raised, and what they came to

@@ -77,7 +77,21 @@ export async function makeTrack(ctx, {
     sendOut.gain.setTargetAtTime(state.send, at, 0.01);
     if (panner) panner.pan.setTargetAtTime(Math.max(-1, Math.min(1, state.pan)), at, 0.01);
   };
-  apply();
+
+  /**
+   * The opening positions, set outright rather than approached.
+   *
+   * `setTargetAtTime` is right for a control somebody is moving and wrong
+   * for the value a node starts at: it begins from whatever the node's
+   * default was - unity, on a gain - and takes a few tens of milliseconds to
+   * get where it was told. On a send that is meant to be at zero, that is
+   * every track going into the reverb at full level for fifty milliseconds.
+   * Measured before this: a track with its send at nothing put a burst into
+   * the room loud enough to show up at -7.4 dBFS on the room's own stem.
+   */
+  fader.gain.value = state.muted ? 0 : state.gain;
+  sendOut.gain.value = state.send;
+  if (panner) panner.pan.value = Math.max(-1, Math.min(1, state.pan));
 
   return {
     id,

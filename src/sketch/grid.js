@@ -31,7 +31,7 @@
 
 import {
   newProject, setClip, setTrack, setProject, setNotes, setLength,
-  clipAt, trackAt, sceneOf, sceneHasAnything, barTicks, sceneToMidi, SCENES,
+  clipAt, trackAt, sceneOf, sceneHasAnything, barTicks, sceneToMidi, SCENES, isTake,
 } from './project.js';
 import {
   STEP_DIVISIONS, divisionOf, SCALES, SCALE_IDS, ROOT_NAMES,
@@ -41,6 +41,10 @@ import { loadSketch, saveSketch, sketchFile, readSketchFile } from './store.js';
 import { knobsFor, writeKnob, tidy } from './knobs.js';
 import { chordNotes, parseProgression } from './chords.js';
 import { tapInto, drift, timing } from './tap.js';
+import { Recorder, canRecord, barsFor, fitTo, loudestIn, SILENCE } from './record.js';
+import {
+  takeId, putTake, loadTake, dropTake, sweepTakes,
+} from './takes.js';
 import { KIT_ROWS } from './steps.js';
 import { makeStage } from './stage.js';
 import { zipStems } from './stems.js';
@@ -118,6 +122,11 @@ export class SketchPage {
     // run of how far out the last few were.
     this.arming = false;
     this.taps = [];
+    // The microphone, opened on first use and kept; and the recordings this
+    // sketch can play, by id, shared with the stage so it reads them live.
+    this.mic = null;
+    this.recording = false;
+    this.takes = new Map();
 
     this.build();
     this.wire();
@@ -312,6 +321,8 @@ export class SketchPage {
       return;
     }
 
+    if (event.target.closest('[data-mic]')) { this.record(); return; }
+
     if (event.target.closest('[data-chords-go]') && this.at) {
       this.layChords();
       return;
@@ -424,6 +435,69 @@ export class SketchPage {
         + `${Math.round(Math.abs(off))} ticks. They are on the lines anyway.`);
   }
 
+  /**
+   * Record into the slot being edited.
+   *
+   * Press once to start and once to stop. What comes back is rounded to the
+   * nearest whole bar and cut or padded to it, because a take is going to
+   * loop and a loop three and a bit bars long falls over on its second pass.
+   */
+  async record() {
+    if (!this.at) return;
+
+    if (this.recording) {
+      const got = this.mic?.stop();
+      this.recording = false;
+
+      if (!got) { this.draw(); this.tell('Nothing came back from the microphone.'); return; }
+      if (loudestIn(got.channels) < SILENCE) {
+        this.draw();
+        this.tell('That was silence — check which input the browser is listening to.');
+        return;
+      }
+
+      const bars = barsFor(got.seconds, this.project.bpm, this.project.beats, this.project.value);
+      const seconds = bars * (60 / this.project.bpm) * this.project.beats
+        * (4 / this.project.value);
+      const channels = fitTo(got.channels, got.rate, seconds);
+
+      const id = takeId();
+      const kept = await putTake(id, channels, got.rate, { name: `${this.project.name} take` });
+
+      // Playable now whether or not it could be stored: a browser that
+      // refuses IndexedDB should still let somebody finish the idea.
+      const buffer = this.engine.ctx.createBuffer(channels.length, channels[0].length, got.rate);
+      channels.forEach((channel, i) => buffer.copyToChannel(channel, i));
+      this.takes.set(id, buffer);
+
+      const was = clipAt(this.project, this.at.track, this.at.scene);
+      this.change(setClip(this.project, this.at.track, this.at.scene, {
+        ...(was ?? {}), take: id, notes: [], chords: '', length: bars * barTicks(this.project),
+      }));
+
+      this.tell(kept
+        ? `${bars === 1 ? 'A bar' : `${bars} bars`} recorded, and kept in this browser.`
+        : `${bars === 1 ? 'A bar' : `${bars} bars`} recorded — but this browser would not `
+          + 'store it, so it will be gone on a reload. Export the stems to keep it.');
+      return;
+    }
+
+    if (!this.mic) this.mic = new Recorder(this.engine.ensure());
+    this.tell('Asking for the microphone…');
+
+    if (!await this.mic.ask()) {
+      this.mic = null;
+      this.tell('The microphone is not available — it may have been refused, '
+        + 'or this page may not be on a secure connection.');
+      return;
+    }
+
+    this.mic.start();
+    this.recording = true;
+    this.draw();
+    this.tell('Recording. Press again to stop — it will be cut to the nearest whole bar.');
+  }
+
   sayTap(line) {
     const where = this.parts.editor.querySelector('[data-tap-said]');
     if (where) where.textContent = line;
@@ -500,11 +574,35 @@ export class SketchPage {
    * four tracks of instruments and inserts is a graph nobody looking at the
    * grid for a moment should pay for. Built once and kept, like the tools.
    */
+  /**
+   * Every recording this project points at, decoded and ready.
+   *
+   * On opening, because a clip whose take has not been loaded is a clip that
+   * plays nothing - and the first time anybody notices that is the first
+   * time they press play after a reload.
+   */
+  async loadTakes() {
+    const ctx = this.engine.ensure();
+    const wanted = new Set();
+    for (const track of this.project.tracks) {
+      for (const slot of track.slots) if (slot?.take) wanted.add(slot.take);
+    }
+
+    const missing = [];
+    for (const id of wanted) {
+      if (this.takes.has(id)) continue;
+      const buffer = await loadTake(ctx, id);
+      if (buffer) this.takes.set(id, buffer);
+      else missing.push(id);
+    }
+    return missing;
+  }
+
   async ready() {
     if (this.stage) return this.stage;
     if (!this.building) {
       const ctx = this.engine.ensure();
-      this.building = makeStage(ctx, this.project, { out: this.engine.out })
+      this.building = makeStage(ctx, this.project, { out: this.engine.out, takes: this.takes })
         .then((stage) => { this.stage = stage; return stage; });
     }
     return this.building;
@@ -687,11 +785,16 @@ export class SketchPage {
         </div>
         <p class="fine chord-said" data-chord-said></p>`}
 
-      <div class="steps" style="--cols: ${wide}">${rows}</div>
+      ${isTake(clip) ? `
+        <p class="take-note">A recording, ${bars === 1 ? 'a bar' : `${bars} bars`} long.
+        There is nothing to draw on it — take it out and the slot is a clip of notes again.</p>
+      ` : `<div class="steps" style="--cols: ${wide}">${rows}</div>`}
 
       <div class="editor-row editor-outs">
         <button class="link-btn" type="button" data-clear>Clear the clip</button>
         <button class="link-btn" type="button" data-drop>Take the clip out</button>
+        ${canRecord() ? `<button class="link-btn" type="button" data-mic
+          aria-pressed="${this.recording}">${this.recording ? 'Stop recording' : 'Record into this slot'}</button>` : ''}
       </div>
 
       <div class="editor-track">
@@ -857,7 +960,7 @@ export class SketchPage {
     this.tell('Rendering the stems — a second or two.');
 
     try {
-      const made = await zipStems(this.project, scene, { bars: 4 });
+      const made = await zipStems(this.project, scene, { bars: 4, takes: this.takes });
       if (!made) { this.tell('There is nothing in that scene yet.'); return; }
 
       this.give(new Blob([made.bytes], { type: 'application/zip' }), made.name);
@@ -900,8 +1003,12 @@ export class SketchPage {
     this.at = null;
     this.stage?.stop();
     this.watch(false);
+    this.takes.clear();
     this.change(newProject());
-    this.tell('A new sketch. The old one is gone from this browser.');
+    // The recordings go too, or they sit in this browser for ever with
+    // nothing left that could ever play them.
+    sweepTakes(this.project);
+    this.tell('A new sketch. The old one, and its recordings, are gone from this browser.');
   }
 
   /**
@@ -924,17 +1031,32 @@ export class SketchPage {
   show() {
     this.draw();
     if (this.stage?.playing) this.watch(true);
+
+    // Only once a context exists: asking for one before a gesture is what
+    // browsers refuse, and the sketchpad is often the first thing opened.
+    if (this.engine.ctx && !this.loaded) {
+      this.loaded = true;
+      this.loadTakes().then((missing) => {
+        if (missing.length) {
+          this.tell(`${plural(missing.length, 'recording', 'recordings')} in this sketch `
+            + 'could not be found in this browser.');
+        }
+      });
+    }
   }
 
   /** Left for another view: the clock stops, because it is not background music. */
   hide() {
     this.watch(false);
+    if (this.recording) { this.mic?.stop(); this.recording = false; }
     this.stage?.stop();
     this.paint();
   }
 
   destroy() {
     this.watch(false);
+    this.mic?.close();
+    this.mic = null;
     this.stage?.destroy();
     this.stage = null;
   }

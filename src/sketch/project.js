@@ -37,10 +37,16 @@ export const SCENES = 4;
 /** A clip, with everything it does not say filled in. */
 export const clipOf = ({
   id = null, length = PPQ * 4, notes = [], name = '', division = 'eighth', chords = '',
+  take = null,
 } = {}) => ({
   id: id ?? `clip-${Math.random().toString(36).slice(2, 8)}`,
   name,
   length,
+  // A recording, by the id it is stored under, or null for a clip of notes.
+  // The audio itself is far too big for a project file, so what is kept
+  // here is the thread back to it - and a clip whose take has gone is a
+  // clip that plays nothing, which is why they are swept together.
+  take: take ? String(take) : null,
   // The line of chord symbols this clip was made from, when it was made from
   // one. Kept so that coming back to it shows what was typed rather than
   // only the notes it became - which is the difference between a part you
@@ -130,6 +136,9 @@ export const sceneOf = (project, scene) => project.tracks
   .map((track, index) => ({ track, index, clip: track.slots[scene] ?? null }))
   .filter((row) => row.clip);
 
+/** A clip of a recording rather than of notes. */
+export const isTake = (clip) => Boolean(clip?.take);
+
 /** Is there anything in this scene at all? */
 export const sceneHasAnything = (project, scene) => sceneOf(project, scene).length > 0;
 
@@ -213,7 +222,11 @@ export function sceneToMidi(project, scene, { bars = 4 } = {}) {
   const perBar = barTicks(project);
   const total = perBar * Math.max(1, Math.round(bars));
 
-  const tracks = sceneOf(project, scene).map(({ track, clip }) => ({
+  const tracks = sceneOf(project, scene)
+    // A recording has no notes in it, and a MIDI track with nothing on it is
+    // a track somebody has to delete before they can work.
+    .filter(({ clip }) => !isTake(clip) && clip.notes.length)
+    .map(({ track, clip }) => ({
     name: track.name,
     drums: track.instrument === 'kit',
     program: GM_PROGRAM[track.instrument] ?? undefined,
