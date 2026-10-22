@@ -1690,14 +1690,48 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
 
 .sketch-head { margin-bottom: 18px; }
 
+/* The transport on the left, the sketch's name in the middle, the way to
+   everything else on the right. Three columns rather than a flex row, so
+   the name sits in the centre of the bar instead of wherever the controls
+   beside it happen to leave it. */
 .sketch-bar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: 10px 18px;
-  margin-top: 8px;
+  display: grid;
+  /* Two equal outer columns, so the middle one is the middle of the bar.
+     With `auto 1fr auto` the name centres in whatever the controls leave,
+     which with a transport on one side and a single button on the other is
+     a hundred pixels off. */
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 10px 14px;
+  margin-top: 4px;
 }
+.bar-left { display: flex; align-items: center; gap: 10px 14px; justify-self: start; }
+.sketch-bar .menu-btn { justify-self: end; }
 .sketch-bar .submit-btn { min-width: 78px; }
+
+/* Upright on a phone there is no width for equal outer columns: the
+   transport alone is 240 of a 356-pixel bar, so `1fr auto 1fr` leaves the
+   name a hundred pixels right of the middle. Give the name the whole first
+   row instead - it centres in the bar exactly, because the bar is what it
+   spans - and let the menu sit at the end of the transport row, which is
+   where a thumb already is. */
+@media (max-width: 560px) {
+  .sketch-bar {
+    grid-template-columns: 1fr auto;
+    grid-template-areas:
+      "name name"
+      "left menu";
+    row-gap: 6px;
+  }
+  .bar-left { grid-area: left; }
+  .sketch-bar .sketch-called { grid-area: name; }
+  .sketch-bar .menu-btn { grid-area: menu; }
+}
+
+/* The tempo belongs with the transport, not in a menu: it is the one number
+   that changes what you are hearing right now. */
+.sketch-tempo { display: inline-flex; align-items: baseline; gap: 4px; }
+.sketch-tempo span { font-size: 10px; letter-spacing: 0.1em; color: var(--text-soft); }
 
 /* The position, in the serif and tabular, the way every reading here is. */
 .sketch-pos {
@@ -1709,7 +1743,7 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
 }
 
 .sketch-name { width: 150px; }
-.sketch-bpm { width: 72px; }
+.sketch-bpm { width: 58px; text-align: center; }
 
 .sketch-name, .sketch-bpm, .track-rename {
   font-family: var(--sans);
@@ -1955,10 +1989,28 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
   margin: 0;
   max-width: 44ch;
 }
+/* Which clip, said once. It used to be said twice - a breadcrumb and then a
+   heading with the same two words in it - which on a phone is a line of the
+   grid spent on repetition. The track's name is the way to its own
+   settings, so the heading is the breadcrumb. */
 .editor-title {
   font-size: 17px;
   margin: 2px 0 10px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
 }
+.editor-title .link-btn {
+  font-family: inherit;
+  font-size: inherit;
+  line-height: 1.2;
+  font-weight: inherit;
+  color: var(--charcoal);
+  letter-spacing: 0;
+  text-transform: none;
+}
+.editor-scene { font-family: var(--sans); font-size: 12px; color: var(--text-soft); }
 .editor-row {
   display: flex;
   flex-wrap: wrap;
@@ -2397,9 +2449,9 @@ button.insert-name:hover { color: var(--charcoal); }
    a row of them across the top is a row of them in the way. */
 .sketch-called {
   font-family: var(--serif);
-  font-size: 15px;
+  font-size: 16px;
   color: var(--text-soft);
-  margin-left: auto;
+  text-align: center;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2443,3 +2495,86 @@ button.insert-name:hover { color: var(--charcoal); }
   color: var(--rust);
 }
 .cell[data-asking="true"] .cell-follow { display: none; }
+
+/* --- a clip's set-up, folded away ----------------------------------------- */
+
+/* Bars, grid, repeat and key are all things you set once and then work
+   under. Four rows of chips above the step grid is most of a phone screen
+   spent on settings - so they fold, and the line that is always there says
+   what they are set to, which is the half anybody actually wants. */
+.clip-setup { margin: 2px 0 12px; }
+.clip-sums {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--paper);
+  font-size: 12px;
+  color: var(--text-soft);
+}
+.clip-sums::-webkit-details-marker { display: none; }
+.clip-sums::after {
+  content: '▾';
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--line);
+}
+.clip-setup[open] .clip-sums {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+  color: var(--text);
+}
+.clip-setup[open] .clip-sums::after { content: '▴'; }
+.clip-setup[open] > .editor-row {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-top: none;
+  background: var(--paper);
+}
+.clip-setup[open] > .editor-row:last-child {
+  border-bottom-left-radius: 4px;
+  border-bottom-right-radius: 4px;
+}
+
+/* --- a phone on its side --------------------------------------------------- */
+
+/* Landscape is the right way up for this: a clip grid wants width, and the
+   step grid wants as many of its rows on screen at once as it can get. What
+   is scarce there is height, so everything that costs height gives some
+   back. */
+@media (max-height: 560px) {
+  .wrap { padding-inline: 16px; }
+  .sheet { padding: 14px 16px; }
+  .top-bar { gap: 4px 14px; }
+  .sheet-head { margin-bottom: 2px; }
+  .sheet-title { font-size: 16px; }
+  .colophon { display: none; }
+
+  .sketch-bar { margin-top: 0; }
+  .sketch-bar .submit-btn { padding-block: 6px; }
+  .clip-setup { margin: 2px 0 8px; }
+  .editor-title { font-size: 15px; margin: 0 0 6px; }
+  .panel-back { padding-bottom: 6px; }
+  .panel-where { margin-bottom: 6px; }
+
+  /* Shorter rows, so more of the keyboard is on screen at once. */
+  .step { height: 17px; }
+  .steps { gap: 1px; }
+  .step-name { font-size: 9px; }
+}
+
+/* A phone on its side is about 740 to 930 points across, which is plenty
+   for the grid and the clip side by side - and side by side is what
+   landscape is good for, because stacking them is what costs height. */
+@media (min-width: 740px) and (max-width: 899px) {
+  .sketch-body { grid-template-columns: minmax(230px, 0.8fr) minmax(0, 1.2fr); }
+  .sketch-body:not([data-open="none"]) .sketch-grid { display: grid; }
+  .sketch-body[data-open="none"] .sketch-editor { display: block; }
+  .panel-back { display: none; }
+  .sketch-editor { border-left: 2px solid var(--line); padding-left: 16px; }
+}

@@ -145,6 +145,10 @@ export class SketchPage {
     // rather than inside the clip, where it was a destructive button sitting
     // next to the controls you use all the time.
     this.removing = null;
+    // Whether the clip's set-up is folded away. Folded by default: not one
+    // of those controls is touched while notes are going in, and four rows
+    // of them above the grid is most of a phone screen spent on settings.
+    this.setupOpen = false;
     this.held = null;
     this.recording = false;
     this.takes = new Map();
@@ -160,8 +164,14 @@ export class SketchPage {
     this.el.innerHTML = `
       <div class="sketch">
         <div class="sketch-bar">
-          <button class="submit-btn" type="button" data-play>Play</button>
-          <span class="sketch-pos" data-pos>1.1</span>
+          <span class="bar-left">
+            <button class="submit-btn" type="button" data-play>Play</button>
+            <span class="sketch-pos" data-pos>1.1</span>
+            <label class="sketch-tempo">
+              <input class="sketch-bpm" type="number" data-bpm min="40" max="220" step="1">
+              <span>bpm</span>
+            </label>
+          </span>
           <span class="sketch-called" data-called></span>
           <button class="menu-btn" type="button" data-menu aria-label="This sketch">☰</button>
         </div>
@@ -188,10 +198,6 @@ export class SketchPage {
             <label class="field">
               <span class="field-label">Called</span>
               <input class="sketch-name" type="text" data-name maxlength="40">
-            </label>
-            <label class="field">
-              <span class="field-label">Tempo</span>
-              <input class="sketch-bpm" type="number" data-bpm min="40" max="220" step="1">
             </label>
           </div>
 
@@ -661,17 +667,6 @@ export class SketchPage {
 
     if (!await this.mic.ask()) {
       this.mic = null;
-    // The plugin interface currently open on an insert, if any. One at a
-    // time: each holds an analyser, and eight of them reading FFTs for
-    // pages nobody is looking at is a sketchpad that gets slower the more
-    // you work on it.
-    this.plugin = null;
-    // A clip the grid is offering to take out: `track:scene`, set by a long
-    // press and cleared by anything else. Taking a clip out belongs here
-    // rather than inside the clip, where it was a destructive button sitting
-    // next to the controls you use all the time.
-    this.removing = null;
-    this.held = null;
       this.tell('The microphone is not available — it may have been refused, '
         + 'or this page may not be on a secure connection.');
       return;
@@ -801,6 +796,13 @@ export class SketchPage {
 
   draw() {
     const { parts, project } = this;
+
+    // Whether the clip's set-up is folded open is read off the page it is
+    // about to replace, rather than tracked through an event. `toggle` does
+    // not bubble, and a redraw that forgets the fold closes it under
+    // somebody who opened it to change two things.
+    const setup = parts.editor.querySelector('[data-setup]');
+    if (setup) this.setupOpen = setup.open;
 
     if (parts.name.value !== project.name) parts.name.value = project.name;
     if (Number(parts.bpm.value) !== project.bpm) parts.bpm.value = project.bpm;
@@ -991,12 +993,33 @@ export class SketchPage {
   closePlugin() {
     this.plugin?.destroy?.();
     this.plugin = null;
-    // A clip the grid is offering to take out: `track:scene`, set by a long
-    // press and cleared by anything else. Taking a clip out belongs here
-    // rather than inside the clip, where it was a destructive button sitting
-    // next to the controls you use all the time.
-    this.removing = null;
-    this.held = null;
+  }
+
+  /**
+   * A clip's set-up, in one line.
+   *
+   * Read rather than operated, which is the point of folding the controls
+   * away: none of bars, grid, repeat or key is touched while notes are
+   * going in, but all four are worth knowing at a glance.
+   */
+  setupSays(clip, track) {
+    const bars = Math.max(1, Math.round(clip.length / barTicks(this.project)));
+    const parts = [];
+
+    if (!isVoice(track.instrument) && !isTake(clip)) {
+      parts.push(bars === 1 ? '1 bar' : `${bars} bars`);
+      parts.push(divisionOf(clip.division).label);
+    }
+
+    parts.push(clip.follow
+      ? `${clip.follow.after}× then ${FOLLOW_SAYS[clip.follow.then]}`
+      : 'loops');
+
+    if (!isVoice(track.instrument) && track.instrument !== 'kit') {
+      parts.push(`${ROOT_NAMES[this.project.key.root]} ${SCALES[this.project.key.scale].label.toLowerCase()}`);
+    }
+
+    return parts.join(' · ');
   }
 
   /** The way back to the grid. On screen only at a width that hides it. */
@@ -1025,14 +1048,14 @@ export class SketchPage {
 
     return `
       ${this.back()}
-      <p class="panel-where">
+      <h3 class="editor-title">
         <button class="link-btn" type="button" data-to-track="${index}">${track.name}</button>
-        <span>· scene ${this.project.scenes[scene].name}</span>
-      </p>
+        <span class="editor-scene">· scene ${this.project.scenes[scene].name}</span>
+      </h3>
 
-      <div class="editor-head">
-        <p class="eyebrow">The clip</p>
-        <h3 class="editor-title">${track.name} · scene ${this.project.scenes[scene].name}</h3>
+      <details class="clip-setup"${this.setupOpen ? ' open' : ''} data-setup>
+        <summary class="clip-sums">${this.setupSays(clip, track)}</summary>
+
         ${isVoice(track.instrument) || isTake(clip) ? '' : `
         <div class="editor-row">
           <span class="editor-label">Bars</span>
@@ -1042,6 +1065,16 @@ export class SketchPage {
                       aria-pressed="${count === bars}">${count}</button>`).join('')}
           </span>
         </div>
+
+        <div class="editor-row">
+          <span class="editor-label">Grid</span>
+          <span class="chips">
+            ${STEP_DIVISIONS.map((division) => `
+              <button class="chip" type="button" data-division="${division.id}"
+                      aria-pressed="${division.id === clip.division}">${division.label}</button>`).join('')}
+          </span>
+        </div>`}
+
         <div class="editor-row">
           <span class="editor-label">Repeat</span>
           <span class="chips">
@@ -1063,37 +1096,7 @@ export class SketchPage {
           </span>
         </div>`}
 
-        <div class="editor-row">
-          <span class="editor-label">Grid</span>
-          <span class="chips">
-            ${STEP_DIVISIONS.map((division) => `
-              <button class="chip" type="button" data-division="${division.id}"
-                      aria-pressed="${division.id === clip.division}">${division.label}</button>`).join('')}
-          </span>
-        </div>`}
-      </div>
-
-      ${!isVoice(track.instrument) ? '' : `
-        <p class="take-note">
-          ${isTake(clip)
-            ? `A recording, ${bars === 1 ? 'a bar' : `${bars} bars`} long. It loops with
-               everything else and goes through this track's inserts and fader.`
-            : 'Nothing in here yet. Record into it — whatever arrives is cut to the '
-              + 'nearest whole bar and loops with the rest.'}
-        </p>`}
-
-      ${track.instrument !== 'kit' ? '' : `
-        <div class="editor-row pad-row">
-          <span class="editor-label">Tap it</span>
-          <span class="pads">
-            ${[...KIT_ROWS].reverse().map((row) => `
-              <button class="pad" type="button" data-pad="${row.pitch}">${row.label}</button>`).join('')}
-          </span>
-          <button class="chip" type="button" data-arm aria-pressed="${this.arming}">Record</button>
-        </div>
-        <p class="fine chord-said" data-tap-said></p>`}
-
-      ${isVoice(track.instrument) || track.instrument === 'kit' ? '' : `
+        ${isVoice(track.instrument) || track.instrument === 'kit' ? '' : `
         <div class="editor-row">
           <span class="editor-label">Rows</span>
           <span class="chips">
@@ -1106,6 +1109,7 @@ export class SketchPage {
             </select>
           </span>
         </div>`}
+      </details>
 
       ${isVoice(track.instrument) ? '' : isTake(clip) ? `
         <p class="take-note">A recording, ${bars === 1 ? 'a bar' : `${bars} bars`} long.
@@ -1444,17 +1448,7 @@ export class SketchPage {
     this.closePlugin();
     this.mic?.close();
     this.mic = null;
-    // The plugin interface currently open on an insert, if any. One at a
-    // time: each holds an analyser, and eight of them reading FFTs for
-    // pages nobody is looking at is a sketchpad that gets slower the more
-    // you work on it.
-    this.plugin = null;
-    // A clip the grid is offering to take out: `track:scene`, set by a long
-    // press and cleared by anything else. Taking a clip out belongs here
-    // rather than inside the clip, where it was a destructive button sitting
-    // next to the controls you use all the time.
-    this.removing = null;
-    this.held = null;
+    if (this.held) { clearTimeout(this.held); this.held = null; }
     this.stage?.destroy();
     this.stage = null;
   }
