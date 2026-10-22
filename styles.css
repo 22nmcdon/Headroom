@@ -1606,3 +1606,77 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
   .band-row { grid-template-columns: 36px 1fr 56px; }
   .band-mono { display: none; }
 }
+
+/* --- the guided path ----------------------------------------------------- */
+
+/* What a first visit gets instead of a modal: one line, in the page, with
+   both answers on it. */
+.first-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 16px;
+  font-size: 13.5px;
+  color: var(--text);
+  border-left: 2px solid var(--blush);
+  padding-left: 10px;
+  margin: 0 0 18px;
+}
+
+.path-list {
+  list-style: none;
+  margin: 14px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* A step is a button, because every one of them is somewhere to go. */
+.path-step {
+  display: grid;
+  grid-template-columns: 22px 1fr auto;
+  align-items: baseline;
+  gap: 4px 12px;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  padding: 10px 2px;
+  color: var(--text);
+  font-family: var(--sans);
+}
+.path-step:hover { background: var(--wash); }
+
+/* The mark at the front: done, next, or neither. A tick and a caret rather
+   than a number, because the number is the order and the order is the list. */
+.path-mark {
+  font-family: var(--serif);
+  font-size: 14px;
+  color: var(--text-soft);
+  line-height: 18px;
+}
+.path-step.is-done .path-mark { color: var(--sage); }
+.path-step.is-next .path-mark { color: var(--blush-deep); }
+
+.path-what { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.path-label { font-size: 13.5px; line-height: 18px; }
+.path-step.is-done .path-label { color: var(--text-soft); }
+.path-step.is-next .path-label { font-weight: 500; }
+.path-detail { font-size: 11.5px; color: var(--text-soft); }
+
+/* Which tool, and how far through. Tabular so the counts line up. */
+.path-where {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--text-soft);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+@media (max-width: 480px) {
+  .path-step { grid-template-columns: 20px 1fr; }
+  .path-where { grid-column: 2; }
+}

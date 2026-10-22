@@ -59,7 +59,12 @@ function emptyBucket() {
 function emptyStore() {
   // `imported` is the ids of the progress files already taken in, so that
   // pressing import twice on the same file does not count it twice.
-  return { buckets: {}, imported: [] };
+  //
+  // `read` is which tools' notes have been opened, which is the one step of
+  // the guided path that is not a round and so leaves no bucket behind. It
+  // lives here rather than under a key of its own so that exporting your
+  // progress takes it with everything else.
+  return { buckets: {}, imported: [], read: [] };
 }
 
 function read() {
@@ -70,6 +75,7 @@ function read() {
     return {
       buckets: parsed.buckets ?? {},
       imported: Array.isArray(parsed.imported) ? parsed.imported : [],
+      read: Array.isArray(parsed.read) ? parsed.read : [],
     };
   } catch {
     return emptyStore();
@@ -93,7 +99,11 @@ function migrated() {
     buckets[`${key}:work`] = bucket;
   }
 
-  const store = { buckets, imported: Array.isArray(parsed.imported) ? parsed.imported : [] };
+  const store = {
+    buckets,
+    imported: Array.isArray(parsed.imported) ? parsed.imported : [],
+    read: Array.isArray(parsed.read) ? parsed.read : [],
+  };
   write(store);
   return JSON.stringify(store);
 }
@@ -207,6 +217,21 @@ export function resetStats() {
   write(emptyStore());
 }
 
+/* --- the one step of the path that is not a round ------------------------ */
+
+/** Whose notes have been opened. */
+export const notesRead = () => read().read;
+
+/** Remember that a tool's notes were opened, once. */
+export function markRead(tool) {
+  const store = read();
+  if (store.read.includes(tool)) return store.read;
+
+  store.read = [...store.read, tool];
+  write(store);
+  return store.read;
+}
+
 /* --- carrying progress between browsers ---------------------------------- */
 
 // The whole of this app's memory is one key in one browser's localStorage,
@@ -232,6 +257,7 @@ export function exportProgress(now = new Date()) {
     id: newId(),
     exported: new Date(now).toISOString(),
     buckets: read().buckets,
+    read: read().read,
   };
 }
 
@@ -324,6 +350,12 @@ export function importProgress(file) {
     if (kind !== 'work' && kind !== 'drill') continue;
     store.buckets[key] = mergeBucket(store.buckets[key], bucket);
     buckets += 1;
+  }
+
+  // Reading a tool's notes is a thing that happened, so it carries across the
+  // same way a solve does: the union rather than one side or the other.
+  if (Array.isArray(file.read)) {
+    store.read = [...new Set([...store.read, ...file.read.filter((id) => typeof id === 'string')])];
   }
 
   if (file.id) store.imported = [...store.imported, file.id].slice(-50);

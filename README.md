@@ -28,8 +28,8 @@ measured.
 > with nothing to run out of, a streak measured how recently you played rather
 > than how well you hear. A daily *drill* — one short question a day, the same
 > for everyone — is worth having and comes back on the drills. What replaces
-> all of it is being built in stages: the identification drills are in, and an
-> analysis pillar and an optional guided path are not.
+> all of it is in: the identification drills, the analysis pillar and the
+> guided path.
 
 The app has two halves, on a switch above everything: **Tools**, which is all
 of the below, and **Analysis**, which asks nothing and reads a track back.
@@ -84,6 +84,33 @@ same series are the same answer. The bars are gold for even and pink for odd,
 because that division is the whole ear skill — even harmonics are octaves and
 sound like the note getting larger, odd ones are fifths and sound like it
 breaking, and *warm* and *dirty* are those two piles of numbers.
+
+### Start here
+
+A first visit used to open the help dialog and then drop you into the EQ's
+match exercise — a six-band parametric, a target you cannot see, and nothing
+saying there is an easier way in. **Start here** is the easier way in: six
+tools, three steps each, in the order somebody would be taught them. Read what
+the tool is for, be asked one question about it, then go and build one.
+
+It is not new content and it is not a course. Every step is something that was
+already there, and clicking one sets the tool, the tier and the work-or-drills
+pill and takes you to it. **Nothing is locked** — an unlock would make this a
+gate, and a gate is wrong for an app somebody might open knowing exactly what
+they want to practise. Somebody who went and solved the delay first gets the
+delay marked done *and* is still pointed back at the EQ, because the order is
+the only thing the path is for.
+
+A step is done at **three solves**, not three in a row. A streak would throw
+away three rounds of work for one slip, which is what streaks were taken out
+of this app for. The path keeps no record of its own: it counts the solves the
+stats already hold, so importing somebody's progress file brings their place
+in the path with it and nothing had to be written to make that true. The one
+step that is not a round — reading the notes — is the one thing it does
+record.
+
+The auto-opening help dialog is gone, replaced by one line in the page with
+both answers on it.
 
 ### The analysis view
 
@@ -258,7 +285,6 @@ that doing it right is audible rather than merely scored:
   file twice counts it once.
 
 ## Not built yet
-- **An optional guided path** through the material.
 - **A mix exercise mode** — the six tools over a few stems, with a mixer, and
   scored on the whole master.
 - Any server, account or automatic sync. Progress lives in `localStorage`, and
@@ -456,7 +482,8 @@ src/analysis/       the other half: loudness, crest, balance, width, and the
                     page that shows them
 src/tools/          one file per tool: what it is, and how to open one
 src/work/           one file per tool: the exercises over it, and the marking
-src/bench/          the registry, the session, the picker, the attempt log
+src/bench/          the registry, the session, the picker, the attempt log,
+                    and the guided path's order
 src/random.js       seeded PRNG, so a puzzle is a function of its seed
 src/game.js         the round, over whichever tool is asking (pure, no DOM)
 src/stats.js        localStorage persistence per tool and tier, and the

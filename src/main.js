@@ -7,8 +7,9 @@ import {
 import { Engine } from './audio.js';
 import {
   getStats, recordGame, weakestKind, resetStats, ATTEMPT_BANDS,
-  exportProgress, importProgress,
+  exportProgress, importProgress, notesRead, markRead,
 } from './stats.js';
+import { progress, where, PATH_TIER } from './bench/path.js';
 import { engraveNote } from './engrave.js';
 import { renderPicker, syncPicker, pickerState, dialValue } from './bench/picker.js';
 import { makeLog } from './bench/log.js';
@@ -758,6 +759,84 @@ async function uploadProgress(input) {
     + `${file.name}. Nothing already here was replaced.`);
 }
 
+/* ---------- the path ---------- */
+
+/**
+ * Where somebody is, read off the progress that is already kept.
+ *
+ * The path counts solves rather than keeping a record of its own: a step is
+ * done when the bucket behind it says so, which means importing somebody's
+ * progress file brings their place in the path with it and nothing had to be
+ * written to make that true.
+ */
+const pathState = () => progress({
+  solvesOf: (tool, tier, kind) => getStats(tool, tier, kind).won,
+  hasRead: (tool) => notesRead().includes(tool),
+});
+
+function showPath() {
+  const state = pathState();
+  $('#path-where').textContent = where(state);
+
+  $('#path-list').innerHTML = state.steps.map((step) => {
+    const here = step.done ? 'is-done' : step === state.next ? 'is-next' : '';
+    const mark = step.done ? '✓' : step === state.next ? '→' : '';
+    const count = step.step === 'read' ? ''
+      : `${Math.min(step.solves, 3)} of 3`;
+
+    return `<li><button class="path-step ${here}" type="button" data-step="${step.id}">
+      <span class="path-mark">${mark}</span>
+      <span class="path-what">
+        <span class="path-label">${TOOLS[step.tool].label} — ${step.label}</span>
+        <span class="path-detail">${step.detail}</span>
+      </span>
+      <span class="path-where">${count}</span>
+    </button></li>`;
+  }).join('');
+
+  $('#path').showModal();
+}
+
+/**
+ * Go to a step.
+ *
+ * Which is all a step is: a tool, a tier and which of the two kinds - the
+ * shell already knows how to be in any of those states, so the path sets
+ * them and gets out of the way. The reading step opens the notes, which is
+ * also what marks it done.
+ */
+async function goTo(id) {
+  const step = pathState().steps.find((one) => one.id === id);
+  if (!step) return;
+
+  $('#path').close();
+  if (ui.view !== 'tools') {
+    ui.view = 'tools';
+    syncView();
+  }
+
+  ui.mode = step.tool;
+  if (step.kind) {
+    ui.kind = step.kind;
+    ui.tier = step.tier ?? PATH_TIER;
+  }
+
+  syncModes();
+  settleKind();
+  syncKind();
+  fillTiers();
+  fillSettings();
+  await startGame();
+
+  if (step.step !== 'read') return;
+
+  // Open the notes and put them on screen, which is the step itself.
+  const notes = $('#notes');
+  notes.open = true;
+  notes.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  markRead(step.tool);
+}
+
 /* ---------- the cheat sheet ---------- */
 
 function fillHelp() {
@@ -927,6 +1006,22 @@ function wire() {
   $('#hint').addEventListener('click', onHint);
   $('#show').addEventListener('click', onShow);
 
+  $('#path-btn').addEventListener('click', showPath);
+  $('#path-close').addEventListener('click', () => $('#path').close());
+  $('#path-ok').addEventListener('click', () => $('#path').close());
+  $('#path-list').addEventListener('click', (e) => {
+    const step = e.target.closest('[data-step]');
+    if (step) goTo(step.dataset.step);
+  });
+
+  $('#firstStart').addEventListener('click', () => { dismissFirst(); showPath(); });
+  $('#firstDismiss').addEventListener('click', dismissFirst);
+
+  // Opening the notes is the path's reading step, wherever it is opened from.
+  $('#notes').addEventListener('toggle', () => {
+    if ($('#notes').open) markRead(ui.mode);
+  });
+
   $('#help-btn').addEventListener('click', () => { fillHelp(); $('#help').showModal(); });
   $('#help-close').addEventListener('click', () => $('#help').close());
   $('#help-ok').addEventListener('click', () => $('#help').close());
@@ -970,15 +1065,23 @@ wire();
 syncView();
 startGame();
 
-// A first visit gets the rules. Failing open is the right way round: a private
-// window forgets and shows them again, where guessing "seen" would hide the one
-// thing a first visitor needs.
+/* ---------- a first visit ---------- */
+
+// One line in the page rather than a dialog over it. What was here opened the
+// help the moment somebody arrived - a thing to dismiss before seeing the app
+// at all, explaining the EQ, which is the hardest thing in here to arrive at
+// cold. The line offers the path instead, and takes no for an answer.
+//
+// Failing open is still the right way round: a private window forgets and
+// offers again, where guessing "seen" would hide the one thing a first
+// visitor needs.
 function seenHelp() {
   try { return localStorage.getItem('headroom.seenHelp') === '1'; } catch { return false; }
 }
 
-if (!seenHelp()) {
-  fillHelp();
-  $('#help').showModal();
+function dismissFirst() {
+  $('#firstLine').hidden = true;
   try { localStorage.setItem('headroom.seenHelp', '1'); } catch { /* private window */ }
 }
+
+$('#firstLine').hidden = seenHelp();

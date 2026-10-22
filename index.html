@@ -35,6 +35,7 @@
       <!-- Grouped so the "?" never wraps onto a line of its own at a phone
            width, which reads as a control that fell off the row. -->
       <div class="tools">
+        <button class="link-btn" type="button" id="path-btn">Start here</button>
         <button class="link-btn" type="button" id="stats-btn">Stats</button>
         <button class="help-button" type="button" id="help-btn" aria-label="How this works" title="How this works">?</button>
       </div>
@@ -81,6 +82,16 @@
 
   <section class="sheet-section" id="tools-view">
     <div class="sheet">
+      <!-- What a first visit gets instead of a modal. The help dialog used to
+           open itself, which is a thing to dismiss before you have seen the
+           app at all - and it explained the EQ, which is the hardest thing
+           here to arrive at cold. -->
+      <p class="first-line" id="firstLine" hidden>
+        <span>New here? There is an order to go through this in.</span>
+        <button class="link-btn" type="button" id="firstStart">Start the path</button>
+        <button class="link-btn" type="button" id="firstDismiss">No thanks</button>
+      </p>
+
       <p class="lede" id="lede"></p>
       <p class="advice" id="advice" hidden></p>
 
@@ -193,6 +204,27 @@
     <div class="dialog-actions">
       <span></span>
       <button class="submit-btn" type="button" id="help-ok">Got it</button>
+    </div>
+  </div>
+</dialog>
+
+<dialog id="path">
+  <div class="dialog-head">
+    <div>
+      <div class="bar-label">Six tools, three steps each</div>
+      <div class="dialog-title">Start here</div>
+    </div>
+    <button class="close-btn" type="button" id="path-close" aria-label="Close">&times;</button>
+  </div>
+
+  <div class="dialog-body">
+    <p class="fine" id="path-where"></p>
+    <!-- Nothing below is locked. The path marks what is next; it does not
+         stop you going anywhere. -->
+    <ol class="path-list" id="path-list"></ol>
+    <div class="dialog-actions">
+      <span class="fine">Nothing here is locked — this is an order, not a gate.</span>
+      <button class="submit-btn" type="button" id="path-ok">Close</button>
     </div>
   </div>
 </dialog>
