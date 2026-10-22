@@ -301,13 +301,7 @@ that doing it right is audible rather than merely scored:
   against.
 - **A sketchpad** — a clip grid: tracks down the left, clips running right,
   where a tap launches a clip on the next bar line and the panel under it is where you
-  draw the notes — or type them: a line of chord symbols like
-  `Cm7 | A♭maj7 | E♭ | B♭` fills a clip, one chord a bar, **voiced to move as
-  little as possible from the chord before it**, which is what makes four
-  symbols sound like a progression. Every inversion in a few octaves is built
-  and scored on how far it moves and how far its middle has wandered; the
-  best one wins. Leading each note to its own nearest octave is the obvious
-  rule and it drifts — a ii-V-I ends an octave above where it started. A kit
+  draw the notes. A kit
   track gets three **pads** instead: press Record, play, and every hit lands
   on the nearest line of the grid — the nearest, not the one before, because
   a hit a hair early is a hit on the beat played by somebody with good time.

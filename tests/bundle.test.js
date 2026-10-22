@@ -107,7 +107,19 @@ test('the order is the one the imports say it is', async () => {
  * Every line here is a promise to come back. Delete it when the sketchpad has
  * a page.
  */
-const NOT_WIRED_IN_YET = [];
+/**
+ * Written, and not reachable from the page.
+ *
+ * Two kinds end up here. Something half-built, which is the usual one - and
+ * something finished that the app has stopped asking for, which is this
+ * one: the chord line came out of the clip editor because it was not
+ * earning its space there, and the module behind it is tested, correct and
+ * one import from coming back. Deleting it would be throwing away a working
+ * thing over one round of feedback.
+ */
+const NOT_WIRED_IN_YET = [
+  'sketch/chords.js',
+];
 
 test('nothing under src/ is stranded, except what is named as unfinished', async () => {
   // The inverse of the old check, and the one it could never make: the list is

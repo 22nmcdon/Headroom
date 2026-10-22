@@ -970,7 +970,8 @@ function fillHelp() {
        + 'which is why parts land together rather than wherever your finger '
        + 'happened to be. Tap a track\'s name for its instrument, its inserts '
        + 'and its level. The + at the end of the numbers adds a scene, up to '
-       + 'eight, and the clips scroll sideways while the names stay put.'],
+       + 'eight, and the clips scroll sideways while the names stay put. Press '
+       + 'and hold a clip to take it out; it asks first.'],
       ['Tap an empty slot and there is a clip in it.',
        'The panel then shows the grid you draw on: rows are the notes of the key '
        + 'you are in, columns are a division of the bar, and a tap is a note — '
@@ -982,25 +983,6 @@ function fillHelp() {
        + 'recording; press Record and play, and every hit lands on the nearest '
        + 'line of the grid — the nearest, not the one before, because a hit a '
        + 'hair early is a hit on the beat.'],
-      ['Or type the chords, which is faster than drawing them.',
-       'A line like "Cm7 | A♭maj7 | E♭ | B♭" fills the clip, one chord a bar, '
-       + 'voiced to move as little as possible from the chord before it — so four '
-       + 'symbols sound like a progression rather than four separate chords. The '
-       + 'line is kept with the clip, so you can come back and change a symbol.'],
-      ['A clip loops until you press something else.',
-       'That is the default and it stays the default — it is what a clip grid is '
-       + 'for. But a clip can also be told to hand over: Repeat 2× then the next '
-       + 'one, or back to 1, or stop. Set a few of those and the sketch plays '
-       + 'itself through, which is how an idea with a shape gets heard as one. '
-       + 'Pressing a clip always beats a follow — you are in the room and it is '
-       + 'not.'],
-      ['Or sing it, when it is not notes at all.',
-       'The Voice track is there for exactly that: no step grid, no chords, just '
-       + 'Record. Whatever the microphone hears is cut to the nearest whole bar and '
-       + 'loops with everything else, through that track\'s inserts and fader. Any '
-       + 'track can hold a recording this way; the voice track is the one that '
-       + 'expects to. It is out of the MIDI, which carries notes, and in the stems, '
-       + 'which carry the sound.'],
       ['The six tools are the inserts.',
        'The same EQ, compressor, imager, room, delay and saturator the exercises '
        + 'are about, on a track, in series — so what you learned on the bench is '
@@ -1014,6 +996,11 @@ function fillHelp() {
        + 'same thing as audio - a 24-bit wav a track, plus the shared room and '
        + 'the mix, with the MIDI alongside them. Everything in the archive starts '
        + 'together and is the same length, so it all drops onto bar one.'],
+      ['Everything else is behind the ☰.',
+       'The name, the tempo, and the four ways out — the MIDI, the stems, a copy '
+       + 'of the sketch, and opening one. None of them are things anybody reaches '
+       + 'for while drawing a part, and a row of them across the page is a row of '
+       + 'them in the way.'],
       ['It keeps itself in this browser.',
        'Saved on every edit, so a reload does not cost you the idea. There is no '
        + 'account and no server, so Save a copy is the only backup there is.'],

@@ -2389,3 +2389,57 @@ button.insert-name:hover { color: var(--charcoal); }
 
 /* The plugin gets the width of the panel and no furniture of its own. */
 .plugin-host { min-width: 0; }
+
+/* --- the sketch bar, pared back ------------------------------------------- */
+
+/* Play, where you are, and a way to everything else. Tempo, the name and
+   the exports are not things anybody reaches for while drawing a part, and
+   a row of them across the top is a row of them in the way. */
+.sketch-called {
+  font-family: var(--serif);
+  font-size: 15px;
+  color: var(--text-soft);
+  margin-left: auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.menu-btn {
+  flex: 0 0 auto;
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1;
+  padding: 7px 10px;
+}
+.menu-btn:hover { color: var(--blush-deep); border-color: var(--blush); }
+
+.sketch-said { margin: 14px 0 0; min-height: 1em; }
+
+.sketch-menu { max-width: 440px; }
+.menu-outs { display: flex; flex-direction: column; align-items: flex-start; gap: 9px; }
+
+/* The key, beside the rows it decides, because that is all it does. */
+.row-key {
+  font-family: var(--sans);
+  font-size: 11px;
+  padding: 3px 6px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--paper);
+  color: var(--text);
+}
+
+/* A clip the grid is offering to take out. Rust, which everywhere in this
+   app means the thing you are looking at is not right - here, that it is
+   about to stop existing. */
+.cell[data-asking="true"] {
+  border-color: var(--rust);
+  border-style: solid;
+  background: var(--paper);
+  color: var(--rust);
+}
+.cell[data-asking="true"] .cell-follow { display: none; }

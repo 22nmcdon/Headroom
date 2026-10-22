@@ -42,7 +42,6 @@ import { loadSketch, saveSketch, sketchFile, readSketchFile } from './store.js';
 import { knobsFor, writeKnob, tidy, paramsFor } from './knobs.js';
 import { insertPlayer } from './insert.js';
 import { EQPlugin } from '../eq/plugin.js';
-import { chordNotes, parseProgression } from './chords.js';
 import { tapInto, drift, timing } from './tap.js';
 import { Recorder, canRecord, barsFor, fitTo, loudestIn, SILENCE } from './record.js';
 import {
@@ -141,6 +140,12 @@ export class SketchPage {
     // pages nobody is looking at is a sketchpad that gets slower the more
     // you work on it.
     this.plugin = null;
+    // A clip the grid is offering to take out: `track:scene`, set by a long
+    // press and cleared by anything else. Taking a clip out belongs here
+    // rather than inside the clip, where it was a destructive button sitting
+    // next to the controls you use all the time.
+    this.removing = null;
+    this.held = null;
     this.recording = false;
     this.takes = new Map();
 
@@ -154,12 +159,32 @@ export class SketchPage {
   build() {
     this.el.innerHTML = `
       <div class="sketch">
-        <div class="sketch-head">
-          <p class="eyebrow">A sketch</p>
-          <div class="sketch-bar">
-            <button class="submit-btn" type="button" data-play>Play</button>
-            <span class="sketch-pos" data-pos>1.1</span>
-            <button class="link-btn" type="button" data-stop-all>Stop the clips</button>
+        <div class="sketch-bar">
+          <button class="submit-btn" type="button" data-play>Play</button>
+          <span class="sketch-pos" data-pos>1.1</span>
+          <span class="sketch-called" data-called></span>
+          <button class="menu-btn" type="button" data-menu aria-label="This sketch">☰</button>
+        </div>
+
+        <div class="sketch-body">
+          <div class="grid-scroll"><div class="sketch-grid" data-grid></div></div>
+          <div class="sketch-editor" data-editor></div>
+        </div>
+
+        <p class="fine sketch-said" data-said></p>
+      </div>
+
+      <dialog class="sketch-menu" data-sheet>
+        <div class="dialog-head">
+          <div>
+            <div class="bar-label">This sketch</div>
+            <div class="dialog-title" data-menu-title>Untitled</div>
+          </div>
+          <button class="close-btn" type="button" data-shut aria-label="Close">&times;</button>
+        </div>
+
+        <div class="dialog-body">
+          <div class="editor-row">
             <label class="field">
               <span class="field-label">Called</span>
               <input class="sketch-name" type="text" data-name maxlength="40">
@@ -168,34 +193,26 @@ export class SketchPage {
               <span class="field-label">Tempo</span>
               <input class="sketch-bpm" type="number" data-bpm min="40" max="220" step="1">
             </label>
-            <label class="field">
-              <span class="field-label">Key</span>
-              <select data-root></select>
-            </label>
-            <label class="field">
-              <span class="field-label">Scale</span>
-              <select data-scale></select>
-            </label>
           </div>
-        </div>
 
-        <div class="sketch-body">
-          <div class="grid-scroll"><div class="sketch-grid" data-grid></div></div>
-          <div class="sketch-editor" data-editor></div>
-        </div>
-
-        <div class="sketch-foot">
-          <span class="action-group">
-            <button class="link-btn" type="button" data-export>Export the scene</button>
+          <h3 class="subhead">Out of here</h3>
+          <div class="menu-outs">
+            <button class="link-btn" type="button" data-export>Export the scene as MIDI</button>
             <button class="link-btn" type="button" data-stems>Export the stems</button>
-            <button class="link-btn" type="button" data-save>Save a copy</button>
+            <button class="link-btn" type="button" data-save>Save a copy of the sketch</button>
             <button class="link-btn" type="button" data-open>Open one</button>
             <button class="link-btn" type="button" data-fresh>Start again</button>
             <input type="file" data-file accept="application/json,.json" hidden>
-          </span>
-          <span class="fine" data-said></span>
+          </div>
+
+          <p class="fine" data-menu-said></p>
+
+          <div class="dialog-actions">
+            <span></span>
+            <button class="submit-btn" type="button" data-shut>Done</button>
+          </div>
         </div>
-      </div>`;
+      </dialog>`;
 
     const $ = (sel) => this.el.querySelector(sel);
     this.parts = {
@@ -203,8 +220,10 @@ export class SketchPage {
       pos: $('[data-pos]'),
       name: $('[data-name]'),
       bpm: $('[data-bpm]'),
-      root: $('[data-root]'),
-      scale: $('[data-scale]'),
+      called: $('[data-called]'),
+      menu: $('[data-sheet]'),
+      menuTitle: $('[data-menu-title]'),
+      menuSaid: $('[data-menu-said]'),
       body: $('.sketch-body'),
       grid: $('[data-grid]'),
       editor: $('[data-editor]'),
@@ -212,12 +231,6 @@ export class SketchPage {
       note: $('[data-said]'),
     };
 
-    this.parts.root.innerHTML = options(
-      ROOT_NAMES.map((label, value) => ({ value, label })), this.project.key.root,
-    );
-    this.parts.scale.innerHTML = options(
-      SCALE_IDS.map((value) => ({ value, label: SCALES[value].label })), this.project.key.scale,
-    );
   }
 
   /* --- listeners ----------------------------------------------------------- */
@@ -226,8 +239,17 @@ export class SketchPage {
     const { parts } = this;
 
     parts.play.addEventListener('click', () => this.toggle());
-    this.el.querySelector('[data-stop-all]').addEventListener('click', () => {
-      this.stage?.stopScene();
+
+    this.el.querySelector('[data-menu]').addEventListener('click', () => {
+      parts.menuTitle.textContent = this.project.name || 'Untitled';
+      parts.menuSaid.textContent = this.said;
+      parts.menu.showModal();
+    });
+    for (const shut of this.el.querySelectorAll('[data-shut]')) {
+      shut.addEventListener('click', () => parts.menu.close());
+    }
+    parts.menu.addEventListener('click', (event) => {
+      if (event.target === parts.menu) parts.menu.close();
     });
 
     parts.name.addEventListener('input', () => this.change(
@@ -238,12 +260,6 @@ export class SketchPage {
       parts.bpm.value = bpm;
       this.change(setProject(this.project, { bpm }));
     });
-    parts.root.addEventListener('change', () => this.change(
-      setProject(this.project, { key: { root: Number(parts.root.value) } }),
-    ));
-    parts.scale.addEventListener('change', () => this.change(
-      setProject(this.project, { key: { scale: parts.scale.value } }),
-    ));
 
     this.el.querySelector('[data-export]').addEventListener('click', () => this.exportScene());
     this.el.querySelector('[data-stems]').addEventListener('click', () => this.exportStems());
@@ -255,6 +271,26 @@ export class SketchPage {
     // One listener for the grid and one for the editor, because both are
     // redrawn whole and a listener per button would be a listener per redraw.
     parts.grid.addEventListener('click', (event) => this.gridClick(event));
+
+    // A long press on a clip offers to take it out. Long press rather than a
+    // button on every cell, because twenty cells with a cross in the corner
+    // is twenty chances to delete a part while reaching for it - and it asks
+    // before it acts, so the gesture never destroys anything on its own.
+    parts.grid.addEventListener('pointerdown', (event) => {
+      const cell = event.target.closest('[data-cell]');
+      if (!cell || cell.dataset.full !== 'true') return;
+      this.held = setTimeout(() => {
+        this.held = null;
+        this.removing = cell.dataset.cell;
+        this.drawGrid();
+        this.paint();
+      }, 500);
+    });
+    for (const done of ['pointerup', 'pointercancel', 'pointerleave', 'pointermove']) {
+      parts.grid.addEventListener(done, () => {
+        if (this.held) { clearTimeout(this.held); this.held = null; }
+      });
+    }
     parts.editor.addEventListener('click', (event) => this.editorClick(event));
     // Ranges on `input` and everything else on `change`: a fader that only
     // moves when you let go of it is a fader you cannot hear yourself using.
@@ -304,10 +340,23 @@ export class SketchPage {
     }
 
     const cell = event.target.closest('[data-cell]');
-    if (cell) {
+    if (!cell) { this.unask(); return; }
+
+    // The second tap of a long press, which is the one that acts.
+    if (this.removing === cell.dataset.cell) {
       const [track, slot] = cell.dataset.cell.split(':').map(Number);
-      this.press(track, slot);
+      this.removing = null;
+      if (this.open?.track === track && this.open?.scene === slot) this.open = null;
+      this.stage?.launch(track, null);
+      this.change(setClip(this.project, track, slot, null));
+      this.tell('Taken out.');
+      return;
     }
+
+    if (this.removing) { this.unask(); return; }
+
+    const [track, slot] = cell.dataset.cell.split(':').map(Number);
+    this.press(track, slot);
   }
 
   editorClick(event) {
@@ -420,11 +469,6 @@ export class SketchPage {
 
     if (event.target.closest('[data-mic]')) { this.record(); return; }
 
-    if (event.target.closest('[data-chords-go]') && this.at) {
-      this.layChords();
-      return;
-    }
-
     if (event.target.closest('[data-clear]') && this.at) {
       const clip = this.clip();
       this.change(setNotes(this.project, this.at.track, this.at.scene, [], clip.length));
@@ -441,12 +485,6 @@ export class SketchPage {
       return;
     }
 
-    if (event.target.closest('[data-drop]') && this.at) {
-      const { track, scene } = this.at;
-      this.open = null;
-      this.stage?.launch(track, null);
-      this.change(setClip(this.project, track, scene, null));
-    }
   }
 
   /** A range being dragged: the fader, the pan, the send, an insert's knob. */
@@ -489,11 +527,21 @@ export class SketchPage {
     const track = this.owning;
     if (track === null) return;
 
-    if (event.target.closest('[data-chords]')) { this.layChords(); return; }
-
     const pick = event.target.closest('[data-instrument]');
     if (pick) {
       this.change(setTrack(this.project, track, { instrument: pick.value }));
+      return;
+    }
+
+    const root = event.target.closest('[data-root]');
+    if (root) {
+      this.change(setProject(this.project, { key: { root: Number(root.value) } }));
+      return;
+    }
+
+    const scale = event.target.closest('[data-scale]');
+    if (scale) {
+      this.change(setProject(this.project, { key: { scale: scale.value } }));
       return;
     }
 
@@ -618,6 +666,12 @@ export class SketchPage {
     // pages nobody is looking at is a sketchpad that gets slower the more
     // you work on it.
     this.plugin = null;
+    // A clip the grid is offering to take out: `track:scene`, set by a long
+    // press and cleared by anything else. Taking a clip out belongs here
+    // rather than inside the clip, where it was a destructive button sitting
+    // next to the controls you use all the time.
+    this.removing = null;
+    this.held = null;
       this.tell('The microphone is not available — it may have been refused, '
         + 'or this page may not be on a secure connection.');
       return;
@@ -632,68 +686,6 @@ export class SketchPage {
   sayTap(line) {
     const where = this.parts.editor.querySelector('[data-tap-said]');
     if (where) where.textContent = line;
-  }
-
-  /**
-   * A line of chord symbols, as the clip's notes.
-   *
-   * Replaces what is there rather than adding to it: a line of symbols is a
-   * statement of what the part is, and anybody typing one over a part they
-   * drew has changed their mind about it. The line itself is kept on the
-   * clip, so coming back to it shows what was typed rather than only what it
-   * became.
-   */
-  layChords() {
-    const input = this.parts.editor.querySelector('[data-chords]');
-    const said = this.parts.editor.querySelector('[data-chord-said]');
-    if (!input || !this.at) return;
-
-    const line = input.value;
-    const read = parseProgression(line);
-    const missed = read.filter((piece) => !piece.chord).map((piece) => piece.text);
-    const clip = this.clip();
-
-    if (!read.length) {
-      if (said) said.textContent = '';
-      return;
-    }
-
-    if (!read.some((piece) => piece.chord)) {
-      if (said) said.textContent = `Nothing in that is a chord: ${missed.join(', ')}.`;
-      return;
-    }
-
-    const notes = chordNotes(line, clip.length, { velocity: 72 });
-    this.change(setClip(this.project, this.at.track, this.at.scene, {
-      ...clip, chords: line, notes,
-    }));
-
-    const after = this.parts.editor.querySelector('[data-chord-said]');
-    if (!after) return;
-
-    const laid = read.length - missed.length;
-    const bars = clip.length / laid / barTicks(this.project);
-    const each = bars === 1 ? 'one a bar'
-      : bars > 1 ? `one every ${trim(bars)} bars`
-        : `${trim(1 / bars)} a bar`;
-
-    // A chord can easily want a note the key does not have, and a note the
-    // key does not have has no row to appear on. Said out loud, because a
-    // part that plays notes nothing on screen shows is otherwise a mystery.
-    const rows = new Set(rowsFor(trackAt(this.project, this.at.track), this.project.key)
-      .map((row) => row.pitch % 12));
-    const hidden = new Set(notes.map((note) => note.pitch % 12).filter((pc) => !rows.has(pc)));
-
-    after.textContent = [
-      missed.length
-        ? `${plural(laid, 'chord', 'chords')} in. Not a chord: ${missed.join(', ')}.`
-        : `${plural(laid, 'chord', 'chords')} in, ${each}.`,
-      hidden.size
-        ? `${plural(hidden.size, 'note', 'notes')} in there `
-          + `${hidden.size === 1 ? 'is' : 'are'} outside the key — set the scale to `
-          + 'Chromatic to see them on the grid.'
-        : '',
-    ].filter(Boolean).join(' ');
   }
 
   /* --- the audio ----------------------------------------------------------- */
@@ -812,8 +804,7 @@ export class SketchPage {
 
     if (parts.name.value !== project.name) parts.name.value = project.name;
     if (Number(parts.bpm.value) !== project.bpm) parts.bpm.value = project.bpm;
-    parts.root.value = String(project.key.root);
-    parts.scale.value = project.key.scale;
+    parts.called.textContent = project.name || 'Untitled';
 
     this.drawGrid();
     this.drawPanel();
@@ -868,8 +859,10 @@ export class SketchPage {
         return `
           <button class="cell" type="button" data-cell="${index}:${column}"
                   data-full="${Boolean(clip)}" data-follows="${clip?.follow?.then ?? ''}"
+                  data-asking="${this.removing === `${index}:${column}`}"
                   ${clip?.follow ? `title="${clip.follow.after}× then ${FOLLOW_SAYS[clip.follow.then]}"` : ''}>
-            <span class="cell-what">${clip ? clipSays(clip, perBar) : '+'}</span>
+            <span class="cell-what">${this.removing === `${index}:${column}` ? 'Take out?'
+              : clip ? clipSays(clip, perBar) : '+'}</span>
             ${clip?.follow ? `<span class="cell-follow">${clip.follow.after}×${FOLLOW_MARK[clip.follow.then]}</span>` : ''}
           </button>`;
       }).join('')}
@@ -998,6 +991,12 @@ export class SketchPage {
   closePlugin() {
     this.plugin?.destroy?.();
     this.plugin = null;
+    // A clip the grid is offering to take out: `track:scene`, set by a long
+    // press and cleared by anything else. Taking a clip out belongs here
+    // rather than inside the clip, where it was a destructive button sitting
+    // next to the controls you use all the time.
+    this.removing = null;
+    this.held = null;
   }
 
   /** The way back to the grid. On screen only at a width that hides it. */
@@ -1094,26 +1093,35 @@ export class SketchPage {
         </div>
         <p class="fine chord-said" data-tap-said></p>`}
 
-      ${track.instrument === 'kit' || isVoice(track.instrument) ? '' : `
-        <div class="editor-row chord-row">
-          <span class="editor-label">Chords</span>
-          <input class="chord-line" type="text" data-chords placeholder="Cm7 | A♭maj7 | E♭ | B♭"
-                 value="${clip.chords ?? ''}">
-          <button class="chip" type="button" data-chords-go>Put them in</button>
-        </div>
-        <p class="fine chord-said" data-chord-said></p>`}
+      ${isVoice(track.instrument) || track.instrument === 'kit' ? '' : `
+        <div class="editor-row">
+          <span class="editor-label">Rows</span>
+          <span class="chips">
+            <select class="row-key" data-root>
+              ${options(ROOT_NAMES.map((label, value) => ({ value, label })), this.project.key.root)}
+            </select>
+            <select class="row-key" data-scale>
+              ${options(SCALE_IDS.map((value) => ({ value, label: SCALES[value].label })),
+                this.project.key.scale)}
+            </select>
+          </span>
+        </div>`}
 
       ${isVoice(track.instrument) ? '' : isTake(clip) ? `
         <p class="take-note">A recording, ${bars === 1 ? 'a bar' : `${bars} bars`} long.
         There is nothing to draw on it — take it out and the slot is a clip of notes again.</p>
       ` : `<div class="steps" style="--cols: ${wide}">${rows}</div>`}
 
+      ${!clip.chords ? '' : `
+        <p class="fine">Made from “${clip.chords}”. The chords went in as notes and
+        are yours to move now.</p>`}
+
       <div class="editor-row editor-outs">
-        <button class="link-btn" type="button" data-clear>Clear the clip</button>
-        <button class="link-btn" type="button" data-drop>Take the clip out</button>
-        ${canRecord() ? `<button class="link-btn" type="button" data-mic
-          aria-pressed="${this.recording}">${this.recording ? 'Stop recording'
-            : isTake(clip) ? 'Record over it' : 'Record into this slot'}</button>` : ''}
+        <button class="link-btn" type="button" data-clear>Clear the notes</button>
+        ${canRecord() && isVoice(track.instrument) ? `
+          <button class="link-btn" type="button" data-mic aria-pressed="${this.recording}">
+            ${this.recording ? 'Stop recording'
+              : isTake(clip) ? 'Record over it' : 'Record into this clip'}</button>` : ''}
       </div>`;
   }
 
@@ -1196,6 +1204,14 @@ export class SketchPage {
       </div>`;
   }
 
+  /** Whatever the grid was offering to take out, it is not any more. */
+  unask() {
+    if (!this.removing) return;
+    this.removing = null;
+    this.drawGrid();
+    this.paint();
+  }
+
   /**
    * One cell of the grid, brought up to date without redrawing the grid.
    *
@@ -1269,6 +1285,9 @@ export class SketchPage {
   tell(line) {
     this.said = line;
     this.parts.note.textContent = line;
+    // Most of what is worth saying something about is started from the
+    // menu, and a dialog over the page hides the line underneath it.
+    if (this.parts.menuSaid) this.parts.menuSaid.textContent = line;
   }
 
   exportScene() {
@@ -1430,6 +1449,12 @@ export class SketchPage {
     // pages nobody is looking at is a sketchpad that gets slower the more
     // you work on it.
     this.plugin = null;
+    // A clip the grid is offering to take out: `track:scene`, set by a long
+    // press and cleared by anything else. Taking a clip out belongs here
+    // rather than inside the clip, where it was a destructive button sitting
+    // next to the controls you use all the time.
+    this.removing = null;
+    this.held = null;
     this.stage?.destroy();
     this.stage = null;
   }
