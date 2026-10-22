@@ -272,23 +272,44 @@ built once in the closure, and `step()` contains no `new`, no `push` and no
 before raw arithmetic does, and a large part of why wasm *feels* faster is
 that it cannot allocate behind your back. That advantage is already taken.
 
-**What is still open: a phone.** Chrome's CPU throttling (`Emulation.
-setCPUThrottlingRate`) does not reach the Web Audio render thread - measured,
-the numbers at 4x are identical to the numbers at 1x - so a phone cannot be
-emulated from here. `dev/load.html` is the experiment: open it on the device
-and it runs exactly the table above and says what that device can hold.
+**The phone, measured.** Chrome's CPU throttling (`Emulation.
+setCPUThrottlingRate`) does not reach the Web Audio render thread - the
+numbers at 4x are identical to the numbers at 1x - so the device had to run
+the test itself. `dev/load.html` is that test, and it has been run:
 
-**It has to be served over HTTPS**, and the page refuses to run otherwise
-rather than printing a number it cannot stand behind. `AudioWorklet` is only
-exposed on a secure origin: measured, `http://127.0.0.1` gets it and
-`http://192.0.2.2` does not, so a laptop serving over plain HTTP to a phone
-on the same wifi would have the compressor, saturator and imager all fall
-back to a main-thread path that does not run in an offline render at all -
-and the numbers would come back far too good. `file://` does not work either:
-it is a secure context and `audioWorklet` exists, but `addModule` on a blob
-URL fails from an opaque origin. GitHub Pages, or a tunnel, or nothing.
+| | this Xeon | the phone |
+| --- | --- | --- |
+| all six effects on all four tracks | 0.73 | **0.21** |
+| 32 saturators | 2.30 | 0.89 |
+| 48 saturators | - | 1.35 |
+| crosses 1.0 at | ~15 saturators | **~36 saturators** |
 
-The rule, if the number comes back tight: port **only** the saturator kernel,
+So the phone is 2.65x this machine per saturator, and the worst case the
+sketchpad can be put in - every one of the six tools on every one of the four
+tracks - costs a fifth of a core there. **Nearly five times the headroom it
+needs. The question is closed: stay in JS.**
+
+Two things that figure does not capture, and neither changes it. A phone
+sustains well below its burst speed, and a forty-second test may run entirely
+in boost. And the audio thread shares the device with the UI, which redraws
+at `requestAnimationFrame` while the grid plays, where the offline render has
+the machine to itself. Halve it for both and there is still well over twice
+the room needed.
+
+One number leans the other way and belongs in the record. All six scaled 3.48x
+between the two machines while saturators alone scaled 2.65x: the native nodes
+- the convolvers and the biquads - gain more on ARM than this project's JS
+does, so the three worklets are a *larger* share of the total on the phone
+than they are here. At a fifth of a core it is academic. It would stop being
+academic if the scope changed - inserts per clip rather than per track, or
+many more tracks - which is the thing to re-measure if that ever happens.
+
+The linearity is worth recording too: the phone's two points fit a straight
+line at 0.0284 of a core per saturator to three decimals, with no cliff and no
+fall-off. That is what a processor that does not allocate looks like under
+load, and it means the ceiling can be extrapolated rather than hunted for.
+
+The rule if that ever changes: port **only** the saturator kernel,
 behind the `{ id, in, out, set, destroy }` interface `core/effect.js` already
 fixes, and run the same wasm in the tests so there is still one
 implementation. Nothing else is close enough to the limit to be worth a

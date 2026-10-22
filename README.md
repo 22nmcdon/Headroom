@@ -343,10 +343,11 @@ that doing it right is audible rather than merely scored:
 only load measurement that means the same thing on every device — on a real
 one the audio clock belongs to the sound card and keeps perfect time whether
 or not the thread managed to fill the buffer. Open it on a phone and it says
-what that phone can hold. On a 2.10 GHz Xeon a four-track sketch with an EQ,
-a compressor and a saturator on every track costs 0.42 of a core, and all six
-effects on all four tracks costs 0.73. See `docs/audio-core.md` for why the
-saturator is the one to watch and what would make it worth moving out of JS.
+what that phone can hold. On a 2.10 GHz Xeon, all six effects on all four tracks costs 0.73 of a core;
+on a phone it costs **0.21**, and that phone runs about 36 saturators at once
+before the DSP stops fitting in real time. See `docs/audio-core.md` for why
+the saturator is the one to watch, and why that measurement closed the
+question of moving the DSP out of JS.
 
 ## Adding a tool
 
