@@ -1731,45 +1731,102 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
   align-items: start;
 }
 @media (min-width: 900px) {
-  .sketch-body { grid-template-columns: minmax(260px, 0.85fr) minmax(0, 1.15fr); }
+  .sketch-body { grid-template-columns: minmax(280px, 0.9fr) minmax(0, 1.1fr); }
 }
 
-/* Tracks across, scenes down. One grid rather than a row of grids, so the
-   columns line up with the heads without anything measuring anything. */
+/* Below that width there is room for one thing, so opening a clip or a track
+   replaces the grid rather than appearing under it. A panel under a grid is
+   a panel nobody scrolls to, which is what made this hard to get around on a
+   phone - and a page that puts the thing you just tapped where you are
+   already looking needs no instruction at all. */
+@media (max-width: 899px) {
+  .sketch-body[data-open="clip"] .sketch-grid,
+  .sketch-body[data-open="track"] .sketch-grid { display: none; }
+  .sketch-body[data-open="none"] .sketch-editor { display: none; }
+}
+
+/* And where both fit, the way back is not a thing anybody needs. */
+.panel-back {
+  display: none;
+  background: none;
+  border: none;
+  padding: 0 0 10px;
+  font-family: var(--sans);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--text-soft);
+}
+.panel-back:hover { color: var(--blush-deep); }
+@media (max-width: 899px) {
+  .panel-back { display: block; }
+}
+
+/* Which clip, on which track - and the track's name is the way to its own
+   settings, so the two are never more than a tap apart. */
+.panel-where {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: var(--text-soft);
+}
+
+/* Tracks down the left, clips running right. One grid rather than a stack of
+   rows, so the columns line up with the scene heads without anything
+   measuring anything. */
 .sketch-grid {
   display: grid;
-  grid-template-columns: 30px repeat(var(--tracks, 4), minmax(0, 1fr));
+  grid-template-columns: var(--names, 104px) repeat(var(--scenes, 4), minmax(0, 1fr));
   gap: 5px;
+  align-items: stretch;
 }
 
+/* A track's name, and the one button worth having beside it. */
 .grid-track {
   display: flex;
-  flex-direction: column;
-  gap: 1px;
-  padding: 0 2px 4px;
-  border-bottom: 1px solid var(--line);
+  align-items: center;
+  gap: 6px;
+  padding-right: 6px;
+  border-right: 1px solid var(--line);
   min-width: 0;
 }
+.track-open {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  align-items: flex-start;
+  min-width: 0;
+  padding: 2px 0;
+  background: none;
+  border: none;
+  text-align: left;
+}
+.track-open:hover .track-name { color: var(--blush-deep); }
 .track-name {
   font-family: var(--serif);
-  font-size: 13px;
+  font-size: 13.5px;
   color: var(--charcoal);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  max-width: 100%;
 }
 .track-what {
-  font-size: 9.5px;
+  font-size: 9px;
   text-transform: uppercase;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.1em;
   color: var(--text-soft);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  max-width: 100%;
 }
 .track-mute {
-  align-self: flex-start;
-  margin-top: 2px;
+  flex: 0 0 auto;
   padding: 0 5px;
   font-size: 9.5px;
   letter-spacing: 0.1em;
@@ -1785,20 +1842,20 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
   color: var(--cream);
 }
 
-/* The scene's own button, which launches the whole row. */
-.scene-launch {
+/* The scene's own button, at the head of its column, which launches the lot. */
+.scene-head {
   background: none;
   border: none;
-  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
   font-family: var(--serif);
   font-size: 14px;
   color: var(--text-soft);
-  padding: 0 6px 0 0;
+  padding: 0 0 5px;
 }
-.scene-launch:hover { color: var(--blush-deep); }
+.scene-head:hover { color: var(--blush-deep); }
 
 .cell {
-  min-height: 52px;
+  min-height: 46px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1933,7 +1990,11 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
 
 .editor-outs { gap: 8px 16px; }
 
-.editor-track {
+.editor-track { padding-top: 4px; }
+/* A rule above it only when something is above it - inside a clip it
+   separates the clip from its track, and on the track's own page there is
+   nothing to separate. */
+.sketch-body[data-open="clip"] .editor-track {
   border-top: 1px solid var(--line);
   padding-top: 12px;
 }
@@ -1951,11 +2012,16 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
   border-top: 1px solid var(--line);
 }
 
+@media (max-width: 899px) {
+  /* The rule down the left only reads as a column when there is a column
+     beside it, and at this width the panel is the whole page. */
+  .sketch-editor { border-left: none; padding-left: 0; }
+}
+
 @media (max-width: 560px) {
-  /* The panel loses its rule and becomes a block under the grid, which is
-     where it already is at this width - the rule only reads as a column. */
-  .sketch-editor { border-left: none; padding-left: 0; border-top: 1px solid var(--line); padding-top: 16px; }
-  .cell { min-height: 46px; font-size: 9.5px; }
+  .sketch-grid { --names: 84px; gap: 4px; }
+  .cell { min-height: 42px; font-size: 9.5px; }
+  .track-name { font-size: 12.5px; }
   .step { height: 18px; }
   .steps { grid-template-columns: 34px repeat(var(--cols, 8), minmax(0, 1fr)); gap: 1px; }
   .step-name { font-size: 9px; padding-right: 4px; }

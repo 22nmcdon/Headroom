@@ -964,15 +964,18 @@ function fillHelp() {
     $('#helpLede').textContent = 'Somewhere to put an idea before it goes. It is a '
       + 'sketchpad, not a DAW: four tracks, four scenes, and a way out to Logic.';
     $('#helpList').innerHTML = [
-      ['Tracks across, scenes down.',
-       'A row is a scene - everything in one row plays together, and the number '
-       + 'on the left launches the lot. Tap a slot and it comes in on the next '
-       + 'bar, which is why parts land together rather than wherever your finger '
-       + 'happened to be.'],
+      ['Tracks down the left, clips running right.',
+       'A column is a scene — everything in one plays together, and the number at '
+       + 'the top launches the lot. Tap a slot and it comes in on the next bar, '
+       + 'which is why parts land together rather than wherever your finger '
+       + 'happened to be. Tap a track\'s name for its instrument, its inserts '
+       + 'and its level.'],
       ['Tap an empty slot and there is a clip in it.',
        'The panel then shows the grid you draw on: rows are the notes of the key '
-       + 'you are in, columns are a division of the bar, and a tap is a note. '
-       + 'With the clock running, what you draw is heard on the next pass.'],
+       + 'you are in, columns are a division of the bar, and a tap is a note — '
+       + 'and you hear each one as you put it down, because knowing the sound you '
+       + 'are after is not the same as knowing it is called B flat. With the '
+       + 'clock running, what you draw is heard on the next pass as well.'],
       ['Or tap the drums in, which is faster than drawing them.',
        'Three pads on a kit track. They make a sound whether or not you are '
        + 'recording; press Record and play, and every hit lands on the nearest '

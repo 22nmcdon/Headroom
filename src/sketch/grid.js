@@ -115,7 +115,11 @@ export class SketchPage {
     this.project = loadSketch() ?? newProject();
     this.stage = null;
     this.building = null;
-    this.at = null; // the slot being edited: { track, scene }
+    // What is open on top of the grid: nothing, a clip, or a track. On a
+    // phone the open thing replaces the grid; where there is room it sits
+    // beside it. One piece of state either way, and the width decides the
+    // placement rather than the code.
+    this.open = null; // null | { kind: 'clip', track, scene } | { kind: 'track', track }
     this.frame = null;
     this.said = '';
     // Whether a pad press is being written down as well as heard, and the
@@ -189,6 +193,7 @@ export class SketchPage {
       bpm: $('[data-bpm]'),
       root: $('[data-root]'),
       scale: $('[data-scale]'),
+      body: $('.sketch-body'),
       grid: $('[data-grid]'),
       editor: $('[data-editor]'),
       file: $('[data-file]'),
@@ -254,6 +259,14 @@ export class SketchPage {
       return;
     }
 
+    const open = event.target.closest('[data-open-track]');
+    if (open) {
+      this.open = { kind: 'track', track: Number(open.dataset.openTrack) };
+      this.draw();
+      this.parts.editor.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      return;
+    }
+
     const scene = event.target.closest('[data-scene-go]');
     if (scene) {
       this.launchScene(Number(scene.dataset.sceneGo));
@@ -268,6 +281,19 @@ export class SketchPage {
   }
 
   editorClick(event) {
+    if (event.target.closest('[data-back]')) {
+      this.open = null;
+      this.draw();
+      return;
+    }
+
+    const toTrack = event.target.closest('[data-to-track]');
+    if (toTrack) {
+      this.open = { kind: 'track', track: Number(toTrack.dataset.toTrack) };
+      this.draw();
+      return;
+    }
+
     const pad = event.target.closest('[data-pad]');
     if (pad) { this.hitPad(Number(pad.dataset.pad)); return; }
 
@@ -286,21 +312,30 @@ export class SketchPage {
       const [pitch, column] = step.dataset.step.split(':').map(Number);
       const clip = this.clip();
       const division = divisionOf(clip.division).ticks;
+      const notes = toggleCell(clip, pitch, column, division);
+
+      // Heard, not just drawn. Somebody sketching knows the sound they are
+      // after and not that it is called B flat, so a grid that only lights
+      // up is a grid you have to decode - and the note a tap just put down
+      // is the one thing nobody should have to press play to hear. Only on
+      // the way in: taking a note out should not play it.
+      if (notes.length > (clip.notes?.length ?? 0)) this.sound(pitch);
+
       this.change(setNotes(
         this.project, this.at.track, this.at.scene,
-        toggleCell(clip, pitch, column, division), clip.length,
+        notes, clip.length,
       ));
       return;
     }
 
     const insert = event.target.closest('[data-insert]');
-    if (insert && this.at) {
+    if (insert && this.owning !== null) {
       const id = insert.dataset.insert;
-      const track = trackAt(this.project, this.at.track);
+      const track = trackAt(this.project, this.owning);
       const inserts = track.inserts.includes(id)
         ? track.inserts.filter((effect) => effect !== id)
         : [...track.inserts, id];
-      this.change(setTrack(this.project, this.at.track, { inserts }));
+      this.change(setTrack(this.project, this.owning, { inserts }));
       return;
     }
 
@@ -346,16 +381,22 @@ export class SketchPage {
 
     if (event.target.closest('[data-drop]') && this.at) {
       const { track, scene } = this.at;
-      this.at = null;
+      this.open = null;
       this.stage?.launch(track, null);
       this.change(setClip(this.project, track, scene, null));
     }
   }
 
   /** A range being dragged: the fader, the pan, the send, an insert's knob. */
+  /** Which track the panel's controls belong to, clip panel or track panel. */
+  get owning() {
+    if (this.open?.kind === 'track') return this.open.track;
+    return this.at ? this.at.track : null;
+  }
+
   editorSlide(event) {
-    if (!this.at) return;
-    const { track } = this.at;
+    const track = this.owning;
+    if (track === null) return;
 
     const dial = event.target.closest('[data-dial]');
     if (dial) {
@@ -383,8 +424,8 @@ export class SketchPage {
   }
 
   editorChange(event) {
-    if (!this.at) return;
-    const { track } = this.at;
+    const track = this.owning;
+    if (track === null) return;
 
     if (event.target.closest('[data-chords]')) { this.layChords(); return; }
 
@@ -399,6 +440,19 @@ export class SketchPage {
   }
 
   /**
+   * One note, now, on whichever track the panel belongs to.
+   *
+   * Through the track's own instrument and its inserts, so what a tap
+   * auditions is what the clip will sound like rather than a different
+   * piano with nothing on it.
+   */
+  async sound(pitch, velocity = 96, seconds = 0.35) {
+    const stage = await this.ready();
+    const track = stage.rowAt(this.owning ?? 0);
+    track?.instrument?.play(pitch, velocity, this.engine.ctx.currentTime + 0.01, seconds);
+  }
+
+  /**
    * A pad pressed: heard now, and written down if the clip is armed.
    *
    * Heard either way. A pad that only works while recording is a pad nobody
@@ -406,9 +460,8 @@ export class SketchPage {
    * rather than draws.
    */
   async hitPad(pitch) {
+    await this.sound(pitch, 110, 0.2);
     const stage = await this.ready();
-    const track = stage.rowAt(this.at?.track ?? 0);
-    track?.instrument?.play(pitch, 110, this.engine.ctx.currentTime, 0.2);
 
     if (!this.arming || !this.at || !stage.playing) {
       if (this.arming && !stage.playing) this.sayTap('Press play first — a tap needs a clock.');
@@ -635,7 +688,7 @@ export class SketchPage {
 
   /** A slot pressed: launch it, select it, and make one if it was empty. */
   async press(track, scene) {
-    this.at = { track, scene };
+    this.open = { kind: 'clip', track, scene };
 
     if (!clipAt(this.project, track, scene)) {
       this.change(setNotes(this.project, track, scene, [], barTicks(this.project)));
@@ -655,6 +708,9 @@ export class SketchPage {
   }
 
   /* --- what is on screen --------------------------------------------------- */
+
+  /** The open clip's slot, or null - which is what everything below asks for. */
+  get at() { return this.open?.kind === 'clip' ? this.open : null; }
 
   clip() { return this.at ? clipAt(this.project, this.at.track, this.at.scene) : null; }
 
@@ -682,50 +738,95 @@ export class SketchPage {
     parts.scale.value = project.key.scale;
 
     this.drawGrid();
-    this.drawEditor();
+    this.drawPanel();
     this.paint();
     parts.note.textContent = this.said;
   }
 
+  /**
+   * Tracks down the left, clips running right.
+   *
+   * The other way round - tracks across the top - is what a desktop session
+   * view does, and it is wrong on a phone twice over. A phone is tall, so
+   * columns are the scarce direction while tracks are the thing there will
+   * be more of; and a track's name is the one label worth reading, which
+   * wants width rather than an eighty-pixel column.
+   *
+   * A column is still a scene. The head of it launches the lot, so firing a
+   * whole set of parts and firing one clip are both one tap and neither has
+   * to be learned from the other.
+   */
   drawGrid() {
     const { project } = this;
     const perBar = barTicks(project);
 
-    const heads = project.tracks.map((track, index) => `
+    const heads = project.scenes.map((scene, index) => `
+      <button class="scene-head" type="button" data-scene-go="${index}"
+              title="Launch everything in scene ${scene.name}">${scene.name}</button>`).join('');
+
+    const rows = project.tracks.map((track, index) => `
       <div class="grid-track">
-        <span class="track-name">${track.name}</span>
-        <span class="track-what">${headSays(track)}</span>
+        <button class="track-open" type="button" data-open-track="${index}"
+                title="${track.name}: instrument, inserts and level">
+          <span class="track-name">${track.name}</span>
+          <span class="track-what">${headSays(track)}</span>
+        </button>
         <button class="track-mute" type="button" data-mute="${index}"
                 aria-pressed="${track.muted}" title="Mute ${track.name}">M</button>
-      </div>`).join('');
-
-    const rows = project.scenes.map((scene, index) => `
-      <button class="scene-launch" type="button" data-scene-go="${index}"
-              title="Launch the whole of scene ${scene.name}">${scene.name}</button>
-      ${project.tracks.map((track, column) => {
-        const clip = clipAt(project, column, index);
+      </div>
+      ${project.scenes.map((scene, column) => {
+        const clip = clipAt(project, index, column);
         return `
-          <button class="cell" type="button" data-cell="${column}:${index}" data-full="${Boolean(clip)}">
+          <button class="cell" type="button" data-cell="${index}:${column}" data-full="${Boolean(clip)}">
             <span class="cell-what">${clip ? clipSays(clip, perBar) : '+'}</span>
           </button>`;
       }).join('')}`).join('');
 
-    this.parts.grid.style.setProperty('--tracks', project.tracks.length);
+    this.parts.grid.style.setProperty('--scenes', project.scenes.length);
     this.parts.grid.innerHTML = `<span class="grid-corner"></span>${heads}${rows}`;
   }
 
-  drawEditor() {
-    const clip = this.clip();
+  /**
+   * Whatever is open on top of the grid.
+   *
+   * Three things can be: nothing, a clip, or a track. The track's settings
+   * used to sit at the bottom of the clip editor, which was always wrong -
+   * an instrument and a chain of inserts belong to the track, not to
+   * whichever of its clips happens to be open - and on a phone it meant
+   * scrolling past a step grid to reach a fader.
+   */
+  drawPanel() {
+    const kind = this.open?.kind ?? 'none';
 
-    if (!clip) {
-      this.parts.editor.innerHTML = `
-        <p class="editor-empty">
-          Tap a slot to put a clip in it. Scenes are the rows: everything in one
-          row plays together, and the number on the left launches the lot.
-        </p>`;
+    if (kind === 'track') {
+      this.parts.body.dataset.open = 'track';
+      this.parts.editor.innerHTML = this.trackPanel(this.open.track);
       return;
     }
 
+    if (kind === 'clip' && this.clip()) {
+      this.parts.body.dataset.open = 'clip';
+      this.parts.editor.innerHTML = this.clipPanel();
+      return;
+    }
+
+    this.open = null;
+    this.parts.body.dataset.open = 'none';
+    this.parts.editor.innerHTML = `
+      <p class="editor-empty">
+        Tap a slot to put a clip in it. A column is a scene: everything in one
+        plays together, and the number at the top launches the lot. Tap a
+        track's name on the left for its instrument, its inserts and its level.
+      </p>`;
+  }
+
+  /** The way back to the grid. On screen only at a width that hides it. */
+  back() {
+    return '<button class="panel-back" type="button" data-back>&larr; All the clips</button>';
+  }
+
+  clipPanel() {
+    const clip = this.clip();
     const { track: index, scene } = this.at;
     const track = trackAt(this.project, index);
     const step = divisionOf(clip.division).ticks;
@@ -743,7 +844,13 @@ export class SketchPage {
                 data-beat="${column % beat === 0}"
                 aria-label="${row.label}, step ${column + 1}"></button>`).join('')}`).join('');
 
-    this.parts.editor.innerHTML = `
+    return `
+      ${this.back()}
+      <p class="panel-where">
+        <button class="link-btn" type="button" data-to-track="${index}">${track.name}</button>
+        <span>· scene ${this.project.scenes[scene].name}</span>
+      </p>
+
       <div class="editor-head">
         <p class="eyebrow">The clip</p>
         <h3 class="editor-title">${track.name} · scene ${this.project.scenes[scene].name}</h3>
@@ -795,10 +902,22 @@ export class SketchPage {
         <button class="link-btn" type="button" data-drop>Take the clip out</button>
         ${canRecord() ? `<button class="link-btn" type="button" data-mic
           aria-pressed="${this.recording}">${this.recording ? 'Stop recording' : 'Record into this slot'}</button>` : ''}
+      </div>`;
+  }
+
+  trackPanel(index) {
+    const track = trackAt(this.project, index);
+
+    return `
+      ${this.back()}
+      <div class="editor-head">
+        <p class="eyebrow">The track</p>
+        <h3 class="editor-title">${track.name}</h3>
+        <p class="fine">What it plays with, and where it sits. Shared by all
+          ${this.project.scenes.length} of its clips.</p>
       </div>
 
       <div class="editor-track">
-        <p class="eyebrow">The track it is on</p>
         <div class="editor-row">
           <label class="field">
             <span class="field-label">Called</span>
@@ -993,14 +1112,14 @@ export class SketchPage {
       return;
     }
 
-    this.at = null;
+    this.open = null;
     this.stage?.stopScene();
     this.change(next);
     this.tell(`Opened ${file.name}.`);
   }
 
   fresh() {
-    this.at = null;
+    this.open = null;
     this.stage?.stop();
     this.watch(false);
     this.takes.clear();
