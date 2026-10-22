@@ -17,9 +17,15 @@ import { workletModule, installWorklet } from '../fx/worklet.js';
 const IMAGER_PARTS = [makeBiquad, setBiquad, runBiquad, imagerCore];
 
 const IMAGER_PROCESSOR = `class HeadroomImager extends AudioWorkletProcessor {
-  constructor() {
+  constructor(options) {
     super();
     this.core = imagerCore(sampleRate);
+    // The opening settings arrive with the node rather than in a message
+    // after it. A message is delivered when the main thread next gets a
+    // turn, and an offline render does not wait for one - so the first
+    // audio through here was processed at the defaults, and a render short
+    // enough was processed at the defaults all the way through.
+    if (options?.processorOptions) this.core.set(options.processorOptions);
     this.port.onmessage = (event) => this.core.set(event.data);
   }
 
@@ -67,6 +73,7 @@ export class LiveImager {
 
     if (worklet) {
       this.node = new AudioWorkletNode(this.ctx, 'headroom-imager', {
+        processorOptions: { ...this.settings },
         numberOfInputs: 1,
         numberOfOutputs: 1,
         outputChannelCount: [2],
@@ -74,7 +81,6 @@ export class LiveImager {
         channelCountMode: 'explicit',
         channelInterpretation: 'speakers',
       });
-      this.node.port.postMessage(this.settings);
     } else {
       // The old way: the same arithmetic, on the main thread.
       this.core = imagerCore(this.ctx.sampleRate);

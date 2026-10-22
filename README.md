@@ -305,8 +305,11 @@ that doing it right is audible rather than merely scored:
 - **A sample player**, behind the instrument interface the synthesised ones
   already sit behind.
 - **Stem export** from the sketchpad, which is an offline render of each track.
-- **Insert settings** on a sketchpad or mix track: the six are available, at
-  their defaults, and nothing yet edits a compressor's threshold from there.
+- **Insert settings on a mix-exercise strip.** A sketchpad track's inserts
+  have three or four controls each; the mix desk's four stems are still
+  level, pan and send only.
+- **Reordering a track's inserts.** A chain is in series, so the order is
+  audible, and the only way to change it is to take them all off.
 - Any server, account or automatic sync. Progress lives in `localStorage`, and
   the way it moves between browsers is the exported file.
 

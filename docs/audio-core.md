@@ -147,6 +147,8 @@ In the order the sketchpad plan wants them:
 7. **Reordering a track's inserts.** They go on in the order they are
    pressed and come off by name; a chain is in series, so the order is
    audible, and there is no way to change it but to take them all off.
+8. **Insert settings on a mix-exercise strip.** The sketchpad's tracks have
+   them; the mix desk's four stems are still level, pan and send only.
 
 ## Questions this survey raised, and what they came to
 
@@ -167,12 +169,30 @@ In the order the sketchpad plan wants them:
   is the thing below rather than the thing beside. Checked at 430 and 1280:
   no sideways scroll at either.
 
-- **Whether the worklets survive going offline.** Still open, and still the
-  stem-export question. What is now known is that the *instruments* do not,
-  without help: `onended` never fires during an offline render, so nothing
-  was ever forgotten, and the voice cap silenced a bass part after sixteen
-  notes. `base.hold` now sweeps voices whose tails ended before the note
-  being added starts, which is true on either clock.
+- **Whether the worklets survive going offline.** They do, and they very
+  nearly did not. All three sent their opening settings with
+  `port.postMessage` straight after constructing the node, and a port message
+  is delivered when the main thread next gets a turn - which an offline
+  render does not wait for. Measured: the imager rendered at an offline
+  context with its width at 0.2 and at 2.2 produced *identical* audio, and
+  putting a 60 ms pause before `startRendering` made the same two renders
+  read 20 dB apart. The settings now go in through `processorOptions`, which
+  arrives with the node, and the two renders agree with the paused ones to
+  the last decimal. It was invisible live, where the message always wins,
+  and it would have been invisible in a stem export too: every track would
+  have rendered at its defaults.
+
+  The *instruments* needed help as well: `onended` never fires during an
+  offline render, so nothing was ever forgotten, and the voice cap silenced
+  a bass part after sixteen notes. `base.hold` now sweeps voices whose tails
+  ended before the note being added starts, which is true on either clock.
+
+- **An EQ insert was a wire.** `eqEffect` built its filters transparent and
+  never put the bands it was handed on them, so a track with a +9 dB low
+  shelf rendered bit-identical to the same track with no insert at all. It
+  applies them at construction now. The six tools were never affected - the
+  EQ player calls `tuneSections` itself - which is why nothing caught it
+  until a track insert was given something to do.
 
 ## What the sketchpad is measured at
 

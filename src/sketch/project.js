@@ -19,6 +19,7 @@ import { ticksPerBar } from './transport.js';
 import { INSTRUMENT_IDS, GM_PROGRAM } from '../core/instrument.js';
 import { EFFECT_IDS } from '../core/effects.js';
 import { DIVISION_IDS, SCALE_IDS, fit } from './steps.js';
+import { tidyAll } from './knobs.js';
 
 /** The shape of a stored project. Bumped when a file written today stops loading. */
 export const PROJECT_FORMAT = 1;
@@ -62,6 +63,7 @@ export const trackOf = ({
   name = id,
   instrument = 'synth',
   inserts = [],
+  settings = {},
   gain = 0.8,
   pan = 0,
   send = 0,
@@ -72,6 +74,10 @@ export const trackOf = ({
   name,
   instrument: INSTRUMENT_IDS.includes(instrument) ? instrument : 'synth',
   inserts: inserts.filter((effect) => EFFECT_IDS.includes(effect)),
+  // What each insert is set to, kept whether or not that insert is on: take
+  // a delay off to hear the part dry, put it back, and it is the delay you
+  // dialled rather than a new one.
+  settings: tidyAll(settings),
   gain,
   pan,
   send,

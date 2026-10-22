@@ -26,12 +26,16 @@ const HEAT_CONSTANTS = {
 };
 
 const HEAT_PROCESSOR = `class HeadroomSaturator extends AudioWorkletProcessor {
-  constructor() {
+  constructor(options) {
     super();
     // One curve per channel. They share settings and nothing else - a
     // saturator that summed its channels to decide anything would be a
     // stereo effect, and this one is deliberately not.
     this.cores = [shaperCore(sampleRate), shaperCore(sampleRate)];
+    // With the node, not in a message after it: see the imager for why.
+    if (options && options.processorOptions) {
+      for (const core of this.cores) core.set(options.processorOptions);
+    }
     this.port.onmessage = (event) => {
       for (const core of this.cores) core.set(event.data);
     };
@@ -87,6 +91,7 @@ export class LiveSaturator {
 
     if (worklet) {
       this.node = new AudioWorkletNode(this.ctx, 'headroom-saturator', {
+        processorOptions: { ...this.settings },
         numberOfInputs: 1,
         numberOfOutputs: 1,
         outputChannelCount: [2],
@@ -94,7 +99,6 @@ export class LiveSaturator {
         channelCountMode: 'explicit',
         channelInterpretation: 'speakers',
       });
-      this.node.port.postMessage(this.settings);
     } else {
       // The old way: the same arithmetic, on the main thread. Eight times
       // oversampled shaping is the most expensive thing in this app, so a

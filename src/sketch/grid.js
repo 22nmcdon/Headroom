@@ -38,6 +38,7 @@ import {
   rowsFor, columnsOf, filled, toggleCell, clearRow,
 } from './steps.js';
 import { loadSketch, saveSketch, sketchFile, readSketchFile } from './store.js';
+import { knobsFor, writeKnob, tidy } from './knobs.js';
 import { makeStage } from './stage.js';
 import { INSTRUMENT_IDS } from '../core/instrument.js';
 import { EFFECT_IDS } from '../core/effects.js';
@@ -57,6 +58,9 @@ const EFFECT_LABELS = {
 };
 
 const plural = (count, one, many) => `${count} ${count === 1 ? one : many}`;
+
+/** One knob's spec, for reading a dragged value back out. */
+const knobOf = (effect, id) => knobsFor(effect).find((knob) => knob.id === id) ?? { step: 0.1 };
 
 /** An instrument's id, as a label. */
 const titled = (id) => id.charAt(0).toUpperCase() + id.slice(1);
@@ -213,6 +217,9 @@ export class SketchPage {
     // redrawn whole and a listener per button would be a listener per redraw.
     parts.grid.addEventListener('click', (event) => this.gridClick(event));
     parts.editor.addEventListener('click', (event) => this.editorClick(event));
+    // Ranges on `input` and everything else on `change`: a fader that only
+    // moves when you let go of it is a fader you cannot hear yourself using.
+    parts.editor.addEventListener('input', (event) => this.editorSlide(event));
     parts.editor.addEventListener('change', (event) => this.editorChange(event));
   }
 
@@ -303,6 +310,36 @@ export class SketchPage {
     }
   }
 
+  /** A range being dragged: the fader, the pan, the send, an insert's knob. */
+  editorSlide(event) {
+    if (!this.at) return;
+    const { track } = this.at;
+
+    const dial = event.target.closest('[data-dial]');
+    if (dial) {
+      this.change(setTrack(this.project, track, { [dial.dataset.dial]: Number(dial.value) }),
+        { keep: true });
+      return;
+    }
+
+    const knob = event.target.closest('[data-knob]');
+    if (!knob) return;
+
+    const { knob: which, effect } = knob.dataset;
+    const here = trackAt(this.project, track);
+    const value = Number(knob.value);
+
+    const read = knob.parentElement.querySelector('[data-knob-read]');
+    if (read) read.textContent = writeKnob(knobOf(effect, which), value);
+
+    this.change(setTrack(this.project, track, {
+      settings: {
+        ...here.settings,
+        [effect]: { ...(here.settings[effect] ?? {}), [which]: value },
+      },
+    }), { keep: true });
+  }
+
   editorChange(event) {
     if (!this.at) return;
     const { track } = this.at;
@@ -310,13 +347,6 @@ export class SketchPage {
     const pick = event.target.closest('[data-instrument]');
     if (pick) {
       this.change(setTrack(this.project, track, { instrument: pick.value }));
-      return;
-    }
-
-    const dial = event.target.closest('[data-dial]');
-    if (dial) {
-      this.change(setTrack(this.project, track, { [dial.dataset.dial]: Number(dial.value) }),
-        { keep: true });
       return;
     }
 
@@ -530,6 +560,30 @@ export class SketchPage {
                       aria-pressed="${track.inserts.includes(id)}">${EFFECT_LABELS[id] ?? id}</button>`).join('')}
           </span>
         </div>
+
+        ${track.inserts.map((effect) => {
+          // Through `tidy`, not straight off the track: an insert just
+          // switched on has nothing stored yet, and reading a missing value
+          // as the knob's minimum drew every control at the bottom of its
+          // range while the effect itself ran at its defaults.
+          const set = tidy(effect, track.settings[effect]);
+          return `
+          <div class="insert">
+            <span class="insert-name">${EFFECT_LABELS[effect] ?? effect}</span>
+            <div class="insert-knobs">
+              ${knobsFor(effect).map((knob) => {
+                const value = set[knob.id];
+                return `
+                  <label class="knob">
+                    <span class="knob-label">${knob.label}</span>
+                    <input type="range" data-knob="${knob.id}" data-effect="${effect}"
+                           min="${knob.min}" max="${knob.max}" step="${knob.step}" value="${value}">
+                    <span class="knob-read" data-knob-read>${writeKnob(knob, value)}</span>
+                  </label>`;
+              }).join('')}
+            </div>
+          </div>`;
+        }).join('')}
 
         <div class="editor-row editor-dials">
           ${[

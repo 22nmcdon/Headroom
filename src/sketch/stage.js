@@ -23,6 +23,7 @@ import { makeTrack, playPieces } from '../core/track.js';
 import { makeEffect } from '../core/effects.js';
 import { booking, queue, resting } from './launch.js';
 import { clipAt } from './project.js';
+import { optionsFor, paramsFor } from './knobs.js';
 
 /** The shared room. Short and bright: a sketch wants space, not a cathedral. */
 export const SEND_VERB = { decay: 1.4, size: 14, damping: 0.5, preDelay: 12, mix: 1 };
@@ -85,6 +86,8 @@ export async function makeStage(ctx, project, { out = ctx.destination, transport
       gain: spec.gain,
       pan: spec.pan,
       send: spec.send,
+      options: Object.fromEntries(spec.inserts
+        .map((effect) => [effect, optionsFor(effect, spec.settings?.[effect] ?? {})])),
     });
     track.out.connect(bus);
     track.send.connect(verb.in);
@@ -154,6 +157,12 @@ export async function makeStage(ctx, project, { out = ctx.destination, transport
         row.track.set({
           gain: spec.gain, pan: spec.pan, send: spec.send, muted: spec.muted,
         });
+        // An insert's knob is a parameter, not a graph. Rebuilding the chain
+        // because somebody moved a threshold would be a gap in the audio on
+        // every pixel of the drag.
+        for (const effect of spec.inserts) {
+          row.track.setInsert(effect, paramsFor(effect, spec.settings?.[effect] ?? {}));
+        }
       }));
 
       // A project with fewer tracks than the stage has rows.

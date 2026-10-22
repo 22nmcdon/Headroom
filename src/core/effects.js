@@ -138,6 +138,16 @@ function eqEffect(ctx, { bands = newStrip(), slots = null } = {}) {
   chain.trim.connect(out);
   let current = bands;
 
+  const tune = (at = ctx.currentTime) => tuneSections(chain, current, at, ctx.sampleRate);
+
+  // Applied here, not only on the next `set`. `eqSections` builds the filters
+  // transparent and the bands it was handed were never put on them, so an EQ
+  // constructed with a curve was a wire until something moved a control.
+  // Measured: a track with a +9 dB low shelf insert rendered bit-identical to
+  // the same track with no insert at all - the same reading on all five
+  // measurements, to the last decimal.
+  tune(0);
+
   return {
     id: 'eq',
     in: chain.input,
@@ -149,7 +159,7 @@ function eqEffect(ctx, { bands = newStrip(), slots = null } = {}) {
       if (current.length > size) {
         throw new Error(`this EQ was built for ${size} bands and was given ${current.length}`);
       }
-      tuneSections(chain, current, at, ctx.sampleRate);
+      tune(at);
       return this;
     },
     destroy() {

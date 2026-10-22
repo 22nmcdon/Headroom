@@ -38,11 +38,13 @@ const REPORT = 512;
 
 /** The compressor's own process(): what its inputs mean, and what it reports. */
 const COMPRESSOR_PROCESSOR = `class HeadroomCompressor extends AudioWorkletProcessor {
-  constructor() {
+  constructor(options) {
     super();
     this.core = compressorCore(sampleRate);
     this.deepest = 0;
     this.since = 0;
+    // With the node, not in a message after it: see the imager for why.
+    if (options?.processorOptions) this.core.set(options.processorOptions);
     this.port.onmessage = (event) => this.core.set(event.data);
   }
 
@@ -103,6 +105,7 @@ export class LiveCompressor {
 
     if (worklet) {
       this.node = new AudioWorkletNode(this.ctx, 'headroom-compressor', {
+        processorOptions: { ...this.settings },
         numberOfInputs: 1,
         numberOfOutputs: 1,
         outputChannelCount: [1],
@@ -111,7 +114,6 @@ export class LiveCompressor {
         channelInterpretation: 'discrete',
       });
       this.node.port.onmessage = (event) => this.report(event.data);
-      this.node.port.postMessage(this.settings);
     } else {
       // The old way: the same arithmetic, on the main thread.
       this.core = compressorCore(this.ctx.sampleRate);
