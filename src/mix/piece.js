@@ -161,7 +161,11 @@ export function pieceOf(id) {
     project = setNotes(project, index, 0, parts[stem.id], bars);
   });
 
-  return project;
+  // Exactly these stems and no others. A sketch opens with a voice track to
+  // sing into, which is right there and wrong here: a mix exercise is four
+  // parts with a balance between them, and a fifth that is silent on every
+  // round would be a fader that does nothing and a stem of nothing.
+  return { ...project, tracks: project.tracks.slice(0, STEMS.length) };
 }
 
 /**

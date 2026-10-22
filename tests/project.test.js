@@ -15,7 +15,7 @@ import {
   newProject, clipOf, trackOf, setClip, setTrack, setNotes, setProject,
   clipAt, trackAt, sceneOf, sceneHasAnything, barTicks, repeat,
   sceneToMidi, serialise, parse, PROJECT_FORMAT, SCENES, setLength,
-  addScene, dropScene, MOST_SCENES,
+  addScene, dropScene, MOST_SCENES, STARTER,
 } from '../src/sketch/project.js';
 import { readMidi, PPQ, DRUM_CHANNEL } from '../src/sketch/midi.js';
 import { INSTRUMENT_IDS } from '../src/core/instrument.js';
@@ -28,13 +28,14 @@ const beats = (pitch, n = 4) => Array.from({ length: n }, (_, i) => ({
 
 /* --- the shape -------------------------------------------------------------- */
 
-test('a new sketch is four tracks and four scenes, with nothing in them', () => {
+test('a new sketch is the starter tracks and four scenes, with nothing in them', () => {
   const project = newProject();
 
   assert.equal(project.format, PROJECT_FORMAT);
-  assert.equal(project.tracks.length, 4);
   assert.equal(project.scenes.length, SCENES);
-  assert.deepEqual(project.tracks.map((t) => t.instrument), ['piano', 'bass', 'kit', 'synth']);
+  assert.equal(project.tracks.length, STARTER.length);
+  assert.deepEqual(project.tracks.map((t) => t.instrument),
+    ['piano', 'bass', 'kit', 'synth', 'voice']);
 
   for (const track of project.tracks) {
     assert.equal(track.slots.length, SCENES, 'one slot per scene');

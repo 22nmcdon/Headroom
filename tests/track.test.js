@@ -13,7 +13,9 @@ import assert from 'node:assert/strict';
 
 import { makeClip, notesIn } from '../src/core/track.js';
 import { PPQ } from '../src/sketch/midi.js';
-import { GM_DRUMS, pieceFor, INSTRUMENT_IDS, GM_PROGRAM, MOST_VOICES } from '../src/core/instrument.js';
+import {
+  GM_DRUMS, pieceFor, INSTRUMENT_IDS, GM_PROGRAM, MOST_VOICES, NOTED, isVoice,
+} from '../src/core/instrument.js';
 
 const BAR = PPQ * 4;
 
@@ -123,13 +125,21 @@ test('a pitch the map does not name still plays something', () => {
 
 /* --- the starter set ------------------------------------------------------- */
 
-test('the four starter instruments each say which General MIDI sound they are', () => {
-  assert.deepEqual(INSTRUMENT_IDS.sort(), ['bass', 'kit', 'piano', 'synth']);
+test('every starter instrument says which General MIDI sound it is', () => {
+  for (const id of INSTRUMENT_IDS) {
+    assert.ok(id in GM_PROGRAM, `${id} has no General MIDI program`);
+  }
 
-  assert.equal(GM_PROGRAM.piano, 0, 'acoustic grand');
-  assert.equal(GM_PROGRAM.bass, 33, 'fingered bass');
-  assert.equal(GM_PROGRAM.synth, 81, 'a lead');
-  assert.equal(GM_PROGRAM.kit, null, 'a kit has no program: it has channel 10');
+  // The kit is null because it goes on channel 10, where the channel is the
+  // instrument; the voice is null because it has no notes to export at all.
+  assert.equal(GM_PROGRAM.kit, null);
+  assert.equal(GM_PROGRAM.voice, null);
+
+  // The pitched ones - everything that plays notes and is not the kit.
+  for (const id of NOTED.filter((each) => each !== 'kit')) {
+    assert.ok(Number.isInteger(GM_PROGRAM[id]) && GM_PROGRAM[id] >= 0 && GM_PROGRAM[id] <= 127,
+      `${id} is program ${GM_PROGRAM[id]}`);
+  }
 });
 
 test('there is a ceiling on how many notes can sound at once', () => {
@@ -160,4 +170,15 @@ test('an anchored clip comes back with the tick it really sounds at', () => {
   const clip = makeClip({ id: 'one', length: BAR, notes: [{ pitch: 60, start: PPQ }] });
   const [note] = notesIn(clip, BAR * 5, BAR * 6, BAR * 5);
   assert.equal(note.at, BAR * 5 + PPQ);
+});
+
+test('the voice is an instrument that plays nothing', () => {
+  // A track with no instrument would be a branch in the chain, the fader,
+  // the pan, the send and the stem. An instrument that makes no sound is a
+  // branch in none of them.
+  assert.ok(INSTRUMENT_IDS.includes('voice'));
+  assert.ok(isVoice('voice'));
+  assert.ok(!isVoice('piano'));
+  assert.ok(!NOTED.includes('voice'), 'a step grid on a voice track means nothing');
+  assert.deepEqual(NOTED, ['piano', 'bass', 'kit', 'synth']);
 });

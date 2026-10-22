@@ -299,8 +299,8 @@ that doing it right is audible rather than merely scored:
   clock*, which is the only way anybody hears a difference this small. The
   drums never move: something has to be the level everything else is set
   against.
-- **A sketchpad** — a clip grid, four tracks by four scenes, where a tap
-  launches a clip on the next bar line and the panel under it is where you
+- **A sketchpad** — a clip grid: tracks down the left, clips running right,
+  where a tap launches a clip on the next bar line and the panel under it is where you
   draw the notes — or type them: a line of chord symbols like
   `Cm7 | A♭maj7 | E♭ | B♭` fills a clip, one chord a bar, **voiced to move as
   little as possible from the chord before it**, which is what makes four
@@ -315,7 +315,10 @@ that doing it right is audible rather than merely scored:
   **Record into this slot** takes whatever the microphone hears, cuts it to
   the nearest whole bar, and puts it in the slot as a clip that loops with
   everything else, runs through that track's inserts and fader, and comes out
-  in the stems. Recordings live in this browser's IndexedDB beside the
+  in the stems. A sketch opens with a **Voice** track for exactly that — no
+  step grid, no chords, just Record — because the reason to have a sketchpad
+  on a phone at all is that the idea arrives when the phone is the only thing
+  to hand. Recordings live in this browser's IndexedDB beside the
   sketch, because four bars of audio is a hundred times what localStorage is
   for. The six tools are the inserts. It keeps itself in this
   browser as you work, and there are two ways out: a **Type 1 MIDI file** of

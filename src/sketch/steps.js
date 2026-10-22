@@ -74,6 +74,8 @@ export const EDITOR_OCTAVES = 2;
  * could not say why.
  */
 export function rowsFor(track, key = {}) {
+  // A voice track holds recordings, and a recording has no rows.
+  if (track?.instrument === 'voice') return [];
   if (track?.instrument === 'kit') return KIT_ROWS;
 
   const { root = 0, scale = 'minor' } = key;

@@ -433,18 +433,62 @@ export function makeKit(ctx) {
   };
 }
 
+/**
+ * A track that plays no notes at all.
+ *
+ * Which is what a voice track is: somewhere to put a hummed line or a
+ * guitar, where the clips are recordings and there is nothing to draw. It
+ * is an instrument rather than a special case of a track because everything
+ * downstream - the chain, the fader, the pan, the send, the stem - already
+ * works on an instrument, and a track with no instrument would be a branch
+ * in every one of them.
+ *
+ * `out` is a real node, so inserts still have something to hang off: a
+ * recording goes into the chain ahead of it and comes out of the same
+ * fader as everything else.
+ */
+export function makeSilence(ctx) {
+  const out = ctx.createGain();
+  return {
+    id: 'voice',
+    out,
+    get voices() { return 0; },
+    noteOn: () => null,
+    noteOff: () => {},
+    play: () => {},
+    allOff: () => {},
+    destroy() { try { out.disconnect(); } catch { /* already gone */ } },
+  };
+}
+
 /** The starter set, by the names a track will use. */
 export const INSTRUMENTS = {
   piano: makePiano,
   bass: makeBass,
   kit: makeKit,
   synth: makeSynth,
+  voice: makeSilence,
 };
+
+/** The ones that make a sound when handed a note. */
 
 export const INSTRUMENT_IDS = Object.keys(INSTRUMENTS);
 
-/** Which General MIDI program each one is nearest, for export. */
-export const GM_PROGRAM = { piano: 0, bass: 33, synth: 81, kit: null };
+/**
+ * Which General MIDI program each one is nearest, for export.
+ *
+ * The kit is null because it goes on channel 10, where the channel is the
+ * instrument. The voice is null because it has no notes to export at all.
+ */
+export const GM_PROGRAM = {
+  piano: 0, bass: 33, synth: 81, kit: null, voice: null,
+};
+
+/** The ones a step grid or a chord line means anything on. */
+export const NOTED = INSTRUMENT_IDS.filter((id) => id !== 'voice');
+
+/** Whether a track is somewhere recordings go rather than somewhere notes do. */
+export const isVoice = (instrument) => instrument === 'voice';
 
 export function makeInstrument(ctx, id, options = {}) {
   const make = INSTRUMENTS[id];

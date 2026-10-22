@@ -49,7 +49,7 @@ import {
 import { KIT_ROWS } from './steps.js';
 import { makeStage } from './stage.js';
 import { zipStems } from './stems.js';
-import { INSTRUMENT_IDS } from '../core/instrument.js';
+import { INSTRUMENT_IDS, isVoice } from '../core/instrument.js';
 import { EFFECT_IDS } from '../core/effects.js';
 import { PPQ } from './midi.js';
 
@@ -885,6 +885,7 @@ export class SketchPage {
       <div class="editor-head">
         <p class="eyebrow">The clip</p>
         <h3 class="editor-title">${track.name} · scene ${this.project.scenes[scene].name}</h3>
+        ${isVoice(track.instrument) || isTake(clip) ? '' : `
         <div class="editor-row">
           <span class="editor-label">Bars</span>
           <span class="chips">
@@ -900,8 +901,17 @@ export class SketchPage {
               <button class="chip" type="button" data-division="${division.id}"
                       aria-pressed="${division.id === clip.division}">${division.label}</button>`).join('')}
           </span>
-        </div>
+        </div>`}
       </div>
+
+      ${!isVoice(track.instrument) ? '' : `
+        <p class="take-note">
+          ${isTake(clip)
+            ? `A recording, ${bars === 1 ? 'a bar' : `${bars} bars`} long. It loops with
+               everything else and goes through this track's inserts and fader.`
+            : 'Nothing in here yet. Record into it — whatever arrives is cut to the '
+              + 'nearest whole bar and loops with the rest.'}
+        </p>`}
 
       ${track.instrument !== 'kit' ? '' : `
         <div class="editor-row pad-row">
@@ -914,7 +924,7 @@ export class SketchPage {
         </div>
         <p class="fine chord-said" data-tap-said></p>`}
 
-      ${track.instrument === 'kit' ? '' : `
+      ${track.instrument === 'kit' || isVoice(track.instrument) ? '' : `
         <div class="editor-row chord-row">
           <span class="editor-label">Chords</span>
           <input class="chord-line" type="text" data-chords placeholder="Cm7 | A♭maj7 | E♭ | B♭"
@@ -923,7 +933,7 @@ export class SketchPage {
         </div>
         <p class="fine chord-said" data-chord-said></p>`}
 
-      ${isTake(clip) ? `
+      ${isVoice(track.instrument) ? '' : isTake(clip) ? `
         <p class="take-note">A recording, ${bars === 1 ? 'a bar' : `${bars} bars`} long.
         There is nothing to draw on it — take it out and the slot is a clip of notes again.</p>
       ` : `<div class="steps" style="--cols: ${wide}">${rows}</div>`}
@@ -932,7 +942,8 @@ export class SketchPage {
         <button class="link-btn" type="button" data-clear>Clear the clip</button>
         <button class="link-btn" type="button" data-drop>Take the clip out</button>
         ${canRecord() ? `<button class="link-btn" type="button" data-mic
-          aria-pressed="${this.recording}">${this.recording ? 'Stop recording' : 'Record into this slot'}</button>` : ''}
+          aria-pressed="${this.recording}">${this.recording ? 'Stop recording'
+            : isTake(clip) ? 'Record over it' : 'Record into this slot'}</button>` : ''}
       </div>`;
   }
 
@@ -1074,12 +1085,23 @@ export class SketchPage {
       return;
     }
 
+    // A MIDI file carries notes, and a recording has none. A scene that is
+    // only recordings would export as a file with nothing in it, which is
+    // worse than being told why.
+    const written = sceneOf(this.project, scene)
+      .filter(({ clip }) => !isTake(clip) && clip.notes.length);
+    if (!written.length) {
+      this.tell('There is nothing in that scene but recordings, and MIDI carries '
+        + 'notes. Export the stems instead — they have the audio in them.');
+      return;
+    }
+
     const bytes = sceneToMidi(this.project, scene, { bars: 4 });
     const name = `${this.project.name.replace(/[^\w-]+/g, '-').toLowerCase() || 'sketch'}-scene-${scene + 1}.mid`;
     this.give(new Blob([bytes], { type: 'audio/midi' }), name);
 
-    const parts = sceneOf(this.project, scene).length;
-    this.tell(`Saved ${plural(parts, 'track', 'tracks')} as ${name} — four bars at ${this.project.bpm} bpm.`);
+    this.tell(`Saved ${plural(written.length, 'track', 'tracks')} as ${name} `
+      + `— four bars at ${this.project.bpm} bpm.`);
   }
 
   /** Which scene an export means: the one being edited, else the first with anything in it. */

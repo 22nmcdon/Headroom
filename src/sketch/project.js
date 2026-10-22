@@ -30,6 +30,10 @@ export const STARTER = [
   { id: 'bass', name: 'Bass', instrument: 'bass', pan: 0 },
   { id: 'kit', name: 'Kit', instrument: 'kit', pan: 0 },
   { id: 'synth', name: 'Synth', instrument: 'synth', pan: 0.2, gain: 0.6 },
+  // Somewhere to sing. The whole reason a sketchpad is worth having on a
+  // phone is that an idea arrives when the phone is the only thing to hand,
+  // and a hummed line is not notes.
+  { id: 'voice', name: 'Voice', instrument: 'voice', pan: 0 },
 ];
 
 /** What a new sketch opens with. */
