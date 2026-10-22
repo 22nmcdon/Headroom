@@ -111,12 +111,15 @@ to run two sources at once.
 
 In the order the sketchpad plan wants them:
 
-1. **An effect interface.** Each tool's audio moves behind `{ in, out,
-   setParams, read, destroy }` so that effects can be put in series. The
-   plugins keep their faces; what changes is that a player stops owning its
-   route to the output and starts being a node with two ends. The mix
-   exercise mode wants exactly the same thing, which is why it is worth doing
-   once rather than twice.
+1. ~~**An effect interface.**~~ **Done**, in `src/core/`. An effect is `{ id,
+   in, out, set, destroy }` and `chainOf` puts several in series and hands
+   back the same shape, so a chain is itself an effect. Four of the six were
+   already live worklet nodes with an input and an output and are wrapped
+   as-is; the EQ's chain of biquads moved into `core/effects.js` and the EQ
+   player now calls it, so there is one of those rather than two. The reverb
+   and the delay needed a live `ConvolverNode`, because their players
+   pre-render the wet signal rather than convolving — same impulse builder,
+   different place.
 2. **An instrument interface.** `{ noteOn(pitch, velocity, when), noteOff(pitch,
    when), out, setParams, destroy }`, with two engines behind it: a sample
    player and a small synth. `Engine.note()` and `Engine.drum()` are the

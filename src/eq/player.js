@@ -1,5 +1,6 @@
-import { averageLift, liftFrequencies, sectionsOf, MOST_SECTIONS } from './filters.js';
+import { liftFrequencies } from './filters.js';
 import { averageSpectrum } from './spectrum.js';
+import { eqSections, tuneSections } from '../core/effects.js';
 
 /**
  * The loop, running through two EQ chains you can flip between.
@@ -67,71 +68,28 @@ export class EQPlayer {
     this.hear('mine');
   }
 
+  /**
+   * One EQ, built out of circuit, ending at a gain of its own.
+   *
+   * The biquads and the tuning both live in `src/core/effects.js` now, which
+   * is where everything that has two ends and can go in series lives. This
+   * is the same chain the sketchpad puts on a track - it is only that here
+   * it is handed a source and an analyser and there it is handed whatever is
+   * upstream of it.
+   */
   chain(ctx) {
-    // Four biquads per band, whether or not the band needs four. A cut at
-    // 48 dB/oct is a cascade of four, and a graph that grew and shrank as the
-    // slope changed would be a graph rebuilt under a running loop. The unused
-    // ones are held out of circuit instead, which costs a multiply each and
-    // nothing audible.
-    const sections = this.strip.map(() => Array.from({ length: MOST_SECTIONS }, () => {
-      const filter = ctx.createBiquadFilter();
-      // Built out of circuit: a peak with no gain passes everything through.
-      filter.type = 'peaking';
-      filter.frequency.value = 1000;
-      filter.Q.value = 1;
-      filter.gain.value = 0;
-      return filter;
-    }));
-
-    const filters = sections.flat();
-    for (let i = 0; i < filters.length - 1; i += 1) filters[i].connect(filters[i + 1]);
-
-    // Auto gain: whatever the curve adds overall, this takes back off, so the
-    // two sides of the A/B are the same loudness and only the shape differs.
-    const trim = ctx.createGain();
-    trim.gain.value = 1;
+    const built = eqSections(ctx, this.strip.length);
 
     const gain = ctx.createGain();
     gain.gain.value = 0;
-    filters[filters.length - 1].connect(trim).connect(gain).connect(this.analyser);
+    built.trim.connect(gain).connect(this.analyser);
 
-    return { input: filters[0], sections, trim, gain };
+    return { ...built, gain };
   }
 
-  /**
-   * Tunes one chain to a set of bands, without interrupting the sound.
-   *
-   * A band that is off becomes a peak with no gain, which is exactly nothing.
-   * Parking its corner at the end of the range instead - which is the obvious
-   * thing to do - is not nothing: a low-pass sitting at 18 kHz still takes
-   * three quarters of a decibel off 12 kHz, and a high-pass at 40 takes a
-   * decibel and a half off 60. The drawn curve simply leaves an off band out,
-   * so the sound has to as well or the two stop agreeing at the edges.
-   */
+  /** The shared tuning, under the name this class has always called it. */
   static tune(chain, bands, at, rate, weights) {
-    const lift = averageLift(bands, rate, weights);
-    chain.trim.gain.setTargetAtTime(10 ** (-lift / 20), at, 0.02);
-
-    bands.forEach((band, i) => {
-      // What this band is actually made of - one biquad, or up to four of
-      // them for a steep cut. Whatever is left over is parked.
-      const sections = band.on === false ? [] : sectionsOf(band);
-
-      chain.sections[i].forEach((filter, s) => {
-        const section = sections[s];
-
-        if (!section) {
-          filter.type = 'peaking';
-          filter.gain.setTargetAtTime(0, at, 0.01);
-          return;
-        }
-
-        filter.type = section.type;
-        filter.frequency.setTargetAtTime(section.frequency, at, 0.01);
-        filter.Q.setTargetAtTime(section.q, at, 0.01);
-        filter.gain.setTargetAtTime(section.gain ?? 0, at, 0.01);
-      });
-    });
+    tuneSections(chain, bands, at, rate, weights);
   }
 
   setBands(bands) {
