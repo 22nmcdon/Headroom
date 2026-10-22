@@ -31,7 +31,8 @@
 
 import {
   newProject, setClip, setTrack, setProject, setNotes, setLength,
-  clipAt, trackAt, sceneOf, sceneHasAnything, barTicks, sceneToMidi, SCENES, isTake,
+  clipAt, trackAt, sceneOf, sceneHasAnything, barTicks, sceneToMidi, isTake,
+  addScene, dropScene, MOST_SCENES,
 } from './project.js';
 import {
   STEP_DIVISIONS, divisionOf, SCALES, SCALE_IDS, ROOT_NAMES,
@@ -168,7 +169,7 @@ export class SketchPage {
         </div>
 
         <div class="sketch-body">
-          <div class="sketch-grid" data-grid></div>
+          <div class="grid-scroll"><div class="sketch-grid" data-grid></div></div>
           <div class="sketch-editor" data-editor></div>
         </div>
 
@@ -264,6 +265,24 @@ export class SketchPage {
       this.open = { kind: 'track', track: Number(open.dataset.openTrack) };
       this.draw();
       this.parts.editor.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      return;
+    }
+
+    if (event.target.closest('[data-add-scene]')) {
+      this.change(addScene(this.project));
+      // Straight to the new one, which is off the right-hand edge and the
+      // whole reason it scrolls.
+      this.parts.grid.parentElement?.scrollTo({
+        left: this.parts.grid.scrollWidth, behavior: 'smooth',
+      });
+      return;
+    }
+
+    if (event.target.closest('[data-drop-scene]')) {
+      const gone = dropScene(this.project);
+      if (gone === this.project) { this.tell('There is still a clip in that scene.'); return; }
+      if (this.open?.scene >= gone.scenes.length) this.open = null;
+      this.change(gone);
       return;
     }
 
@@ -670,7 +689,7 @@ export class SketchPage {
       // Something has to be on, or Play is a button that does nothing. The
       // first scene with anything in it is the obvious thing to mean.
       if (!stage.state.some((row) => row.scene !== null)) {
-        const first = [...Array(SCENES).keys()].find((scene) => sceneHasAnything(this.project, scene));
+        const first = [...this.project.scenes.keys()].find((scene) => sceneHasAnything(this.project, scene));
         if (first !== undefined) stage.launchScene(first);
       }
       stage.play();
@@ -760,9 +779,20 @@ export class SketchPage {
     const { project } = this;
     const perBar = barTicks(project);
 
-    const heads = project.scenes.map((scene, index) => `
+    const last = project.scenes.length - 1;
+    const canDrop = project.scenes.length > 1 && !sceneHasAnything(project, last);
+
+    const heads = `${project.scenes.map((scene, index) => `
       <button class="scene-head" type="button" data-scene-go="${index}"
-              title="Launch everything in scene ${scene.name}">${scene.name}</button>`).join('');
+              title="Launch everything in scene ${scene.name}">${scene.name}</button>`).join('')}
+      <span class="scene-edit">
+        <button class="scene-more" type="button" data-add-scene
+                ${project.scenes.length >= MOST_SCENES ? 'disabled' : ''}
+                title="Another scene">+</button>
+        <button class="scene-more" type="button" data-drop-scene
+                ${canDrop ? '' : 'disabled'}
+                title="${canDrop ? 'Take the last scene away' : 'Empty the last scene first'}">−</button>
+      </span>`;
 
     const rows = project.tracks.map((track, index) => `
       <div class="grid-track">
@@ -780,7 +810,8 @@ export class SketchPage {
           <button class="cell" type="button" data-cell="${index}:${column}" data-full="${Boolean(clip)}">
             <span class="cell-what">${clip ? clipSays(clip, perBar) : '+'}</span>
           </button>`;
-      }).join('')}`).join('');
+      }).join('')}
+      <span class="scene-edit"></span>`).join('');
 
     this.parts.grid.style.setProperty('--scenes', project.scenes.length);
     this.parts.grid.innerHTML = `<span class="grid-corner"></span>${heads}${rows}`;
@@ -1054,7 +1085,7 @@ export class SketchPage {
   /** Which scene an export means: the one being edited, else the first with anything in it. */
   whichScene() {
     return this.at?.scene
-      ?? [...Array(SCENES).keys()].find((index) => sceneHasAnything(this.project, index))
+      ?? [...this.project.scenes.keys()].find((index) => sceneHasAnything(this.project, index))
       ?? 0;
   }
 

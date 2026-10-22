@@ -15,6 +15,7 @@ import {
   newProject, clipOf, trackOf, setClip, setTrack, setNotes, setProject,
   clipAt, trackAt, sceneOf, sceneHasAnything, barTicks, repeat,
   sceneToMidi, serialise, parse, PROJECT_FORMAT, SCENES, setLength,
+  addScene, dropScene, MOST_SCENES,
 } from '../src/sketch/project.js';
 import { readMidi, PPQ, DRUM_CHANNEL } from '../src/sketch/midi.js';
 import { INSTRUMENT_IDS } from '../src/core/instrument.js';
@@ -325,4 +326,60 @@ test('shortening a clip through the project drops what no longer fits', () => {
 
   // An empty slot is left as it is rather than given a clip.
   assert.equal(clipAt(setLength(project, 1, 3, bar), 1, 3), null);
+});
+
+test('a sketch can hold more scenes than it opens with, up to a cap', () => {
+  let project = newProject();
+  assert.equal(project.scenes.length, SCENES);
+
+  project = addScene(addScene(project));
+  assert.equal(project.scenes.length, SCENES + 2);
+  assert.deepEqual(project.scenes.map((scene) => scene.name), ['1', '2', '3', '4', '5', '6']);
+
+  // Every track grows with it, or a column of clips has nowhere to go.
+  for (const track of project.tracks) assert.equal(track.slots.length, SCENES + 2);
+
+  let big = newProject();
+  for (let i = 0; i < 40; i += 1) big = addScene(big);
+  assert.equal(big.scenes.length, MOST_SCENES);
+  assert.equal(addScene(big), big, 'at the cap it hands back the same project');
+});
+
+test('the last scene can go, but not while there is anything in it', () => {
+  let project = addScene(newProject());
+  project = setNotes(project, 0, 4, [{ pitch: 60, start: 0 }]);
+
+  assert.equal(dropScene(project), project, 'a scene with a clip in it is kept');
+
+  project = setClip(project, 0, 4, null);
+  const gone = dropScene(project);
+  assert.equal(gone.scenes.length, SCENES);
+  for (const track of gone.tracks) assert.equal(track.slots.length, SCENES);
+
+  // And the first one is never taken away, however empty it is.
+  let bare = newProject();
+  for (let i = 0; i < 10; i += 1) bare = dropScene(bare);
+  assert.equal(bare.scenes.length, 1);
+});
+
+test('more scenes than it opens with survive being written out and read back', () => {
+  let project = addScene(addScene(addScene(newProject())));
+  project = setNotes(project, 2, 6, [{ pitch: 36, start: 0 }]);
+
+  const back = parse(serialise(project));
+  assert.equal(back.scenes.length, 7);
+  assert.equal(back.tracks[2].slots.length, 7);
+  assert.equal(clipAt(back, 2, 6).notes.length, 1);
+});
+
+test('a file whose tracks and scenes disagree is made to agree', () => {
+  // Which can only come from another version, and leaves a column of clips
+  // that nothing can put anywhere.
+  const project = addScene(addScene(newProject()));
+  const raw = JSON.parse(serialise(project));
+  raw.tracks[1].slots = raw.tracks[1].slots.slice(0, 2);
+  raw.tracks[3].slots.push(null, null, null);
+
+  const back = parse(raw);
+  for (const track of back.tracks) assert.equal(track.slots.length, back.scenes.length);
 });

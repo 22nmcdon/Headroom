@@ -969,7 +969,8 @@ function fillHelp() {
        + 'the top launches the lot. Tap a slot and it comes in on the next bar, '
        + 'which is why parts land together rather than wherever your finger '
        + 'happened to be. Tap a track\'s name for its instrument, its inserts '
-       + 'and its level.'],
+       + 'and its level. The + at the end of the numbers adds a scene, up to '
+       + 'eight, and the clips scroll sideways while the names stay put.'],
       ['Tap an empty slot and there is a clip in it.',
        'The panel then shows the grid you draw on: rows are the notes of the key '
        + 'you are in, columns are a division of the bar, and a tap is a note — '

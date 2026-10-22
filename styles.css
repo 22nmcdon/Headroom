@@ -1777,12 +1777,56 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
 /* Tracks down the left, clips running right. One grid rather than a stack of
    rows, so the columns line up with the scene heads without anything
    measuring anything. */
+/* The grid scrolls sideways when there are more clips than fit; the names
+   do not go with them. A column that falls off the left takes the only
+   label that says which track you are looking at, which on a phone is the
+   difference between a grid and a field of boxes. */
+.grid-scroll {
+  overflow-x: auto;
+  /* Room for the sticky column's shadow, which a tight box would clip. */
+  margin-inline: -4px;
+  padding-inline: 4px;
+  scrollbar-width: thin;
+}
+
 .sketch-grid {
   display: grid;
-  grid-template-columns: var(--names, 104px) repeat(var(--scenes, 4), minmax(0, 1fr));
+  /* The minimum is set so that a new sketch's four scenes fit without
+     scrolling at either width - a grid that overflows by twenty pixels on
+     opening reads as broken rather than as scrollable - and so that the
+     fifth is what starts it moving. */
+  grid-template-columns:
+    var(--names, 100px) repeat(var(--scenes, 4), minmax(64px, 1fr)) 26px;
   gap: 5px;
   align-items: stretch;
+  /* `min-content` so the columns keep their minimum and the box grows past
+     the scroller instead of squeezing them to nothing. */
+  min-width: min-content;
 }
+
+/* The name column, pinned. */
+.grid-corner,
+.sketch-grid .grid-track {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: var(--paper);
+}
+.sketch-grid .grid-track { box-shadow: 6px 0 6px -6px rgba(36, 31, 29, 0.18); }
+
+/* Adding and taking away a scene, at the end of the row of scene numbers. */
+.scene-edit { display: flex; flex-direction: column; gap: 2px; justify-content: center; }
+.scene-more {
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  color: var(--text-soft);
+  font-size: 13px;
+  line-height: 1;
+  padding: 3px 0;
+}
+.scene-more:hover:not(:disabled) { color: var(--blush-deep); border-color: var(--blush); }
+.scene-more:disabled { opacity: 0.3; cursor: default; }
 
 /* A track's name, and the one button worth having beside it. */
 .grid-track {
@@ -2019,7 +2063,11 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
 }
 
 @media (max-width: 560px) {
-  .sketch-grid { --names: 84px; gap: 4px; }
+  .sketch-grid {
+    --names: 78px;
+    gap: 4px;
+    grid-template-columns: var(--names) repeat(var(--scenes, 4), minmax(58px, 1fr)) 22px;
+  }
   .cell { min-height: 42px; font-size: 9.5px; }
   .track-name { font-size: 12.5px; }
   .step { height: 18px; }

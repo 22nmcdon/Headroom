@@ -32,7 +32,19 @@ export const STARTER = [
   { id: 'synth', name: 'Synth', instrument: 'synth', pan: 0.2, gain: 0.6 },
 ];
 
+/** What a new sketch opens with. */
 export const SCENES = 4;
+
+/**
+ * And the most it will hold.
+ *
+ * A cap rather than no cap, because past about this many a row of clips is
+ * an arrangement and an arrangement wants a timeline, which is the thing
+ * this deliberately does not have. Eight is two screens of scrolling on a
+ * phone and enough for an intro, a verse, a chorus and somewhere to put the
+ * idea that does not fit yet.
+ */
+export const MOST_SCENES = 8;
 
 /** A clip, with everything it does not say filled in. */
 export const clipOf = ({
@@ -93,7 +105,13 @@ export const trackOf = ({
   pan,
   send,
   muted,
-  slots: Array.from({ length: SCENES }, (_, i) => (slots[i] ? clipOf(slots[i]) : null)),
+  // As many slots as the track was given, or a new sketch's worth. Sized
+  // from what arrives rather than from a constant, so a project saved with
+  // six scenes comes back with six.
+  slots: Array.from(
+    { length: Math.max(1, Math.min(MOST_SCENES, slots.length || SCENES)) },
+    (_, i) => (slots[i] ? clipOf(slots[i]) : null),
+  ),
 });
 
 /** What key a sketch is in, which is what the editor's rows are built from. */
@@ -132,6 +150,43 @@ export const clipAt = (project, track, scene) => project.tracks[track]?.slots[sc
  * clips - would mean a track's clips living somewhere other than the track,
  * and every per-track operation gathering them back up.
  */
+/**
+ * Every track's slots made to match the scenes there are.
+ *
+ * The two can only disagree through a file written by another version, and
+ * a track with fewer slots than there are scenes is a column of clips that
+ * cannot be put anywhere.
+ */
+export function sized(project) {
+  const count = project.scenes.length;
+  return withTracks(project, project.tracks.map((track) => ({
+    ...track,
+    slots: Array.from({ length: count }, (_, i) => track.slots[i] ?? null),
+  })));
+}
+
+/** One more scene, up to the cap. Returns the project unchanged at it. */
+export function addScene(project) {
+  if (project.scenes.length >= MOST_SCENES) return project;
+  const at = project.scenes.length;
+  return sized({
+    ...project,
+    scenes: [...project.scenes, { id: `scene-${at + 1}`, name: `${at + 1}` }],
+  });
+}
+
+/**
+ * The last scene, gone - but only when there is nothing in it.
+ *
+ * Nothing here deletes anybody's work by accident. A scene with a clip in
+ * it has to be emptied first, which is a thing you can see yourself doing.
+ */
+export function dropScene(project) {
+  const at = project.scenes.length - 1;
+  if (at < 1 || sceneHasAnything(project, at)) return project;
+  return sized({ ...project, scenes: project.scenes.slice(0, at) });
+}
+
 export const sceneOf = (project, scene) => project.tracks
   .map((track, index) => ({ track, index, clip: track.slots[scene] ?? null }))
   .filter((row) => row.clip);
@@ -302,13 +357,13 @@ export function parse(text) {
 
   const bpm = Number(raw.bpm);
   const scenes = Array.isArray(raw.scenes) && raw.scenes.length
-    ? raw.scenes.slice(0, SCENES).map((scene, i) => ({
+    ? raw.scenes.slice(0, MOST_SCENES).map((scene, i) => ({
       id: String(scene?.id ?? `scene-${i + 1}`),
       name: String(scene?.name ?? i + 1),
     }))
     : newProject().scenes;
 
-  return {
+  return sized({
     format: PROJECT_FORMAT,
     name: String(raw.name ?? 'Untitled'),
     bpm: Number.isFinite(bpm) && bpm > 0 ? bpm : 96,
@@ -319,5 +374,5 @@ export function parse(text) {
     tracks: raw.tracks
       .filter((track) => track && typeof track === 'object')
       .map((track, i) => trackOf({ ...track, id: String(track.id ?? `track-${i + 1}`) })),
-  };
+  });
 }
