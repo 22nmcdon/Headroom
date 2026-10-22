@@ -274,6 +274,11 @@ that doing it right is audible rather than merely scored:
 - **An identification drill on every tool**, on three tiers each, with the
   question, the chips and the tolerances all set by measurement rather than by
   taste — see below.
+- **A guided path**: the six tools in a teaching order, three steps each —
+  read what it is for, be asked one question about it, then build one — and
+  then one last step that is not about a single tool at all: mix something.
+  Nothing is locked. The path marks what is next; the next thing is a
+  suggestion.
 - **Per-tool progress**, per tier, and kept apart for work and for drills,
   because they are different activities and pooling them would report neither.
   It records which kind of answer keeps catching you out *and what you keep

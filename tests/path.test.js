@@ -8,7 +8,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { steps, progress, where, TEACHING_ORDER, ENOUGH, PATH_TIER } from '../src/bench/path.js';
+import {
+  steps, progress, where, TEACHING_ORDER, ENOUGH, ENOUGH_MIXES, PATH_TIER,
+} from '../src/bench/path.js';
 import { TOOL_IDS, TOOLS } from '../src/bench/registry.js';
 
 /** Nothing played, nothing read. */
@@ -19,16 +21,32 @@ const everything = { solvesOf: () => ENOUGH, hasRead: () => true };
 
 test('the path is every tool, three steps each, in a teaching order', () => {
   const all = steps();
-  assert.equal(all.length, TOOL_IDS.length * 3);
-  assert.deepEqual([...new Set(all.map((s) => s.tool))], TEACHING_ORDER);
+  const tools = all.filter((step) => step.tool);
+
+  assert.equal(tools.length, TOOL_IDS.length * 3);
+  assert.deepEqual([...new Set(tools.map((s) => s.tool))], TEACHING_ORDER);
   assert.deepEqual([...new Set(TEACHING_ORDER)].sort(), [...TOOL_IDS].sort(),
     'the order covers every tool and invents none');
 
   for (const tool of TEACHING_ORDER) {
-    const mine = all.filter((s) => s.tool === tool);
+    const mine = tools.filter((s) => s.tool === tool);
     assert.deepEqual(mine.map((s) => s.step), ['read', 'drill', 'work'],
       `${tool} is not read, then asked, then built`);
   }
+});
+
+test('and then one step that is not about a single tool at all', () => {
+  const all = steps();
+  const last = all[all.length - 1];
+
+  assert.equal(last.step, 'mix');
+  assert.equal(last.tool, null, 'the mix belongs to no tool');
+  assert.equal(last.kind, 'mix');
+  assert.equal(last.enough, ENOUGH_MIXES);
+  // One, not three: a mix round is four parts and several submits, and the
+  // point of it here is the moment the six become one job.
+  assert.ok(ENOUGH_MIXES < ENOUGH);
+  assert.equal(all.filter((step) => step.step === 'mix').length, 1);
 });
 
 test('a tool is called by a name that fits in a sentence', () => {
@@ -50,14 +68,14 @@ test('every step says what it is and where it goes', () => {
   for (const step of steps()) {
     assert.ok(step.id && step.label, `${step.id} has nothing on it`);
     assert.ok(step.detail, `${step.id} does not say what it is`);
-    assert.ok(TOOL_IDS.includes(step.tool));
+    assert.ok(step.tool === null || TOOL_IDS.includes(step.tool));
 
     if (step.step === 'read') {
       assert.equal(step.kind, undefined, 'reading is not a round');
       continue;
     }
     assert.equal(step.tier, PATH_TIER, 'the path starts at the easy tier');
-    assert.ok(['work', 'drill'].includes(step.kind));
+    assert.ok(['work', 'drill', 'mix'].includes(step.kind));
   }
 });
 
@@ -152,5 +170,33 @@ test('a step cannot be un-done by a bad round', () => {
 test('the line underneath says where somebody is', () => {
   assert.match(where(progress(nobody)), /Start at the top/);
   assert.match(where(progress({ solvesOf: (t) => (t === 'eq' ? 9 : 0), hasRead: (t) => t === 'eq' })),
-    /3 of 18 done/);
+    /3 of 19 done/);
+});
+
+test('the mix step is done after one match, not three', () => {
+  const read = { hasRead: () => true };
+
+  // Everything else finished, the mix not started.
+  const nearly = progress({ ...read, solvesOf: (tool) => (tool === 'mix' ? 0 : ENOUGH) });
+  assert.equal(nearly.finished, false);
+  assert.equal(nearly.next.step, 'mix');
+
+  const done = progress({ ...read, solvesOf: () => ENOUGH_MIXES });
+  assert.equal(done.steps[done.steps.length - 1].done, true);
+
+  // And one match is enough even though one solve is not enough for a tool.
+  const one = progress({ ...read, solvesOf: () => 1 });
+  assert.equal(one.steps[one.steps.length - 1].done, true);
+  assert.equal(one.steps.find((step) => step.step === 'work').done, false);
+});
+
+test('the mix step is looked up under its own name, not a tools', () => {
+  // It has no tool, so whatever `solvesOf` is handed has to be something
+  // the stats can find - and the mix bucket is keyed by the kind.
+  const asked = [];
+  progress({
+    hasRead: () => true,
+    solvesOf: (tool, tier, kind) => { asked.push(`${tool}:${tier}:${kind}`); return 0; },
+  });
+  assert.ok(asked.includes(`mix:${PATH_TIER}:mix`), asked.join(' '));
 });

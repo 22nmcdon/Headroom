@@ -814,12 +814,15 @@ function showPath() {
     const here = step.done ? 'is-done' : step === state.next ? 'is-next' : '';
     const mark = step.done ? '✓' : step === state.next ? '→' : '';
     const count = step.step === 'read' ? ''
-      : `${Math.min(step.solves, 3)} of 3`;
+      : `${Math.min(step.solves, step.enough)} of ${step.enough}`;
+
+    // The last step belongs to no tool, so it is named for what it is.
+    const whose = step.tool ? `${TOOLS[step.tool].label} — ` : 'All six — ';
 
     return `<li><button class="path-step ${here}" type="button" data-step="${step.id}">
       <span class="path-mark">${mark}</span>
       <span class="path-what">
-        <span class="path-label">${TOOLS[step.tool].label} — ${step.label}</span>
+        <span class="path-label">${whose}${step.label}</span>
         <span class="path-detail">${step.detail}</span>
       </span>
       <span class="path-where">${count}</span>
@@ -842,6 +845,19 @@ async function goTo(id) {
   if (!step) return;
 
   $('#path').close();
+
+  // The last step is not a tool, and taking somebody to the EQ for it would
+  // be the path pointing at the wrong half of the app.
+  if (step.step === 'mix') {
+    ui.view = 'mix';
+    syncView();
+    if (ui.mix && ui.mix.tier !== step.tier) {
+      ui.mix.tier = step.tier;
+      ui.mix.deal();
+    }
+    return;
+  }
+
   if (ui.view !== 'tools') {
     ui.view = 'tools';
     syncView();

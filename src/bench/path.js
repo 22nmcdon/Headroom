@@ -43,6 +43,16 @@ export const ENOUGH = 3;
 export const PATH_TIER = 'easy';
 
 /**
+ * How many mixes finish the last step.
+ *
+ * One, not three. A mix round is four parts and several submits, and the
+ * point of it here is not drilling - it is the moment where the six tools
+ * stop being six exercises and become one job. Doing that once is the
+ * thing; doing it three times is a different suggestion.
+ */
+export const ENOUGH_MIXES = 1;
+
+/**
  * What each tool is called in a sentence.
  *
  * Not derived from the label, which gives "read what a compression is for"
@@ -99,6 +109,18 @@ export function steps() {
     );
   }
 
+  // And then the one that is not about a single tool at all.
+  all.push({
+    id: 'mix:match',
+    tool: null,
+    step: 'mix',
+    kind: 'mix',
+    tier: PATH_TIER,
+    enough: ENOUGH_MIXES,
+    label: 'Mix something',
+    detail: 'Four parts, one balance, and a mix to match. Everything above, at once.',
+  });
+
   return all;
 }
 
@@ -116,9 +138,10 @@ export function steps() {
  */
 export function progress({ solvesOf, hasRead }) {
   const marked = steps().map((step) => {
-    const solves = step.kind ? solvesOf(step.tool, step.tier, step.kind) : 0;
-    const done = step.step === 'read' ? hasRead(step.tool) : solves >= ENOUGH;
-    return { ...step, solves, done };
+    const solves = step.kind ? solvesOf(step.tool ?? step.kind, step.tier, step.kind) : 0;
+    const enough = step.enough ?? ENOUGH;
+    const done = step.step === 'read' ? hasRead(step.tool) : solves >= enough;
+    return { ...step, solves, enough, done };
   });
 
   const next = marked.find((step) => !step.done) ?? null;
@@ -136,6 +159,6 @@ export function progress({ solvesOf, hasRead }) {
 /** Where somebody is, in a line. */
 export function where(state) {
   if (state.finished) return 'You have been through all of it. The path is a starting order, not a ceiling.';
-  if (!state.done) return 'Six tools, three steps each. Start at the top.';
+  if (!state.done) return 'Six tools, three steps each, and then all six at once. Start at the top.';
   return `${state.done} of ${state.total} done.`;
 }
