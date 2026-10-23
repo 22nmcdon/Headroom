@@ -151,6 +151,35 @@ export const HEAT_EXERCISES = {
     faultOf: () => null,
     targetOf: () => ({ ...HEAT_DEFAULTS }),
   },
+  ends: {
+    id: 'ends',
+    label: 'Which end breaks up?',
+    drill: true,
+    ask: 'Something here is being driven. Which end of it is giving way?',
+    lede: 'Nothing to dial. One of these breaks up at the top, one at the '
+        + 'bottom, and one treats the whole spectrum alike. They are matched '
+        + 'for how much, so the only thing to go on is where.',
+    opening: 'Against the clean side. Listen to the bottom, then the top.',
+    tierBlurbs: {
+      easy: 'Full strength',
+      medium: 'Pulled back against the dry',
+      hard: 'Pulled back further',
+    },
+    // The mix, because this question is about a spectrum and a single note
+    // has too little of one to tell you where anything is.
+    source: 'mix',
+    other: 'Clean',
+    faultOf: () => null,
+    targetOf: () => ({ ...HEAT_DEFAULTS }),
+
+    startOf: (puzzle) => ({
+      ...HEAT_DEFAULTS,
+      ...HEAT_ENDS_SETTINGS[puzzle.answer.end],
+      ...(HEAT_ENDS[puzzle.tier] ?? HEAT_ENDS.medium),
+    }),
+    cleanOf: () => ({ ...HEAT_DEFAULTS, mix: 0 }),
+    restores: true,
+  },
   drill: {
     id: 'drill',
     label: 'Warm or dirty?',
@@ -178,6 +207,113 @@ export const HEAT_EXERCISES = {
 };
 
 const keyOf = (answer) => `${answer.colour}:${answer.amount}`;
+
+/* --- which end breaks up -------------------------------------------------- */
+
+/**
+ * The question the tape and the transformer exist as a pair to ask.
+ *
+ * Every family before them bends every frequency alike. These two do not, and
+ * in opposite directions: tape records with the top lifted and plays it back
+ * with the top put down, so the highs reach the curve loudest; iron's flux is
+ * the integral of the voltage, so for a signal of a given size it goes as one
+ * over the frequency and the bottom runs out of room first. Soft clip is the
+ * control, and bends everything the same.
+ */
+const ENDS = [
+  { id: 'top', label: 'The top', symbol: 'Top' },
+  { id: 'even', label: 'Evenly', symbol: 'Evenly' },
+  { id: 'bottom', label: 'The bottom', symbol: 'Bottom' },
+];
+
+/**
+ * The settings behind each, and what makes them a fair question.
+ *
+ * Measured on the sine probe at five frequencies across the band - 82 Hz,
+ * 220, 600, 1.6 k and 4.4 k - at 48 kHz:
+ *
+ *   top      -26.9  -27.4  -31.6  -17.0  -16.1   loudest band -16.1
+ *   evenly   -17.7  -17.7  -17.7  -17.7  -17.7   loudest band -17.7
+ *   bottom   -16.0  -31.9  -49.2  -66.6  -83.7   loudest band -16.0
+ *
+ * The three are matched on their loudest band to within 1.7 dB, because that
+ * is the one anybody notices and if they were not matched the answer would be
+ * "whichever is dirtiest" rather than where the dirt is. What they are not
+ * matched on is the tilt: nothing, ten decibels up, sixty-eight down. Those
+ * are three different answers and not three points on a scale.
+ *
+ * The first tape tried here lifted 10 dB from 1500 Hz and tilted three
+ * decibels, which is not something anybody could be asked to hear. Measured
+ * across a grid of corners and amounts, the corner mattered more than the
+ * amount, and 900 Hz is most of the difference between a tape you can name
+ * and one you cannot.
+ */
+const HEAT_ENDS_SETTINGS = {
+  top: { mode: 'tape', speed: 0, drive: 0, bias: 0.3 },
+  even: { mode: 'soft', drive: 11, bias: 0.3, hardness: 2.5 },
+  bottom: { mode: 'iron', core: 0.5, drive: 0 },
+};
+
+/**
+ * All three at every tier; what the tier changes is how loud the thing you
+ * are listening for is.
+ *
+ * Dropping to two chips at the easy tier was the first idea and it is a bad
+ * one: two choices can be passed by picking the same one every round, which
+ * is a drill that teaches nothing and a test here says so. Mix is the right
+ * dial instead - pulling the saturated signal back against the dry one lowers
+ * the whole series together, where backing the drive off would change which
+ * end is breaking up as well as how much of it there is.
+ *
+ * There is no near miss at any tier. A thing breaking up at the top is not
+ * nearly a thing breaking up at the bottom.
+ */
+const HEAT_ENDS = {
+  easy: { mix: 1 },
+  medium: { mix: 0.7 },
+  hard: { mix: 0.45 },
+};
+
+/** Name the end. One reading, one chip, exact or nothing. */
+function scoreEnds(state, puzzle) {
+  const { answer } = puzzle;
+  const right = state.end === answer.end;
+  const mine = ENDS.find((e) => e.id === state.end) ?? ENDS[1];
+  const theirs = ENDS.find((e) => e.id === answer.end) ?? ENDS[1];
+
+  return {
+    correct: right,
+    cells: [
+      { state: right ? HIT : MISS, text: mine.symbol },
+      {
+        state: right ? HIT : MISS,
+        text: right ? 'that is where it was' : `it was ${theirs.label.toLowerCase()}`,
+        narrow: true,
+      },
+    ],
+    why: [
+      {
+        label: 'Which end',
+        value: theirs.label.toLowerCase(),
+        how: 'Measured at five frequencies across the band, from 82 Hz to '
+           + '4.4 kHz. Tape tilts about ten decibels towards the top, because '
+           + 'it lifts the highs into the curve and puts them back down after. '
+           + 'The transformer tilts sixty-eight the other way, because flux is '
+           + 'the integral of the voltage and the bottom fills the core first. '
+           + 'A plain curve does not tilt at all.',
+      },
+      {
+        label: 'How much',
+        value: 'the same, whichever it was',
+        how: 'Their loudest bands are -16.1, -17.7 and -16.0 dB of harmonics, '
+           + 'which is 1.7 dB apart at the widest. That is deliberate: if one '
+           + 'of them were dirtier than the others you would be naming it off '
+           + 'how much there is rather than off where it is, and the drill '
+           + 'would be answering itself.',
+      },
+    ],
+  };
+}
 
 /**
  * Name the colour, name the amount.
@@ -266,6 +402,9 @@ export const HEAT_WORK = {
 
   /** Answered on the plugin, except in the drill, which asks with chips. */
   slots(tier, settings) {
+    if (settings?.exercise === 'ends') {
+      return [{ id: 'end', kind: 'choice', label: 'Which end', options: ENDS }];
+    }
     if (settings?.exercise !== 'drill') return [];
 
     const spec = HEAT_DRILL[tier] ?? HEAT_DRILL.medium;
@@ -282,6 +421,8 @@ export const HEAT_WORK = {
 
   makePuzzle(rng, tier, settings) {
     const spec = this.tiers[tier];
+
+    if (settings.exercise === 'ends') return { answer: { end: pick(rng, ENDS).id } };
 
     if (settings.exercise === 'drill') {
       const drill = HEAT_DRILL[tier] ?? HEAT_DRILL.medium;
@@ -358,6 +499,7 @@ export const HEAT_WORK = {
     const { answer, tier } = puzzle;
     const guess = state;
     const exercise = puzzle?.settings?.exercise ?? 'amount';
+    if (exercise === 'ends') return scoreEnds(state, puzzle);
     if (exercise === 'drill') return scoreColour(state, puzzle);
 
     const rate = puzzle?.rate ?? 48000;

@@ -15,25 +15,27 @@ import { TOOLS, TOOL_IDS } from '../src/learn/bench/registry.js';
 import { HIT, NEAR, MISS } from '../src/learn/work/scoring.js';
 import { makePuzzle, settingsFor, scoreGuess } from '../src/learn/game.js';
 
-/** Every tool that has a drill, and the tiers it offers one at. */
-const DRILLS = TOOL_IDS
-  .filter((id) => TOOLS[id].exercises.drill)
-  .flatMap((id) => Object.keys(TOOLS[id].tiers).map((tier) => [id, tier]));
+/** The drills a tool has, by id. Saturation has two; the rest have one. */
+const drillsOf = (id) => Object.values(TOOLS[id].exercises).filter((e) => e.drill).map((e) => e.id);
 
-const drillPuzzle = (id, tier, seed) => makePuzzle({
-  mode: id, tier, settings: settingsFor(id, { exercise: 'drill' }), seed,
+/** Every drill there is, and the tiers it is offered at. */
+const DRILLS = TOOL_IDS.flatMap((id) => drillsOf(id)
+  .flatMap((drill) => Object.keys(TOOLS[id].tiers).map((tier) => [id, tier, drill])));
+
+const drillPuzzle = (id, tier, seed, drill = 'drill') => makePuzzle({
+  mode: id, tier, settings: settingsFor(id, { exercise: drill }), seed,
 });
 
-const slotsOf = (id, tier) => TOOLS[id].slots(tier, { exercise: 'drill' });
+const slotsOf = (id, tier, drill = 'drill') => TOOLS[id].slots(tier, { exercise: drill });
 
 /* --- what every drill owes, whichever tool it is on ---------------------- */
 
 test('a drill asks with chips, and an exercise does not', () => {
-  for (const [id, tier] of DRILLS) {
-    assert.ok(slotsOf(id, tier).length, `${id}/${tier} has a drill that asks nothing`);
+  for (const [id, tier, drill] of DRILLS) {
+    assert.ok(slotsOf(id, tier, drill).length, `${id}/${tier}/${drill} has a drill that asks nothing`);
 
-    for (const key of Object.keys(TOOLS[id].exercises)) {
-      if (key === 'drill') continue;
+    for (const [key, exercise] of Object.entries(TOOLS[id].exercises)) {
+      if (exercise.drill) continue;
       assert.equal(TOOLS[id].slots(tier, { exercise: key }).length, 0,
         `${id}/${tier}/${key} is a tool exercise and should be answered on the tool`);
     }
@@ -44,19 +46,20 @@ test('a drill says it is one, and says what it is asking', () => {
   // The shell reads both: `drill` is why the tool goes away - its display
   // would be showing the answer - and `ask` is the question that replaces it.
   for (const id of TOOL_IDS) {
-    const drill = TOOLS[id].exercises.drill;
-    if (!drill) continue;
-    assert.equal(drill.drill, true, `${id}'s drill does not declare itself`);
-    assert.ok(drill.ask && drill.ask.length > 15, `${id}'s drill does not say what it asks`);
-    assert.match(drill.ask, /\?$/, `${id}'s drill does not ask a question`);
+    for (const key of drillsOf(id)) {
+      const drill = TOOLS[id].exercises[key];
+      assert.equal(drill.drill, true, `${id}/${key} does not declare itself`);
+      assert.ok(drill.ask && drill.ask.length > 15, `${id}/${key} does not say what it asks`);
+      assert.match(drill.ask, /\?$/, `${id}/${key} does not ask a question`);
+    }
   }
 });
 
 test('every answer a drill generates is on the chips that tier offers', () => {
-  for (const [id, tier] of DRILLS) {
-    const slots = slotsOf(id, tier);
+  for (const [id, tier, drill] of DRILLS) {
+    const slots = slotsOf(id, tier, drill);
     for (let i = 0; i < 60; i += 1) {
-      const puzzle = drillPuzzle(id, tier, `${id}-${tier}-${i}`);
+      const puzzle = drillPuzzle(id, tier, `${id}-${tier}-${drill}-${i}`, drill);
       for (const slot of slots) {
         if (slot.kind === 'range') {
           assert.ok(puzzle.answer[slot.id] >= slot.min && puzzle.answer[slot.id] <= slot.max,
@@ -71,9 +74,9 @@ test('every answer a drill generates is on the chips that tier offers', () => {
 });
 
 test('a drill is only right when every part of it is right', () => {
-  for (const [id, tier] of DRILLS) {
-    const puzzle = drillPuzzle(id, tier, `all-${id}-${tier}`);
-    const slots = slotsOf(id, tier);
+  for (const [id, tier, drill] of DRILLS) {
+    const puzzle = drillPuzzle(id, tier, `all-${id}-${tier}-${drill}`, drill);
+    const slots = slotsOf(id, tier, drill);
     assert.ok(scoreGuess({ ...puzzle.answer }, puzzle).correct, `${id}/${tier} refuses its own answer`);
 
     for (const slot of slots.filter((s) => s.kind !== 'range')) {
@@ -92,10 +95,10 @@ test('no drill can be passed by picking the same chip every time', () => {
   // that no one of them comes up often enough to be worth always picking.
   const ROUNDS = 120;
 
-  for (const [id, tier] of DRILLS) {
+  for (const [id, tier, drill] of DRILLS) {
     const counts = new Map();
     for (let i = 0; i < ROUNDS; i += 1) {
-      const key = JSON.stringify(drillPuzzle(id, tier, `spread-${id}-${tier}-${i}`).answer);
+      const key = JSON.stringify(drillPuzzle(id, tier, `spread-${id}-${tier}-${drill}-${i}`, drill).answer);
       counts.set(key, (counts.get(key) ?? 0) + 1);
     }
 

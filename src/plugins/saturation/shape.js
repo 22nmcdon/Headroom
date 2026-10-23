@@ -93,10 +93,16 @@ export const MOST_TONE = 9000;
  *            else here treats every frequency alike; this records with the
  *            top lifted and plays back with it put down, so the highs reach
  *            the curve loudest and bend first. Measured, a tone at 3.5 kHz
- *            comes back 5.5 dB more distorted than one at 147 Hz - and only
- *            0.6 dB more once the drive is at 14, because by then the curve
- *            is saturated and a lift has nothing left to give. Which is the
- *            lesson: emphasis is something you hear at the quiet end.
+ *            comes back about 14 dB more distorted than one at 82 Hz - and
+ *            far less than that once the drive is up, because by then the
+ *            curve is saturated and a lift has nothing left to give. Which
+ *            is the lesson: emphasis is something you hear at the quiet end.
+ *
+ *            The first numbers tried here lifted 10 dB from 1500 Hz and gave
+ *            three decibels of tilt, which is not a thing anybody could be
+ *            asked to hear. Measured across a grid, the corner mattered more
+ *            than the amount: bringing it down to 900 is most of the
+ *            difference between a tape you can name and one you cannot.
  *   tube     the one that remembers. Drive the grid positive and it draws
  *            current, charging the capacitor in front of it and pushing the
  *            operating point out; the capacitor takes tens of milliseconds to
@@ -233,9 +239,9 @@ export const IRON_PIVOT = 100;
  * on `CURVES` and in tests/heat.test.js.
  */
 export const TAPE_SPEEDS = [
-  { label: '7½ ips', emphasis: 10, corner: 1500, bump: 2.5, bumpHz: 40, loss: 10000 },
-  { label: '15 ips', emphasis: 7, corner: 3000, bump: 2.0, bumpHz: 60, loss: 15000 },
-  { label: '30 ips', emphasis: 5, corner: 6000, bump: 1.5, bumpHz: 90, loss: 19000 },
+  { label: '7½ ips', emphasis: 16, corner: 900, bump: 2.5, bumpHz: 40, loss: 14000 },
+  { label: '15 ips', emphasis: 12, corner: 1800, bump: 2.0, bumpHz: 60, loss: 17000 },
+  { label: '30 ips', emphasis: 8, corner: 3500, bump: 1.5, bumpHz: 90, loss: 20000 },
 ];
 
 /** The order they are offered in: gentlest first, least analogue last. */
