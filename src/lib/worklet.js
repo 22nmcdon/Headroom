@@ -23,8 +23,10 @@
  * second declaration of something a module already owns.
  */
 export function workletModule({ constants = {}, parts = [], processor }) {
+  // As a JSON literal, not as `${value}`. For a number the two are the same
+  // string; for the table of tape speeds one of them is "[object Object]".
   const prelude = Object.entries(constants)
-    .map(([name, value]) => `const ${name} = ${value};`)
+    .map(([name, value]) => `const ${name} = ${JSON.stringify(value)};`)
     .join('\n');
 
   return `${prelude}

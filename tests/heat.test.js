@@ -243,6 +243,30 @@ test('every family has a deck, and the three universal knobs are not in it', () 
   }
 });
 
+/** THD at whatever frequency we like, by moving the probe bin. */
+function heatThdAt(settings, bin) {
+  const step = (2 * Math.PI * bin) / PROBE_LENGTH;
+  const amp = Math.pow(10, -12 / 20) * Math.SQRT2;
+  const core = shaperCore(rate, false);
+  core.set({ ...HEAT_DEFAULTS, ...settings, listen: 'out' });
+  for (let i = 0; i < 24000; i += 1) core.step(amp * Math.sin(step * i));
+  const re = new Float64Array(PROBE_LENGTH);
+  const im = new Float64Array(PROBE_LENGTH);
+  for (let i = 0; i < PROBE_LENGTH; i += 1) {
+    core.step(amp * Math.sin(step * (i + 24000)));
+    re[i] = core.out;
+  }
+  fft(re, im);
+  let total = 0;
+  let first = 0;
+  for (let i = 1; i < PROBE_LENGTH / 2; i += 1) {
+    const power = re[i] * re[i] + im[i] * im[i];
+    total += power;
+    if (i === bin) first = power;
+  }
+  return 10 * Math.log10(Math.max(total - first, 1e-20) / Math.max(first, 1e-20));
+}
+
 test('tape breaks up at the top before the bottom, and only while there is room', () => {
   // The whole of why this family exists. Everything else here treats every
   // frequency alike; tape lifts the top going in and puts it back down coming
@@ -251,28 +275,7 @@ test('tape breaks up at the top before the bottom, and only while there is room'
   // And it narrows as the drive comes up, which is the part worth knowing:
   // once the curve is saturated a lift has nothing left to give. Measured
   // when this was written - 5.5 dB of spread at drive 0, 0.6 dB at drive 14.
-  const thdAt = (settings, bin) => {
-    const step = (2 * Math.PI * bin) / PROBE_LENGTH;
-    const amp = Math.pow(10, PROBE_LEVEL / 20) * Math.SQRT2;
-    const core = shaperCore(rate, false);
-    core.set({ ...HEAT_DEFAULTS, ...settings, listen: 'out' });
-    for (let i = 0; i < 24000; i += 1) core.step(amp * Math.sin(step * i));
-    const re = new Float64Array(PROBE_LENGTH);
-    const im = new Float64Array(PROBE_LENGTH);
-    for (let i = 0; i < PROBE_LENGTH; i += 1) {
-      core.step(amp * Math.sin(step * (i + 24000)));
-      re[i] = core.out;
-    }
-    fft(re, im);
-    let total = 0;
-    let first = 0;
-    for (let i = 1; i < PROBE_LENGTH / 2; i += 1) {
-      const power = re[i] * re[i] + im[i] * im[i];
-      total += power;
-      if (i === bin) first = power;
-    }
-    return 10 * Math.log10(Math.max(total - first, 1e-20) / Math.max(first, 1e-20));
-  };
+  const thdAt = heatThdAt;
 
   const LOW = 50;    // 147 Hz, well under the emphasis corner
   const HIGH = 1200; // 3.5 kHz, well over it
@@ -291,6 +294,31 @@ test('tape breaks up at the top before the bottom, and only while there is room'
   const narrowed = thdAt(loud, HIGH) - thdAt(loud, LOW);
   assert.ok(narrowed < spread - 2,
     `the spread should close as the curve saturates: ${spread.toFixed(1)} then ${narrowed.toFixed(1)}`);
+});
+
+test('a transformer breaks up at the bottom, which is tape upside down', () => {
+  // Flux is the integral of the voltage, so for a signal of a given size it
+  // goes as one over the frequency and the core runs out of room at the
+  // bottom first. Nothing in the arithmetic names a frequency; this falls out
+  // of the integrator, and if it ever stops falling out something has turned
+  // the integrator into a filter.
+  //
+  // Measured at drive 0 when this was written: -17.0 dB of harmonics at
+  // 147 Hz against -71.0 at 3.5 kHz.
+  const low = heatThdAt({ mode: 'iron', drive: 0, core: 0.3 }, 50);
+  const high = heatThdAt({ mode: 'iron', drive: 0, core: 0.3 }, 1200);
+  assert.ok(low - high > 30, `the bottom should break up first, by ${(low - high).toFixed(1)} dB`);
+
+  // and it is the mirror of tape, which is the pair that makes the question
+  // "which end is distorting" worth asking
+  const tapeLow = heatThdAt({ mode: 'tape', drive: 0, bias: 0.3, speed: 0 }, 50);
+  const tapeHigh = heatThdAt({ mode: 'tape', drive: 0, bias: 0.3, speed: 0 }, 1200);
+  assert.ok(tapeHigh > tapeLow, 'tape leans on the top');
+  assert.ok(low > high, 'iron leans on the bottom');
+
+  // a smaller core has less room, so it bends sooner
+  const roomy = heatThdAt({ mode: 'iron', drive: 0, core: 1 }, 50);
+  assert.ok(low > roomy + 6, `a small core should bend sooner: ${low.toFixed(1)} against ${roomy.toFixed(1)}`);
 });
 
 test('a slower tape lifts more, loses more, and bumps lower', () => {

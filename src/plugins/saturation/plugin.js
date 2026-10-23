@@ -68,6 +68,13 @@ const HEAT_KNOBS = [
     write: (v) => (v >= MOST_TONE - 1 ? 'Open' : writeHertz(v)),
   },
   {
+    id: 'core',
+    name: 'Core',
+    ...span(HEAT_LIMITS.core),
+    step: 0.01,
+    write: (v) => (v < 0.2 ? `Small · ${v.toFixed(2)}` : v > 0.8 ? `Large · ${v.toFixed(2)}` : v.toFixed(2)),
+  },
+  {
     id: 'speed',
     name: 'Speed',
     ...span(HEAT_LIMITS.speed),
@@ -626,7 +633,7 @@ export class HeatPlugin {
     c.font = '9.5px system-ui, sans-serif';
     c.fillStyle = ink.soft;
     c.textAlign = 'left';
-    c.fillText('in against out', 6, 12);
+    c.fillText(this.settings.mode === 'iron' ? 'flux against core' : 'in against out', 6, 12);
   }
 
   /**

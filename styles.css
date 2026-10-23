@@ -1486,7 +1486,11 @@ input.knob-value:focus {
 /* The family, at the head of the deck it controls - the same gesture the
    compressor makes with "Dynamics & output", because the deck below is the
    curve's controls and naming the curve there costs nothing. */
-.heat-modes { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 2px; }
+.heat-modes { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; margin-bottom: 2px; min-width: 0; }
+/* Six families, and Transformer is a long word: the group has to be allowed
+   to wrap or it sets the width of the whole deck and the knobs under it go
+   out through the side of the chassis. */
+.heat-modes .eq-ab { flex-wrap: wrap; min-width: 0; }
 
 /* And the chassis moves a stop with it. Not a reskin: the knobs keep their
    colour and the furniture keeps its shape, because somebody is meant to

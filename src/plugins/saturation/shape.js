@@ -97,6 +97,14 @@ export const MOST_TONE = 9000;
  *            0.6 dB more once the drive is at 14, because by then the curve
  *            is saturated and a lift has nothing left to give. Which is the
  *            lesson: emphasis is something you hear at the quiet end.
+ *   iron     the other end, and the exact mirror of tape. Flux in a core is
+ *            the integral of the voltage across the winding, so for a signal
+ *            of a given size it goes as one over the frequency and the core
+ *            runs out of room at the bottom first. Measured at drive 0: 147 Hz
+ *            comes back at -17 dB of harmonics and 3.5 kHz at -71, which is
+ *            54 dB of spread falling about twelve decibels an octave - the
+ *            six the flux loses, doubled, because the third harmonic grows as
+ *            its square. No frequency appears anywhere in the arithmetic.
  *   crush    the one that is not analogue at all. Quantising and holding make
  *            energy at frequencies that are not multiples of anything, which
  *            is the single thing no real saturator does.
@@ -132,7 +140,27 @@ export const CURVES = {
     knobs: ['speed', 'bias'],
     inharmonic: false,
   },
+  iron: {
+    label: 'Transformer',
+    knobs: ['core'],
+    inharmonic: false,
+  },
 };
+
+/**
+ * Where the core is reckoned to saturate, as a frequency.
+ *
+ * The flux in an iron core is the integral of the voltage across the winding,
+ * so for a signal of a given size the flux is inversely proportional to its
+ * frequency - and the core runs out of room at the bottom of the spectrum
+ * first. That is the whole of why a transformer distorts bass and leaves the
+ * top alone, and it is the exact mirror of what tape does.
+ *
+ * The integrator is scaled so that a full-scale tone at this frequency fills
+ * a core of size 1. Everything below it fills more, at six decibels an
+ * octave; everything above it fills less.
+ */
+export const IRON_PIVOT = 100;
 
 /**
  * What each tape speed is.
@@ -158,7 +186,7 @@ export const TAPE_SPEEDS = [
 ];
 
 /** The order they are offered in: gentlest first, least analogue last. */
-export const CURVE_ORDER = ['soft', 'tape', 'rectify', 'fold', 'crush'];
+export const CURVE_ORDER = ['soft', 'tape', 'iron', 'rectify', 'fold', 'crush'];
 
 export const HEAT_DEFAULTS = {
   mode: 'soft',    // which family of curve - see CURVES
@@ -170,6 +198,7 @@ export const HEAT_DEFAULTS = {
   bits: 16,        // crush: the depth it is quantised to
   hold: 1,         // crush: how many samples each one is held for
   speed: 1,        // tape: which of TAPE_SPEEDS
+  core: 0.5,       // transformer: how much room the iron has
   tone: MOST_TONE, // a low-pass after the curve, on the harmonics it just made
   mix: 1,          // 0 is the dry signal, 1 is all shaped
   trim: 0,         // output, in dB - auto gain writes this
@@ -194,6 +223,7 @@ export const HEAT_LIMITS = {
   bits: [2, 16],
   hold: [1, 16],
   speed: [0, 2],
+  core: [0.05, 1],
   tone: [LEAST_TONE, MOST_TONE],
   mix: [0, 1],
   trim: [-24, 24],
@@ -318,10 +348,11 @@ export const HEAT_LATENCY = (OVER_TAPS - 1) / OVERSAMPLE;
  * does when it starts rather than what it does. See `spectrumOf`.
  */
 export function shaperCore(rate, blockDc = true) {
-  const state = {
-    mode: 'soft', drive: 0, bias: 0, hardness: 2, tone: 20000, mix: 1, trim: 0,
-    listen: 'out', amount: 1, folds: 1, bits: 16, hold: 1, speed: 1,
-  };
+  // From the defaults rather than copied out of them. This was a literal, and
+  // every family added since has begun by forgetting to put its parameter in
+  // it - which does not throw, it quietly reads undefined and comes out as a
+  // knob that does nothing or a core that saturates to NaN.
+  const state = { ...HEAT_DEFAULTS };
 
   const kernel = overKernel();
   const branch = Math.ceil(OVER_TAPS / OVERSAMPLE);
@@ -349,6 +380,15 @@ export function shaperCore(rate, blockDc = true) {
   let slowAt = 0;
   let fastAt = 0;
   let dryAt = 0;
+
+  // The core's flux, and the last value it came back out at. Both carry
+  // between samples, which is what makes this family the first one here that
+  // is not a function of the sample in front of it.
+  let flux = 0;
+  let wasSat = 0;
+  let ironing = false;
+  const fluxStep = (2 * Math.PI * IRON_PIVOT) / (rate * OVERSAMPLE);
+  const fluxLeak = 1 - (2 * Math.PI * 8) / (rate * OVERSAMPLE);
 
   // The pair either side of the curve, and the two that come after it. Only
   // the tape family uses them, and only it pays for them.
@@ -389,6 +429,7 @@ export function shaperCore(rate, blockDc = true) {
     // inner loop runs eight times for every sample that arrives.
     crushing = state.mode === 'crush';
     taping = state.mode === 'tape';
+    ironing = state.mode === 'iron';
     if (taping) {
       const pick = Math.round(state.speed);
       const at = TAPE_SPEEDS[Number.isFinite(pick)
@@ -410,6 +451,21 @@ export function shaperCore(rate, blockDc = true) {
       // it are flat to 21 kHz, so the signal comes out of the round trip as
       // it went in, and the crushing is done below at the rate it belongs to.
       curve = (v) => v;
+    } else if (ironing) {
+      // Integrate to get the flux, saturate the flux, differentiate to get
+      // the voltage back. Where the core has room the two undo each other
+      // exactly and the signal comes through untouched; where it does not,
+      // the flux flattens and what comes out of the differentiator is the
+      // bend. No frequency appears in this arithmetic - the frequency
+      // dependence falls out of the integrator, which is the point.
+      const size = state.core;
+      curve = (v) => {
+        flux = fluxLeak * flux + v * fluxStep;
+        const sat = Math.tanh(flux / size) * size;
+        const out = (sat - wasSat) / fluxStep;
+        wasSat = sat;
+        return out;
+      };
     } else {
       const hardness = state.hardness;
       curve = (v) => shape(v, hardness) - centre;
@@ -874,8 +930,15 @@ export function transferCurve(settings, points = 129) {
   const folds = settings.folds ?? HEAT_DEFAULTS.folds;
   const bits = settings.bits ?? HEAT_DEFAULTS.bits;
   const middle = rectify(0, amount);
+  // The transformer is the one family whose panel is not input against
+  // output, because for it those two are not a fixed pair - what comes out
+  // depends on how long the signal has been going in. What is fixed is the
+  // core: flux in, saturated flux out, which is the shape that decides
+  // everything else. The face says which it is drawing.
+  const core = settings.core ?? HEAT_DEFAULTS.core;
   let curve;
-  if (mode === 'rectify') curve = (v) => rectify(v, amount) - middle;
+  if (mode === 'iron') curve = (v) => Math.tanh(v / core) * core;
+  else if (mode === 'rectify') curve = (v) => rectify(v, amount) - middle;
   else if (mode === 'fold') curve = (v) => foldOver(v, folds);
   else if (mode === 'crush') curve = (v) => crushTo(v, bits);
   else curve = (v) => shape(v, hardness) - centre;

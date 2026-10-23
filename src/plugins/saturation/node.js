@@ -1,4 +1,7 @@
-import { shape, shaperCore, overKernel, MOST_BIAS, MOST_TONE, DC_CORNER } from './shape.js';
+import {
+  shape, shaperCore, overKernel, rectify, foldOver, crushTo,
+  MOST_BIAS, MOST_TONE, DC_CORNER, TAPE_SPEEDS, IRON_PIVOT, HEAT_DEFAULTS,
+} from './shape.js';
 import { makeBiquad, setBiquad, runBiquad } from '../../lib/dsp.js';
 import { workletModule, installWorklet } from '../../lib/worklet.js';
 
@@ -15,7 +18,10 @@ import { workletModule, installWorklet } from '../../lib/worklet.js';
  * hear is the same code that marks the guess.
  */
 
-const HEAT_PARTS = [makeBiquad, setBiquad, runBiquad, shape, overKernel, shaperCore];
+const HEAT_PARTS = [
+  makeBiquad, setBiquad, runBiquad,
+  shape, rectify, foldOver, crushTo, overKernel, shaperCore,
+];
 
 const HEAT_CONSTANTS = {
   OVERSAMPLE: 8,
@@ -24,6 +30,9 @@ const HEAT_CONSTANTS = {
   MOST_BIAS,
   MOST_TONE,
   DC_CORNER,
+  TAPE_SPEEDS,
+  IRON_PIVOT,
+  HEAT_DEFAULTS,
 };
 
 const HEAT_PROCESSOR = `class HeadroomSaturator extends AudioWorkletProcessor {
