@@ -663,7 +663,7 @@ body, .sheet, .dock, .top-bar, dialog { transition: background-color 280ms ease,
   /* Narrow enough that eight bays come out as one row at the widths this
      is used at - a deck is a row, and a deck that wraps seven and one is
      a form again. */
-  grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(var(--deck, 92px), 1fr));
   gap: 10px 6px;
 }
 
@@ -707,7 +707,7 @@ input.knob-value:focus {
 .knob-dial  { order: 4; }
 
 .knob-name {
-  font-size: 8.5px;
+  font-size: var(--tag, 8.5px);
   text-transform: uppercase;
   letter-spacing: 0.16em;
   font-weight: 500;
@@ -717,7 +717,7 @@ input.knob-value:focus {
 }
 .knob-value {
   font-family: var(--serif);
-  font-size: 13.5px;
+  font-size: var(--read, 13.5px);
   color: var(--knob-read, var(--charcoal));
   font-variant-numeric: tabular-nums;
   text-align: center;
@@ -725,7 +725,7 @@ input.knob-value:focus {
 }
 
 .knob-face {
-  --size: 46px;
+  --size: var(--bay, 46px);
   --angle: 0deg;
   position: relative;
   width: var(--size);
@@ -903,9 +903,8 @@ input.knob-value:focus {
 .eq.is-locked .eq-bands,
 .eq.is-locked .eq-controls { opacity: 0.5; pointer-events: none; }
 
-@media (max-width: 760px) {
-  .eq-display { height: clamp(180px, 30vh, 240px); }
-  .eq-controls { grid-template-columns: 1fr; }
+@container (max-width: 620px) {
+  .eq-display { height: clamp(150px, 26vh, 220px); }
   /* The hint is for a keyboard, and there is not one. */
   .eq-hint { display: none; }
 }
@@ -954,6 +953,15 @@ input.knob-value:focus {
   --knob-point:     var(--cream);
   --knob-name:      var(--ink-faint);
   --knob-read:      var(--ink);
+
+  /* How big the plugin is drawn. A narrow container turns these down and
+     everything on the face follows, so the plugin keeps its shape and gets
+     smaller rather than coming apart into a different plugin. */
+  --bay:   46px;    /* the knob itself */
+  --tag:   8.5px;   /* what it is */
+  --read:  13.5px;  /* what it is set to */
+  --deck:  92px;    /* the narrowest a bay may be before the row wraps */
+  --panel: clamp(96px, 16vh, 140px);   /* and how tall a display is */
 
   display: flex;
   flex-direction: column;
@@ -1033,6 +1041,9 @@ input.knob-value:focus {
   align-items: center;
   gap: 9px;
   margin: 0 0 9px;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
   font-size: 7.5px;
   letter-spacing: 0.26em;
   text-transform: uppercase;
@@ -1233,7 +1244,7 @@ input.knob-value:focus {
   /* Narrow enough that eight bays come out as one row at the widths this
      is used at - a deck is a row, and a deck that wraps seven and one is
      a form again. */
-  grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(var(--deck, 92px), 1fr));
   gap: 10px 6px;
 }
 /* Auto gain is holding the makeup knob, and says so by standing back from it
@@ -1257,38 +1268,27 @@ input.knob-value:focus {
    learning compression is comparing one against the other. */
 .comp-meters {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) 50px;
-  grid-template-areas:
-    "now now out"
-    "curve trace out";
-  gap: 10px 0;
+  grid-template-columns:
+    minmax(0, 1.5fr) minmax(0, 0.95fr) minmax(0, 1.9fr) var(--ladder, 50px);
+  gap: 0;
   align-items: stretch;
 }
-.comp-bay-now { grid-area: now; }
-.comp-bay-curve { grid-area: curve; padding-left: 0; }
-.comp-bay-trace { grid-area: trace; }
-.comp-bay-out { grid-area: out; }
 
 @container (min-width: 760px) {
-  .comp-meters {
-    grid-template-columns: 200px minmax(120px, 0.8fr) minmax(0, 2fr) 54px;
-    grid-template-areas: "now curve trace out";
-    gap: 0;
-  }
-  .comp-bay-curve { padding-left: 12px; }
+  .comp-meters { grid-template-columns: 200px minmax(120px, 0.8fr) minmax(0, 2fr) 54px; }
 }
 .comp-bay { position: relative; padding: 0 12px; min-width: 0; }
 .comp-bay-trace, .comp-bay-out { border-left: 1px solid var(--cut); box-shadow: 1px 0 0 var(--lift); }
 @container (min-width: 760px) { .comp-bay-curve { border-left: 1px solid var(--cut); box-shadow: 1px 0 0 var(--lift); } }
 .comp-bay:first-child { padding-left: 0; }
 .comp-bay:last-child { padding-right: 0; }
-.comp-bay > .plugin-panel { height: clamp(96px, 16vh, 140px); }
+.comp-bay > .plugin-panel { height: var(--panel); }
 
 /* The dial, let into the panel behind a bezel with glass over it. */
 .vu {
   position: relative;
   aspect-ratio: 1.92;
-  max-height: clamp(96px, 16vh, 140px);
+  max-height: var(--panel);
   margin-inline: auto;
   border-radius: 3px;
   background: radial-gradient(circle at 50% 118%, #fffdf9, #e7dccc);
@@ -1317,6 +1317,38 @@ input.knob-value:focus {
   letter-spacing: 0.2em;
   text-transform: uppercase;
   color: var(--text-soft);
+}
+
+/* A plugin in a narrow box is the same plugin, smaller.
+   ---------------------------------------------------------------------
+   It used to be a different one: the needle took a row of its own above
+   the other two displays and the knobs went four rows of two, so the thing
+   on a phone was not the thing being learned anywhere else. Everything
+   that has to give is a custom property, and this is where they give.
+
+   What does not survive the shrink is the numbers printed on the dial -
+   at this size they are smaller than anybody can read, and the needle
+   against the ticks is the reading anyway, which is how a meter is read.
+   Eight bays across does not survive either: at 356 points a bay is 44
+   and the word THRESHOLD needs 60, so the deck comes out four and four. */
+@container (max-width: 560px) {
+  .plugin {
+    --bay: 34px;
+    --tag: 7.5px;
+    --read: 11.5px;
+    --deck: 72px;
+    --panel: clamp(58px, 9vh, 84px);
+    --ladder: 34px;
+  }
+  .plugin > * { padding: 8px 9px 9px; }
+  .plugin > .plugin-head { padding-block: 6px; }
+  .plugin .panel-name { margin-bottom: 6px; letter-spacing: 0.18em; }
+  .comp-bay { padding: 0 6px; }
+  .vu-mark { display: none; }
+  .comp-bay-out .panel-name { visibility: hidden; }
+  .plugin-read { font-size: 11.5px; }
+  .plugin .ab-btn, .plugin .pick-btn { padding: 4px 9px; font-size: 8.5px; }
+  .chain-row { gap: 8px 10px; }
 }
 
 /* The side chain: a strip of its own, because all of it is about the one
@@ -1444,19 +1476,16 @@ input.knob-value:focus {
 }
 .toggle input { accent-color: var(--blush-deep); width: 15px; height: 15px; }
 
-@media (max-width: 760px) {
-  /* The panels stack; the compressor's meters stay beside them, because a
-     meter lying on its side is not a meter. */
-
+@container (max-width: 620px) {
+  /* Two pictures side by side stop being two pictures somewhere around
+     here: they stack, and get the height back that they lost in width. */
   .verb-display,
   .echo-display,
   .image-display,
   .heat-display {
     grid-template-columns: 1fr;
-    height: clamp(260px, 48vh, 360px);
+    height: clamp(200px, 40vh, 320px);
   }
-
-  .plugin-controls { grid-template-columns: 1fr 1fr; }
 }
 
 /* --- controls you dial ---------------------------------------------------- */

@@ -63,7 +63,7 @@ export function vuFace({
     const [x2, y2] = at(degrees, RADIUS - 8);
     const [tx, ty] = at(degrees, RADIUS - 23);
     return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#241f1d" stroke-width="1.5"/>
-      <text x="${tx}" y="${ty + 3.5}" text-anchor="middle" font-size="9.5"
+      <text class="vu-mark" x="${tx}" y="${ty + 3.5}" text-anchor="middle" font-size="9.5"
             font-family="Jost, sans-serif" font-weight="500" fill="#3a332f">${db}</text>`;
   }).join('');
 
