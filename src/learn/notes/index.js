@@ -1,6 +1,6 @@
 import { EQ_NOTES } from './eq.js';
 import { COMP_NOTES } from './comp.js';
-import { IMAGE_NOTES } from './image.js';
+import { STEREO_NOTES } from './stereo.js';
 import { VERB_NOTES } from './verb.js';
 import { ECHO_NOTES } from './echo.js';
 import { HEAT_NOTES } from './heat.js';
@@ -21,7 +21,7 @@ import { HEAT_NOTES } from './heat.js';
 export const NOTES = {
   eq: EQ_NOTES,
   compression: COMP_NOTES,
-  panning: IMAGE_NOTES,
+  panning: STEREO_NOTES,
   reverb: VERB_NOTES,
   delay: ECHO_NOTES,
   saturation: HEAT_NOTES,

@@ -11,7 +11,7 @@
 // asks that a track wants answered without being asked - what happens to the
 // low end when something sums it.
 
-import { imageProfile, IMAGE_BANDS } from '../plugins/stereo/field.js';
+import { stereoProfile, STEREO_BANDS } from '../plugins/stereo/field.js';
 import { readingOf, stampOf } from '../lib/read.js';
 
 // The bands a low end has to survive a fold to mono in. The imager's own
@@ -30,7 +30,7 @@ const BOTTOM_BANDS = ['sub', 'low'];
  */
 export function widthReading(channels, rate, { source = null } = {}) {
   const [left, right] = channels.length > 1 ? channels : [channels[0], channels[0]];
-  const profile = imageProfile(left, right, rate);
+  const profile = stereoProfile(left, right, rate);
 
   // What a fold to mono costs down low: the bands where it matters, each the
   // difference between what is there in stereo and what is left in the middle.
@@ -44,7 +44,7 @@ export function widthReading(channels, rate, { source = null } = {}) {
     of: {
       state: stampOf({ channels: channels.length, rate }),
       source,
-      axis: { kind: 'bands', ids: IMAGE_BANDS.map((band) => band.id) },
+      axis: { kind: 'bands', ids: STEREO_BANDS.map((band) => band.id) },
     },
     values: {
       ...profile,
@@ -63,4 +63,4 @@ export function widthReading(channels, rate, { source = null } = {}) {
  * so that an analysis reading and a round of the imager's match exercise are
  * marked by the same arithmetic.
  */
-export { imageGap as widthGap } from '../plugins/stereo/field.js';
+export { stereoGap as widthGap } from '../plugins/stereo/field.js';

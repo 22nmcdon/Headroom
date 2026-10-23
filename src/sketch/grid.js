@@ -45,7 +45,7 @@ import { insertPlayer } from './insert.js';
 import { EQPlugin } from '../plugins/eq/plugin.js';
 import { CompPlugin } from '../plugins/compressor/plugin.js';
 import { HeatPlugin } from '../plugins/saturation/plugin.js';
-import { ImagePlugin } from '../plugins/stereo/plugin.js';
+import { StereoPlugin } from '../plugins/stereo/plugin.js';
 import { EchoPlugin } from '../plugins/delay/plugin.js';
 import { VerbPlugin } from '../plugins/reverb/plugin.js';
 import { tapInto, drift, timing } from './tap.js';
@@ -70,7 +70,7 @@ const PLUGINS = {
   eq: EQPlugin,
   compression: CompPlugin,
   saturation: HeatPlugin,
-  panning: ImagePlugin,
+  panning: StereoPlugin,
   delay: EchoPlugin,
   reverb: VerbPlugin,
 };

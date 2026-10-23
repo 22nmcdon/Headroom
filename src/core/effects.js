@@ -41,7 +41,7 @@ import { makeImpulse, VERB_DEFAULTS } from '../plugins/reverb/ir.js';
 import { makeEcho, ECHO_DEFAULTS } from '../plugins/delay/line.js';
 import { COMP_DEFAULTS } from '../plugins/compressor/dsp.js';
 import { HEAT_DEFAULTS } from '../plugins/saturation/shape.js';
-import { IMAGE_DEFAULTS } from '../plugins/stereo/field.js';
+import { STEREO_DEFAULTS } from '../plugins/stereo/field.js';
 import { newStrip } from '../plugins/eq/filters.js';
 import { wetDry } from './effect.js';
 
@@ -257,7 +257,7 @@ async function heatEffect(ctx, { settings = HEAT_DEFAULTS } = {}) {
   };
 }
 
-async function imageEffect(ctx, { settings = IMAGE_DEFAULTS } = {}) {
+async function stereoEffect(ctx, { settings = STEREO_DEFAULTS } = {}) {
   const live = new LiveImager(ctx);
   live.settings = { ...settings };
   await live.start();
@@ -349,7 +349,7 @@ const echoEffect = (ctx, { settings = {} } = {}) =>
 export const EFFECTS = {
   eq: async (ctx, options) => eqEffect(ctx, options),
   compression: compEffect,
-  panning: imageEffect,
+  panning: stereoEffect,
   reverb: async (ctx, options) => verbEffect(ctx, options),
   delay: async (ctx, options) => echoEffect(ctx, options),
   saturation: heatEffect,

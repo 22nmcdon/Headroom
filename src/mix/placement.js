@@ -16,7 +16,7 @@
 // panned thing lives in, which is also what makes it useful to say out loud -
 // "the 400 is 4 dB further left than it should be" is an instruction.
 
-import { IMAGE_BANDS } from '../plugins/stereo/field.js';
+import { STEREO_BANDS } from '../plugins/stereo/field.js';
 import { bandOf } from '../lib/response.js';
 import { readingOf, stampOf, gapOf } from '../lib/read.js';
 
@@ -42,13 +42,13 @@ const sideOf = (left, right) => Math.max(-MOST_OFF_CENTRE, Math.min(MOST_OFF_CEN
 /** Where each band sits, and where the whole thing does. */
 export function placementOf(left, right, rate) {
   const bands = {};
-  for (const band of IMAGE_BANDS) {
+  for (const band of STEREO_BANDS) {
     bands[band.id] = sideOf(bandOf(left, rate, band), bandOf(right, rate, band));
   }
   return { whole: sideOf(left, right), bands };
 }
 
-export const PLACEMENT_AXIS = { kind: 'bands', ids: IMAGE_BANDS.map((band) => band.id) };
+export const PLACEMENT_AXIS = { kind: 'bands', ids: STEREO_BANDS.map((band) => band.id) };
 
 /** A placement, in an envelope. */
 export const placementReading = (channels, rate, { source = null } = {}) => readingOf({
@@ -73,7 +73,7 @@ export function placementGap(mine, theirs) {
   let where = null;
   let moved = 0;
 
-  for (const band of IMAGE_BANDS) {
+  for (const band of STEREO_BANDS) {
     const shift = a.bands[band.id] - b.bands[band.id];
     if (Math.abs(shift) > off) {
       off = Math.abs(shift);

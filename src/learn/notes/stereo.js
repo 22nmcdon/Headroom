@@ -2,7 +2,7 @@
 //
 // The long version of what lives at the top of src/plugins/stereo/field.js.
 
-export const IMAGE_NOTES = {
+export const STEREO_NOTES = {
   tool: 'panning',
   title: 'The stereo field',
   sections: [

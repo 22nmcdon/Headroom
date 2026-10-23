@@ -6,11 +6,11 @@ import { distance, KINDS } from '../src/lib/gap.js';
 import { curveReading, curveGap, JUDGED_HZ } from '../src/plugins/eq/filters.js';
 import { reductionReading, reductionGap, FRAME_MS, materialStamp } from '../src/plugins/compressor/reading.js';
 import { decayReading, decayTimes, decayProfile, monoOf } from '../src/lib/response.js';
-import { imageReading } from '../src/plugins/stereo/field.js';
+import { stereoReading } from '../src/plugins/stereo/field.js';
 import { harmonicsReading, HEAT_DEFAULTS } from '../src/plugins/saturation/shape.js';
 import { makeImpulse, VERB_DEFAULTS, roomProfile } from '../src/plugins/reverb/ir.js';
 import { COMP_DEFAULTS, analyse, meanFrames } from '../src/plugins/compressor/dsp.js';
-import { IMAGE_DEFAULTS } from '../src/plugins/stereo/field.js';
+import { STEREO_DEFAULTS } from '../src/plugins/stereo/field.js';
 import { mulberry32 } from '../src/lib/random.js';
 
 const rate = 48000;
@@ -70,7 +70,7 @@ test('every kind of reading arrives in the same envelope', () => {
     curveReading([{ type: 'peaking', frequency: 800, gain: 4, q: 1, on: true }], rate),
     reductionReading(material, rate, COMP_DEFAULTS),
     decayReading('reverb', roomProfile(rate, VERB_DEFAULTS), { state: VERB_DEFAULTS }),
-    imageReading(stereoPair().left, stereoPair().right, rate, IMAGE_DEFAULTS),
+    stereoReading(stereoPair().left, stereoPair().right, rate, STEREO_DEFAULTS),
     harmonicsReading(rate, { ...HEAT_DEFAULTS, drive: 10 }),
   ];
 
@@ -195,8 +195,8 @@ test('every gap comes back in the same shape', () => {
      reductionReading(material, rate, { ...COMP_DEFAULTS, threshold: -10, ratio: 2 })],
     [decayReading('reverb', roomProfile(rate, { ...VERB_DEFAULTS, decay: 2.5 }), { state: 1 }),
      decayReading('reverb', roomProfile(rate, { ...VERB_DEFAULTS, decay: 0.5 }), { state: 2 })],
-    [imageReading(pair.left, pair.right, rate, { ...IMAGE_DEFAULTS, low: 2, mid: 2 }),
-     imageReading(pair.left, pair.right, rate, { ...IMAGE_DEFAULTS, low: 0.2, mid: 0.2 })],
+    [stereoReading(pair.left, pair.right, rate, { ...STEREO_DEFAULTS, low: 2, mid: 2 }),
+     stereoReading(pair.left, pair.right, rate, { ...STEREO_DEFAULTS, low: 0.2, mid: 0.2 })],
     [harmonicsReading(rate, { ...HEAT_DEFAULTS, drive: 18, bias: 0.6 }),
      harmonicsReading(rate, { ...HEAT_DEFAULTS, drive: 4, bias: 0 })],
   ];

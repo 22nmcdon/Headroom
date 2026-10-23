@@ -16,7 +16,7 @@
 
 import { COMP_DEFAULTS, COMP_LIMITS } from '../plugins/compressor/dsp.js';
 import { HEAT_DEFAULTS, HEAT_LIMITS } from '../plugins/saturation/shape.js';
-import { IMAGE_DEFAULTS, IMAGE_LIMITS } from '../plugins/stereo/field.js';
+import { STEREO_DEFAULTS, STEREO_LIMITS } from '../plugins/stereo/field.js';
 import { VERB_DEFAULTS, VERB_LIMITS } from '../plugins/reverb/ir.js';
 import { ECHO_DEFAULTS, ECHO_LIMITS } from '../plugins/delay/line.js';
 import { EFFECT_IDS } from '../core/effects.js';
@@ -106,7 +106,7 @@ export const KNOBS = {
 const REST = {
   eq: EQ_REST,
   compression: COMP_DEFAULTS,
-  panning: IMAGE_DEFAULTS,
+  panning: STEREO_DEFAULTS,
   reverb: VERB_DEFAULTS,
   delay: ECHO_DEFAULTS,
   saturation: HEAT_DEFAULTS,
@@ -135,7 +135,7 @@ const ROUTING = {
 
 const LIMITS = {
   compression: COMP_LIMITS,
-  panning: IMAGE_LIMITS,
+  panning: STEREO_LIMITS,
   reverb: VERB_LIMITS,
   delay: ECHO_LIMITS,
   saturation: HEAT_LIMITS,

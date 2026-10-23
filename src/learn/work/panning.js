@@ -1,5 +1,5 @@
 import {
-  IMAGE_DEFAULTS, imageOf, imageReading, runImager,
+  STEREO_DEFAULTS, stereoOf, stereoReading, runImager,
 } from '../../plugins/stereo/field.js';
 import { makeBiquad, setBiquad, runBiquad } from '../../plugins/compressor/dsp.js';
 import { mulberry32 } from '../../lib/random.js';
@@ -27,7 +27,7 @@ import { HIT, NEAR, MISS, onScale, toStep, pick } from './scoring.js';
 
 
 /** How far two images may be apart, in decibels of width, and still match. */
-const IMAGE_CLOSE = { easy: 2.4, medium: 1.6, hard: 1.0 };
+const STEREO_CLOSE = { easy: 2.4, medium: 1.6, hard: 1.0 };
 
 /**
  * How far off a placing may be, in decibels of balance between the channels.
@@ -100,7 +100,7 @@ function fieldMaterial(puzzle) {
 
   // The fault belongs to the recording, so the stand-in gets it too.
   const faulted = runImager(probe.left, probe.right, probe.rate,
-    { ...IMAGE_DEFAULTS, ...puzzle.fault });
+    { ...STEREO_DEFAULTS, ...puzzle.fault });
   return { left: faulted.left, right: faulted.right, rate: probe.rate };
 }
 
@@ -165,7 +165,7 @@ const PLACE_DRILL = {
  * is what lets one tool be handed from one exercise to the next without being
  * destroyed in between.
  */
-export const IMAGE_EXERCISES = {
+export const STEREO_EXERCISES = {
   place: {
     id: 'place',
     label: 'Place it',
@@ -190,7 +190,7 @@ export const IMAGE_EXERCISES = {
     // the A/B is that, untouched, so you can hear what you are undoing.
     other: 'Untreated',
     faultOf: (puzzle) => puzzle.fault ?? { low: 2.3 },
-    targetOf: () => ({ ...IMAGE_DEFAULTS }),
+    targetOf: () => ({ ...STEREO_DEFAULTS }),
   },
   drill: {
     id: 'drill',
@@ -209,14 +209,14 @@ export const IMAGE_EXERCISES = {
     source: 'instrument',
     other: 'Centred',
     faultOf: () => null,
-    targetOf: () => ({ ...IMAGE_DEFAULTS }),
+    targetOf: () => ({ ...STEREO_DEFAULTS }),
 
     startOf: (puzzle) => ({
-      ...IMAGE_DEFAULTS,
+      ...STEREO_DEFAULTS,
       pan: PLACES[placeAt(puzzle.answer.place)].pan,
       listen: 'stereo',
     }),
-    cleanOf: () => ({ ...IMAGE_DEFAULTS, listen: 'stereo' }),
+    cleanOf: () => ({ ...STEREO_DEFAULTS, listen: 'stereo' }),
     restores: true,
   },
 };
@@ -285,7 +285,7 @@ function scorePlacing(state, puzzle) {
   };
 }
 
-export const IMAGE_WORK = {
+export const STEREO_WORK = {
   tool: 'panning',
   opening: 'Play the loop, work the image, then lock it in.',
 
@@ -293,11 +293,11 @@ export const IMAGE_WORK = {
     {
       id: 'exercise',
       label: 'Exercise',
-      options: Object.values(IMAGE_EXERCISES).map(({ id, label }) => ({ id, label })),
+      options: Object.values(STEREO_EXERCISES).map(({ id, label }) => ({ id, label })),
     },
   ],
 
-  exercises: IMAGE_EXERCISES,
+  exercises: STEREO_EXERCISES,
 
   tiers: {
     easy: { label: 'Easy', blurb: 'Hard left, centre, hard right', guesses: 3, places: [-1, 0, 1], bands: 1 },
@@ -341,7 +341,7 @@ export const IMAGE_WORK = {
         return toStep(wide ? 1.45 + rng() * 0.85 : 0.25 + rng() * 0.4, 0.05);
       };
 
-      const answer = { ...IMAGE_DEFAULTS, low: away() };
+      const answer = { ...STEREO_DEFAULTS, low: away() };
       if (spec.bands >= 2) answer.high = away();
       if (spec.bands >= 3) answer.mid = away();
       return { answer };
@@ -351,7 +351,7 @@ export const IMAGE_WORK = {
       ? pick(rng, spec.places)
       : toStep(-1 + rng() * 2, spec.step);
 
-    return { answer: { ...IMAGE_DEFAULTS, pan } };
+    return { answer: { ...STEREO_DEFAULTS, pan } };
   },
 
   /* ---------- marking ---------- */
@@ -362,11 +362,11 @@ export const IMAGE_WORK = {
     const exercise = puzzle?.settings?.exercise ?? 'place';
     if (exercise === 'drill') return scorePlacing(guess, puzzle);
 
-    const settings = { ...IMAGE_DEFAULTS, ...guess, listen: 'stereo' };
+    const settings = { ...STEREO_DEFAULTS, ...guess, listen: 'stereo' };
     const material = fieldMaterial(puzzle);
     // The same envelope the plugin hands back, so the panel's number and this
     // one are the same measurement rather than two that happen to agree.
-    const mine = imageReading(material.left, material.right, material.rate, settings);
+    const mine = stereoReading(material.left, material.right, material.rate, settings);
 
     if (exercise === 'mono') return this.scoreMono(mine.values, material, tier, settings);
     if (exercise === 'match') return this.scoreMatch(mine, answer, material, tier);
@@ -380,8 +380,8 @@ export const IMAGE_WORK = {
     // and working the other out on paper left a residual that moved with the
     // material - and at the finest tier that residual was most of the
     // tolerance.
-    const theirs = imageOf(material.left, material.right, material.rate,
-      { ...IMAGE_DEFAULTS, ...answer, listen: 'stereo' });
+    const theirs = stereoOf(material.left, material.right, material.rate,
+      { ...STEREO_DEFAULTS, ...answer, listen: 'stereo' });
 
     const got = held(mine.whole.balance);
     const wanted = held(theirs.whole.balance);
@@ -462,12 +462,12 @@ export const IMAGE_WORK = {
 
   /** Is it the same width, band by band? */
   scoreMatch(mine, answer, material, tier) {
-    const theirs = imageReading(material.left, material.right, material.rate,
-      { ...IMAGE_DEFAULTS, ...answer, listen: 'stereo' });
+    const theirs = stereoReading(material.left, material.right, material.rate,
+      { ...STEREO_DEFAULTS, ...answer, listen: 'stereo' });
     const gap = distance(mine, theirs);
     const error = gap.off;
 
-    const close = IMAGE_CLOSE[tier];
+    const close = STEREO_CLOSE[tier];
     const mark = error <= close ? HIT : error <= close * 2.5 ? NEAR : MISS;
 
     return {
@@ -518,7 +518,7 @@ export const IMAGE_WORK = {
    * bass on half the systems it will be played on.
    */
   scoreMono(mine, material, tier, settings) {
-    const untouched = imageOf(material.left, material.right, material.rate, IMAGE_DEFAULTS);
+    const untouched = stereoOf(material.left, material.right, material.rate, STEREO_DEFAULTS);
 
     const cost = -mean(DOWN_LOW.map((id) => mine.bands[id].mono));
     const top = mean(UP_TOP.map((id) => mine.bands[id].width));
@@ -611,7 +611,7 @@ export const IMAGE_WORK = {
     }
 
     if (exercise === 'match') {
-      const settings = { ...IMAGE_DEFAULTS, ...answer };
+      const settings = { ...STEREO_DEFAULTS, ...answer };
       const named = [['low', 'the low band'], ['mid', 'the middle'], ['high', 'the top']]
         .filter(([id]) => Math.abs(settings[id] - 1) > 0.08);
 
@@ -664,7 +664,7 @@ export const IMAGE_WORK = {
     }
 
     if (exercise === 'match') {
-      const settings = { ...IMAGE_DEFAULTS, ...answer };
+      const settings = { ...STEREO_DEFAULTS, ...answer };
       return {
         symbol: `${Math.round(settings.low * 100)} / ${Math.round(settings.mid * 100)} / ${Math.round(settings.high * 100)}%`,
         name: 'low, mid and top',

@@ -1,5 +1,5 @@
-import { ImagePlugin } from '../plugins/stereo/plugin.js';
-import { IMAGE_DEFAULTS } from '../plugins/stereo/field.js';
+import { StereoPlugin } from '../plugins/stereo/plugin.js';
+import { STEREO_DEFAULTS } from '../plugins/stereo/field.js';
 
 /**
  * The stereo, as a thing you open rather than a question you are asked.
@@ -39,7 +39,7 @@ export const PANNING_TOOL = {
 
   /** Open it, on its own defaults, with nothing imposed. */
   open(el, { engine, onChange, source = 'mix' } = {}) {
-    const settings = { ...IMAGE_DEFAULTS };
-    return new ImagePlugin(el, { engine, settings, onChange, source });
+    const settings = { ...STEREO_DEFAULTS };
+    return new StereoPlugin(el, { engine, settings, onChange, source });
   },
 };

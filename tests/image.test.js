@@ -2,12 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  IMAGE_DEFAULTS, IMAGE_BANDS, IMAGE_FLOOR, WIDEST,
-  imagerCore, runImager, widthOf, imageOf, imageDistance,
+  STEREO_DEFAULTS, STEREO_BANDS, STEREO_FLOOR, WIDEST,
+  imagerCore, runImager, widthOf, stereoOf, stereoDistance,
 } from '../src/plugins/stereo/field.js';
 import { imagerSource } from '../src/plugins/stereo/node.js';
 import { mulberry32 } from '../src/lib/random.js';
-import { IMAGE_WORK as panning } from '../src/learn/work/panning.js';
+import { STEREO_WORK as panning } from '../src/learn/work/panning.js';
 
 const rate = 48000;
 
@@ -52,7 +52,7 @@ test('summing two channels costs what it should, and nothing when it should not'
 
 test('width reads mono as nothing and opposite channels as everything', () => {
   const width = (make) => widthOf(pair(1, make).left, pair(1, make).right).width;
-  assert.equal(width(sameBoth), IMAGE_FLOOR);
+  assert.equal(width(sameBoth), STEREO_FLOOR);
   assert.ok(Math.abs(width(unrelated)) < 0.3, 'unrelated is as much side as middle');
   assert.ok(width(opposite) > 20, 'opposite is all side and no middle');
 });
@@ -61,9 +61,9 @@ test('width reads mono as nothing and opposite channels as everything', () => {
 
 test('width does what the number on it says', () => {
   const { left, right } = pair(1.5, unrelated);
-  const at = (w) => imageOf(left, right, rate, { ...IMAGE_DEFAULTS, low: w, mid: w, high: w }).whole;
+  const at = (w) => stereoOf(left, right, rate, { ...STEREO_DEFAULTS, low: w, mid: w, high: w }).whole;
 
-  assert.equal(at(0).width, IMAGE_FLOOR, 'no width at all is mono');
+  assert.equal(at(0).width, STEREO_FLOOR, 'no width at all is mono');
   assert.ok(Math.abs(at(0).mono) < 0.05, 'and mono then costs nothing');
 
   // Doubling the side is six decibels more of it, whatever it started at.
@@ -75,7 +75,7 @@ test('width does what the number on it says', () => {
 
 test('each band is worked on its own', () => {
   const { left, right } = pair(1.5, unrelated);
-  const image = (settings) => imageOf(left, right, rate, { ...IMAGE_DEFAULTS, ...settings });
+  const image = (settings) => stereoOf(left, right, rate, { ...STEREO_DEFAULTS, ...settings });
 
   const flat = image({});
   const lowsMono = image({ low: 0 });
@@ -91,7 +91,7 @@ test('each band is worked on its own', () => {
 
 test('the crossovers decide which band a control owns', () => {
   const { left, right } = pair(1.5, unrelated);
-  const lowOnly = (lowMid) => imageOf(left, right, rate, { ...IMAGE_DEFAULTS, low: 0, lowMid });
+  const lowOnly = (lowMid) => stereoOf(left, right, rate, { ...STEREO_DEFAULTS, low: 0, lowMid });
 
   // With the corner up at 800 the low control reaches the 400 Hz band; down
   // at 80 it does not.
@@ -102,7 +102,7 @@ test('the crossovers decide which band a control owns', () => {
 
 test('pan moves the field and closes one side at the end of it', () => {
   const { left, right } = pair(1, unrelated);
-  const balance = (pan) => imageOf(left, right, rate, { ...IMAGE_DEFAULTS, pan }).whole.balance;
+  const balance = (pan) => stereoOf(left, right, rate, { ...STEREO_DEFAULTS, pan }).whole.balance;
 
   assert.ok(Math.abs(balance(0)) < 0.3, 'centred is centred');
   assert.ok(balance(-0.5) > 4, 'left of centre leans left');
@@ -113,7 +113,7 @@ test('pan moves the field and closes one side at the end of it', () => {
 
 test('listening in mono or in side changes what you hear and not what you have done', () => {
   const { left, right } = pair(0.5, unrelated);
-  const heard = (listen) => runImager(left, right, rate, { ...IMAGE_DEFAULTS, listen });
+  const heard = (listen) => runImager(left, right, rate, { ...STEREO_DEFAULTS, listen });
 
   const mono = heard('mono');
   for (let i = 0; i < mono.left.length; i += 40) {
@@ -121,12 +121,12 @@ test('listening in mono or in side changes what you hear and not what you have d
   }
 
   const side = heard('side');
-  assert.ok(widthOf(side.left, side.right).width === IMAGE_FLOOR, 'so is the side, once it is soloed');
+  assert.ok(widthOf(side.left, side.right).width === STEREO_FLOOR, 'so is the side, once it is soloed');
 
   // And neither of them is what a guess is read on: the reading always takes
   // the stereo output, whatever is being monitored.
-  const marked = imageOf(left, right, rate, { ...IMAGE_DEFAULTS, listen: 'mono' });
-  const straight = imageOf(left, right, rate, IMAGE_DEFAULTS);
+  const marked = stereoOf(left, right, rate, { ...STEREO_DEFAULTS, listen: 'mono' });
+  const straight = stereoOf(left, right, rate, STEREO_DEFAULTS);
   assert.ok(Math.abs(marked.whole.width - straight.whole.width) < 0.01);
 });
 
@@ -160,14 +160,14 @@ test('the worklet is built from the imager, not a copy of it', () => {
 test('matching an image is marked on the worst band, not the average of them', () => {
   const { left, right } = pair(1.2, unrelated);
   const material = { left, right, rate };
-  const answer = { ...IMAGE_DEFAULTS, low: 0.3 };
+  const answer = { ...STEREO_DEFAULTS, low: 0.3 };
   const puzzle = { settings: { exercise: 'match' }, answer, material };
 
   assert.ok(panning.score(answer, { ...puzzle, tier: 'hard' }).correct, 'its own answer passes');
 
   // One band in completely the wrong place is a wrong answer, however right
   // the other five are - which is the whole reason for reading the worst.
-  const off = panning.score({ ...IMAGE_DEFAULTS }, { ...puzzle, tier: 'easy' });
+  const off = panning.score({ ...STEREO_DEFAULTS }, { ...puzzle, tier: 'easy' });
   assert.ok(!off.correct);
   // And it says which band, because that is the band it was read on.
   assert.match(off.cells[1].text, /^too wide at \d/);
@@ -178,10 +178,10 @@ test('rescuing the low end wants it narrowed, and nothing else thrown away', () 
   // nothing could never be made mono-safe by narrowing, only by monoing.
   const clean = pair(1.2, mostlyShared);
   const fault = { low: 2.3 };
-  const broken = runImager(clean.left, clean.right, rate, { ...IMAGE_DEFAULTS, ...fault });
+  const broken = runImager(clean.left, clean.right, rate, { ...STEREO_DEFAULTS, ...fault });
   const material = { left: broken.left, right: broken.right, rate };
   const puzzle = { settings: { exercise: 'mono' }, fault, answer: null, material };
-  const try_ = (settings) => panning.score({ ...IMAGE_DEFAULTS, ...settings }, { ...puzzle, tier: 'medium' });
+  const try_ = (settings) => panning.score({ ...STEREO_DEFAULTS, ...settings }, { ...puzzle, tier: 'medium' });
 
   assert.ok(!try_({}).correct, 'leaving it alone is not a fix');
   assert.match(try_({}).cells[0].text, /^mono costs /);
@@ -205,13 +205,13 @@ test('rescuing the low end wants it narrowed, and nothing else thrown away', () 
 test('placing is read off the audio, on both sides', () => {
   const { left, right } = pair(1, unrelated);
   const material = { left, right, rate };
-  const answer = { ...IMAGE_DEFAULTS, pan: -0.5 };
+  const answer = { ...STEREO_DEFAULTS, pan: -0.5 };
   const puzzle = { settings: { exercise: 'place' }, answer, material };
 
   assert.ok(panning.score(answer, { ...puzzle, tier: 'hard' }).correct);
   assert.match(panning.score(answer, { ...puzzle, tier: 'hard' }).cells[1].text, /where it is$/);
 
-  const wrongSide = panning.score({ ...IMAGE_DEFAULTS, pan: 0.5 }, { ...puzzle, tier: 'easy' });
+  const wrongSide = panning.score({ ...STEREO_DEFAULTS, pan: 0.5 }, { ...puzzle, tier: 'easy' });
   assert.ok(!wrongSide.correct);
   assert.match(wrongSide.cells[1].text, /too far right$/);
 });

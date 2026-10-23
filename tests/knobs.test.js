@@ -14,7 +14,7 @@ import {
 import { EFFECT_IDS } from '../src/core/effects.js';
 import { COMP_DEFAULTS, COMP_LIMITS } from '../src/plugins/compressor/dsp.js';
 import { HEAT_DEFAULTS, HEAT_LIMITS } from '../src/plugins/saturation/shape.js';
-import { IMAGE_DEFAULTS, IMAGE_LIMITS } from '../src/plugins/stereo/field.js';
+import { STEREO_DEFAULTS, STEREO_LIMITS } from '../src/plugins/stereo/field.js';
 import { VERB_DEFAULTS, VERB_LIMITS } from '../src/plugins/reverb/ir.js';
 import { ECHO_DEFAULTS, ECHO_LIMITS } from '../src/plugins/delay/line.js';
 import { newProject, setTrack, serialise, parse } from '../src/sketch/project.js';
@@ -22,7 +22,7 @@ import { newProject, setTrack, serialise, parse } from '../src/sketch/project.js
 /** The five that are their own settings. The EQ's four are not. */
 const WHOLE = {
   compression: [COMP_DEFAULTS, COMP_LIMITS],
-  panning: [IMAGE_DEFAULTS, IMAGE_LIMITS],
+  panning: [STEREO_DEFAULTS, STEREO_LIMITS],
   reverb: [VERB_DEFAULTS, VERB_LIMITS],
   delay: [ECHO_DEFAULTS, ECHO_LIMITS],
   saturation: [HEAT_DEFAULTS, HEAT_LIMITS],
@@ -44,7 +44,7 @@ test('every effect has knobs, and every knob a workable range', () => {
 test('the resting values come from the plugins own defaults', () => {
   assert.equal(restFor('compression').threshold, COMP_DEFAULTS.threshold);
   assert.equal(restFor('saturation').drive, HEAT_DEFAULTS.drive);
-  assert.equal(restFor('panning').mid, IMAGE_DEFAULTS.mid);
+  assert.equal(restFor('panning').mid, STEREO_DEFAULTS.mid);
   assert.deepEqual(restFor('eq'), EQ_REST);
 });
 

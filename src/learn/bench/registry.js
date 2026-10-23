@@ -20,7 +20,7 @@ import { SATURATION_TOOL } from '../../tools/saturation.js';
 
 import { EQ_WORK } from '../work/eq.js';
 import { COMP_WORK } from '../work/compression.js';
-import { IMAGE_WORK } from '../work/panning.js';
+import { STEREO_WORK } from '../work/panning.js';
 import { VERB_WORK } from '../work/reverb.js';
 import { ECHO_WORK } from '../work/delay.js';
 import { HEAT_WORK } from '../work/saturation.js';
@@ -38,7 +38,7 @@ const assemble = (tool, work) => ({
 export const TOOLS = {
   eq: assemble(EQ_TOOL, EQ_WORK),
   compression: assemble(COMPRESSION_TOOL, COMP_WORK),
-  panning: assemble(PANNING_TOOL, IMAGE_WORK),
+  panning: assemble(PANNING_TOOL, STEREO_WORK),
   reverb: assemble(REVERB_TOOL, VERB_WORK),
   delay: assemble(DELAY_TOOL, ECHO_WORK),
   saturation: assemble(SATURATION_TOOL, HEAT_WORK),

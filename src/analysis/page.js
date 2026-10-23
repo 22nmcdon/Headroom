@@ -16,7 +16,7 @@ import { loudnessReading } from './loudness.js';
 import { crestReading } from './dynamics.js';
 import { balanceReading, THIRDS, THIRD_NAMES, TILT } from './balance.js';
 import { widthReading } from './width.js';
-import { IMAGE_BANDS } from '../plugins/stereo/field.js';
+import { STEREO_BANDS } from '../plugins/stereo/field.js';
 import { readyCanvas } from '../lib/panel.js';
 import { distance } from '../lib/gap.js';
 
@@ -319,7 +319,7 @@ export class AnalysisPage {
     }
 
     const theirs = this.slots.reference;
-    box.innerHTML = IMAGE_BANDS.map((band) => {
+    box.innerHTML = STEREO_BANDS.map((band) => {
       const here = mine.width.values.bands[band.id];
       // Width runs from mono at the floor to very wide at the top; drawn as a
       // share of that range rather than of a decibel scale nobody reads.

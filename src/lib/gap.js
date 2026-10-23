@@ -15,7 +15,7 @@
 import { curveGap } from '../plugins/eq/filters.js';
 import { reductionGap } from '../plugins/compressor/reading.js';
 import { decayGap } from './response.js';
-import { imageGap } from '../plugins/stereo/field.js';
+import { stereoGap } from '../plugins/stereo/field.js';
 import { heatGap } from '../plugins/saturation/shape.js';
 import { loudnessGap } from '../analysis/loudness.js';
 import { crestGap } from '../analysis/dynamics.js';
@@ -41,7 +41,7 @@ const GAPS = {
   curve: curveGap,
   reduction: reductionGap,
   decay: decayGap,
-  image: imageGap,
+  image: stereoGap,
   harmonics: heatGap,
   loudness: loudnessGap,
   crest: crestGap,

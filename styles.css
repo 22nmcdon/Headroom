@@ -1045,7 +1045,7 @@ input.knob-value:focus {
 .plugin > .eq-display,
 .plugin > .comp-display,
 .plugin > .heat-display,
-.plugin > .image-display,
+.plugin > .stereo-display,
 .plugin > .echo-display,
 .plugin > .verb-display { border-top: none; box-shadow: none; }
 
@@ -1072,7 +1072,7 @@ input.knob-value:focus {
 /* The bezel is drawn outside the box, so the boxes need room between them. */
 .plugin .comp-display,
 .plugin .heat-display,
-.plugin .image-display,
+.plugin .stereo-display,
 .plugin .echo-display,
 .plugin .verb-display { gap: 14px; padding: 4px; }
 
@@ -1457,14 +1457,14 @@ input.knob-value:focus {
 /* The goniometer is square because it is a picture of two things against each
    other and a stretched one lies about the angle - which is the only thing it
    is there to show. */
-.image-display {
+.stereo-display {
   display: grid;
   grid-template-columns: minmax(150px, 0.75fr) 1.6fr;
   gap: 8px;
   height: clamp(190px, 32vh, 290px);
 }
 
-.image-routing {
+.stereo-routing {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -1610,7 +1610,7 @@ input.knob-value:focus {
      here: they stack, and get the height back that they lost in width. */
   .verb-display,
   .echo-display,
-  .image-display,
+  .stereo-display,
   .heat-display {
     grid-template-columns: 1fr;
     height: clamp(200px, 40vh, 320px);
@@ -3021,7 +3021,7 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
    there. The settings beside them stay: a detector is a setting, a
    ping-pong is a setting, and both do on a track what they do on a loop. */
 .plugin.is-insert > .heat-routing,
-.plugin.is-insert > .image-routing { display: none; }
+.plugin.is-insert > .stereo-routing { display: none; }
 
 
 /* An insert whose full interface can be opened says so, and the ones whose
@@ -3242,7 +3242,7 @@ button.insert-name:hover { color: var(--charcoal); }
     .plugin > .eq-display,
     .plugin > .comp-display,
     .plugin > .heat-display,
-    .plugin > .image-display,
+    .plugin > .stereo-display,
     .plugin > .echo-display,
     .plugin > .verb-display {
       grid-column: 1;

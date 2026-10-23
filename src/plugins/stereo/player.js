@@ -1,4 +1,4 @@
-import { IMAGE_DEFAULTS, runImager } from './field.js';
+import { STEREO_DEFAULTS, runImager } from './field.js';
 import { LiveImager } from './node.js';
 
 /**
@@ -12,12 +12,12 @@ import { LiveImager } from './node.js';
  * graph: a low end somebody else widened too far is part of the recording you
  * were handed, not something your imager is doing.
  */
-export class ImagePlayer {
+export class StereoPlayer {
   constructor(engine, { source = 'mix' } = {}) {
     this.engine = engine;
     this.source = source;
     this.hearing = 'mine';
-    this.settings = { ...IMAGE_DEFAULTS };
+    this.settings = { ...STEREO_DEFAULTS };
     this.target = null;
     this.fault = null;
     this.ready = false;
@@ -77,7 +77,7 @@ export class ImagePlayer {
     const left = loop.getChannelData(0);
     const right = loop.numberOfChannels > 1 ? loop.getChannelData(1) : left;
 
-    const done = runImager(left, right, rate, { ...IMAGE_DEFAULTS, ...fault });
+    const done = runImager(left, right, rate, { ...STEREO_DEFAULTS, ...fault });
     const out = ctx.createBuffer(2, loop.length, rate);
     out.copyToChannel(done.left, 0);
     out.copyToChannel(done.right, 1);
@@ -110,7 +110,7 @@ export class ImagePlayer {
   }
 
   setTarget(settings) {
-    this.target = settings ? { ...IMAGE_DEFAULTS, ...settings } : null;
+    this.target = settings ? { ...STEREO_DEFAULTS, ...settings } : null;
     if (this.ready && this.target) this.theirs.imager.set(this.target);
   }
 

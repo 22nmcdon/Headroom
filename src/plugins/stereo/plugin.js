@@ -1,9 +1,9 @@
 import {
-  IMAGE_DEFAULTS, IMAGE_BANDS, IMAGE_FLOOR, IMAGE_AXIS, imageReading, widthOf,
-  IMAGE_LIMITS,
+  STEREO_DEFAULTS, STEREO_BANDS, STEREO_FLOOR, STEREO_AXIS, stereoReading, widthOf,
+  STEREO_LIMITS,
 } from './field.js';
 import { notReady, stampOf } from '../../lib/read.js';
-import { ImagePlayer } from './player.js';
+import { StereoPlayer } from './player.js';
 import { dialOf, offDial, sizeOf, readyCanvas, watchSize, span } from '../../lib/panel.js';
 import { dressKnobs } from '../../lib/knob.js';
 import { writeHertz } from '../compressor/plugin.js';
@@ -22,20 +22,20 @@ import { writeHertz } from '../compressor/plugin.js';
 
 const WIDTH_TOP = 6;      // decibels of width the bars reach to
 
-const bandX = (i, width) => ((i + 0.5) / IMAGE_BANDS.length) * width;
-const widthY = (db, height) => height - ((db - IMAGE_FLOOR) / (WIDTH_TOP - IMAGE_FLOOR)) * height;
+const bandX = (i, width) => ((i + 0.5) / STEREO_BANDS.length) * width;
+const widthY = (db, height) => height - ((db - STEREO_FLOOR) / (WIDTH_TOP - STEREO_FLOOR)) * height;
 
 /** Every knob, and how it reads. */
-const IMAGE_KNOBS = [
-  { id: 'low', name: 'Low width', ...span(IMAGE_LIMITS.low), step: 0.01, write: (v) => `${Math.round(v * 100)} %` },
-  { id: 'mid', name: 'Mid width', ...span(IMAGE_LIMITS.mid), step: 0.01, write: (v) => `${Math.round(v * 100)} %` },
-  { id: 'high', name: 'High width', ...span(IMAGE_LIMITS.high), step: 0.01, write: (v) => `${Math.round(v * 100)} %` },
-  { id: 'lowMid', name: 'Low ends at', ...span(IMAGE_LIMITS.lowMid), log: true, write: writeHertz },
-  { id: 'midHigh', name: 'Top starts at', ...span(IMAGE_LIMITS.midHigh), log: true, write: writeHertz },
+const STEREO_KNOBS = [
+  { id: 'low', name: 'Low width', ...span(STEREO_LIMITS.low), step: 0.01, write: (v) => `${Math.round(v * 100)} %` },
+  { id: 'mid', name: 'Mid width', ...span(STEREO_LIMITS.mid), step: 0.01, write: (v) => `${Math.round(v * 100)} %` },
+  { id: 'high', name: 'High width', ...span(STEREO_LIMITS.high), step: 0.01, write: (v) => `${Math.round(v * 100)} %` },
+  { id: 'lowMid', name: 'Low ends at', ...span(STEREO_LIMITS.lowMid), log: true, write: writeHertz },
+  { id: 'midHigh', name: 'Top starts at', ...span(STEREO_LIMITS.midHigh), log: true, write: writeHertz },
   {
     id: 'pan',
     name: 'Pan',
-    ...span(IMAGE_LIMITS.pan),
+    ...span(STEREO_LIMITS.pan),
     step: 0.01,
     write: (v) => (Math.abs(v) < 0.02 ? 'Centre' : `${Math.round(Math.abs(v) * 100)}% ${v < 0 ? 'left' : 'right'}`),
   },
@@ -47,7 +47,7 @@ const LISTENS = [
   { id: 'side', label: 'Side' },
 ];
 
-function imagePalette(el) {
+function stereoPalette(el) {
   const style = getComputedStyle(el);
   const read = (name) => style.getPropertyValue(name).trim();
   return {
@@ -69,7 +69,7 @@ function agreement(correlation, ink) {
   return ink.rust;
 }
 
-export class ImagePlugin {
+export class StereoPlugin {
   constructor(el, {
     engine, settings, onChange, source = 'mix', fault = null,
     player = null, role = 'tool',
@@ -86,7 +86,7 @@ export class ImagePlugin {
     // envelope now answers, and answered it for nobody.
     this.reading = null;
 
-    this.player = player ?? new ImagePlayer(engine, { source });
+    this.player = player ?? new StereoPlayer(engine, { source });
     this.player.setFault(fault);
 
     this.build();
@@ -105,25 +105,25 @@ export class ImagePlugin {
 
   build() {
     this.el.innerHTML = `
-      <div class="plugin image${this.role === 'insert' ? ' is-insert' : ''}">
+      <div class="plugin stereo${this.role === 'insert' ? ' is-insert' : ''}">
         <div class="plugin-head">
           <span class="plugin-name">Stereo image</span>
-          <span class="plugin-trim" id="imageTrim"></span>
-          <span class="plugin-read" id="imageRead"></span>
+          <span class="plugin-trim" id="stereoTrim"></span>
+          <span class="plugin-read" id="stereoRead"></span>
         </div>
 
-        <div class="image-display">
-          <div class="plugin-panel image-panel-scope">
-            <canvas id="imageScope"></canvas>
+        <div class="stereo-display">
+          <div class="plugin-panel stereo-panel-scope">
+            <canvas id="stereoScope"></canvas>
           </div>
-          <div class="plugin-panel image-panel-bands">
-            <canvas id="imageBands"></canvas>
+          <div class="plugin-panel stereo-panel-bands">
+            <canvas id="stereoBands"></canvas>
           </div>
         </div>
 
-        <div class="plugin-controls" id="imageKnobs"></div>
+        <div class="plugin-controls" id="stereoKnobs"></div>
 
-        <div class="image-routing">
+        <div class="stereo-routing">
           <span class="panel-name">Listen</span>
           <div class="eq-ab" role="group" aria-label="What you are monitoring">
             ${LISTENS.map((l) => `<button class="ab-btn${l.id === 'stereo' ? ' is-on' : ''}" type="button" data-listen="${l.id}">${l.label}</button>`).join('')}
@@ -132,35 +132,35 @@ export class ImagePlugin {
         </div>
 
         <div class="eq-transport image-transport">
-          <button class="play-btn" type="button" data-image="play">Play</button>
+          <button class="play-btn" type="button" data-stereo="play">Play</button>
           <div class="eq-ab" role="group" aria-label="What you are hearing">
             <button class="ab-btn is-on" type="button" data-hear="mine">Yours</button>
-            <button class="ab-btn" type="button" data-hear="theirs" id="imageOther">Target</button>
+            <button class="ab-btn" type="button" data-hear="theirs" id="stereoOther">Target</button>
           </div>
           <label class="field">
             <span class="field-label">Sample</span>
-            <select id="imageSource">
+            <select id="stereoSource">
               <option value="mix">Full mix</option>
               <option value="instrument">Keys</option>
               <option value="drums">Drums</option>
-              <option value="yours" id="imageYours" hidden>Your own</option>
+              <option value="yours" id="stereoYours" hidden>Your own</option>
             </select>
           </label>
-          <label class="file-btn">Open a file<input type="file" id="imageFile" accept="audio/*"></label>
-          <button class="link-btn" type="button" data-image="reset">Reset</button>
+          <label class="file-btn">Open a file<input type="file" id="stereoFile" accept="audio/*"></label>
+          <button class="link-btn" type="button" data-stereo="reset">Reset</button>
         </div>
       </div>`;
 
-    this.scope = this.el.querySelector('#imageScope');
-    this.bands = this.el.querySelector('#imageBands');
-    this.el.querySelector('#imageSource').value = this.player.source;
+    this.scope = this.el.querySelector('#stereoScope');
+    this.bands = this.el.querySelector('#stereoBands');
+    this.el.querySelector('#stereoSource').value = this.player.source;
 
     this.buildKnobs();
     this.wire();
   }
 
   buildKnobs() {
-    this.el.querySelector('#imageKnobs').innerHTML = IMAGE_KNOBS.map((knob) => {
+    this.el.querySelector('#stereoKnobs').innerHTML = STEREO_KNOBS.map((knob) => {
       const dial = dialOf(knob, this.settings[knob.id]);
       return `
         <div class="knob">
@@ -168,7 +168,7 @@ export class ImagePlugin {
           <output class="knob-value" id="image-${knob.id}-value">${knob.write(this.settings[knob.id])}</output>
           <input class="knob-dial" type="range" id="image-${knob.id}" data-dial="${knob.id}"
                  min="${dial.min}" max="${dial.max}" step="${dial.step}" value="${dial.at}"
-                 data-rest="${dialOf(knob, IMAGE_DEFAULTS[knob.id] ?? dial.at).at}"
+                 data-rest="${dialOf(knob, STEREO_DEFAULTS[knob.id] ?? dial.at).at}"
                  aria-label="${knob.name}">
         </div>`;
     }).join('');
@@ -176,10 +176,10 @@ export class ImagePlugin {
   }
 
   wire() {
-    this.el.querySelector('#imageKnobs').addEventListener('input', (e) => {
+    this.el.querySelector('#stereoKnobs').addEventListener('input', (e) => {
       const dial = e.target.closest('[data-dial]');
       if (!dial || !this.interactive) return;
-      const knob = IMAGE_KNOBS.find((k) => k.id === dial.dataset.dial);
+      const knob = STEREO_KNOBS.find((k) => k.id === dial.dataset.dial);
       this.settings[knob.id] = offDial(knob, dial.value);
       this.changed();
     });
@@ -208,20 +208,20 @@ export class ImagePlugin {
         return;
       }
 
-      const action = e.target.closest('[data-image]');
+      const action = e.target.closest('[data-stereo]');
       if (!action) return;
-      if (action.dataset.image === 'play') this.toggle();
-      if (action.dataset.image === 'reset' && this.interactive) {
+      if (action.dataset.stereo === 'play') this.toggle();
+      if (action.dataset.stereo === 'reset' && this.interactive) {
         const listen = this.settings.listen;
-        Object.assign(this.settings, IMAGE_DEFAULTS, { listen });
+        Object.assign(this.settings, STEREO_DEFAULTS, { listen });
         this.buildKnobs();
         this.changed();
       }
     });
 
-    this.el.querySelector('#imageSource')
+    this.el.querySelector('#stereoSource')
       .addEventListener('change', (e) => this.setSource(e.target.value));
-    this.el.querySelector('#imageFile')
+    this.el.querySelector('#stereoFile')
       .addEventListener('change', (e) => this.loadFile(e.target.files?.[0]));
 
     this.resize = () => this.draw();
@@ -253,7 +253,7 @@ export class ImagePlugin {
   measure() {
     const sample = this.player.sample();
     if (!sample) return null;
-    this.reading = imageReading(sample.left, sample.right, sample.rate, this.settings,
+    this.reading = stereoReading(sample.left, sample.right, sample.rate, this.settings,
       { source: this.player.source ?? null });
     return this.reading;
   }
@@ -287,7 +287,7 @@ export class ImagePlugin {
   async setSource(id) {
     this.player.source = id;
     this.player.buffer = null;
-    const picker = this.el.querySelector('#imageSource');
+    const picker = this.el.querySelector('#stereoSource');
     if (picker) picker.value = id;
 
     await this.player.prepare().catch(() => {});
@@ -315,7 +315,7 @@ export class ImagePlugin {
   async loadFile(file) {
     if (!file) return false;
 
-    const yours = this.el.querySelector('#imageYours');
+    const yours = this.el.querySelector('#stereoYours');
     if (yours) { yours.hidden = false; yours.textContent = 'reading…'; }
 
     try {
@@ -355,7 +355,7 @@ export class ImagePlugin {
     const of = {
       state: stampOf(this.state()),
       source: this.player.source ?? null,
-      axis: IMAGE_AXIS,
+      axis: STEREO_AXIS,
     };
 
     if (!this.reading) {
@@ -378,7 +378,7 @@ export class ImagePlugin {
   }
 
   syncKnobs() {
-    for (const knob of IMAGE_KNOBS) {
+    for (const knob of STEREO_KNOBS) {
       const readout = this.el.querySelector(`#image-${knob.id}-value`);
       const dial = this.el.querySelector(`#image-${knob.id}`);
       if (readout) readout.textContent = knob.write(this.settings[knob.id]);
@@ -413,7 +413,7 @@ export class ImagePlugin {
   }
 
   playing(on) {
-    this.el.querySelector('[data-image="play"]').textContent = on ? 'Stop' : 'Play';
+    this.el.querySelector('[data-stereo="play"]').textContent = on ? 'Stop' : 'Play';
     cancelAnimationFrame(this.frame);
     this.frame = null;
     if (!on) { this.draw(); return; }
@@ -440,7 +440,7 @@ export class ImagePlugin {
     // land after it has been torn down, and writing to elements that are no
     // longer in the page is how a clean handover throws.
     if (this.gone) return;
-    const ink = imagePalette(this.el);
+    const ink = stereoPalette(this.el);
     this.drawScope(ink);
     this.drawBands(ink);
     this.writeReadout();
@@ -516,7 +516,7 @@ export class ImagePlugin {
     c.lineWidth = 1;
     c.textAlign = 'right';
     c.fillStyle = ink.soft;
-    for (let db = 0; db > IMAGE_FLOOR; db -= 10) {
+    for (let db = 0; db > STEREO_FLOOR; db -= 10) {
       const y = widthY(db, height);
       c.beginPath(); c.moveTo(0, y); c.lineTo(width, y); c.stroke();
       c.fillText(`${db}`, width - 4, y - 3);
@@ -531,14 +531,14 @@ export class ImagePlugin {
     // below says they are catching up.
     c.globalAlpha = reading.ready ? 1 : 0.4;
 
-    const slot = width / IMAGE_BANDS.length;
+    const slot = width / STEREO_BANDS.length;
     const bar = Math.min(26, slot * 0.5);
 
-    IMAGE_BANDS.forEach((band, i) => {
+    STEREO_BANDS.forEach((band, i) => {
       const read = reading.values.bands[band.id];
       const x = bandX(i, width);
       const top = widthY(read.width, height);
-      const base = widthY(IMAGE_FLOOR, height);
+      const base = widthY(STEREO_FLOOR, height);
 
       c.fillStyle = agreement(read.correlation, ink);
       c.globalAlpha = 0.75;
@@ -570,7 +570,7 @@ export class ImagePlugin {
   }
 
   writeReadout() {
-    const trim = this.el.querySelector('#imageTrim');
+    const trim = this.el.querySelector('#stereoTrim');
     if (!trim) return;
 
     const reading = this.read();
@@ -589,7 +589,7 @@ export class ImagePlugin {
     if (reading.values && reading.ready) parts.push(`${reading.values.whole.width.toFixed(1)} dB wide`);
     if (this.settings.listen !== 'stereo') parts.push(`${this.settings.listen} only`);
 
-    this.el.querySelector('#imageRead').textContent = parts.join(' · ');
+    this.el.querySelector('#stereoRead').textContent = parts.join(' · ');
   }
 
   /* ---------- what the round does to it ---------- */
@@ -608,7 +608,7 @@ export class ImagePlugin {
 
     const sample = this.player.sample();
     if (sample) {
-      this.target = imageReading(sample.left, sample.right, sample.rate, target).values;
+      this.target = stereoReading(sample.left, sample.right, sample.rate, target).values;
     }
     this.draw();
   }
@@ -627,7 +627,7 @@ export class ImagePlugin {
 
   /** What the other side of the A/B is currently called. */
   abLabel() {
-    return this.el.querySelector('#imageOther')?.textContent ?? null;
+    return this.el.querySelector('#stereoOther')?.textContent ?? null;
   }
 
   /** The pair a guess is read against, rendered and handed over. */
@@ -638,18 +638,18 @@ export class ImagePlugin {
 
   /** The other side of the A/B, named for what it actually is. */
   nameAB(label) {
-    const slot = this.el.querySelector('#imageOther');
+    const slot = this.el.querySelector('#stereoOther');
     if (slot) slot.textContent = label;
   }
 
   nameOther(label) {
-    const slot = this.el.querySelector('#imageOther');
+    const slot = this.el.querySelector('#stereoOther');
     if (slot) slot.textContent = label;
   }
 
   lock() {
     this.interactive = false;
-    this.el.querySelector('.image').classList.add('is-locked');
+    this.el.querySelector('.stereo').classList.add('is-locked');
   }
 
   /**
@@ -663,7 +663,7 @@ export class ImagePlugin {
    */
   unlock() {
     this.interactive = true;
-    this.el.querySelector('.image').classList.remove('is-locked');
+    this.el.querySelector('.stereo').classList.remove('is-locked');
   }
 
   destroy() {

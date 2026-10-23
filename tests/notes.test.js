@@ -91,7 +91,7 @@ test('each tool’s DSP points at the notes that explain it', () => {
   const pairs = [
     ['src/plugins/eq/filters.js', 'src/learn/notes/eq.js'],
     ['src/plugins/compressor/dsp.js', 'src/learn/notes/comp.js'],
-    ['src/plugins/stereo/field.js', 'src/learn/notes/image.js'],
+    ['src/plugins/stereo/field.js', 'src/learn/notes/stereo.js'],
     ['src/plugins/reverb/ir.js', 'src/learn/notes/verb.js'],
     ['src/plugins/delay/line.js', 'src/learn/notes/echo.js'],
     ['src/plugins/saturation/shape.js', 'src/learn/notes/heat.js'],

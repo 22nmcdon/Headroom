@@ -5,7 +5,7 @@ import { readingOf, stampOf } from '../../lib/read.js';
 // The stereo field, as arithmetic.
 //
 // What stereo width is, for somebody using an imager, is in
-// src/learn/notes/image.js.
+// src/learn/notes/stereo.js.
 //
 // Everything an imager does comes down to one identity: a pair of channels is
 // the same information as a middle and a side, M = (L+R)/2 and S = (L-R)/2,
@@ -22,7 +22,7 @@ import { readingOf, stampOf } from '../../lib/read.js';
 // of this source, so nothing here may close over anything outside its body.
 
 /** Every control, and where it starts. */
-export const IMAGE_DEFAULTS = {
+export const STEREO_DEFAULTS = {
   low: 1,          // width of each band: 1 is untouched, 0 is mono, 2 is twice
   mid: 1,
   high: 1,
@@ -44,7 +44,7 @@ export const WIDEST = 2.5;
  * expects. Two tables would be two tables to keep in step, and the day they
  * drift is the day a saved sketch loads as a different sound.
  */
-export const IMAGE_LIMITS = {
+export const STEREO_LIMITS = {
   low: [0, WIDEST],
   mid: [0, WIDEST],
   high: [0, WIDEST],
@@ -54,7 +54,7 @@ export const IMAGE_LIMITS = {
 };
 
 /** The bands an image is read in - finer than the three it is worked in. */
-export const IMAGE_BANDS = [
+export const STEREO_BANDS = [
   { id: 'sub', label: '40', low: 30, high: 90 },
   { id: 'low', label: '120', low: 90, high: 250 },
   { id: 'lowmid', label: '400', low: 250, high: 700 },
@@ -64,7 +64,7 @@ export const IMAGE_BANDS = [
 ];
 
 /** Below this a band is too quiet to have an image at all. */
-export const IMAGE_FLOOR = -30;
+export const STEREO_FLOOR = -30;
 
 /** And above this there is nothing left in the middle to be wide against. */
 export const WIDEST_READING = 30;
@@ -230,7 +230,7 @@ export function widthOf(left, right) {
   // nothing but each other's opposite, which is as wide as wide gets - and
   // read with only a floor it came back reading as mono, which is the one
   // thing it is not.
-  const width = Math.max(IMAGE_FLOOR, Math.min(WIDEST_READING,
+  const width = Math.max(STEREO_FLOOR, Math.min(WIDEST_READING,
     10 * Math.log10(Math.max(sides, 1e-12) / Math.max(middle, 1e-12))));
 
   // What summing the two channels costs, against the most it could possibly
@@ -258,11 +258,11 @@ export function widthOf(left, right) {
 }
 
 /** The image band by band - the reading a guess is marked against. */
-export function imageProfile(left, right, rate) {
+export function stereoProfile(left, right, rate) {
   const whole = widthOf(left, right);
   const bands = {};
 
-  for (const band of IMAGE_BANDS) {
+  for (const band of STEREO_BANDS) {
     bands[band.id] = widthOf(bandOf(left, rate, band), bandOf(right, rate, band));
   }
 
@@ -270,9 +270,9 @@ export function imageProfile(left, right, rate) {
 }
 
 /** A pair through the imager, read in the terms it is judged in. */
-export function imageOf(left, right, rate, settings) {
+export function stereoOf(left, right, rate, settings) {
   const out = runImager(left, right, rate, { ...settings, listen: 'stereo' });
-  return imageProfile(out.left, out.right, rate);
+  return stereoProfile(out.left, out.right, rate);
 }
 
 /**
@@ -287,7 +287,7 @@ export function imageOf(left, right, rate, settings) {
  * Placing counts alongside the bands, because being on the wrong side of the
  * room is not a detail either.
  */
-export function imageGap(mine, theirs) {
+export function stereoGap(mine, theirs) {
   const a = mine.values ?? mine;
   const b = theirs.values ?? theirs;
 
@@ -295,7 +295,7 @@ export function imageGap(mine, theirs) {
   let where = null;
   let detail = { wider: 0, placed: 0 };
 
-  for (const band of IMAGE_BANDS) {
+  for (const band of STEREO_BANDS) {
     const wider = a.bands[band.id].width - b.bands[band.id].width;
     if (Math.abs(wider) > off) {
       off = Math.abs(wider);
@@ -317,17 +317,17 @@ export function imageGap(mine, theirs) {
   return { off, where, detail };
 }
 
-export const imageDistance = (mine, theirs) => imageGap(mine, theirs).off;
+export const stereoDistance = (mine, theirs) => stereoGap(mine, theirs).off;
 
 /** What a stereo image is indexed by: the six bands, in order. */
-export const IMAGE_AXIS = { kind: 'bands', ids: IMAGE_BANDS.map((band) => band.id) };
+export const STEREO_AXIS = { kind: 'bands', ids: STEREO_BANDS.map((band) => band.id) };
 
 /** An image, in an envelope. */
-export function imageReading(left, right, rate, settings, { source = null } = {}) {
+export function stereoReading(left, right, rate, settings, { source = null } = {}) {
   return readingOf({
     tool: 'panning',
     kind: 'image',
-    of: { state: stampOf(settings), source, axis: IMAGE_AXIS },
-    values: imageOf(left, right, rate, settings),
+    of: { state: stampOf(settings), source, axis: STEREO_AXIS },
+    values: stereoOf(left, right, rate, settings),
   });
 }

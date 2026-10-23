@@ -21,7 +21,7 @@ import {
 import { placementOf, placementGap, placementReading, MOST_OFF_CENTRE } from '../src/mix/placement.js';
 import { MARKED } from '../src/mix/render.js';
 import { barTicks, clipAt } from '../src/sketch/project.js';
-import { IMAGE_BANDS } from '../src/plugins/stereo/field.js';
+import { STEREO_BANDS } from '../src/plugins/stereo/field.js';
 import { THIRDS } from '../src/analysis/balance.js';
 import { toStep } from '../src/learn/work/scoring.js';
 
@@ -255,7 +255,7 @@ const loud = (lufs) => fake(
   { kind: 'whole' },
 );
 
-const BANDS = { kind: 'bands', ids: IMAGE_BANDS.map((band) => band.id) };
+const BANDS = { kind: 'bands', ids: STEREO_BANDS.map((band) => band.id) };
 
 const payload = (kind, off) => {
   if (kind === 'crest') return { crest: 12 + off, tightest: 9, peak: -1 };
@@ -265,10 +265,10 @@ const payload = (kind, off) => {
   if (kind === 'width') {
     return {
       whole: { width: 0, balance: 0, mono: 0, correlation: 1, energy: -20 },
-      bands: Object.fromEntries(IMAGE_BANDS.map((band, i) => [band.id, { width: i === 3 ? off : 0, balance: 0 }])),
+      bands: Object.fromEntries(STEREO_BANDS.map((band, i) => [band.id, { width: i === 3 ? off : 0, balance: 0 }])),
     };
   }
-  return { whole: 0, bands: Object.fromEntries(IMAGE_BANDS.map((band, i) => [band.id, i === 3 ? off : 0])) };
+  return { whole: 0, bands: Object.fromEntries(STEREO_BANDS.map((band, i) => [band.id, i === 3 ? off : 0])) };
 };
 
 const axisFor = (kind) => {
