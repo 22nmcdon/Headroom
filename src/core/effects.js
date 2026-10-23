@@ -186,12 +186,34 @@ async function compEffect(ctx, { settings = COMP_DEFAULTS } = {}) {
   live.settings = { ...settings };
   await live.start();
 
+  // Whatever is currently feeding the detector, so it can be let go of when
+  // something else is chosen.
+  let keyed = null;
+
   return {
     id: 'compression',
     in: live.input,
     out: live.out,
     /** Where a sidechain goes, for whoever has one to send. */
     key: live.input,
+
+    /**
+     * What the detector listens to, when it is not listening to the signal.
+     *
+     * The merger's second input, which is the only difference between the
+     * two: channel one is what is being compressed and channel two is what
+     * is deciding. `null` lets go of whatever was there, which matters -
+     * a track left connected to a detector it is no longer keying is a
+     * graph that gets one edge heavier every time somebody changes their
+     * mind.
+     */
+    keyFrom(node) {
+      if (node === keyed) return this;
+      if (keyed) { try { keyed.disconnect(live.input); } catch { /* already gone */ } }
+      keyed = node ?? null;
+      if (keyed) keyed.connect(live.input, 0, 1);
+      return this;
+    },
     params: () => ({ ...live.settings }),
     // `set` is the Live class's own, which keeps its settings and posts them
     // to the worklet - or runs them into the fallback core on a browser with
@@ -210,6 +232,7 @@ async function compEffect(ctx, { settings = COMP_DEFAULTS } = {}) {
      */
     readReduction: () => live.readReduction(),
     destroy() {
+      if (keyed) { try { keyed.disconnect(live.input); } catch { /* gone */ } }
       try { live.out.disconnect(); } catch { /* gone */ }
       try { live.node?.disconnect(); } catch { /* gone */ }
     },

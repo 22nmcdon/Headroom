@@ -119,6 +119,20 @@ const REST = {
  * four numbers that `TONE` builds a strip out of, each with a panel knob of
  * its own to be clamped by.
  */
+/**
+ * Settings that say where a signal comes from rather than what is done to
+ * it.
+ *
+ * Kept with the effect's own settings, because that is where somebody
+ * setting one is looking - the key source is a control on the compressor's
+ * face - and taken back out again before the effect is handed its
+ * parameters, because a worklet given a track's name does nothing with it
+ * but take up a slot in a settings object.
+ */
+const ROUTING = {
+  compression: { keyFrom: null },
+};
+
 const LIMITS = {
   compression: COMP_LIMITS,
   panning: IMAGE_LIMITS,
@@ -151,7 +165,15 @@ export const restFor = (id) => Object.fromEntries(
 export function tidy(id, stored = {}) {
   const whole = REST[id] ?? {};
   const limits = LIMITS[id] ?? {};
-  const out = { ...whole };
+  const routing = ROUTING[id] ?? {};
+  const out = { ...whole, ...routing };
+
+  for (const key of Object.keys(routing)) {
+    const value = stored[key];
+    // A track id or nothing. Anything else is a file written by something
+    // that is not this.
+    if (typeof value === 'string' && value) out[key] = value;
+  }
 
   for (const [key, resting] of Object.entries(whole)) {
     const value = stored[key];
@@ -198,9 +220,19 @@ export const tidyAll = (settings = {}) => Object.fromEntries(
  * The EQ is the exception in shape rather than in principle: it takes a
  * strip of bands, which is what `TONE` builds out of the same few values.
  */
-export const paramsFor = (id, values) => (id === 'eq'
-  ? TONE(tidy('eq', values))
-  : { ...REST[id], ...tidy(id, values) });
+export function paramsFor(id, values) {
+  if (id === 'eq') return TONE(tidy('eq', values));
+
+  const settings = { ...REST[id], ...tidy(id, values) };
+  for (const key of Object.keys(ROUTING[id] ?? {})) delete settings[key];
+
+  // Keying from another track is what turns the detector round. The flag is
+  // the processor's and the source is the sketch's, and nobody should have
+  // to set both to get one thing.
+  if (id === 'compression') settings.sidechain = Boolean(tidy(id, values).keyFrom);
+
+  return settings;
+}
 
 /**
  * And what to hand its constructor.

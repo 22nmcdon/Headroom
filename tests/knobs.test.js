@@ -114,8 +114,9 @@ test('an insert keeps every setting the effect has, not only the panel\'s few', 
   assert.equal(kept.makeup, 6);
   assert.equal(kept.detector, 'rms');
 
-  // Every key the effect has, so a worklet is never handed a partial object.
-  assert.deepEqual(Object.keys(kept).sort(), Object.keys(COMP_DEFAULTS).sort());
+  // Every key the effect has, plus where its detector listens, which is
+  // the compressor's own setting and not the processor's.
+  assert.deepEqual(Object.keys(kept).sort(), [...Object.keys(COMP_DEFAULTS), 'keyFrom'].sort());
 
   // Kinds are respected: a number where a string belongs is not a setting.
   assert.equal(tidy('compression', { detector: 7 }).detector, COMP_DEFAULTS.detector);
@@ -135,6 +136,23 @@ test('every numeric setting an effect has can be clamped', () => {
       assert.ok(value >= low && value <= high, `${id}.${key} rests outside its own range`);
     }
   }
+});
+
+test('where a detector listens is kept with the settings and not handed to the processor', () => {
+  // It belongs on the compressor's face, which is why it is stored with
+  // the compressor's settings; it means nothing to a worklet, which is why
+  // it is taken out before one is handed them.
+  assert.equal(tidy('compression', { keyFrom: 'kit' }).keyFrom, 'kit');
+  assert.equal(tidy('compression', {}).keyFrom, null);
+  assert.equal(tidy('compression', { keyFrom: 7 }).keyFrom, null);
+
+  const given = paramsFor('compression', { keyFrom: 'kit' });
+  assert.equal('keyFrom' in given, false);
+
+  // And setting a source is what turns the detector round, so that nobody
+  // has to set two things to get one.
+  assert.equal(given.sidechain, true);
+  assert.equal(paramsFor('compression', {}).sidechain, false);
 });
 
 test('settings for an effect that does not exist are dropped', () => {

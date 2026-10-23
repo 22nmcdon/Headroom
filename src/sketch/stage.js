@@ -22,7 +22,7 @@ import { transportFor, nextBar } from './transport.js';
 import { makeTrack, playPieces } from '../core/track.js';
 import { makeEffect } from '../core/effects.js';
 import { booking, following, queue, resting } from './launch.js';
-import { clipAt, isTake } from './project.js';
+import { clipAt, isTake, keyRoutes } from './project.js';
 import { optionsFor, paramsFor } from './knobs.js';
 
 /** The shared room. Short and bright: a sketch wants space, not a cathedral. */
@@ -183,6 +183,31 @@ export async function makeStage(ctx, project, {
   /** When a launch lands: the next bar line if running, now if not. */
   const when = () => (clock.playing ? nextBar(clock.scheduled, clock.perBar) : 0);
 
+  /**
+   * The side chains, wired.
+   *
+   * Post-fader, from the source track's output, so turning the kit down
+   * takes the ducking with it - which is what anybody would expect, and the
+   * alternative is a mute that stops the sound and leaves the pumping.
+   *
+   * Done in one pass over the whole project rather than per track, because
+   * whether an edge may be made at all is a question about the others: see
+   * `keyRoutes` for the loop it is there to refuse.
+   */
+  const wireKeys = () => {
+    const { kept } = keyRoutes(current);
+    const wanted = new Map(kept.map(({ track, from }) => [track, from]));
+
+    rows.forEach((row, at) => {
+      const comp = row.track.chain.effects.find((each) => each.id === 'compression');
+      if (!comp?.keyFrom) return;
+      const from = wanted.get(at);
+      comp.keyFrom(from === undefined ? null : rows[from]?.track.out ?? null);
+    });
+  };
+
+  wireKeys();
+
   return {
     transport: clock,
     get project() { return current; },
@@ -255,6 +280,8 @@ export async function makeStage(ctx, project, {
 
       // A project with fewer tracks than the stage has rows.
       for (const row of rows.splice(next.tracks.length)) tear(row);
+
+      wireKeys();
     },
 
     /** Put a row on a scene, or on nothing. Lands on the next bar line. */

@@ -2858,8 +2858,7 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
    there. The settings beside them stay: a detector is a setting, a
    ping-pong is a setting, and both do on a track what they do on a loop. */
 .plugin.is-insert > .heat-routing,
-.plugin.is-insert > .image-routing,
-.plugin.is-insert .listen-btn { display: none; }
+.plugin.is-insert > .image-routing { display: none; }
 
 
 /* An insert whose full interface can be opened says so, and the ones whose

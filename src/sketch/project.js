@@ -168,6 +168,63 @@ export const barTicks = (project) => ticksPerBar(project.beats, project.value, P
 
 /* --- getting at things ----------------------------------------------------- */
 
+/**
+ * Which track keys which, with any loop in it broken.
+ *
+ * A compressor keyed from another track is the thing worth practising in a
+ * sketchpad - a bass under a kick - and it is also the one piece of wiring
+ * here that can be made to eat itself: if the bass keys from the kit and
+ * the kit keys from the bass, each one's detector is downstream of the
+ * other's output and the audio graph has a cycle in it. Web Audio does not
+ * refuse a cycle, it quietly produces nothing, so the loop has to be found
+ * before anything is connected.
+ *
+ * Found by walking: an edge is kept if following the keys forward from its
+ * source never arrives back at the track it would feed. Order decides which
+ * edge of a loop survives, which is arbitrary and is at least stable -
+ * whichever track is written first in the project keeps its key.
+ *
+ * Returns the edges that may be made and the ones that were not, so that
+ * something can say so rather than quietly doing less than it was told.
+ */
+export function keyRoutes(project) {
+  const tracks = project?.tracks ?? [];
+  const index = new Map(tracks.map((track, at) => [track.id, at]));
+
+  const kept = [];
+  const dropped = [];
+  const keys = new Map();   // a track, and the one its detector listens to
+
+  tracks.forEach((track, to) => {
+    const from = track.settings?.compression?.keyFrom;
+    if (!from || !track.inserts?.includes('compression')) return;
+
+    const source = index.get(from);
+    // Keyed from itself, or from a track that is not there any more.
+    if (source === undefined || source === to) {
+      dropped.push({ track: to, from, why: source === to ? 'itself' : 'gone' });
+      return;
+    }
+
+    let at = source;
+    const seen = new Set();
+    while (at !== undefined && !seen.has(at)) {
+      if (at === to) break;
+      seen.add(at);
+      at = keys.get(at);
+    }
+    if (at === to) {
+      dropped.push({ track: to, from, why: 'a loop' });
+      return;
+    }
+
+    keys.set(to, source);
+    kept.push({ track: to, from: source });
+  });
+
+  return { kept, dropped };
+}
+
 export const trackAt = (project, track) => project.tracks[track] ?? null;
 export const clipAt = (project, track, scene) => project.tracks[track]?.slots[scene] ?? null;
 

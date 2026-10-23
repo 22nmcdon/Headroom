@@ -15,7 +15,7 @@ import {
   newProject, clipOf, trackOf, setClip, setTrack, setNotes, setProject,
   clipAt, trackAt, sceneOf, sceneHasAnything, barTicks, repeat,
   sceneToMidi, serialise, parse, PROJECT_FORMAT, SCENES, setLength,
-  addScene, dropScene, MOST_SCENES, STARTER, setFollow, followOf, MOST_PASSES,
+  addScene, dropScene, MOST_SCENES, STARTER, setFollow, followOf, MOST_PASSES, keyRoutes,
 } from '../src/sketch/project.js';
 import { readMidi, PPQ, DRUM_CHANNEL } from '../src/sketch/midi.js';
 import { INSTRUMENT_IDS } from '../src/core/instrument.js';
@@ -415,4 +415,49 @@ test('a follow goes on a clip and survives being written out', () => {
   assert.equal(clipAt(setFollow(project, 1, 0, null), 1, 0).follow, null);
   // An empty slot has nothing to put one on.
   assert.equal(setFollow(project, 3, 2, { after: 1, then: 'next' }), project);
+});
+
+
+/** A sketch with a compressor on every track, keyed as the table says. */
+const keyed = (links) => ({
+  tracks: Object.entries(links).map(([id, keyFrom]) => ({
+    id, inserts: ['compression'], settings: { compression: { keyFrom } },
+  })),
+});
+
+test('a side chain is wired where it can be, and refused where it would loop', () => {
+  // The ordinary case: the bass ducks under the kit.
+  const plain = keyRoutes(keyed({ kit: null, bass: 'kit' }));
+  assert.deepEqual(plain.kept, [{ track: 1, from: 0 }]);
+  assert.deepEqual(plain.dropped, []);
+
+  // Each keyed from the other is a cycle in the audio graph, which Web
+  // Audio does not refuse - it quietly produces nothing - so it is refused
+  // here. The first one written keeps its key.
+  const loop = keyRoutes(keyed({ kit: 'bass', bass: 'kit' }));
+  assert.deepEqual(loop.kept, [{ track: 0, from: 1 }]);
+  assert.equal(loop.dropped.length, 1);
+  assert.equal(loop.dropped[0].why, 'a loop');
+
+  // A longer one, which is the case a per-track check would miss.
+  const round = keyRoutes(keyed({ a: 'c', b: 'a', c: 'b' }));
+  assert.equal(round.kept.length, 2);
+  assert.equal(round.dropped.length, 1);
+  assert.equal(round.dropped[0].why, 'a loop');
+
+  // Keyed from itself, and keyed from a track that is not there.
+  const silly = keyRoutes(keyed({ kit: 'kit', bass: 'tuba' }));
+  assert.deepEqual(silly.kept, []);
+  assert.deepEqual(silly.dropped.map((each) => each.why), ['itself', 'gone']);
+});
+
+test('a key with no compressor to feed is not a route', () => {
+  const none = {
+    tracks: [
+      { id: 'kit', inserts: [], settings: {} },
+      { id: 'bass', inserts: [], settings: { compression: { keyFrom: 'kit' } } },
+    ],
+  };
+  assert.deepEqual(keyRoutes(none).kept, []);
+  assert.deepEqual(keyRoutes({}).kept, []);
 });

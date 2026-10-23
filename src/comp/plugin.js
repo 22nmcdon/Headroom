@@ -86,13 +86,17 @@ function compPalette(el) {
 export class CompPlugin {
   constructor(el, {
     engine, settings, onChange, source = 'drums', key = null, uneven = 0,
-    player = null, role = 'tool',
+    player = null, role = 'tool', keys = null,
   }) {
     this.el = el;
     this.engine = engine;
     this.settings = settings;
     this.onChange = onChange;
     this.role = role;
+    // What this compressor's detector could listen to instead of its own
+    // signal: the other tracks in the sketch, as `{ id, name }`. Null on an
+    // exercise, where the key is whatever the round provides.
+    this.keys = keys;
     this.interactive = true;
     this.target = null;      // drawn only once the round is over
     this.meterGr = 0;
@@ -158,9 +162,13 @@ export class CompPlugin {
         <div class="comp-chain">
           <span class="panel-name">Side chain</span>
           <div class="chain-row">
-            <label class="field" id="compKeyPick" hidden>
+            <label class="field" id="compKeyPick" ${this.keys ? '' : 'hidden'}>
               <span class="field-label">Key from</span>
-              <select id="compKeyFrom"></select>
+              <select id="compKeyFrom">
+                <option value="">This track</option>
+                ${(this.keys ?? []).map((each) => `
+                  <option value="${each.id}">${each.name}</option>`).join('')}
+              </select>
             </label>
             <label class="toggle" ${keyed ? '' : 'hidden'}>
               <input type="checkbox" id="compSidechain"> Key from the ${this.player.key === 'kick' ? 'kick' : 'other track'}
@@ -205,6 +213,9 @@ export class CompPlugin {
     this.el.querySelector('#compTraceName').textContent = this.role === 'insert'
       ? 'The last eight seconds'
       : 'Over the loop';
+
+    const picked = this.el.querySelector('#compKeyFrom');
+    if (picked) picked.value = this.settings.keyFrom ?? '';
     this.el.querySelector('#compSource').value = this.player.source;
 
     this.buildKnobs();
@@ -242,6 +253,14 @@ export class CompPlugin {
         this.changed();
       });
     }
+
+    this.el.querySelector('#compKeyFrom')?.addEventListener('change', (e) => {
+      if (!this.interactive) return;
+      // Empty is this track's own signal, which is a compressor with no
+      // side chain and is the thing most of them are.
+      this.settings.keyFrom = e.target.value || null;
+      this.changed();
+    });
 
     this.curve.addEventListener('pointerdown', (e) => this.grab(e));
     this.curve.addEventListener('pointermove', (e) => this.drag(e));

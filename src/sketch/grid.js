@@ -160,6 +160,7 @@ export class SketchPage {
     // pages nobody is looking at is a sketchpad that gets slower the more
     // you work on it.
     this.plugin = null;
+    this.mounted = null;
     // A clip the grid is offering to take out: `track:scene`, set by a long
     // press and cleared by anything else. Taking a clip out belongs here
     // rather than inside the clip, where it was a destructive button sitting
@@ -950,6 +951,23 @@ export class SketchPage {
   async drawPlugin() {
     const { track: index, effect } = this.open;
     const track = trackAt(this.project, index);
+    const here = `${index}:${effect}`;
+
+    // Already mounted on this insert, so leave it alone. A redraw that is
+    // about something else - a mute, a fader, a clip - used to take a
+    // working plugin apart and build another one on top of it, which left
+    // the first one's redraw loop and analysers running behind the page.
+    // Two of them reading the same reduction counter, which is cleared by
+    // being read, is also how a keyed compressor came to show no reduction
+    // at all the moment anything else on the page changed.
+    if (this.plugin && this.mounted === here) {
+      const named = this.parts.editor.querySelector('[data-to-track]');
+      if (named) named.textContent = track.name;
+      return;
+    }
+
+    this.closePlugin();
+    this.mounted = here;
 
     this.parts.editor.innerHTML = `
       ${this.back()}
@@ -986,6 +1004,13 @@ export class SketchPage {
       ...optionsFor(effect, track.settings[effect]),
       role: 'insert',
       player,
+      // What this one's detector could listen to: every other track in the
+      // sketch. A compressor keyed from the kit is the thing worth
+      // practising here, and it is the one control a plugin cannot invent
+      // for itself - only the sketch knows what else there is.
+      keys: this.project.tracks
+        .filter((each) => each.id !== track.id)
+        .map((each) => ({ id: each.id, name: each.name })),
       onChange: () => this.fromPlugin(index, effect),
     });
   }
@@ -1016,6 +1041,7 @@ export class SketchPage {
   closePlugin() {
     this.plugin?.destroy?.();
     this.plugin = null;
+    this.mounted = null;
   }
 
   /**
