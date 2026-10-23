@@ -591,7 +591,14 @@ function finish(game) {
   // controls stay live: the point of being shown a target is to be able to
   // move onto it and hear what closing the gap sounds like.
   const exercise = exerciseOf(ui.mode, settings());
-  ui.tool?.showTarget(exercise.answerOf?.(game.puzzle) ?? game.puzzle.answer ?? null);
+  // The window the round is marked to travels with the answer, so the page can
+  // say which of the gaps counted without keeping its own copy of a number
+  // that lives in the exercise. Most rounds are not marked harmonic by
+  // harmonic and say so by not answering.
+  ui.tool?.showTarget(
+    exercise.answerOf?.(game.puzzle) ?? game.puzzle.answer ?? null,
+    { close: exercise.closeOf?.(ui.tier) ?? null },
+  );
   if (solved) ui.tool?.lock();
 }
 

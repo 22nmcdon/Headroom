@@ -130,7 +130,32 @@ export class HeatPlugin {
   /* ---------- the furniture ---------- */
 
   build() {
-    this.el.innerHTML = `
+    // Everything a host does, outside the chassis. Choosing the material,
+    // starting it, comparing against the target, going back to the defaults:
+    // none of that is a saturator's, and a saturator with a Sample menu on
+    // its face is not one anybody would recognise. The sketchpad is its own
+    // host and has these already, so an insert gets none of it.
+    const host = this.role === 'insert' ? '' : `
+      <div class="eq-transport heat-host">
+        <button class="play-btn" type="button" data-heat="play">Play</button>
+        <div class="eq-ab" role="group" aria-label="What you are hearing">
+          <button class="ab-btn is-on" type="button" data-hear="mine">Yours</button>
+          <button class="ab-btn" type="button" data-hear="theirs" id="heatOther">Target</button>
+        </div>
+        <label class="field">
+          <span class="field-label">Sample</span>
+          <select id="heatSource">
+            <option value="mix">Full mix</option>
+            <option value="instrument">Keys</option>
+            <option value="drums">Drums</option>
+            <option value="yours" id="heatYours" hidden>Your own</option>
+          </select>
+        </label>
+        <label class="file-btn">Open a file<input type="file" id="heatFile" accept="audio/*"></label>
+        <button class="link-btn" type="button" data-heat="reset">Reset</button>
+      </div>`;
+
+    this.el.innerHTML = `${host}
       <div class="plugin heat${this.role === 'insert' ? ' is-insert' : ''}">
         <div class="plugin-head">
           <span class="plugin-lamp"></span>
@@ -163,28 +188,12 @@ export class HeatPlugin {
           <div class="plugin-controls" id="heatKnobs"></div>
         </div>
 
-        <div class="eq-transport heat-transport">
-          <button class="play-btn" type="button" data-heat="play">Play</button>
-          <div class="eq-ab" role="group" aria-label="What you are hearing">
-            <button class="ab-btn is-on" type="button" data-hear="mine">Yours</button>
-            <button class="ab-btn" type="button" data-hear="theirs" id="heatOther">Target</button>
-          </div>
-          <label class="field">
-            <span class="field-label">Sample</span>
-            <select id="heatSource">
-              <option value="mix">Full mix</option>
-              <option value="instrument">Keys</option>
-              <option value="drums">Drums</option>
-              <option value="yours" id="heatYours" hidden>Your own</option>
-            </select>
-          </label>
-          <label class="file-btn">Open a file<input type="file" id="heatFile" accept="audio/*"></label>
+        <div class="heat-set">
           <label class="toggle">
             <input type="checkbox" id="heatAuto" checked>
             Auto gain
             <span class="plugin-trim" id="heatTrim"></span>
           </label>
-          <button class="link-btn" type="button" data-heat="reset">Reset</button>
         </div>
       </div>
       <div class="heat-drill" id="heatDrill" hidden></div>`;
@@ -192,7 +201,8 @@ export class HeatPlugin {
     this.curve = this.el.querySelector('#heatCurve');
     this.bars = this.el.querySelector('#heatBars');
     this.meters = this.el.querySelector('#heatMeters');
-    this.el.querySelector('#heatSource').value = this.player.source;
+    const picker = this.el.querySelector('#heatSource');
+    if (picker) picker.value = this.player.source;
 
     this.buildKnobs();
     this.wire();
@@ -266,9 +276,9 @@ export class HeatPlugin {
     });
 
     this.el.querySelector('#heatSource')
-      .addEventListener('change', (e) => this.setSource(e.target.value));
+      ?.addEventListener('change', (e) => this.setSource(e.target.value));
     this.el.querySelector('#heatFile')
-      .addEventListener('change', (e) => this.loadFile(e.target.files?.[0]));
+      ?.addEventListener('change', (e) => this.loadFile(e.target.files?.[0]));
 
     this.resize = () => this.draw();
     this.unwatch = watchSize(this.el, this.resize);

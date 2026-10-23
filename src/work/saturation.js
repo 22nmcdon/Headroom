@@ -141,6 +141,7 @@ export const HEAT_EXERCISES = {
     other: 'Target',
     faultOf: () => null,
     targetOf: (puzzle) => puzzle.answer,
+    closeOf: (tier) => COLOUR_CLOSE[tier] ?? null,
   },
   even: {
     id: 'even',

@@ -1507,6 +1507,19 @@ input.knob-value:focus {
 /* Nothing upstream of a drill meters anything, so this bay has nothing to
    read there. Dimmed rather than taken away - the plugin somebody practises
    on has to be the plugin they later open somewhere else. */
+/* The host, on the paper. The base .eq-transport rules were written for a
+   cream card before there was a chassis, so taking this out of .plugin puts
+   it back on the styling it was drawn for. */
+.heat-host { margin-bottom: 10px; }
+
+/* And what is left inside is the strip of things you set once rather than
+   move while listening - the auto gain today, the stereo handling and the
+   oversampling when they arrive. */
+.heat-set {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  padding: 4px 2px 0; border-top: 1px solid var(--cut); box-shadow: 0 1px 0 var(--lift) inset;
+}
+
 .heat-bay.is-idle { opacity: 0.4; }
 /* Beside the switch it belongs to, not at the other end of the face. */
 .heat-transport .toggle .plugin-trim {
