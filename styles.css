@@ -660,8 +660,11 @@ body, .sheet, .dock, .top-bar, dialog { transition: background-color 280ms ease,
 
 .eq-controls {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(124px, 1fr));
-  gap: 8px;
+  /* Narrow enough that eight bays come out as one row at the widths this
+     is used at - a deck is a row, and a deck that wraps seven and one is
+     a form again. */
+  grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
+  gap: 10px 6px;
 }
 
 /* The readout is a field you can type into, and has to keep looking like a
@@ -915,68 +918,147 @@ input.knob-value:focus {
    The displays are dark and everything around them is not. That is how a
    plugin looks, and inverting it for the sake of the page would cost more in
    legibility than it gained in manners. */
-/* A plugin is a device, not a run of sections down a page. It has a face:
-   a title strip across the top with the name and what it is doing to the
-   signal, the display inset into the body, the controls on a deck below it,
-   and the monitoring along the bottom. Six of them share it, which is the
-   point - the skill being practised here is reading a plugin, and a plugin
-   whose furniture moves between instruments teaches nothing. */
+/* A plugin is a device, and a device is not made of paper.
+   ---------------------------------------------------------------------
+   These were a cream card with a dark picture in it, which read as a
+   section of the page rather than as a thing lying on the page. The
+   chassis is its own material now: warm graphite, lit from the top, with
+   the sections ruled into it and the displays let in behind bezels. It
+   stops short of black on purpose - near-black made the plugin a hole cut
+   in the paper rather than something resting on it.
+
+   All six wear it. That is the point: the skill being practised is reading
+   a plugin, and furniture that moves between instruments teaches nothing.
+
+   The small palette below is the whole of the material. Everything dark in
+   a plugin is one of these, so there is one thing to turn if it is ever a
+   shade wrong. */
 .plugin {
+  --face-hi:   #4e453f;
+  --face:      #3c3531;
+  --face-lo:   #2d2724;
+  --cut:       #1d1917;                      /* a line milled into it */
+  --lift:      rgba(250, 246, 240, 0.10);    /* and the light under that line */
+  --ink:       var(--cream);
+  --ink-soft:  rgba(250, 246, 240, 0.44);
+  --ink-faint: rgba(250, 246, 240, 0.30);
+
+  /* The knob takes its colours from whatever it is mounted on. */
+  --knob-arc:       var(--blush);
+  --knob-track:     rgba(250, 246, 240, 0.13);
+  --knob-tick:      rgba(250, 246, 240, 0.3);
+  --knob-tick-long: rgba(250, 246, 240, 0.55);
+  --knob-cap-hi:    #6e6359;
+  --knob-cap-lo:    #332c29;
+  --knob-cap-edge:  #221d1b;
+  --knob-point:     var(--cream);
+  --knob-name:      var(--ink-faint);
+  --knob-read:      var(--ink);
+
   display: flex;
   flex-direction: column;
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  background: var(--paper);
-  /* A hairline of lift, not a drop shadow: the page is paper and the plugin
-     is something lying on it. */
-  box-shadow: 0 10px 30px -26px rgba(36, 31, 29, 0.75);
+  border-radius: 5px;
   overflow: hidden;
+  color: var(--ink);
+  background:
+    /* a brushed grain, barely there - enough that the face is not a flat
+       fill, not enough to be a texture anybody notices */
+    repeating-linear-gradient(90deg, rgba(255, 252, 247, 0.014) 0 1px, transparent 1px 3px),
+    linear-gradient(180deg, var(--face-hi), var(--face) 16%, var(--face-lo));
+  box-shadow:
+    0 0 0 1px #1a1614,
+    0 1px 0 rgba(255, 252, 247, 0.18) inset,
+    0 20px 40px -30px #000;
 }
-/* The strips are full-bleed and the padding is on them, so the rules between
-   them run the whole width of the face the way they do on a real one. */
-.plugin > * { padding: 12px 16px; }
-.plugin > * + * { border-top: 1px solid var(--line); }
 
-/* The title strip. */
+/* The strips are full-bleed and the padding is on them, so the rules
+   between them run the whole width of the face the way they do on a real
+   one. */
+.plugin > * { padding: 11px 14px 12px; }
+.plugin > * + * { border-top: 1px solid var(--cut); box-shadow: 0 1px 0 var(--lift) inset; }
+
+/* The title strip, which on a real one is a plate screwed to the top. */
 .plugin > .plugin-head {
-  background: var(--cream-2);
-  padding-block: 9px;
+  background: linear-gradient(180deg, #5a504a, #413934);
+  padding-block: 7px;
+  box-shadow: 0 1px 0 var(--lift) inset;
 }
-/* The EQ's display is the panel itself rather than a row of them, so it is
-   inset with a margin: padding would put sixteen pixels of charcoal around
-   the curve. */
-.plugin > .plugin-panel { padding: 0; margin: 12px 16px; }
 
-/* The display sits on the body, not in a strip of its own: no rule above it,
-   because the title strip's own edge is already there. */
+/* The EQ's display is the panel itself rather than a row of them, so it is
+   inset with a margin: padding would put fourteen pixels of chassis around
+   the curve. */
+.plugin > .plugin-panel { padding: 0; margin: 12px 14px; }
+
+/* A display sits on the body rather than in a strip of its own, so no rule
+   above it - the title strip's own edge is already there. */
 .plugin > .plugin-panel,
 .plugin > .eq-display,
 .plugin > .comp-display,
 .plugin > .heat-display,
 .plugin > .image-display,
 .plugin > .echo-display,
-.plugin > .verb-display { border-top: none; }
+.plugin > .verb-display { border-top: none; box-shadow: none; }
 
 /* The monitoring strip along the bottom, which is the one part of the face
    that is about listening rather than about the sound. */
 .plugin > .eq-transport {
-  background: var(--cream-2);
-  padding-block: 10px;
+  background: linear-gradient(180deg, #332c29, #272120);
+  padding-block: 9px;
+}
+
+/* Every display is let into the chassis behind a bezel, which is what makes
+   it read as glass in a hole rather than as a dark rectangle. */
+.plugin .plugin-panel,
+.plugin .eq-display {
+  background: #211c1a;
+  border: none;
+  border-radius: 3px;
+  box-shadow:
+    0 0 0 1px #1a1614,
+    0 0 0 4px #4a423c,
+    0 0 0 5px #1a1614,
+    0 3px 9px rgba(0, 0, 0, 0.4) inset;
+}
+/* The bezel is drawn outside the box, so the boxes need room between them. */
+.plugin .comp-display,
+.plugin .heat-display,
+.plugin .image-display,
+.plugin .echo-display,
+.plugin .verb-display { gap: 14px; padding: 4px; }
+
+/* A section of the panel, named the way a front panel names one: printed on
+   the face with a rule running off it. */
+.plugin .panel-name {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 0 0 9px;
+  font-size: 7.5px;
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  font-weight: 500;
+}
+.plugin .panel-name::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--cut);
+  box-shadow: 0 1px 0 var(--lift);
 }
 
 .plugin-head {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 10px 16px;
+  align-items: center;
+  gap: 10px 14px;
   flex-wrap: wrap;
 }
 .plugin-name {
-  font-size: 10.5px;
+  font-size: 10px;
   text-transform: uppercase;
-  letter-spacing: 0.2em;
+  letter-spacing: 0.3em;
   font-weight: 500;
-  color: var(--blush-deep);
+  color: var(--blush);
 }
 /* What auto gain is doing, and what is loaded. Quiet: it is a statement of
    fact about the signal path, not a control - and it is pushed over to sit
@@ -984,9 +1066,9 @@ input.knob-value:focus {
    and the left is what it is. */
 .plugin-trim {
   margin-left: auto;
-  font-size: 11px;
+  font-size: 10px;
   letter-spacing: 0.08em;
-  color: var(--text-soft);
+  color: var(--ink-faint);
   font-variant-numeric: tabular-nums;
   max-width: 30ch;
   overflow: hidden;
@@ -995,15 +1077,139 @@ input.knob-value:focus {
 }
 .plugin-read {
   font-family: var(--serif);
-  font-size: 15px;
-  color: var(--charcoal);
+  font-size: 13.5px;
+  color: rgba(250, 246, 240, 0.9);
   font-variant-numeric: tabular-nums;
 }
+
+/* --- the furniture, on the chassis ---------------------------------------
+   Everything below was drawn for a cream card. It is the same furniture
+   doing the same jobs; what changes is that it is now mounted on something
+   dark, so it is restated once here rather than guessed at six times. */
+
+.plugin .panel-name,
+.plugin .field-label,
+.plugin .eq-hint { color: var(--ink-faint); }
+.plugin .field-label { font-size: 8.5px; letter-spacing: 0.2em; }
+
+/* A switch milled into the panel: a pair of states, one of them on. */
+.plugin .eq-ab,
+.plugin .kind-switch {
+  border: none;
+  border-radius: 2px;
+  overflow: hidden;
+  box-shadow: 0 0 0 1px var(--cut), 0 1px 0 var(--lift);
+}
+.plugin .ab-btn,
+.plugin .pick-btn {
+  background: linear-gradient(180deg, #4b433d, #352e2b);
+  color: var(--ink-soft);
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  padding: 5px 12px;
+}
+.plugin .ab-btn + .ab-btn,
+.plugin .pick-btn + .pick-btn { border-left: 1px solid var(--cut); }
+.plugin .ab-btn:hover,
+.plugin .pick-btn:hover { color: var(--ink); }
+.plugin .ab-btn.is-on,
+.plugin .pick-btn[aria-pressed="true"] {
+  background: linear-gradient(180deg, var(--blush), var(--blush-deep));
+  color: #1a1615;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4) inset;
+}
+.plugin .pick-row {
+  display: flex;
+  border-radius: 2px;
+  overflow: hidden;
+  box-shadow: 0 0 0 1px var(--cut), 0 1px 0 var(--lift);
+}
+
+/* The two that are a state you are in rather than a pair to choose from. */
+.plugin .eq-transport .solo-btn,
+.plugin .listen-btn {
+  border: none;
+  border-radius: 2px;
+  padding: 5px 12px;
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  color: var(--ink-soft);
+  background: linear-gradient(180deg, #4b433d, #352e2b);
+  box-shadow: 0 0 0 1px var(--cut), 0 1px 0 var(--lift);
+}
+.plugin .eq-transport .solo-btn.is-on,
+.plugin .listen-btn[aria-pressed="true"] {
+  background: linear-gradient(180deg, #c9a469, var(--gold));
+  color: #1a1615;
+}
+
+.plugin .play-btn {
+  background: linear-gradient(180deg, #5f554e, #3e3733);
+  border: none;
+  border-radius: 2px;
+  color: var(--ink);
+  padding: 8px 20px;
+  box-shadow: 0 0 0 1px var(--cut), 0 1px 0 rgba(255, 252, 247, 0.16) inset;
+}
+.plugin .play-btn:hover:not(:disabled) { background: linear-gradient(180deg, var(--blush), var(--blush-deep)); color: #1a1615; }
+
+.plugin .file-btn {
+  background: linear-gradient(180deg, #4b433d, #352e2b);
+  border: none;
+  border-radius: 2px;
+  color: var(--ink-soft);
+  padding: 5px 12px;
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  box-shadow: 0 0 0 1px var(--cut), 0 1px 0 var(--lift);
+}
+.plugin .file-btn:hover { background: linear-gradient(180deg, var(--blush), var(--blush-deep)); color: #1a1615; }
+
+.plugin .link-btn { color: var(--ink-soft); border-bottom-color: rgba(217, 166, 160, 0.5); }
+.plugin .link-btn:hover { color: var(--blush); border-bottom-color: var(--blush); }
+
+.plugin .toggle { color: var(--ink-soft); font-size: 9px; letter-spacing: 0.16em; }
+.plugin .toggle input { accent-color: var(--blush-deep); }
+
+/* A select on a panel is a window with something written in it. */
+.plugin select {
+  font-family: var(--sans);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  color: var(--ink);
+  background: linear-gradient(180deg, #2a2422, #201b19);
+  border: none;
+  border-radius: 2px;
+  padding: 5px 9px;
+  box-shadow: 0 0 0 1px var(--cut), 0 1px 0 var(--lift), 0 2px 5px rgba(0, 0, 0, 0.35) inset;
+}
+
+/* The EQ's band buttons: the colour down the left is the band's own, which
+   is the one thing about them that must not change. */
+.plugin .band-btn {
+  border: none;
+  border-left: 3px solid;
+  border-radius: 2px;
+  background: linear-gradient(180deg, #4b433d, #352e2b);
+  box-shadow: 0 0 0 1px var(--cut), 0 1px 0 var(--lift);
+  padding: 5px 9px 6px;
+}
+.plugin .band-btn[aria-pressed="true"] {
+  background: linear-gradient(180deg, var(--blush), var(--blush-deep));
+}
+.plugin .band-short { color: var(--ink); }
+.plugin .band-hz { color: var(--ink-faint); }
+.plugin .band-btn[aria-pressed="true"] .band-short,
+.plugin .band-btn[aria-pressed="true"] .band-hz { color: #1a1615; }
+
+/* The readout fields in the EQ's bays, which are typed into. */
+.plugin input.knob-value { color: var(--ink); }
+.plugin input.knob-value:hover { border-bottom-color: var(--ink-faint); }
+.plugin input.knob-value:focus { border-bottom-color: var(--blush); color: var(--blush); }
 
 .plugin-panel {
   position: relative;
   background: var(--charcoal);
-  border: 1px solid var(--charcoal);
   border-radius: 1px;
   overflow: hidden;
 }
@@ -1024,8 +1230,11 @@ input.knob-value:focus {
 
 .plugin-controls {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(124px, 1fr));
-  gap: 8px;
+  /* Narrow enough that eight bays come out as one row at the widths this
+     is used at - a deck is a row, and a deck that wraps seven and one is
+     a form again. */
+  grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
+  gap: 10px 6px;
 }
 /* Auto gain is holding the makeup knob, and says so by standing back from it
    rather than by disappearing - the number on it is still worth reading. */
