@@ -32,6 +32,24 @@ export const STEM_RATE = 48000;
 const fileName = (name) => slug(name, 32) || 'track';
 
 /**
+ * The same names, made unique.
+ *
+ * Two tracks may be called the same thing - nothing stops it, and now that
+ * tracks are added by hand it is likely: a second synth is called Synth.
+ * Two files called the same thing in one archive is one of them lost,
+ * quietly, at whichever end unzips it. The second gets a number.
+ */
+export function distinct(names) {
+  const seen = new Map();
+  return names.map((name) => {
+    const base = fileName(name);
+    const had = seen.get(base) ?? 0;
+    seen.set(base, had + 1);
+    return had ? `${base}-${had + 1}` : base;
+  });
+}
+
+/**
  * Every track in a scene, plus the room and the mix, as buffers.
  *
  * Returned as channel arrays rather than as files, so the same render can be
@@ -195,8 +213,9 @@ export async function zipStems(project, scene, { bars = 4, rate = STEM_RATE, tak
 
   const folder = `${fileName(project.name)}-scene-${scene + 1}`;
 
-  const files = stems.map((stem) => ({
-    name: `${folder}/${fileName(stem.name)}.wav`,
+  const named = distinct(stems.map((stem) => stem.name));
+  const files = stems.map((stem, i) => ({
+    name: `${folder}/${named[i]}.wav`,
     bytes: writeWav(stem.channels, stem.rate),
   }));
 

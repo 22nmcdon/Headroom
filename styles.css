@@ -2274,6 +2274,11 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
 
 /* Adding and taking away a scene, at the end of the row of scene numbers. */
 .scene-edit { display: flex; flex-direction: column; gap: 2px; justify-content: center; }
+/* And the same pair for the tracks, under the names, because that is the
+   column they are a column of. Sideways rather than stacked: the row they
+   sit in is one button tall, not one track tall. */
+.track-edit { display: flex; gap: 3px; align-items: center; padding-top: 4px; }
+.track-edit .scene-more { flex: 1; padding-block: 4px; }
 .scene-more {
   background: none;
   border: 1px solid var(--line);

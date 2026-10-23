@@ -50,6 +50,17 @@ export const SCENES = 4;
  */
 export const MOST_SCENES = 8;
 
+/**
+ * And how many tracks.
+ *
+ * Six rather than the five a new sketch opens with, because the five were
+ * one of each thing a sketch tends to need and there is always a sixth
+ * idea - a second voice, a counter-line, a pad under the lot. Six is also
+ * what still reads as a grid on a phone: past that the names column is
+ * taller than the screen and the thing you are looking at is a mixer.
+ */
+export const MOST_TRACKS = 6;
+
 /** A clip, with everything it does not say filled in. */
 /** What a clip can do when it has gone round enough times. */
 export const THEN = ['next', 'first', 'stop'];
@@ -271,6 +282,60 @@ export function dropScene(project) {
   const at = project.scenes.length - 1;
   if (at < 1 || sceneHasAnything(project, at)) return project;
   return sized({ ...project, scenes: project.scenes.slice(0, at) });
+}
+
+/**
+ * One more track, up to the cap.
+ *
+ * It arrives as a synth with a provisional name, because the thing to do
+ * with a new track is say what it is, and the panel that opens asks. Its id
+ * is its own: a side chain is stored by track id, so two tracks may share a
+ * name and never a handle.
+ */
+export function addTrack(project) {
+  if (project.tracks.length >= MOST_TRACKS) return project;
+
+  const taken = new Set(project.tracks.map((track) => track.id));
+  let n = project.tracks.length + 1;
+  while (taken.has(`track-${n}`)) n += 1;
+
+  return withTracks(project, [...project.tracks, trackOf({
+    id: `track-${n}`,
+    name: `Track ${project.tracks.length + 1}`,
+    slots: Array.from({ length: project.scenes.length }, () => null),
+  })]);
+}
+
+/**
+ * The last track, gone - but only when there is nothing in it.
+ *
+ * The same rule the scenes have: nothing here throws away work by accident,
+ * so a track with a clip on it has to be emptied first, which is a thing
+ * you can see yourself doing.
+ *
+ * Anything keyed from it stops being keyed from it. A side chain pointing
+ * at a track that is not there is already refused when the stage is wired,
+ * but leaving it in the file means a track added later could inherit a
+ * routing nobody asked for.
+ */
+export function dropTrack(project) {
+  const at = project.tracks.length - 1;
+  if (at < 1) return project;
+
+  const going = project.tracks[at];
+  if (going.slots.some(Boolean)) return project;
+
+  return withTracks(project, project.tracks.slice(0, at).map((track) => (
+    track.settings?.compression?.keyFrom === going.id
+      ? {
+        ...track,
+        settings: {
+          ...track.settings,
+          compression: { ...track.settings.compression, keyFrom: null },
+        },
+      }
+      : track
+  )));
 }
 
 export const sceneOf = (project, scene) => project.tracks

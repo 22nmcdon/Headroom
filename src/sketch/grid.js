@@ -33,6 +33,7 @@ import {
   newProject, setClip, setTrack, setProject, setNotes, setLength,
   clipAt, trackAt, sceneOf, sceneHasAnything, barTicks, sceneToMidi, isTake,
   addScene, dropScene, MOST_SCENES, setFollow, MOST_PASSES,
+  addTrack, dropTrack, MOST_TRACKS,
 } from './project.js';
 import {
   STEP_DIVISIONS, divisionOf, SCALES, SCALE_IDS, ROOT_NAMES,
@@ -326,6 +327,25 @@ export class SketchPage {
   }
 
   gridClick(event) {
+    if (event.target.closest('[data-add-track]')) {
+      const next = addTrack(this.project);
+      if (next === this.project) return;
+      // Straight into its panel, because the thing to do with a new track
+      // is say what it is, and that is where it is said.
+      this.open = { kind: 'track', track: next.tracks.length - 1 };
+      this.change(next);
+      this.tell('A track. Say what it is.');
+      return;
+    }
+
+    if (event.target.closest('[data-drop-track]')) {
+      const next = dropTrack(this.project);
+      if (next === this.project) return;
+      if (this.open?.track >= next.tracks.length) this.open = null;
+      this.change(next);
+      return;
+    }
+
     const mute = event.target.closest('[data-mute]');
     if (mute) {
       const index = Number(mute.dataset.mute);
@@ -891,8 +911,22 @@ export class SketchPage {
       }).join('')}
       <span class="scene-edit"></span>`).join('');
 
+    // One more track, or one fewer - under the names, because that is the
+    // column they are a column of.
+    const spare = project.tracks.at(-1);
+    const canDropTrack = project.tracks.length > 1 && !spare.slots.some(Boolean);
+    const foot = `
+      <span class="track-edit">
+        <button class="scene-more" type="button" data-add-track
+                ${project.tracks.length >= MOST_TRACKS ? 'disabled' : ''}
+                title="Another track">+</button>
+        <button class="scene-more" type="button" data-drop-track
+                ${canDropTrack ? '' : 'disabled'}
+                title="${canDropTrack ? `Take ${spare.name} away` : 'Empty the last track first'}">−</button>
+      </span>`;
+
     this.parts.grid.style.setProperty('--scenes', project.scenes.length);
-    this.parts.grid.innerHTML = `<span class="grid-corner"></span>${heads}${rows}`;
+    this.parts.grid.innerHTML = `<span class="grid-corner"></span>${heads}${rows}${foot}`;
   }
 
   /**

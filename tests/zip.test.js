@@ -9,6 +9,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { writeZip, readZip, crc32, dosTime } from '../src/sketch/zip.js';
+import { distinct } from '../src/sketch/stems.js';
 
 const say = (text) => new TextEncoder().encode(text);
 const read = (bytes) => new TextDecoder().decode(bytes);
@@ -128,4 +129,18 @@ test('nothing is written past the end record', () => {
   const zip = writeZip([{ name: 'a', bytes: say('hello') }]);
   const view = new DataView(zip.buffer);
   assert.equal(view.getUint32(zip.length - 22, true), 0x06054b50);
+});
+
+test('two tracks called the same thing do not become one file', () => {
+  // Nothing stops two tracks sharing a name, and now that tracks are added
+  // by hand it is likely - a second synth gets called Synth. Two files of
+  // the same name in one archive is one of them lost, quietly, at whichever
+  // end unzips it.
+  assert.deepEqual(
+    distinct(['Synth', 'Synth', 'Kit', 'synth', 'Synth']),
+    ['synth', 'synth-2', 'kit', 'synth-3', 'synth-4'],
+  );
+
+  // And a name that is nothing at all still lands somewhere.
+  assert.deepEqual(distinct(['', '']), ['track', 'track-2']);
 });
