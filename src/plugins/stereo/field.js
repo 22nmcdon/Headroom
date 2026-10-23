@@ -1,4 +1,4 @@
-import { makeBiquad, setBiquad, runBiquad } from '../compressor/dsp.js';
+import { makeBiquad, setBiquad, runBiquad } from '../../lib/dsp.js';
 import { bandOf } from '../../lib/response.js';
 import { readingOf, stampOf } from '../../lib/read.js';
 

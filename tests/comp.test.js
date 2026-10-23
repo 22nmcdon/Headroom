@@ -1,9 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import {
-  staticGain, compressorCore, runCompressor, analyse, autoGain, signalRms, COMP_DEFAULTS,
-} from '../src/plugins/compressor/dsp.js';
+import { signalRms } from '../src/lib/dsp.js';
+import { staticGain, compressorCore, runCompressor, analyse, autoGain, COMP_DEFAULTS } from '../src/plugins/compressor/dsp.js';
 import { workletSource } from '../src/plugins/compressor/node.js';
 import { COMP_WORK as compression } from '../src/learn/work/compression.js';
 import { engraveNote } from '../src/lib/engrave.js';

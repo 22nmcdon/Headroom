@@ -1,6 +1,6 @@
-import { makeBiquad, setBiquad, runBiquad } from '../compressor/dsp.js';
+import { makeBiquad, setBiquad, runBiquad } from '../../lib/dsp.js';
 import { LONGEST_TAIL, decayProfile, decayTimes, wetDryImpulse } from '../../lib/response.js';
-import { LOOP_BEAT } from '../../core/audio.js';
+import { LOOP_BEAT } from '../../lib/tempo.js';
 
 // A delay, as an impulse response.
 //

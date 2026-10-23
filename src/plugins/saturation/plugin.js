@@ -7,7 +7,7 @@ import { notReady, stampOf } from '../../lib/read.js';
 import { HeatPlayer } from './player.js';
 import { dialOf, offDial, readyCanvas, watchSize, span } from '../../lib/panel.js';
 import { dressKnobs } from '../../lib/knob.js';
-import { writeHertz } from '../compressor/plugin.js';
+import { writeHertz } from '../../lib/panel.js';
 
 /**
  * The saturator, as a plugin.

@@ -1,3 +1,9 @@
+import { LOOP_BPM, LOOP_BARS, LOOP_BEAT } from '../lib/tempo.js';
+
+// Re-exported because this is where the rest of the app has always asked
+// for them, and the engine is the thing that cuts the loops they describe.
+export { LOOP_BPM, LOOP_BARS, LOOP_BEAT };
+
 // The sound of the whole suite, synthesised live. No samples to host, and no
 // mode has to know how another one makes its noise: a mode builds whatever
 // processing it wants out of `ctx`, connects it to `out`, and asks the engine
@@ -16,18 +22,6 @@ export function midiToFreq(midi) {
 }
 
 export const dbToGain = (db) => 10 ** (db / 20);
-
-/**
- * The shape of every loop this app plays: two bars of four, at 96.
- *
- * Named because things outside the engine need them. A reverb asked to clear
- * by the next beat has to know how long a beat is, and working that out
- * backwards from the loop's length would be working out an answer from an
- * answer.
- */
-export const LOOP_BPM = 96;
-export const LOOP_BARS = 2;
-export const LOOP_BEAT = 60 / LOOP_BPM;
 
 /**
  * The kit, as recipes: where the noise is filtered and how long it rings.

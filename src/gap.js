@@ -12,17 +12,17 @@
 // anything holding two readings it did not produce - a chain report, a
 // comparison against a reference, a drill that asks which of three is closest.
 
-import { curveGap } from '../plugins/eq/filters.js';
-import { reductionGap } from '../plugins/compressor/reading.js';
-import { decayGap } from './response.js';
-import { stereoGap } from '../plugins/stereo/field.js';
-import { heatGap } from '../plugins/saturation/shape.js';
-import { loudnessGap } from '../analysis/loudness.js';
-import { crestGap } from '../analysis/dynamics.js';
-import { balanceGap } from '../analysis/balance.js';
-import { widthGap } from '../analysis/width.js';
-import { placementGap } from '../mix/placement.js';
-import { comparable, gapOf } from './read.js';
+import { curveGap } from './plugins/eq/filters.js';
+import { reductionGap } from './plugins/compressor/reading.js';
+import { decayGap } from './lib/response.js';
+import { stereoGap } from './plugins/stereo/field.js';
+import { heatGap } from './plugins/saturation/shape.js';
+import { loudnessGap } from './analysis/loudness.js';
+import { crestGap } from './analysis/dynamics.js';
+import { balanceGap } from './analysis/balance.js';
+import { widthGap } from './analysis/width.js';
+import { placementGap } from './mix/placement.js';
+import { comparable, gapOf } from './lib/read.js';
 
 /**
  * How to compare two readings of each kind.

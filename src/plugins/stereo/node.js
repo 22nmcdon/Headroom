@@ -1,5 +1,5 @@
 import { imagerCore } from './field.js';
-import { makeBiquad, setBiquad, runBiquad } from '../compressor/dsp.js';
+import { makeBiquad, setBiquad, runBiquad } from '../../lib/dsp.js';
 import { workletModule, installWorklet } from '../../lib/worklet.js';
 
 /**

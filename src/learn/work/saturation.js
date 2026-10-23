@@ -2,7 +2,7 @@ import {
   HEAT_DEFAULTS, HEAT_FLOOR, MOST_TONE, MOST_HARDNESS,
   harmonicsReading,
 } from '../../plugins/saturation/shape.js';
-import { distance } from '../../lib/gap.js';
+import { distance } from '../../gap.js';
 import { HIT, NEAR, MISS, onScale, toStep, pick } from './scoring.js';
 
 /**

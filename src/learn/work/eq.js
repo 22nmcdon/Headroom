@@ -1,5 +1,5 @@
 import { curveReading, writeHz } from '../../plugins/eq/filters.js';
-import { distance } from '../../lib/gap.js';
+import { distance } from '../../gap.js';
 import { HIT, NEAR, MISS, onScale, logPick, toStep, toThirdOctave, pick } from './scoring.js';
 
 /**

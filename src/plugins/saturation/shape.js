@@ -1,4 +1,4 @@
-import { makeBiquad, setBiquad, runBiquad } from '../compressor/dsp.js';
+import { makeBiquad, setBiquad, runBiquad } from '../../lib/dsp.js';
 import { fft } from '../../lib/fft.js';
 import { readingOf, stampOf } from '../../lib/read.js';
 

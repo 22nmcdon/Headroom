@@ -18,7 +18,7 @@ import { balanceReading, THIRDS, THIRD_NAMES, TILT } from './balance.js';
 import { widthReading } from './width.js';
 import { STEREO_BANDS } from '../plugins/stereo/field.js';
 import { readyCanvas } from '../lib/panel.js';
-import { distance } from '../lib/gap.js';
+import { distance } from '../gap.js';
 
 /** The material this app can make, for when there is no file to hand. */
 const OWN = [

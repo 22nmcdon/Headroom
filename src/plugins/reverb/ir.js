@@ -1,4 +1,4 @@
-import { makeBiquad, setBiquad, runBiquad } from '../compressor/dsp.js';
+import { makeBiquad, setBiquad, runBiquad } from '../../lib/dsp.js';
 import { mulberry32 } from '../../lib/random.js';
 import {
   RESPONSE_BANDS, LONGEST_TAIL, decayProfile, decayTimes, monoOf, wetDryImpulse,

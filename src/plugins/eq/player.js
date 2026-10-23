@@ -1,6 +1,6 @@
 import { liftFrequencies } from './filters.js';
 import { averageSpectrum } from './spectrum.js';
-import { eqSections, tuneSections } from '../../core/effects.js';
+import { eqSections, tuneSections } from './sections.js';
 
 /**
  * The loop, running through two EQ chains you can flip between.

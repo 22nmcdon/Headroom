@@ -917,48 +917,11 @@ input.knob-value:focus {
    The displays are dark and everything around them is not. That is how a
    plugin looks, and inverting it for the sake of the page would cost more in
    legibility than it gained in manners. */
-/* What goes on a face, and what does not.
-   ---------------------------------------------------------------------
-   Three rules, in the order they win when they disagree.
-
-   One: the plugin is a real plugin. Nothing on it is built worse because
-   its first job here is teaching. Somebody practising on a thin tool
-   learns a thin skill, and it would not transfer to the plugins they go on
-   to use, which is the only reason any of this is worth doing. The DSP
-   cores carry the same rule from the other end - no Web Audio type ever
-   crosses into one - so the maths stays portable to somewhere that is not
-   a browser.
-
-   Two: the plugin shows what is, the teaching layer shows what should be.
-   Meters, curves, readouts, a reading that dims because it is stale: all
-   of that is the device being honest about itself, and it ships. A target,
-   a tolerance, a verdict, a hint - those need somebody to already know the
-   answer, and they belong to the exercise. The test for anything new is
-   whether drawing it requires knowing the right answer.
-
-   Note what that does not say. A display is not teaching furniture merely
-   because teaching is why it was built: the harmonic series on the
-   saturator is there to teach, and it is also the best meter on the face
-   and the one no shipping saturator gives you. The rule is about answers,
-   not about subjects.
-
-   Which settles the dependency arrow. A face never imports from work/ or
-   notes/; the exercise imports the face and hands it the overlay. That
-   holds for all six today, and it is most of what keeps a standalone build
-   possible later.
-
-   Three: the exercise draws outside the chassis. Not "additive and
-   removable", which is what this said first and which was too weak - a
-   target dashed across a meter is still a mark on a device that will not
-   have one, and somebody who learns to hit it has learned to read a mark
-   rather than to hear. So what the exercise has to say goes on the paper,
-   below the plugin, in the paper's ink: the device shows the reading, the
-   page shows how far off it is.
-
-   What the exercise may do to the face is switch things off, and a thing
-   switched off is dimmed where it stands, never taken away. A plugin that
-   is missing a control is a different plugin, and the one you practised on
-   should be the one you later open somewhere else. */
+/* What goes on a face, and what does not, is in src/plugins/README.md.
+   Three rules - the plugin is a real plugin; the plugin shows what is and the
+   exercise shows what should be; the exercise draws outside the chassis - and
+   two of them are about which file may import which, which is no business of
+   a stylesheet. tests/seams.test.js holds the half that can be held. */
 /* A plugin is a device, and a device is not made of paper.
    ---------------------------------------------------------------------
    These were a cream card with a dark picture in it, which read as a

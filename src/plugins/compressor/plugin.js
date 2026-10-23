@@ -1,3 +1,4 @@
+import { writeHertz } from '../../lib/panel.js';
 import { staticGain, COMP_DEFAULTS, COMP_LIMITS } from './dsp.js';
 import { CompPlayer } from './player.js';
 import { dialOf, offDial, sizeOf, readyCanvas, watchSize, span } from '../../lib/panel.js';
@@ -43,7 +44,6 @@ const holdIn = (value, low, high) => Math.min(high, Math.max(low, value));
 export const writeTime = (ms) => (ms < 10 ? `${ms.toFixed(1)} ms` : `${Math.round(ms)} ms`);
 export const writeRatio = (ratio) => (ratio >= 19.95 ? '∞ : 1' : `${ratio.toFixed(1)} : 1`);
 export const writeDbValue = (db) => `${db > 0 ? '+' : ''}${db.toFixed(1)} dB`;
-export const writeHertz = (hz) => (hz >= 1000 ? `${(hz / 1000).toFixed(1)} kHz` : `${Math.round(hz)} Hz`);
 
 /** Everything with a knob on it, and how each one reads. */
 const COMP_KNOBS = [
@@ -318,7 +318,6 @@ export class CompPlugin {
     this.resize = () => { this.restage(); this.draw(); };
     this.unwatch = watchSize(this.el, this.resize);
   }
-
 
   /**
    * The curve is a control surface, not a picture.

@@ -1,7 +1,5 @@
-import {
-  compressorCore, staticGain, makeBiquad, setBiquad, runBiquad,
-  MOST_LOOKAHEAD, PEAK_DECAY,
-} from './dsp.js';
+import { makeBiquad, setBiquad, runBiquad } from '../../lib/dsp.js';
+import { compressorCore, staticGain, MOST_LOOKAHEAD, PEAK_DECAY } from './dsp.js';
 import { workletModule, installWorklet } from '../../lib/worklet.js';
 
 /**

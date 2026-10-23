@@ -3,7 +3,7 @@ import {
   RESPONSE_BANDS, DECAY_FLOOR, decayProfile, decayTimes, rt60, bandOf, monoOf, wetDryImpulse, decayReading, decayAxis
 } from '../../lib/response.js';
 import { ImpulsePlayer } from '../../lib/player.js';
-import { writeHertz } from '../compressor/plugin.js';
+import { writeHertz } from '../../lib/panel.js';
 import { notReady, stampOf } from '../../lib/read.js';
 import { dialOf, offDial, sizeOf, readyCanvas, decayX, decayY, watchSize, span } from '../../lib/panel.js';
 import { dressKnobs } from '../../lib/knob.js';

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { stampOf, readingOf, notReady, isCurrent, comparable, gapOf } from '../src/lib/read.js';
-import { distance, KINDS } from '../src/lib/gap.js';
+import { distance, KINDS } from '../src/gap.js';
 import { curveReading, curveGap, JUDGED_HZ } from '../src/plugins/eq/filters.js';
 import { reductionReading, reductionGap, FRAME_MS, materialStamp } from '../src/plugins/compressor/reading.js';
 import { decayReading, decayTimes, decayProfile, monoOf } from '../src/lib/response.js';

@@ -6,7 +6,7 @@ import { notReady, stampOf } from '../../lib/read.js';
 import { StereoPlayer } from './player.js';
 import { dialOf, offDial, sizeOf, readyCanvas, watchSize, span } from '../../lib/panel.js';
 import { dressKnobs } from '../../lib/knob.js';
-import { writeHertz } from '../compressor/plugin.js';
+import { writeHertz } from '../../lib/panel.js';
 
 /**
  * The imager, as a plugin.

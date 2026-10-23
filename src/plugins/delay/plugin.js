@@ -9,8 +9,8 @@ import { ImpulsePlayer } from '../../lib/player.js';
 import { notReady, stampOf } from '../../lib/read.js';
 import { dialOf, offDial, sizeOf, readyCanvas, decayX, decayY, writeMs, watchSize, span } from '../../lib/panel.js';
 import { dressKnobs } from '../../lib/knob.js';
-import { LOOP_BEAT } from '../../core/audio.js';
-import { writeHertz } from '../compressor/plugin.js';
+import { LOOP_BEAT } from '../../lib/tempo.js';
+import { writeHertz } from '../../lib/panel.js';
 
 /**
  * The delay, as a plugin.

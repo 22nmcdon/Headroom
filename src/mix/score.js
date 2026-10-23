@@ -32,7 +32,7 @@
 // the hard one wants half of that.
 
 import { HIT, NEAR, MISS } from '../learn/work/scoring.js';
-import { distance } from '../lib/gap.js';
+import { distance } from '../gap.js';
 import { MARKED } from './render.js';
 
 /** What each reading is called where somebody has to read it. */

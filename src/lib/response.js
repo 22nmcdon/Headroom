@@ -11,7 +11,7 @@
 // a room and a repeat are the same kind of object here, and the day a third
 // one turns up it will be too.
 
-import { makeBiquad, setBiquad, runBiquad } from '../plugins/compressor/dsp.js';
+import { makeBiquad, setBiquad, runBiquad } from './dsp.js';
 import { readingOf, stampOf } from './read.js';
 
 /** The bands a decay is read in - the three an engineer talks about. */

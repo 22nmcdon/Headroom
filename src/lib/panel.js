@@ -102,3 +102,8 @@ export function watchSize(el, redraw) {
 
 /** A length of time, said the way a plugin says it. */
 export const writeMs = (ms) => (ms >= 1000 ? `${(ms / 1000).toFixed(2)} s` : `${Math.round(ms)} ms`);
+
+/** A frequency, as a label. Every face that prints one wanted this, and it
+    lived on the compressor, so four of them imported the compressor to get
+    it. Nothing about it is a compressor's. */
+export const writeHertz = (hz) => (hz >= 1000 ? `${(hz / 1000).toFixed(1)} kHz` : `${Math.round(hz)} Hz`);

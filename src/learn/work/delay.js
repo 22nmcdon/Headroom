@@ -3,9 +3,9 @@ import {
   echoProfile, timeOf, nearestDivision,
 } from '../../plugins/delay/line.js';
 import { decayReading } from '../../lib/response.js';
-import { distance } from '../../lib/gap.js';
+import { distance } from '../../gap.js';
 import { writeMs } from '../../lib/panel.js';
-import { LOOP_BEAT } from '../../core/audio.js';
+import { LOOP_BEAT } from '../../lib/tempo.js';
 import { HIT, NEAR, MISS, onScale, logPick, toStep, pick } from './scoring.js';
 
 /**

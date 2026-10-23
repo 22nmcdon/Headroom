@@ -1,9 +1,9 @@
 import {
   STEREO_DEFAULTS, stereoOf, stereoReading, runImager,
 } from '../../plugins/stereo/field.js';
-import { makeBiquad, setBiquad, runBiquad } from '../../plugins/compressor/dsp.js';
+import { makeBiquad, setBiquad, runBiquad } from '../../lib/dsp.js';
 import { mulberry32 } from '../../lib/random.js';
-import { distance } from '../../lib/gap.js';
+import { distance } from '../../gap.js';
 import { HIT, NEAR, MISS, onScale, toStep, pick } from './scoring.js';
 
 /**

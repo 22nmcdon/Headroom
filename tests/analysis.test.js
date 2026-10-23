@@ -14,7 +14,7 @@ import {
   balanceOf, balanceReading, balanceGap, THIRDS, THIRD_NAMES, TILT, nameOfThird,
 } from '../src/analysis/balance.js';
 import { widthReading, widthGap } from '../src/analysis/width.js';
-import { distance } from '../src/lib/gap.js';
+import { distance } from '../src/gap.js';
 
 const RATE = 48000;
 

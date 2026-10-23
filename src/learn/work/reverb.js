@@ -1,8 +1,8 @@
 import { VERB_DEFAULTS, makeImpulse, roomProfile } from '../../plugins/reverb/ir.js';
 import { decayCurve, decayReading, monoOf, rt60 } from '../../lib/response.js';
-import { distance } from '../../lib/gap.js';
+import { distance } from '../../gap.js';
 import { writeSeconds } from '../../plugins/reverb/plugin.js';
-import { LOOP_BEAT } from '../../core/audio.js';
+import { LOOP_BEAT } from '../../lib/tempo.js';
 import { HIT, NEAR, MISS, onScale, dialled, logPick, toStep, pick } from './scoring.js';
 
 /**
