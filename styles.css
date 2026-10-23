@@ -1809,14 +1809,17 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
   padding-left: 0;
 }
 
-/* Something open, and the width for both: side by side. 740 is a phone on
-   its side, which is the size this is mostly used at. */
-@media (min-width: 740px) {
+/* Something open, and the room for both: side by side. Room is both
+   directions, and a phone on its side has the width for two columns and
+   not the height: split, a 430-point window gives the clip grid half and
+   the thing you just opened the other half, and neither of them fits.
+   There, opening something gives it the screen the way it does upright. */
+@media (min-width: 740px) and (min-height: 561px) {
   .sketch-body:not([data-open="none"]) {
     grid-template-columns: minmax(230px, 0.8fr) minmax(0, 1.2fr);
   }
 }
-@media (min-width: 900px) {
+@media (min-width: 900px) and (min-height: 561px) {
   .sketch-body:not([data-open="none"]) {
     grid-template-columns: minmax(280px, 0.9fr) minmax(0, 1.1fr);
   }
@@ -1827,7 +1830,7 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
    grid is a panel nobody scrolls to, which is what made this hard to get
    around on a phone - and a page that puts the thing you just tapped where
    you are already looking needs no instruction at all. */
-@media (max-width: 739px) {
+@media (max-width: 739px), (max-height: 560px) {
   .sketch-body:not([data-open="none"]) > .grid-scroll { display: none; }
 }
 
@@ -1844,7 +1847,7 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
   color: var(--text-soft);
 }
 .panel-back:hover { color: var(--blush-deep); }
-@media (max-width: 739px) {
+@media (max-width: 739px), (max-height: 560px) {
   .panel-back { display: block; }
 }
 
@@ -2034,7 +2037,7 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
 .sketch-editor { min-width: 0; }
 /* The rule down the left only reads as a column when there is a column
    beside it; narrower than this the panel is the whole page. */
-@media (min-width: 740px) {
+@media (min-width: 740px) and (min-height: 561px) {
   .sketch-editor { border-left: 2px solid var(--line); padding-left: 16px; }
 }
 .editor-empty {
