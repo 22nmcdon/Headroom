@@ -1,5 +1,6 @@
 import {
   HEAT_DEFAULTS, HARMONICS, HEAT_FLOOR, HARMONIC_AXIS, MOST_TONE, MASKED,
+  CURVES, CURVE_ORDER,
   harmonicsOf, harmonicsReading, transferCurve,
   HEAT_LIMITS,
 } from './shape.js';
@@ -67,6 +68,34 @@ const HEAT_KNOBS = [
     write: (v) => (v >= MOST_TONE - 1 ? 'Open' : writeHertz(v)),
   },
   {
+    id: 'amount',
+    name: 'Rectify',
+    ...span(HEAT_LIMITS.amount),
+    step: 0.01,
+    write: (v) => (v < 0.02 ? 'Half wave' : v > 0.98 ? 'Full wave' : `${Math.round(v * 100)}% full`),
+  },
+  {
+    id: 'folds',
+    name: 'Folds',
+    ...span(HEAT_LIMITS.folds),
+    step: 0.05,
+    write: (v) => v.toFixed(2),
+  },
+  {
+    id: 'bits',
+    name: 'Bits',
+    ...span(HEAT_LIMITS.bits),
+    step: 1,
+    write: (v) => (v >= 16 ? 'Clean · 16' : `${Math.round(v)} bit`),
+  },
+  {
+    id: 'hold',
+    name: 'Hold',
+    ...span(HEAT_LIMITS.hold),
+    step: 1,
+    write: (v) => (v <= 1 ? 'Every sample' : `1 in ${Math.round(v)}`),
+  },
+  {
     id: 'mix',
     name: 'Mix',
     ...span(HEAT_LIMITS.mix),
@@ -74,6 +103,18 @@ const HEAT_KNOBS = [
     write: (v) => `${Math.round(v * 100)}%`,
   },
 ];
+
+/**
+ * The deck, for a family.
+ *
+ * Drive, tone and mix are every family's; the rest belong to the curve and
+ * come and go with it. A knob that does nothing in the mode you are in is
+ * worse than a missing one - it invites you to turn it and learn nothing.
+ */
+function heatDeckFor(mode) {
+  const order = ['drive', ...(CURVES[mode]?.knobs ?? CURVES.soft.knobs), 'tone', 'mix'];
+  return order.map((id) => HEAT_KNOBS.find((k) => k.id === id)).filter(Boolean);
+}
 
 const HEAT_LISTENS = [
   { id: 'out', label: 'Output' },
@@ -156,7 +197,7 @@ export class HeatPlugin {
       </div>`;
 
     this.el.innerHTML = `${host}
-      <div class="plugin heat${this.role === 'insert' ? ' is-insert' : ''}">
+      <div class="plugin heat${this.role === 'insert' ? ' is-insert' : ''}" data-curve="${this.settings.mode}">
         <div class="plugin-head">
           <span class="plugin-lamp"></span>
           <span class="plugin-name">Saturation</span>
@@ -184,7 +225,13 @@ export class HeatPlugin {
         </div>
 
         <div class="heat-deck">
-          <span class="panel-name">Curve &amp; output</span>
+          <div class="heat-modes">
+            <span class="panel-name">Curve</span>
+            <div class="eq-ab" role="group" aria-label="Which curve">
+              ${CURVE_ORDER.map((id) => `<button class="ab-btn${id === this.settings.mode ? ' is-on' : ''}"
+                type="button" data-mode="${id}">${CURVES[id].label}</button>`).join('')}
+            </div>
+          </div>
           <div class="plugin-controls" id="heatKnobs"></div>
         </div>
 
@@ -209,7 +256,7 @@ export class HeatPlugin {
   }
 
   buildKnobs() {
-    this.el.querySelector('#heatKnobs').innerHTML = HEAT_KNOBS.map((knob) => {
+    this.el.querySelector('#heatKnobs').innerHTML = heatDeckFor(this.settings.mode).map((knob) => {
       const dial = dialOf(knob, this.settings[knob.id]);
       return `
         <div class="knob">
@@ -239,6 +286,25 @@ export class HeatPlugin {
     });
 
     this.el.addEventListener('click', (e) => {
+      // Changing the family changes which knobs exist, so the deck is built
+      // again rather than updated. The three that every family has keep their
+      // settings across the change - what you had the drive at is still what
+      // you want the drive at.
+      const mode = e.target.closest('[data-mode]');
+      if (mode && this.interactive) {
+        const next = mode.dataset.mode;
+        if (next !== this.settings.mode) {
+          this.settings.mode = next;
+          for (const button of this.el.querySelectorAll('[data-mode]')) {
+            button.classList.toggle('is-on', button.dataset.mode === next);
+          }
+          this.el.querySelector('.heat').dataset.curve = next;
+          this.buildKnobs();
+          this.changed();
+        }
+        return;
+      }
+
       const hear = e.target.closest('[data-hear]');
       if (hear) {
         this.player.hear(hear.dataset.hear);
@@ -435,7 +501,7 @@ export class HeatPlugin {
   }
 
   syncKnobs() {
-    for (const knob of HEAT_KNOBS) {
+    for (const knob of heatDeckFor(this.settings.mode)) {
       const readout = this.el.querySelector(`#heat-${knob.id}-value`);
       const dial = this.el.querySelector(`#heat-${knob.id}`);
       if (readout) readout.textContent = knob.write(this.settings[knob.id]);
@@ -859,6 +925,10 @@ export class HeatPlugin {
     const reading = this.read();
     if (reading.values && reading.ready) {
       parts.push(`${reading.values.thd.toFixed(1)} dB of harmonics`);
+      // Full-wave rectification is the one family that does not colour the
+      // note, it replaces it: what comes out repeats twice as often, which is
+      // an octave, and the tone that went in is simply not there.
+      if (reading.values.fundamental < -40) parts.push('the note itself is gone — an octave up');
       const tilt = reading.values.even - reading.values.odd;
       if (reading.values.even < HEAT_FLOOR) parts.push('odd only');
       else if (tilt > 3) parts.push('even-led');

@@ -1483,6 +1483,20 @@ input.knob-value:focus {
   padding: 4px 2px 0; border-top: 1px solid var(--cut); box-shadow: 0 1px 0 var(--lift) inset;
 }
 
+/* The family, at the head of the deck it controls - the same gesture the
+   compressor makes with "Dynamics & output", because the deck below is the
+   curve's controls and naming the curve there costs nothing. */
+.heat-modes { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 2px; }
+
+/* And the chassis moves a stop with it. Not a reskin: the knobs keep their
+   colour and the furniture keeps its shape, because somebody is meant to
+   learn one device with four curves in it rather than four devices. The
+   digital one is a shade cooler and the folding one a shade warmer, which is
+   enough to know where you are without reading anything. */
+.heat[data-curve="rectify"] { --face-hi: #514740; --face: #3f3730; --face-lo: #2f2823; }
+.heat[data-curve="fold"]    { --face-hi: #554840; --face: #42382f; --face-lo: #312922; }
+.heat[data-curve="crush"]   { --face-hi: #464648; --face: #37373a; --face-lo: #292a2d; }
+
 .heat-bay.is-idle { opacity: 0.4; }
 /* Beside the switch it belongs to, not at the other end of the face. */
 .heat-transport .toggle .plugin-trim {

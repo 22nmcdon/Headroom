@@ -71,10 +71,68 @@ export const LEAST_TONE = 800;
 export const MOST_TONE = 9000;
 
 /** Every control, and where it starts. */
+/**
+ * The families of curve, and what each one is for.
+ *
+ * `shape()` above is one family - a soft clipper with a knee you can set -
+ * and for a long time it was the only one, which made this a saturator with
+ * one sound and a lot of knobs. These are the others, chosen because each
+ * teaches something the rest cannot:
+ *
+ *   soft     the bend. Parity and knee, which is most of analogue distortion.
+ *   rectify  the octave. Full-wave rectification removes the fundamental
+ *            outright and leaves evens, which is the most unmistakable
+ *            demonstration of what an even harmonic is that exists.
+ *   fold     the wall it does not stop at. A non-monotonic curve, so the
+ *            series goes dense rather than deep - a lot of harmonics at once
+ *            rather than a run of them falling away. This said it aliased,
+ *            which was a guess and was wrong: measured at six folds it is odd
+ *            harmonics only with no foldback at all, because a sine folded by
+ *            a sine is still a harmonic series and the eight times covers it.
+ *   crush    the one that is not analogue at all. Quantising and holding make
+ *            energy at frequencies that are not multiples of anything, which
+ *            is the single thing no real saturator does.
+ *
+ * `knobs` is what the deck shows. The three that are always there are drive,
+ * tone and mix; the rest belong to the family and come and go with it.
+ * `inharmonic` says whether the reading between the harmonics means anything,
+ * which decides what the face draws along the bottom of the series.
+ */
+export const CURVES = {
+  soft: {
+    label: 'Soft clip',
+    knobs: ['bias', 'hardness'],
+    inharmonic: false,
+  },
+  rectify: {
+    label: 'Rectify',
+    knobs: ['amount'],
+    inharmonic: false,
+  },
+  fold: {
+    label: 'Fold',
+    knobs: ['folds'],
+    inharmonic: true,
+  },
+  crush: {
+    label: 'Crush',
+    knobs: ['bits', 'hold'],
+    inharmonic: true,
+  },
+};
+
+/** The order they are offered in: gentlest first, least analogue last. */
+export const CURVE_ORDER = ['soft', 'rectify', 'fold', 'crush'];
+
 export const HEAT_DEFAULTS = {
+  mode: 'soft',    // which family of curve - see CURVES
   drive: 0,        // dB into the curve
   bias: 0,         // 0 symmetric, 1 lopsided - the even-harmonic control
   hardness: 2,     // 1 is a gentle bend, MOST_HARDNESS is nearly a hard clip
+  amount: 1,       // rectify: 0 is half-wave, 1 is full-wave
+  folds: 1,        // fold: how many times the curve turns back on itself
+  bits: 16,        // crush: the depth it is quantised to
+  hold: 1,         // crush: how many samples each one is held for
   tone: MOST_TONE, // a low-pass after the curve, on the harmonics it just made
   mix: 1,          // 0 is the dry signal, 1 is all shaped
   trim: 0,         // output, in dB - auto gain writes this
@@ -94,6 +152,10 @@ export const HEAT_LIMITS = {
   drive: [0, MOST_DRIVE],
   bias: [0, 1],
   hardness: [1, MOST_HARDNESS],
+  amount: [0, 1],
+  folds: [1, 6],
+  bits: [2, 16],
+  hold: [1, 16],
   tone: [LEAST_TONE, MOST_TONE],
   mix: [0, 1],
   trim: [-24, 24],
@@ -115,6 +177,49 @@ export function shape(x, n) {
   const size = x < 0 ? -x : x;
   if (size < 1e-9) return x;
   return x / Math.pow(1 + Math.pow(size, n), 1 / n);
+}
+
+/**
+ * Half-wave through to full-wave, and then the soft clipper.
+ *
+ * Rectifying on its own is scale-invariant - a louder sine comes out a louder
+ * rectified sine with the same series - so drive would do nothing audible but
+ * turn it up. Putting the soft curve after it gives the drive something to
+ * work on, which is also what an octave fuzz actually is.
+ *
+ * At `amount` 0 it keeps the positive half and drops the other, which leaves
+ * the fundamental in place with evens above it. At 1 it folds the negative
+ * half upwards, and the fundamental goes: what comes out is at twice the rate
+ * it went in, which is an octave, which is the whole lesson.
+ */
+export function rectify(x, amount) {
+  const half = x > 0 ? x : 0;
+  const full = x < 0 ? -x : x;
+  return shape(half + (full - half) * amount, 2);
+}
+
+/**
+ * A curve that turns back instead of flattening.
+ *
+ * Every other family here is monotonic: more in is never less out. This one
+ * is not, so the series goes dense rather than deep - a lot of harmonics at
+ * once rather than a run of them falling away - and that is a sound nothing
+ * else in this app makes.
+ */
+export function foldOver(x, folds) {
+  return Math.sin(x * folds * Math.PI * 0.5);
+}
+
+/**
+ * Quantising, and holding.
+ *
+ * Run at the signal's own rate and never oversampled, because here the
+ * aliasing is not a defect to be filtered away - it is the entire subject.
+ * Taking it out would leave a mode that teaches nothing.
+ */
+export function crushTo(x, bits) {
+  const steps = Math.pow(2, bits - 1);
+  return Math.round(x * steps) / steps;
 }
 
 // Running the curve eight times faster than the signal, because the
@@ -176,7 +281,8 @@ export const HEAT_LATENCY = (OVER_TAPS - 1) / OVERSAMPLE;
  */
 export function shaperCore(rate, blockDc = true) {
   const state = {
-    drive: 0, bias: 0, hardness: 2, tone: 20000, mix: 1, trim: 0, listen: 'out',
+    mode: 'soft', drive: 0, bias: 0, hardness: 2, tone: 20000, mix: 1, trim: 0,
+    listen: 'out', amount: 1, folds: 1, bits: 16, hold: 1,
   };
 
   const kernel = overKernel();
@@ -217,15 +323,41 @@ export function shaperCore(rate, blockDc = true) {
   let offset = 0;
   let centre = 0;
   let level = 1;
+  let curve = (v) => v;
+  let crushing = false;
+  let crushHeld = 0;
+  let holdAt = 0;
 
   function retune() {
     gain = Math.pow(10, state.drive / 20);
-    offset = state.bias * MOST_BIAS;
+    // Bias is the soft curve's. The other families have no use for a constant
+    // on the input, and one would only move them off centre.
+    offset = state.mode === 'soft' ? state.bias * MOST_BIAS : 0;
     // The bias puts a constant on the input, which comes out of the curve as
     // a constant on the output - a DC offset that would sit under the sound
     // doing nothing audible except eating headroom. Subtracting what the
     // curve does to silence leaves the asymmetry and takes the offset away.
     centre = shape(offset, state.hardness);
+
+    // Which family, resolved once here rather than branched per sample - the
+    // inner loop runs eight times for every sample that arrives.
+    crushing = state.mode === 'crush';
+    if (state.mode === 'rectify') {
+      const amount = state.amount;
+      const middle = rectify(0, amount);
+      curve = (v) => rectify(v, amount) - middle;
+    } else if (state.mode === 'fold') {
+      const folds = state.folds;
+      curve = (v) => foldOver(v, folds);
+    } else if (crushing) {
+      // Nothing happens in the oversampled loop. The filters either side of
+      // it are flat to 21 kHz, so the signal comes out of the round trip as
+      // it went in, and the crushing is done below at the rate it belongs to.
+      curve = (v) => v;
+    } else {
+      const hardness = state.hardness;
+      curve = (v) => shape(v, hardness) - centre;
+    }
     level = Math.pow(10, state.trim / 20);
     // At the top of its travel the tone control is not a gentle filter near
     // Nyquist, it is no filter: a biquad asked for a corner that close to
@@ -261,7 +393,7 @@ export function shaperCore(rate, blockDc = true) {
         for (let k = 0; k < branch; k += 1) up += taps[k] * slow[slowAt + k];
 
         fastAt = fastAt === 0 ? OVER_TAPS - 1 : fastAt - 1;
-        const shaped = shape(up * gain + offset, state.hardness) - centre;
+        const shaped = curve(up * gain + offset);
         fast[fastAt] = shaped;
         fast[fastAt + OVER_TAPS] = shaped;
 
@@ -280,6 +412,21 @@ export function shaperCore(rate, blockDc = true) {
           }
           wet += kernel[middle] * fast[fastAt + middle];
         }
+      }
+
+      // Quantise and hold at the signal's own rate, after the oversampled
+      // round trip rather than inside it, so that the decimation filter runs
+      // before this and cannot take away what it makes. The round trip is
+      // transparent, so this is the base-rate signal - and the latency and the
+      // dry delay carry on lining up, which they would not if the family
+      // bypassed the filters outright.
+      if (crushing) {
+        if (holdAt <= 0) {
+          crushHeld = crushTo(wet, state.bits);
+          holdAt = Math.max(1, Math.round(state.hold));
+        }
+        holdAt -= 1;
+        wet = crushHeld;
       }
 
       // On the shaped path and nothing else. The dry signal never went
@@ -401,7 +548,26 @@ export function harmonicsOf(rate, settings) {
   const power = spectrumOf(rate, settings, PROBE_BIN);
 
   const first = power[PROBE_BIN];
-  const dbOf = (p) => 10 * Math.log10(Math.max(p, 1e-20) / Math.max(first, 1e-20));
+
+  // Against the loudest thing that came out, not against the fundamental.
+  //
+  // For every family that bends a curve these are the same number, because
+  // the fundamental always survives a bend. Full-wave rectification is the
+  // family that breaks it: it folds the negative half up, the output repeats
+  // at twice the rate it went in, and the tone at 440 is simply gone. Read
+  // against it, a second harmonic 268 dB "above" the fundamental is not a
+  // measurement, it is a division by nothing.
+  //
+  // Reading against the loudest component says the true thing in both cases.
+  // Bend a curve and the fundamental is the loudest, so nothing moves. Rectify
+  // it fully and the series re-bases onto the octave that replaced it, which
+  // is what you are hearing.
+  let loudest = first;
+  for (const m of HARMONICS) {
+    const bin = PROBE_BIN * m;
+    if (bin < power.length && power[bin] > loudest) loudest = power[bin];
+  }
+  const dbOf = (p) => 10 * Math.log10(Math.max(p, 1e-20) / Math.max(loudest, 1e-20));
 
   const harmonics = {};
   let evens = 0;
@@ -420,7 +586,11 @@ export function harmonicsOf(rate, settings) {
     harmonics,
     // Total harmonic distortion: everything the curve added, against the
     // tone it was given.
-    thd: 10 * Math.log10(Math.max(total - first, 1e-20) / Math.max(first, 1e-20)),
+    thd: 10 * Math.log10(Math.max(total - loudest, 1e-20) / Math.max(loudest, 1e-20)),
+    // How much of the note that went in is still there. Below about -40 the
+    // family has replaced it rather than coloured it, which only full-wave
+    // rectification does - and which is the thing to say on the face.
+    fundamental: dbOf(first),
     // The two halves of the series, each as a whole. Which of these is the
     // louder is the single thing an ear can hear about a saturator without
     // being trained: even is an octave and a twelfth above, which sounds like
@@ -428,7 +598,7 @@ export function harmonicsOf(rate, settings) {
     // sounds like something going wrong.
     even: dbOf(evens),
     odd: dbOf(odds),
-    aliasing: foldbackIn(power, PROBE_BIN),
+    aliasing: foldbackIn(power, PROBE_BIN, loudest),
   };
 }
 
@@ -493,14 +663,17 @@ export function foldback(rate, settings, bin = PROBE_BIN) {
   return foldbackIn(spectrumOf(rate, settings, bin), bin);
 }
 
-function foldbackIn(power, bin) {
+function foldbackIn(power, bin, against = power[bin]) {
   let total = 0;
   for (let i = 1; i < power.length; i += 1) total += power[i];
 
   let series = 0;
   for (let m = 1; bin * m < power.length; m += 1) series += power[bin * m];
 
-  return 10 * Math.log10(Math.max(total - series, 1e-20) / Math.max(power[bin], 1e-20));
+  // Against the same reference the harmonics are read against, or full-wave
+  // rectification - which takes the fundamental away - reports its own noise
+  // floor as 204 dB of aliasing.
+  return 10 * Math.log10(Math.max(total - series, 1e-20) / Math.max(against, 1e-20));
 }
 
 /**
@@ -613,18 +786,33 @@ export const curveReach = (drive) => 1 / Math.sqrt(Math.max(1, Math.pow(10, driv
  * visible lopsidedness is exactly what the even harmonics are.
  */
 export function transferCurve(settings, points = 129) {
+  const mode = settings.mode ?? HEAT_DEFAULTS.mode;
   const drive = settings.drive ?? 0;
   const gain = Math.pow(10, drive / 20);
   const hardness = settings.hardness ?? HEAT_DEFAULTS.hardness;
-  const offset = (settings.bias ?? 0) * MOST_BIAS;
+  const offset = mode === 'soft' ? (settings.bias ?? 0) * MOST_BIAS : 0;
   const mix = settings.mix ?? 1;
   const centre = shape(offset, hardness);
   const reach = curveReach(drive);
 
+  // Every family draws a different shape here, which makes this panel the
+  // plainest statement of which one you are in: a soft S, a V with one side
+  // folded up, a line that turns back on itself, a staircase. Nothing else on
+  // the face has to say it.
+  const amount = settings.amount ?? HEAT_DEFAULTS.amount;
+  const folds = settings.folds ?? HEAT_DEFAULTS.folds;
+  const bits = settings.bits ?? HEAT_DEFAULTS.bits;
+  const middle = rectify(0, amount);
+  let curve;
+  if (mode === 'rectify') curve = (v) => rectify(v, amount) - middle;
+  else if (mode === 'fold') curve = (v) => foldOver(v, folds);
+  else if (mode === 'crush') curve = (v) => crushTo(v, bits);
+  else curve = (v) => shape(v, hardness) - centre;
+
   const out = new Float64Array(points);
   for (let i = 0; i < points; i += 1) {
     const x = ((i / (points - 1)) * 2 - 1) * reach;
-    out[i] = (shape(x * gain + offset, hardness) - centre) * mix + x * (1 - mix);
+    out[i] = curve(x * gain + offset) * mix + x * (1 - mix);
   }
 
   return out;

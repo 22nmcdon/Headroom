@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   HEAT_DEFAULTS, HEAT_LATENCY, HARMONICS, MOST_TONE,
   shape, shaperCore, runShaper, heatTrim, harmonicsOf, heatGap, transferCurve, foldback,
+  CURVES, CURVE_ORDER, HEAT_LIMITS,
   DC_CORNER, PROBE_BIN, PROBE_LENGTH, PROBE_LEVEL,
 } from '../src/plugins/saturation/shape.js';
 import { fft } from '../src/lib/fft.js';
@@ -162,6 +163,82 @@ test('running the curve faster than the signal is what keeps it harmonic', () =>
           `bin ${bin}: ${ours.toFixed(1)} dB is no better than the ${plain.toFixed(1)} dB `
           + 'the same curve gives with no oversampling at all');
       }
+    }
+  }
+});
+
+test('full-wave rectification takes the note away and leaves the octave', () => {
+  // The whole reason this family is here. Half-wave keeps the fundamental and
+  // puts evens above it; full-wave folds the other half up, so what comes out
+  // repeats twice as often as what went in and the tone at 440 is gone.
+  const half = harmonicsOf(rate, { ...HEAT_DEFAULTS, mode: 'rectify', amount: 0, drive: 12 });
+  const full = harmonicsOf(rate, { ...HEAT_DEFAULTS, mode: 'rectify', amount: 1, drive: 12 });
+
+  assert.ok(half.fundamental > -1, `half wave lost the note: ${half.fundamental.toFixed(1)}`);
+  assert.ok(half.even > half.odd, 'half wave should lead with evens');
+
+  assert.ok(full.fundamental < -60, `full wave kept the note: ${full.fundamental.toFixed(1)}`);
+  assert.ok(full.odd < -60, `full wave made odd harmonics: ${full.odd.toFixed(1)}`);
+  assert.ok(full.harmonics[2] > -1, 'the octave should be the loudest thing left');
+});
+
+test('a reading taken when the fundamental is gone is still a reading', () => {
+  // It was not. The series is read against the fundamental, and full-wave
+  // rectification removes it, so the second harmonic came back 268 dB "above"
+  // the fundamental - a division by nothing rather than a measurement. It is
+  // read against the loudest component now, which is the same number for
+  // every family that merely bends a curve.
+  const full = harmonicsOf(rate, { ...HEAT_DEFAULTS, mode: 'rectify', amount: 1, drive: 12 });
+  for (const m of HARMONICS) {
+    assert.ok(full.harmonics[m] <= 0.01, `harmonic ${m} reads ${full.harmonics[m].toFixed(1)} dB`);
+  }
+  assert.ok(full.thd < 20, `thd reads ${full.thd.toFixed(1)}`);
+  assert.ok(full.aliasing < -40, `the junk floor reads ${full.aliasing.toFixed(1)}`);
+});
+
+test('folding makes a dense odd series and does not alias', () => {
+  // A sine folded by a sine is still a harmonic series, which this file used
+  // to claim otherwise about. Measured: no foldback at six folds, and the
+  // fundamental is scrambled rather than merely bent.
+  const gentle = harmonicsOf(rate, { ...HEAT_DEFAULTS, mode: 'fold', folds: 1, drive: 12 });
+  const hard = harmonicsOf(rate, { ...HEAT_DEFAULTS, mode: 'fold', folds: 6, drive: 12 });
+
+  assert.ok(gentle.even < -100, 'a fold is odd-symmetric, so there are no evens');
+  assert.ok(hard.even < -100, 'still none at six folds');
+  assert.ok(hard.thd > gentle.thd + 10, 'more folds should be a lot more harmonics');
+  assert.ok(hard.fundamental < -20, 'the note should be scrambled, not just bent');
+  assert.ok(hard.aliasing < -150, `six folds aliased: ${hard.aliasing.toFixed(1)} dB`);
+});
+
+test('crushing makes junk, and more of it the harder it is crushed', () => {
+  // The one family whose point is the aliasing, which is why it is the only
+  // one that runs at the signal's own rate. If this ever starts coming back
+  // quiet, something has put it back inside the oversampling.
+  const at = (s) => harmonicsOf(rate, { ...HEAT_DEFAULTS, mode: 'crush', drive: 0, ...s }).aliasing;
+
+  const clean = at({ bits: 16 });
+  const rough = at({ bits: 8 });
+  const broken = at({ bits: 4 });
+  const worst = at({ bits: 2 });
+  assert.ok(clean < rough && rough < broken && broken < worst,
+    `the floor should climb: ${[clean, rough, broken, worst].map((v) => v.toFixed(0)).join(' ')}`);
+  assert.ok(worst > -30, `two bits should be filthy, not ${worst.toFixed(1)} dB`);
+
+  // and holding a sample is the other half of it
+  assert.ok(at({ bits: 16, hold: 8 }) > at({ bits: 16, hold: 1 }) + 40, 'holding should make junk too');
+});
+
+test('every family has a deck, and the three universal knobs are not in it', () => {
+  // knobs are what the family adds; drive, tone and mix are always there and
+  // naming them per family would be three chances to forget one.
+  for (const id of CURVE_ORDER) {
+    const curve = CURVES[id];
+    assert.ok(curve, `${id} is offered but not defined`);
+    assert.ok(curve.label, `${id} has no label`);
+    for (const knob of curve.knobs) {
+      assert.ok(knob in HEAT_LIMITS, `${id} wants a ${knob} knob with no limits`);
+      assert.ok(!['drive', 'tone', 'mix'].includes(knob), `${id} names ${knob}, which every family has`);
+      assert.ok(knob in HEAT_DEFAULTS, `${id} wants a ${knob} knob with no default`);
     }
   }
 });
