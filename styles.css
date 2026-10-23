@@ -1508,6 +1508,11 @@ input.knob-value:focus {
    read there. Dimmed rather than taken away - the plugin somebody practises
    on has to be the plugin they later open somewhere else. */
 .heat-bay.is-idle { opacity: 0.4; }
+/* Beside the switch it belongs to, not at the other end of the face. */
+.heat-transport .toggle .plugin-trim {
+  font-family: var(--serif); font-size: var(--read);
+  color: var(--ink); font-variant-numeric: tabular-nums; margin-left: 2px;
+}
 .heat-bay.is-idle .heat-delta { font-family: var(--sans); font-size: var(--tag);
   letter-spacing: 0.13em; text-transform: uppercase; }
 .heat-delta { text-align: center; font-family: var(--serif); font-size: var(--read); color: var(--ink-soft); }

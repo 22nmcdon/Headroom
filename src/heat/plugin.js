@@ -135,7 +135,6 @@ export class HeatPlugin {
         <div class="plugin-head">
           <span class="plugin-lamp"></span>
           <span class="plugin-name">Saturation</span>
-          <span class="plugin-trim" id="heatTrim"></span>
           <span class="plugin-read" id="heatRead"></span>
           <div class="eq-ab" role="group" aria-label="What you are monitoring">
             ${HEAT_LISTENS.map((l) => `<button class="ab-btn${l.id === 'out' ? ' is-on' : ''}" type="button" data-listen="${l.id}">${l.label}</button>`).join('')}
@@ -183,6 +182,7 @@ export class HeatPlugin {
           <label class="toggle">
             <input type="checkbox" id="heatAuto" checked>
             Auto gain
+            <span class="plugin-trim" id="heatTrim"></span>
           </label>
           <button class="link-btn" type="button" data-heat="reset">Reset</button>
         </div>
@@ -842,9 +842,7 @@ export class HeatPlugin {
     const trim = this.el.querySelector('#heatTrim');
     if (trim) {
       const level = this.player.trim ?? 0;
-      trim.textContent = this.player.auto
-        ? (Math.abs(level) < 0.1 ? 'auto gain · 0.0 dB' : `auto gain · ${level.toFixed(1)} dB`)
-        : 'auto gain · off';
+      trim.textContent = this.player.auto ? `${level > 0 ? '+' : ''}${level.toFixed(1)} dB` : 'off';
     }
 
     const parts = [];
