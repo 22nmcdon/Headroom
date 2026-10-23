@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   HEAT_DEFAULTS, HEAT_LATENCY, HARMONICS, MOST_TONE,
   shape, shaperCore, runShaper, heatTrim, harmonicsOf, heatGap, transferCurve, foldback,
+  DC_CORNER, PROBE_BIN, PROBE_LENGTH, PROBE_LEVEL,
 } from '../src/heat/shape.js';
 import { fft } from '../src/fx/fft.js';
 import { saturatorSource } from '../src/heat/node.js';
@@ -165,6 +166,119 @@ test('running the curve faster than the signal is what keeps it harmonic', () =>
   }
 });
 
+test('a biased curve leaves no offset under the sound', () => {
+  // Subtracting shape(bias) takes away what the curve does to silence, which
+  // is not what it does to a signal: the average of a bent curve over a cycle
+  // is not the curve of the average, so an offset is left behind and it grows
+  // with the drive. Measured before this was fixed, a sine at bias 1 and 30 dB
+  // came out riding -9.6 dB of its own peak, which is a third of the waveform.
+  const sine = tone([440], 2, 0.25);
+
+  // Read after half a second. The filter's own time constant is 32 ms and a
+  // first-order decay needs about fifteen of them to be this far down, so
+  // anything measured sooner is the filter settling rather than the offset
+  // staying - which was the first version of this test, and it failed on the
+  // transient while the steady state was already at numerical zero.
+  const SETTLED = Math.round(rate * 0.5);
+
+  for (const bias of [0.3, 0.6, 1]) {
+    for (const drive of [6, 18, 30]) {
+      const out = runShaper(sine, rate, { ...HEAT_DEFAULTS, bias, drive });
+      let sum = 0;
+      let peak = 0;
+      for (let i = SETTLED; i < out.length; i += 1) {
+        sum += out[i];
+        peak = Math.max(peak, Math.abs(out[i]));
+      }
+      const offset = Math.abs(sum / (out.length - SETTLED));
+      const under = 20 * Math.log10(offset / Math.max(peak, 1e-12));
+      assert.ok(under < -120, `bias ${bias} at ${drive} dB sits ${under.toFixed(1)} dB under its peak`);
+    }
+  }
+});
+
+test('taking the offset away moves nothing that is marked', () => {
+  // The offset is at nothing per second and every reading here is taken at
+  // 440 or above, so removing it may not shift a single number the exercises
+  // score on. These are the readings from before the filter went in.
+  const before = [
+    [{ bias: 0, drive: 12 }, -17.9007, -277.4680, -17.9008,
+      [-277.4680, -18.0727, -277.4680, -32.2267, -277.4680, -45.3600, -277.4680, -58.0263, -277.4680]],
+    [{ bias: 0.45, drive: 14, hardness: 3 }, -14.0482, -17.4706, -16.6823,
+      [-17.9731, -16.7945, -27.2566, -32.6853, -41.4370, -51.0099, -61.6518, -63.8016, -55.7896]],
+    [{ bias: 1, drive: 30 }, -8.0499, -18.9328, -8.6311,
+      [-24.3058, -10.2055, -25.0446, -15.6669, -25.9903, -19.8983, -27.0904, -23.6483, -28.3161]],
+    [{ bias: 0.6, drive: 18, tone: 4000 }, -12.1432, -16.9936, -13.8651,
+      [-18.4128, -14.1924, -23.5050, -25.4920, -30.1609, -38.1338, -38.7722, -54.4584, -49.2035]],
+  ];
+
+  // Not "close enough": the probe is bypassed, so these are the same numbers
+  // to the last place the table was written to.
+  const same = (was, now, what) => assert.ok(
+    Math.abs(now - was) < 1e-4, `${what} moved to ${now.toFixed(4)} from ${was.toFixed(4)}`,
+  );
+
+  for (const [settings, thd, even, odd, harmonics] of before) {
+    const now = harmonicsOf(rate, { ...HEAT_DEFAULTS, ...settings });
+    const where = JSON.stringify(settings);
+    same(thd, now.thd, `${where}: thd`);
+    same(even, now.even, `${where}: even`);
+    same(odd, now.odd, `${where}: odd`);
+    HARMONICS.forEach((m, i) => same(harmonics[i], now.harmonics[m], `${where}: harmonic ${m}`));
+  }
+});
+
+test('the probe may leave the offset filter out, because settled it does nothing', () => {
+  // The justification for the bypass in spectrumOf, measured rather than
+  // asserted. Prime one probe for five seconds so the filter is long settled,
+  // run the other without it, and compare every bin - not just the harmonic
+  // ones, because the aliasing reading lives in the quiet bins between them
+  // and that is exactly what the unsettled filter was drowning.
+  const probe = (settings, prime, blockDc) => {
+    const step = (2 * Math.PI * PROBE_BIN) / PROBE_LENGTH;
+    const amp = Math.pow(10, PROBE_LEVEL / 20) * Math.SQRT2;
+    const core = shaperCore(rate, blockDc);
+    core.set({ ...settings, listen: 'out' });
+    for (let i = 0; i < prime; i += 1) core.step(amp * Math.sin(step * i));
+    const re = new Float64Array(PROBE_LENGTH);
+    const im = new Float64Array(PROBE_LENGTH);
+    for (let i = 0; i < PROBE_LENGTH; i += 1) {
+      core.step(amp * Math.sin(step * (i + prime)));
+      re[i] = core.out;
+    }
+    fft(re, im);
+    const power = new Float64Array(PROBE_LENGTH / 2);
+    for (let i = 0; i < power.length; i += 1) power[i] = re[i] * re[i] + im[i] * im[i];
+    return power;
+  };
+
+  for (const settings of [{ bias: 0.45, drive: 14, hardness: 3 }, { bias: 1, drive: 30 }]) {
+    const full = { ...HEAT_DEFAULTS, ...settings };
+    const settled = probe(full, rate * 5, true);
+    const without = probe(full, 4096, false);
+
+    let worst = 0;
+    for (let i = 1; i < settled.length; i += 1) {
+      const a = 10 * Math.log10(Math.max(settled[i], 1e-30) / settled[PROBE_BIN]);
+      const b = 10 * Math.log10(Math.max(without[i], 1e-30) / without[PROBE_BIN]);
+      if (a < -150 && b < -150) continue;
+      worst = Math.max(worst, Math.abs(a - b));
+    }
+    assert.ok(worst < 0.01, `${JSON.stringify(settings)}: bins differ by ${worst.toFixed(4)} dB`);
+  }
+});
+
+test('the corner is far below anything the series reaches', () => {
+  // A first-order high pass is |H| = f / sqrt(f^2 + fc^2). The probe tone is
+  // 440 and the lowest harmonic read is 880, so the filter has to be nothing
+  // at both - and the only thing a lower corner would buy is less phase
+  // against the dry path in a parallel mix, which is under six degrees by 50.
+  const at = (f) => 20 * Math.log10(f / Math.sqrt(f * f + DC_CORNER * DC_CORNER));
+  assert.ok(Math.abs(at(440)) < 0.001, `${at(440).toFixed(4)} dB at the probe tone`);
+  assert.ok(Math.abs(at(880)) < 0.001, `${at(880).toFixed(4)} dB at the second harmonic`);
+  assert.ok((Math.atan(DC_CORNER / 50) * 180) / Math.PI < 6, 'too much phase at 50 Hz');
+});
+
 test('auto gain leaves a driven signal as loud as it was', () => {
   const material = new Float32Array(rate);
   const rng = mulberry32(0x5a7);
@@ -172,12 +286,18 @@ test('auto gain leaves a driven signal as loud as it was', () => {
     material[i] = (rng() * 2 - 1) * 0.3 * (1 + Math.sin((2 * Math.PI * 3 * i) / rate));
   }
 
-  for (const drive of [6, 18, 30]) {
-    const settings = { ...HEAT_DEFAULTS, drive, bias: 0.5 };
-    const trim = heatTrim(material, rate, settings);
-    const out = runShaper(material, rate, { ...settings, trim });
-    const off = 20 * Math.log10(rms(out, HEAT_LATENCY) / rms(material, 0, material.length - HEAT_LATENCY));
-    assert.ok(Math.abs(off) < 0.6, `${drive} dB of drive came out ${off.toFixed(2)} dB off`);
+  // Bias 1 is in here because the auto gain is an RMS and an RMS counts an
+  // offset as signal: with the offset still in it the trim came back 1.16 dB
+  // light at the far corner, which is wider than the tightest window anything
+  // in this app is marked to.
+  for (const bias of [0.5, 1]) {
+    for (const drive of [6, 18, 30]) {
+      const settings = { ...HEAT_DEFAULTS, drive, bias };
+      const trim = heatTrim(material, rate, settings);
+      const out = runShaper(material, rate, { ...settings, trim });
+      const off = 20 * Math.log10(rms(out, HEAT_LATENCY) / rms(material, 0, material.length - HEAT_LATENCY));
+      assert.ok(Math.abs(off) < 0.35, `bias ${bias} at ${drive} dB came out ${off.toFixed(2)} dB off`);
+    }
   }
 });
 

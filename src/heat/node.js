@@ -1,4 +1,4 @@
-import { shape, shaperCore, overKernel, MOST_BIAS, MOST_TONE } from './shape.js';
+import { shape, shaperCore, overKernel, MOST_BIAS, MOST_TONE, DC_CORNER } from './shape.js';
 import { makeBiquad, setBiquad, runBiquad } from '../comp/dsp.js';
 import { workletModule, installWorklet } from '../fx/worklet.js';
 
@@ -23,6 +23,7 @@ const HEAT_CONSTANTS = {
   HEAT_LATENCY: 32,
   MOST_BIAS,
   MOST_TONE,
+  DC_CORNER,
 };
 
 const HEAT_PROCESSOR = `class HeadroomSaturator extends AudioWorkletProcessor {

@@ -43,6 +43,29 @@ export const MOST_HARDNESS = 5;
 /** How lopsided the curve can be made. */
 export const MOST_BIAS = 0.7;
 
+/**
+ * Where the output is uncoupled, in hertz.
+ *
+ * Subtracting `shape(bias)` takes away what the curve does to silence. It
+ * does not take away what the curve does to a signal: the average of a bent
+ * curve over a cycle is not the curve of the average, so an offset is left
+ * behind, and because the bend deepens with the drive the offset grows with
+ * it. Measured on a sine before this went in - at bias 1 and 30 dB of drive
+ * the output rode an offset 9.6 dB under its own peak, which is a third of
+ * the size of the waveform. Nothing to hear on its own, and underneath
+ * everything downstream eating the headroom this app is named after.
+ *
+ * It leaned on the auto gain too, which is an RMS and cannot tell an offset
+ * from signal: at that corner the trim came back 1.16 dB light, wider than
+ * the tightest window anything here is marked to.
+ *
+ * Five hertz. The probe tone is 440 and the lowest harmonic read is 880, so
+ * there is nothing down there to protect, and the only thing a lower corner
+ * would buy is less phase against the dry path in a parallel mix - which is
+ * already under six degrees by 50 Hz.
+ */
+export const DC_CORNER = 5;
+
 /** The range of the tone control. At the top of it there is no filter at all. */
 export const LEAST_TONE = 800;
 export const MOST_TONE = 9000;
@@ -147,7 +170,11 @@ export const HEAT_LATENCY = (OVER_TAPS - 1) / OVERSAMPLE;
  *
  * `step(x)` leaves what came out on `out`.
  */
-export function shaperCore(rate) {
+/**
+ * `blockDc` is false only for the probe, and only because of what a filter
+ * does when it starts rather than what it does. See `spectrumOf`.
+ */
+export function shaperCore(rate, blockDc = true) {
   const state = {
     drive: 0, bias: 0, hardness: 2, tone: 20000, mix: 1, trim: 0, listen: 'out',
   };
@@ -180,6 +207,11 @@ export function shaperCore(rate) {
   let dryAt = 0;
 
   const tone = [makeBiquad(), makeBiquad()];
+  // y[n] = x[n] - x[n-1] + R*y[n-1]. Unity through the band, nothing at
+  // nothing, and one multiply to get there.
+  const dcPole = 1 - (2 * Math.PI * DC_CORNER) / rate;
+  let dcWas = 0;
+  let dcOut = 0;
   let filtered = false;
   let gain = 1;
   let offset = 0;
@@ -248,6 +280,16 @@ export function shaperCore(rate) {
           }
           wet += kernel[middle] * fast[fastAt + middle];
         }
+      }
+
+      // On the shaped path and nothing else. The dry signal never went
+      // through a curve, so it has no offset to take off it, and taking one
+      // off anyway would tilt the one control whose point is changing nothing.
+      if (blockDc) {
+        const lifted = wet - dcWas + dcPole * dcOut;
+        dcWas = wet;
+        dcOut = lifted;
+        wet = lifted;
       }
 
       if (filtered) for (const stage of tone) wet = runBiquad(stage, wet);
@@ -395,8 +437,26 @@ function spectrumOf(rate, settings, bin) {
   const step = (2 * Math.PI * bin) / PROBE_LENGTH;
   const amplitude = Math.pow(10, PROBE_LEVEL / 20) * Math.SQRT2;
 
-  const core = shaperCore(rate);
+  const core = shaperCore(rate, false);
   core.set({ ...settings, listen: 'out' });
+
+  // Without the offset filter, which is the one piece of this the probe
+  // leaves out.
+  //
+  // It is not dodging it. A first-order corner at DC_CORNER is 0.0006 dB at
+  // 440 Hz and flatter above, so at steady state it does nothing a reading
+  // here can see - measured bin by bin across the whole spectrum against a
+  // probe primed for five seconds, and the two agree to 0.0006 dB everywhere,
+  // the quiet bins between the harmonics included.
+  //
+  // What it does do is start. The filter needs about fifteen of its 32 ms
+  // time constants to settle, and a decaying exponential inside a rectangular
+  // window is not periodic in it, so until it has settled it leaks across
+  // every bin at once. That put the noise floor between the harmonics - which
+  // is the whole of the aliasing reading - up from -279 dB to -46. Priming it
+  // out would cost six times the prime on a measurement that already runs on
+  // every turn of a knob, to arrive back at the number bypassing it gives for
+  // nothing.
 
   // Let the tone filter settle before anything is measured, or its ringing
   // turns up in the answer as harmonics nothing made.
