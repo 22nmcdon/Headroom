@@ -1250,36 +1250,100 @@ input.knob-value:focus {
    one processor where the picture, the bar and the moment genuinely differ:
    the curve is what it would do, the trace is what it did to this loop, and
    the meter is what it is doing now. */
-.comp-display {
+/* The meters take the whole top of the face, and the knobs come down to one
+   row under them. That is what a short wide screen wants anyway, and it is
+   what lets the needle and the history both be on screen at once rather
+   than behind a switch - they answer different questions, and somebody
+   learning compression is comparing one against the other. */
+.comp-meters {
   display: grid;
-  grid-template-columns: minmax(140px, 0.8fr) 2fr 58px;
-  gap: 8px;
-  height: clamp(190px, 32vh, 290px);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) 50px;
+  grid-template-areas:
+    "now now out"
+    "curve trace out";
+  gap: 10px 0;
+  align-items: stretch;
+}
+.comp-bay-now { grid-area: now; }
+.comp-bay-curve { grid-area: curve; padding-left: 0; }
+.comp-bay-trace { grid-area: trace; }
+.comp-bay-out { grid-area: out; }
+
+@container (min-width: 760px) {
+  .comp-meters {
+    grid-template-columns: 200px minmax(120px, 0.8fr) minmax(0, 2fr) 54px;
+    grid-template-areas: "now curve trace out";
+    gap: 0;
+  }
+  .comp-bay-curve { padding-left: 12px; }
+}
+.comp-bay { position: relative; padding: 0 12px; min-width: 0; }
+.comp-bay-trace, .comp-bay-out { border-left: 1px solid var(--cut); box-shadow: 1px 0 0 var(--lift); }
+@container (min-width: 760px) { .comp-bay-curve { border-left: 1px solid var(--cut); box-shadow: 1px 0 0 var(--lift); } }
+.comp-bay:first-child { padding-left: 0; }
+.comp-bay:last-child { padding-right: 0; }
+.comp-bay > .plugin-panel { height: clamp(96px, 16vh, 140px); }
+
+/* The dial, let into the panel behind a bezel with glass over it. */
+.vu {
+  position: relative;
+  aspect-ratio: 1.92;
+  max-height: clamp(96px, 16vh, 140px);
+  margin-inline: auto;
+  border-radius: 3px;
+  background: radial-gradient(circle at 50% 118%, #fffdf9, #e7dccc);
+  box-shadow:
+    0 0 0 1px #1a1614,
+    0 0 0 4px #4a423c,
+    0 0 0 5px #1a1614,
+    0 4px 10px rgba(0, 0, 0, 0.45) inset;
+  overflow: hidden;
+}
+.vu svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.vu::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(158deg, rgba(255, 255, 255, 0.5) 0 24%, rgba(255, 255, 255, 0) 46%);
+}
+.vu-legend {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 5%;
+  text-align: center;
+  font-size: 6.5px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--text-soft);
 }
 
-/* The detector: its own panel, because what a compressor is listening to is a
-   separate question from what it does about it, and the two get confused. */
-.comp-detector {
-  border-top: 1px solid var(--line);
-  padding-top: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-.comp-detector-head {
+/* The side chain: a strip of its own, because all of it is about the one
+   question of what the compressor is listening to. The detector switch used
+   to sit loose in a row with it; it belongs here. */
+.chain-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px 14px;
+  gap: 10px 16px;
 }
-.comp-detector .listen-btn {
-  border: 1px solid var(--line);
-  border-radius: 30px;
-  padding: 7px 15px;
-  color: var(--text-soft);
+.chain-row .comp-key-knobs {
+  grid-template-columns: repeat(2, minmax(86px, 1fr));
+  gap: 0 10px;
+  flex: 0 1 auto;
 }
-.comp-detector .listen-btn:hover { border-color: var(--blush); color: var(--blush-deep); }
-.comp-detector .listen-btn.is-on { background: var(--gold); border-color: var(--gold); color: var(--charcoal); }
+.chain-row .listen-btn { margin-left: auto; }
+
+/* The lamp on the title strip: on, because the plugin is in the signal
+   path. It is the one thing on a device that says the thing is alive. */
+.plugin-lamp {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--sage);
+  box-shadow: 0 0 7px rgba(111, 127, 99, 0.9), 0 0 0 1px #1a1614;
+}
 
 /* --- the reverb ------------------------------------------------------------ */
 /* Two pictures of one room, because they answer different questions. The
@@ -1383,14 +1447,6 @@ input.knob-value:focus {
 @media (max-width: 760px) {
   /* The panels stack; the compressor's meters stay beside them, because a
      meter lying on its side is not a meter. */
-  .comp-display {
-    grid-template-columns: 1fr 46px;
-    grid-template-areas: "curve meters" "trace meters";
-    height: clamp(240px, 46vh, 340px);
-  }
-  .comp-panel-curve { grid-area: curve; }
-  .comp-panel-trace { grid-area: trace; }
-  .comp-panel-meters { grid-area: meters; }
 
   .verb-display,
   .echo-display,
@@ -2805,12 +2861,6 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
 .plugin.is-insert > .image-routing,
 .plugin.is-insert .listen-btn { display: none; }
 
-/* The compressor's middle panel is its reduction over the loop, hit by hit.
-   There is no loop on a track - the material is whatever the clip is this
-   bar - so the panel would be an empty box with a scale down the side. The
-   curve and the meters are both live, and they are what is left. */
-.plugin.is-insert .comp-panel-trace { display: none; }
-.plugin.is-insert .comp-display { grid-template-columns: minmax(140px, 1fr) 58px; }
 
 /* An insert whose full interface can be opened says so, and the ones whose
    cannot yet look like what they are: a label. */
@@ -3049,10 +3099,24 @@ button.insert-name:hover { color: var(--charcoal); }
     .plugin > .plugin-head { padding-block: 6px; }
     .plugin > .plugin-panel { margin: 8px 12px; }
 
+    /* The compressor opts out: its own face is already the one for a short
+       wide screen - the meters across the whole top and the knobs in a
+       single row under them - and the generic two columns put all five of
+       its sections in the right-hand one and left the left empty. */
+    .plugin.comp {
+      display: flex;
+      flex-direction: column;
+    }
+    .plugin.comp > * { grid-column: auto; border-left: none; padding: 8px 12px 9px; }
+    .plugin.comp > .plugin-head { padding-block: 6px; }
+    .plugin.comp .comp-bay > .plugin-panel { height: clamp(84px, 24vh, 116px); }
+    .plugin.comp .vu { max-height: clamp(84px, 24vh, 116px); }
+
     /* Three bays across, which at this column width is what fits without the
        numbers wrapping, and three is what makes the usual counts - three, six,
        eight - come out as whole rows. */
-    .plugin-controls, .eq-controls { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; }
+    .plugin:not(.comp) .plugin-controls,
+    .plugin:not(.comp) .eq-controls { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; }
     .knob { padding: 4px 6px 1px; }
     .knob-name { font-size: 9px; letter-spacing: 0.1em; }
     .knob-value { font-size: 13px; }

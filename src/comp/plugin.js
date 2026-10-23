@@ -2,6 +2,7 @@ import { staticGain, COMP_DEFAULTS, COMP_LIMITS } from './dsp.js';
 import { CompPlayer } from './player.js';
 import { dialOf, offDial, sizeOf, readyCanvas, watchSize, span } from '../fx/panel.js';
 import { dressKnobs } from '../fx/knob.js';
+import { vuFace, aimVu, VU_DEEPEST } from '../fx/meter.js';
 import { FRAME_MS, materialStamp } from './reading.js';
 import { notReady, stampOf } from '../read.js';
 
@@ -18,6 +19,19 @@ import { notReady, stampOf } from '../read.js';
 
 const DB_LOW = -60;    // the quietest input the curve bothers with
 const GR_DEPTH = 24;   // how far down the trace reads
+
+/**
+ * How much of the reduction an insert keeps, and how finely.
+ *
+ * Eight seconds is about two bars at the tempos a sketch is written at,
+ * which is long enough to see a pattern in the ducking and short enough
+ * that what is on screen is still what you are hearing. Sixty a second is
+ * a sample a frame at the rate the thing is drawn anyway, so nothing is
+ * kept that is not shown.
+ */
+const HISTORY_SECONDS = 8;
+const HISTORY_HZ = 60;
+const HISTORY_LONG = HISTORY_SECONDS * HISTORY_HZ;
 
 const compX = (db, width) => ((db - DB_LOW) / -DB_LOW) * width;
 const compY = (db, height) => height - ((db - DB_LOW) / -DB_LOW) * height;
@@ -82,6 +96,10 @@ export class CompPlugin {
     this.interactive = true;
     this.target = null;      // drawn only once the round is over
     this.meterGr = 0;
+    // The last eight seconds of it, on a track. Built on the first draw.
+    this.history = null;
+    this.historyAt = 0;
+    this.lastSample = 0;
     this.columns = null;
 
     this.player = player ?? new CompPlayer(engine, { source, key, uneven });
@@ -107,38 +125,53 @@ export class CompPlugin {
     this.el.innerHTML = `
       <div class="plugin comp${this.role === 'insert' ? ' is-insert' : ''}">
         <div class="plugin-head">
+          <span class="plugin-lamp"></span>
           <span class="plugin-name">Compressor</span>
           <span class="plugin-trim" id="compTrim"></span>
           <span class="plugin-read" id="compRead"></span>
         </div>
 
-        <div class="comp-display">
-          <div class="plugin-panel comp-panel-curve">
-            <canvas id="compCurve"></canvas>
+        <div class="comp-meters">
+          <div class="comp-bay comp-bay-now">
+            <span class="panel-name">Gain reduction</span>
+            <div class="vu" id="compVu">${vuFace()}</div>
           </div>
-          <div class="plugin-panel comp-panel-trace">
-            <canvas id="compTrace"></canvas>
+          <div class="comp-bay comp-bay-curve">
+            <span class="panel-name">In &rarr; out</span>
+            <div class="plugin-panel"><canvas id="compCurve"></canvas></div>
           </div>
-          <div class="plugin-panel comp-panel-meters">
-            <canvas id="compMeters"></canvas>
+          <div class="comp-bay comp-bay-trace">
+            <span class="panel-name" id="compTraceName">The last eight seconds</span>
+            <div class="plugin-panel"><canvas id="compTrace"></canvas></div>
+          </div>
+          <div class="comp-bay comp-bay-out">
+            <span class="panel-name">Levels</span>
+            <div class="plugin-panel"><canvas id="compMeters"></canvas></div>
           </div>
         </div>
 
-        <div class="plugin-controls" id="compKnobs"></div>
+        <div class="comp-deck">
+          <span class="panel-name">Dynamics &amp; output</span>
+          <div class="plugin-controls" id="compKnobs"></div>
+        </div>
 
-        <div class="comp-detector">
-          <div class="comp-detector-head">
-            <span class="panel-name">Detector</span>
+        <div class="comp-chain">
+          <span class="panel-name">Side chain</span>
+          <div class="chain-row">
+            <label class="field" id="compKeyPick" hidden>
+              <span class="field-label">Key from</span>
+              <select id="compKeyFrom"></select>
+            </label>
+            <label class="toggle" ${keyed ? '' : 'hidden'}>
+              <input type="checkbox" id="compSidechain"> Key from the ${this.player.key === 'kick' ? 'kick' : 'other track'}
+            </label>
+            <div class="plugin-controls comp-key-knobs" id="compKeyKnobs"></div>
             <div class="eq-ab" role="group" aria-label="How the level is measured">
               <button class="ab-btn is-on" type="button" data-detector="peak">Peak</button>
               <button class="ab-btn" type="button" data-detector="rms">RMS</button>
             </div>
-            <label class="toggle" ${keyed ? '' : 'hidden'}>
-              <input type="checkbox" id="compSidechain"> Key from the ${this.player.key === 'kick' ? 'kick' : 'other track'}
-            </label>
             <button class="ab-btn listen-btn" type="button" data-comp="listen" aria-pressed="false">Listen to the key</button>
           </div>
-          <div class="plugin-controls" id="compKeyKnobs"></div>
         </div>
 
         <div class="eq-transport comp-transport">
@@ -168,6 +201,10 @@ export class CompPlugin {
     this.curve = this.el.querySelector('#compCurve');
     this.trace = this.el.querySelector('#compTrace');
     this.meters = this.el.querySelector('#compMeters');
+    this.dial = this.el.querySelector('#compVu');
+    this.el.querySelector('#compTraceName').textContent = this.role === 'insert'
+      ? 'The last eight seconds'
+      : 'Over the loop';
     this.el.querySelector('#compSource').value = this.player.source;
 
     this.buildKnobs();
@@ -476,10 +513,77 @@ export class CompPlugin {
     // longer in the page is how a clean handover throws.
     if (this.gone) return;
     const ink = compPalette(this.el);
+
+    // The live reduction falls back rather than snapping, the way a needle
+    // does - a meter that jumped straight back to nothing would be
+    // unreadable. Read once here because three things now want it: the
+    // needle, the history, and the levels.
+    const fresh = this.player.playing ? this.player.reduction() : 0;
+    this.meterGr = this.player.playing ? Math.min(fresh, this.meterGr + 0.8) : 0;
+    this.remember();
+
     this.drawCurve(ink);
     this.drawTrace(ink);
     this.drawMeters(ink);
     this.writeReadout();
+  }
+
+  /**
+   * The last eight seconds of reduction, kept.
+   *
+   * Only on a track. An exercise has a fixed loop and renders the whole of
+   * its reduction in one go, which is a better picture than a rolling one
+   * when the material never changes; a track's material is whatever the
+   * clip is this bar, so there is nothing to render and the history is the
+   * only picture there is.
+   */
+  remember() {
+    if (this.role !== 'insert') return;
+    if (!this.history) {
+      this.history = new Float32Array(HISTORY_LONG);
+      this.historyAt = 0;
+      this.lastSample = performance.now();
+      return;
+    }
+
+    const per = 1000 / HISTORY_HZ;
+    const now = performance.now();
+    const due = Math.floor((now - this.lastSample) / per);
+    if (due < 1) return;
+
+    // A frame that arrived late stands for the samples it missed, so eight
+    // seconds across the screen is eight seconds of sound however the
+    // drawing is keeping up.
+    const missed = Math.min(HISTORY_LONG, due);
+    for (let i = 0; i < missed; i += 1) {
+      this.history[this.historyAt] = this.meterGr;
+      this.historyAt = (this.historyAt + 1) % HISTORY_LONG;
+    }
+    this.lastSample += missed * per;
+  }
+
+  /** The kept reduction, oldest at the left. */
+  drawHistory(c, width, height, grY, ink) {
+    if (!this.history) return;
+    const step = width / (HISTORY_LONG - 1);
+    const value = (i) => Math.max(this.history[(this.historyAt + i) % HISTORY_LONG], -GR_DEPTH);
+
+    c.beginPath();
+    c.moveTo(0, 0);
+    for (let i = 0; i < HISTORY_LONG; i += 1) c.lineTo(i * step, grY(value(i)));
+    c.lineTo(width, 0);
+    c.closePath();
+    c.fillStyle = 'rgba(217, 166, 160, 0.26)';
+    c.fill();
+
+    c.beginPath();
+    for (let i = 0; i < HISTORY_LONG; i += 1) {
+      const y = grY(value(i));
+      if (i === 0) c.moveTo(0, y); else c.lineTo(i * step, y);
+    }
+    c.strokeStyle = ink.blush;
+    c.lineWidth = 1.8;
+    c.stroke();
   }
 
   drawCurve(ink) {
@@ -594,6 +698,8 @@ export class CompPlugin {
       c.fillText(`${db}`, width - 4, y - 3);
     }
 
+    if (this.role === 'insert') { this.drawHistory(c, width, height, grY, ink); return; }
+
     // Nothing loaded means nothing to have a trace of. Clearing this inside
     // `restage` is necessary and not sufficient: a source change sets the
     // samples to null and then awaits a render, and nothing calls `restage`
@@ -639,9 +745,6 @@ export class CompPlugin {
       c.beginPath(); c.moveTo(x, 0); c.lineTo(x, height); c.stroke();
     }
 
-    c.fillStyle = ink.soft;
-    c.textAlign = 'left';
-    c.fillText('gain reduction, over the loop', 6, height - 6);
   }
 
   drawMeters(ink) {
@@ -649,10 +752,7 @@ export class CompPlugin {
     if (!stage) return;
     const { c, width, height } = stage;
 
-    // The live reduction falls back rather than snapping, the way a needle
-    // does - a meter that jumped straight back to nothing would be unreadable.
-    const fresh = this.player.playing ? this.player.reduction() : 0;
-    this.meterGr = this.player.playing ? Math.min(fresh, this.meterGr + 0.8) : 0;
+    aimVu(this.dial, this.meterGr, VU_DEEPEST);
 
     const { input, output } = this.player.levels();
     const top = 16;
@@ -660,7 +760,6 @@ export class CompPlugin {
     const run = floor - top;
     const bars = [
       { label: 'in', value: holdIn((input + 60) / 60, 0, 1), colour: ink.soft, from: 'bottom' },
-      { label: 'gr', value: holdIn(-this.meterGr / GR_DEPTH, 0, 1), colour: ink.blush, from: 'top' },
       { label: 'out', value: holdIn((output + 60) / 60, 0, 1), colour: ink.soft, from: 'bottom' },
     ];
 
