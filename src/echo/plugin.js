@@ -8,6 +8,7 @@ import {
 import { ImpulsePlayer } from '../fx/player.js';
 import { notReady, stampOf } from '../read.js';
 import { dialOf, offDial, sizeOf, readyCanvas, decayX, decayY, writeMs, watchSize, span } from '../fx/panel.js';
+import { dressKnobs } from '../fx/knob.js';
 import { LOOP_BEAT } from '../audio.js';
 import { writeHertz } from '../comp/plugin.js';
 
@@ -164,9 +165,11 @@ export class EchoPlugin {
           <output class="knob-value" id="echo-${knob.id}-value">${knob.write(this.settings[knob.id])}</output>
           <input class="knob-dial" type="range" id="echo-${knob.id}" data-dial="${knob.id}"
                  min="${dial.min}" max="${dial.max}" step="${dial.step}" value="${dial.at}"
+                 data-rest="${dialOf(knob, ECHO_DEFAULTS[knob.id] ?? dial.at).at}"
                  aria-label="${knob.name}">
         </div>`;
     }).join('');
+    this.syncKnobs();
   }
 
   wire() {
@@ -291,6 +294,7 @@ export class EchoPlugin {
         dial.value = knob.log ? Math.log2(Math.max(knob.min, this.settings[knob.id])) : this.settings[knob.id];
       }
     }
+    dressKnobs(this.el);
   }
 
   /**

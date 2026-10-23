@@ -1,6 +1,7 @@
 import { staticGain, COMP_DEFAULTS, COMP_LIMITS } from './dsp.js';
 import { CompPlayer } from './player.js';
 import { dialOf, offDial, sizeOf, readyCanvas, watchSize, span } from '../fx/panel.js';
+import { dressKnobs } from '../fx/knob.js';
 import { FRAME_MS, materialStamp } from './reading.js';
 import { notReady, stampOf } from '../read.js';
 
@@ -182,6 +183,7 @@ export class CompPlugin {
           <output class="knob-value" id="comp-${knob.id}-value">${knob.write(this.settings[knob.id])}</output>
           <input class="knob-dial" type="range" id="comp-${knob.id}" data-dial="${knob.id}"
                  min="${dial.min}" max="${dial.max}" step="${dial.step}" value="${dial.at}"
+                 data-rest="${dialOf(knob, COMP_DEFAULTS[knob.id] ?? dial.at).at}"
                  aria-label="${knob.name}">
         </div>`;
     }).join('');
@@ -318,7 +320,6 @@ export class CompPlugin {
         : holdIn(Math.round((span / left) * 10) / 10, 1, 20);
     }
 
-    this.syncKnobs();
     this.changed();
   }
 
@@ -334,6 +335,7 @@ export class CompPlugin {
   }
 
   changed() {
+    this.syncKnobs();
     this.player.setSettings(this.settings);
     this.restage();
     this.draw();
@@ -350,6 +352,7 @@ export class CompPlugin {
         dial.value = knob.log ? Math.log2(Math.max(knob.min, value)) : value;
       }
     }
+    dressKnobs(this.el);
   }
 
   /** Hear what the detector hears, which is how a sidechain gets aimed. */

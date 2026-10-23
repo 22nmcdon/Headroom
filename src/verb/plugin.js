@@ -6,6 +6,7 @@ import { ImpulsePlayer } from '../fx/player.js';
 import { writeHertz } from '../comp/plugin.js';
 import { notReady, stampOf } from '../read.js';
 import { dialOf, offDial, sizeOf, readyCanvas, decayX, decayY, watchSize, span } from '../fx/panel.js';
+import { dressKnobs } from '../fx/knob.js';
 
 /**
  * The reverb, as a plugin.
@@ -150,9 +151,11 @@ export class VerbPlugin {
           <output class="knob-value" id="verb-${knob.id}-value">${knob.write(this.settings[knob.id])}</output>
           <input class="knob-dial" type="range" id="verb-${knob.id}" data-dial="${knob.id}"
                  min="${dial.min}" max="${dial.max}" step="${dial.step}" value="${dial.at}"
+                 data-rest="${dialOf(knob, VERB_DEFAULTS[knob.id] ?? dial.at).at}"
                  aria-label="${knob.name}">
         </div>`;
     }).join('');
+    this.syncKnobs();
   }
 
   wire() {
@@ -235,8 +238,13 @@ export class VerbPlugin {
   syncKnobs() {
     for (const knob of VERB_KNOBS) {
       const readout = this.el.querySelector(`#verb-${knob.id}-value`);
+      const dial = this.el.querySelector(`#verb-${knob.id}`);
       if (readout) readout.textContent = knob.write(this.settings[knob.id]);
+      if (dial && document.activeElement !== dial) {
+        dial.value = dialOf(knob, this.settings[knob.id]).at;
+      }
     }
+    dressKnobs(this.el);
   }
 
   /**

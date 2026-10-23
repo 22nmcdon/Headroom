@@ -681,59 +681,163 @@ input.knob-value:focus {
   border-bottom-color: var(--blush-deep);
   color: var(--blush-deep);
 }
-/* A knob is a bay on the deck: what it is, then what it is set to, then the
-   control - in that order, down, on a tile of its own. The label and the
-   number used to share a line, which is why `LOOKAHEAD` sat on top of
-   `0.0 ms` and `THRESHOLD` pushed `-18.0 dB` onto two lines. Down the bay
-   they never compete, and the tiles are what make a row of them read as a
-   deck rather than as a form. */
+/* A knob is: what it is set to, the control, and what it is - in that
+   order, down. The label and the number used to share a line, which is why
+   `LOOKAHEAD` sat on top of `0.0 ms`.
+
+   The control is a knob now rather than a slider, which is the whole of why
+   these read as instruments. `src/fx/knob.js` says what is going on; what
+   is here is the face. Drawn in CSS so that moving one is a single custom
+   property on a single element: eight of them under a finger at once cost
+   what one costs. */
 .knob {
   display: grid;
-  grid-template-rows: auto auto auto;
-  align-content: start;
   justify-items: center;
-  gap: 1px;
-  padding: 6px 10px 2px;
+  align-content: start;
+  gap: 2px;
+  padding: 0 4px;
   min-width: 0;
-  background: var(--cream);
-  border: 1px solid var(--line);
-  border-radius: 2px;
 }
+.knob-value { order: 1; }
+.knob-face  { order: 2; }
+.knob-name  { order: 3; }
+.knob-dial  { order: 4; }
+
 .knob-name {
-  font-size: 9.5px;
+  font-size: 8.5px;
   text-transform: uppercase;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.16em;
   font-weight: 500;
-  color: var(--text-soft);
+  color: var(--knob-name, var(--text-soft));
   text-align: center;
   line-height: 1.3;
 }
 .knob-value {
   font-family: var(--serif);
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--charcoal);
+  font-size: 13.5px;
+  color: var(--knob-read, var(--charcoal));
   font-variant-numeric: tabular-nums;
   text-align: center;
   white-space: nowrap;
 }
-.knob-dial { width: 100%; margin: 1px 0 0; appearance: none; background: none; height: 22px; }
-.knob-dial:focus-visible { outline: 2px solid var(--blush-deep); outline-offset: 3px; }
-.knob-dial::-webkit-slider-runnable-track { height: 2px; background: var(--line); }
-.knob-dial::-moz-range-track { height: 2px; background: var(--line); }
-.knob-dial::-webkit-slider-thumb {
-  appearance: none;
-  width: 18px; height: 18px; margin-top: -8px;
-  border-radius: 50%;
-  background: var(--charcoal);
-  border: 3px solid var(--paper);
-  box-shadow: 0 1px 3px rgba(36, 31, 29, 0.3);
+
+.knob-face {
+  --size: 46px;
+  --angle: 0deg;
+  position: relative;
+  width: var(--size);
+  height: var(--size);
+  display: grid;
+  place-items: center;
+  /* The finger is turning this, not scrolling the page past it. */
+  touch-action: none;
+  cursor: grab;
 }
-.knob-dial::-moz-range-thumb {
-  width: 18px; height: 18px;
+.knob-face.is-held { cursor: grabbing; }
+
+/* How far it has been turned, as a ring round the outside. The ninety
+   degrees it does not travel through are transparent in the gradient
+   itself, so nothing has to be masked away by angle. */
+.knob-face::before {
+  content: '';
+  position: absolute;
+  inset: 0;
   border-radius: 50%;
-  background: var(--charcoal);
-  border: 3px solid var(--paper);
+  background: conic-gradient(from 225deg,
+    var(--knob-arc, var(--blush-deep)) 0 var(--angle),
+    var(--knob-track, rgba(36, 31, 29, 0.14)) var(--angle) 270deg,
+    transparent 270deg);
+  -webkit-mask: radial-gradient(circle, transparent 0 calc(50% - 3px), #000 calc(50% - 3px));
+          mask: radial-gradient(circle, transparent 0 calc(50% - 3px), #000 calc(50% - 3px));
+}
+
+/* The skirt. Eleven marks, every fifth one longer, which is how a knob
+   tells you where the middle is without a number. */
+.knob-ticks { position: absolute; inset: 0; }
+.knob-ticks i {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  transform: rotate(calc(var(--t) - 135deg));
+}
+.knob-ticks i::before {
+  content: '';
+  position: absolute;
+  left: -0.9px;
+  top: 5px;
+  width: 1.8px;
+  height: 4px;
+  border-radius: 1px;
+  background: var(--knob-tick, rgba(36, 31, 29, 0.3));
+}
+.knob-ticks i:nth-child(5n + 1)::before {
+  height: 6px;
+  background: var(--knob-tick-long, rgba(36, 31, 29, 0.55));
+}
+
+/* The cap, lit from the top left, with the pointer cut into it. */
+.knob-cap {
+  width: 66%;
+  height: 66%;
+  border-radius: 50%;
+  position: relative;
+  transform: rotate(calc(var(--angle) - 135deg));
+  background:
+    linear-gradient(150deg, rgba(255, 252, 247, 0.2), rgba(0, 0, 0, 0.26) 62%),
+    radial-gradient(circle at 36% 26%, var(--knob-cap-hi, #6e6359), var(--knob-cap-lo, #332c29) 72%);
+  box-shadow:
+    0 0 0 1px var(--knob-cap-edge, #221d1b),
+    0 1px 0 rgba(255, 252, 247, 0.2) inset,
+    0 3px 7px rgba(0, 0, 0, 0.45);
+}
+.knob-cap::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 11%;
+  width: 2.5px;
+  height: 34%;
+  margin-left: -1.25px;
+  border-radius: 2px;
+  background: var(--knob-point, var(--cream));
+  box-shadow: 0 0 5px rgba(250, 246, 240, 0.35);
+}
+
+/* The range input is still the value, still the keyboard, still what a
+   screen reader reads. It is only taken out of the eye - and out of the
+   pointer's way, because dragging a range moves it sideways and a knob
+   does not. */
+.knob-dial.is-dressed {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  pointer-events: none;
+}
+/* Focus has to show on something, and the input is invisible: the face
+   wears it. */
+.knob-dial.is-dressed:focus-visible + .knob-name { color: var(--blush-deep); }
+.knob:has(.knob-dial:focus-visible) .knob-face::before {
+  outline: 2px solid var(--blush-deep);
+  outline-offset: 2px;
+  border-radius: 50%;
+}
+
+/* Undressed - no script, or a dial this has not reached yet - it is still
+   a working slider rather than a one-pixel box. */
+.knob-dial:not(.is-dressed) {
+  width: 100%;
+  margin: 1px 0 0;
+  appearance: none;
+  background: none;
+  height: 22px;
+  accent-color: var(--blush-deep);
 }
 
 .eq-transport {

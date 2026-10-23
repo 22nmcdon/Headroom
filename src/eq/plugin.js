@@ -5,6 +5,7 @@ import {
 import { EQPlayer } from './player.js';
 import { stampOf } from '../read.js';
 import { readyCanvas, sizeOf, watchSize } from '../fx/panel.js';
+import { dressKnobs, paintKnobs } from '../fx/knob.js';
 
 const LOW = 20;
 const HIGH = 20000;
@@ -277,6 +278,8 @@ export class EQPlugin {
         <input class="knob-dial" type="range" id="eqRes" min="-${RANGE}" max="${MOST_RESONANCE}" step="0.1"
                value="${band.q}" aria-label="Resonance">
       </div>`;
+
+    dressKnobs(this.el);
   }
 
   /**
@@ -546,6 +549,12 @@ export class EQPlugin {
     set('#eqGainValue', `${band.gain.toFixed(1)} dB`);
     set('#eqQValue', band.q.toFixed(2));
     set('#eqResValue', `${band.q > 0 ? '+' : ''}${band.q.toFixed(1)} dB`);
+
+    set('#eqFreq', Math.log2(band.frequency));
+    set('#eqGain', band.gain);
+    set('#eqQ', Math.log2(Math.max(0.4, band.q)));
+    set('#eqRes', band.q);
+    paintKnobs(this.el);
   }
 
   /**

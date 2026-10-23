@@ -6,6 +6,7 @@ import {
 import { notReady, stampOf } from '../read.js';
 import { HeatPlayer } from './player.js';
 import { dialOf, offDial, readyCanvas, watchSize, span } from '../fx/panel.js';
+import { dressKnobs } from '../fx/knob.js';
 import { writeHertz } from '../comp/plugin.js';
 
 /**
@@ -191,9 +192,11 @@ export class HeatPlugin {
           <output class="knob-value" id="heat-${knob.id}-value">${knob.write(this.settings[knob.id])}</output>
           <input class="knob-dial" type="range" id="heat-${knob.id}" data-dial="${knob.id}"
                  min="${dial.min}" max="${dial.max}" step="${dial.step}" value="${dial.at}"
+                 data-rest="${dialOf(knob, HEAT_DEFAULTS[knob.id] ?? dial.at).at}"
                  aria-label="${knob.name}">
         </div>`;
     }).join('');
+    this.syncKnobs();
   }
 
   wire() {
@@ -409,8 +412,13 @@ export class HeatPlugin {
   syncKnobs() {
     for (const knob of HEAT_KNOBS) {
       const readout = this.el.querySelector(`#heat-${knob.id}-value`);
+      const dial = this.el.querySelector(`#heat-${knob.id}`);
       if (readout) readout.textContent = knob.write(this.settings[knob.id]);
+      if (dial && document.activeElement !== dial) {
+        dial.value = dialOf(knob, this.settings[knob.id]).at;
+      }
     }
+    dressKnobs(this.el);
   }
 
   /**

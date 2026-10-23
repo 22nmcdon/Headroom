@@ -5,6 +5,7 @@ import {
 import { notReady, stampOf } from '../read.js';
 import { ImagePlayer } from './player.js';
 import { dialOf, offDial, sizeOf, readyCanvas, watchSize, span } from '../fx/panel.js';
+import { dressKnobs } from '../fx/knob.js';
 import { writeHertz } from '../comp/plugin.js';
 
 /**
@@ -167,9 +168,11 @@ export class ImagePlugin {
           <output class="knob-value" id="image-${knob.id}-value">${knob.write(this.settings[knob.id])}</output>
           <input class="knob-dial" type="range" id="image-${knob.id}" data-dial="${knob.id}"
                  min="${dial.min}" max="${dial.max}" step="${dial.step}" value="${dial.at}"
+                 data-rest="${dialOf(knob, IMAGE_DEFAULTS[knob.id] ?? dial.at).at}"
                  aria-label="${knob.name}">
         </div>`;
     }).join('');
+    this.syncKnobs();
   }
 
   wire() {
@@ -377,8 +380,13 @@ export class ImagePlugin {
   syncKnobs() {
     for (const knob of IMAGE_KNOBS) {
       const readout = this.el.querySelector(`#image-${knob.id}-value`);
+      const dial = this.el.querySelector(`#image-${knob.id}`);
       if (readout) readout.textContent = knob.write(this.settings[knob.id]);
+      if (dial && document.activeElement !== dial) {
+        dial.value = dialOf(knob, this.settings[knob.id]).at;
+      }
     }
+    dressKnobs(this.el);
   }
 
   /**
