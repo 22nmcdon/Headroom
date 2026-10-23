@@ -11,8 +11,8 @@
 // tolerance wide enough to forgive it is a tolerance wide enough to forgive
 // everything.
 
-import { mulberry32 } from '../random.js';
-import { toStep } from '../work/scoring.js';
+import { mulberry32 } from '../lib/random.js';
+import { toStep } from '../learn/work/scoring.js';
 import { STEM_FLAT, STEMS, STEM_IDS, PIECE_IDS } from './piece.js';
 
 /** What a fader, a pan and a send move in. The target sits on these too. */

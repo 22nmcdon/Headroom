@@ -14,13 +14,13 @@
 // The defaults here are read from the real ones rather than written out
 // again, so a plugin whose resting state changes changes here too.
 
-import { COMP_DEFAULTS, COMP_LIMITS } from '../comp/dsp.js';
-import { HEAT_DEFAULTS, HEAT_LIMITS } from '../heat/shape.js';
-import { IMAGE_DEFAULTS, IMAGE_LIMITS } from '../image/field.js';
-import { VERB_DEFAULTS, VERB_LIMITS } from '../verb/ir.js';
-import { ECHO_DEFAULTS, ECHO_LIMITS } from '../echo/line.js';
+import { COMP_DEFAULTS, COMP_LIMITS } from '../plugins/compressor/dsp.js';
+import { HEAT_DEFAULTS, HEAT_LIMITS } from '../plugins/saturation/shape.js';
+import { IMAGE_DEFAULTS, IMAGE_LIMITS } from '../plugins/stereo/field.js';
+import { VERB_DEFAULTS, VERB_LIMITS } from '../plugins/reverb/ir.js';
+import { ECHO_DEFAULTS, ECHO_LIMITS } from '../plugins/delay/line.js';
 import { EFFECT_IDS } from '../core/effects.js';
-import { RESTING_Q } from '../eq/filters.js';
+import { RESTING_Q } from '../plugins/eq/filters.js';
 
 /**
  * The EQ is the one that is not its own settings.

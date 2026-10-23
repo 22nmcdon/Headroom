@@ -6,14 +6,14 @@
 // bump at 200 Hz that nothing in it needed - the things a single pass of an
 // analyser moving in real time will not sit still long enough to say.
 //
-// The spectrum itself is `src/eq/spectrum.js`, which already does this for
+// The spectrum itself is `src/plugins/eq/spectrum.js`, which already does this for
 // the EQ's auto gain: windowed FFT frames, averaged in power, each asked-for
 // frequency taking the bins nearer to it than to its neighbours. What is here
 // is the axis to read it on, the tilt that makes it legible, and the shape of
 // the comparison against a reference.
 
-import { averageSpectrum } from '../eq/spectrum.js';
-import { readingOf, stampOf } from '../read.js';
+import { averageSpectrum } from '../plugins/eq/spectrum.js';
+import { readingOf, stampOf } from '../lib/read.js';
 
 /**
  * The third-octave centres, from where a speaker starts to where hearing

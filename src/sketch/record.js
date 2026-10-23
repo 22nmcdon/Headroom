@@ -12,7 +12,7 @@
 // to be any use in a loop, and a bar line is an audio time. A worklet
 // handing blocks back with the audio time of each one can be cut exactly.
 
-import { workletModule, installWorklet } from '../fx/worklet.js';
+import { workletModule, installWorklet } from '../lib/worklet.js';
 
 const CAPTURE_PROCESSOR = `class HeadroomCapture extends AudioWorkletProcessor {
   constructor() {

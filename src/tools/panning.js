@@ -1,5 +1,5 @@
-import { ImagePlugin } from '../image/plugin.js';
-import { IMAGE_DEFAULTS } from '../image/field.js';
+import { ImagePlugin } from '../plugins/stereo/plugin.js';
+import { IMAGE_DEFAULTS } from '../plugins/stereo/field.js';
 
 /**
  * The stereo, as a thing you open rather than a question you are asked.

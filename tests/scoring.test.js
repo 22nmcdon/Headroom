@@ -1,4 +1,4 @@
-// The shared marking helpers in src/work/scoring.js.
+// The shared marking helpers in src/learn/work/scoring.js.
 //
 // Nothing in the app called `dialled` yet, and it had shipped with a reference
 // to a variable that does not exist - `state === HIT` where the variable is
@@ -12,7 +12,7 @@ import assert from 'node:assert/strict';
 import {
   HIT, NEAR, MISS,
   onScale, distanceCell, dialled, toStep, toThirdOctave,
-} from '../src/work/scoring.js';
+} from '../src/learn/work/scoring.js';
 
 /* ---------- picking off an ordered list ---------- */
 

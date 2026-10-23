@@ -16,9 +16,9 @@
 // panned thing lives in, which is also what makes it useful to say out loud -
 // "the 400 is 4 dB further left than it should be" is an instruction.
 
-import { IMAGE_BANDS } from '../image/field.js';
-import { bandOf } from '../fx/response.js';
-import { readingOf, stampOf, gapOf } from '../read.js';
+import { IMAGE_BANDS } from '../plugins/stereo/field.js';
+import { bandOf } from '../lib/response.js';
+import { readingOf, stampOf, gapOf } from '../lib/read.js';
 
 /** Energy, in decibels, with a floor so silence is a number. */
 const energyDb = (samples) => {

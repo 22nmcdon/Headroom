@@ -1,19 +1,19 @@
-import { TOOLS, TOOL_IDS, toolOf, exerciseOf } from './bench/registry.js';
-import { bench } from './bench/session.js';
+import { TOOLS, TOOL_IDS, toolOf, exerciseOf } from './learn/bench/registry.js';
+import { bench } from './learn/bench/session.js';
 import {
   createGame, submitGuess, makePuzzle, roundSeed, reveal,
   settingsFor, startingGuess, hintFor, hintsLeft, takeHint, showAnswer,
-} from './game.js';
-import { Engine } from './audio.js';
+} from './learn/game.js';
+import { Engine } from './core/audio.js';
 import {
   getStats, recordGame, weakestKind, resetStats, ATTEMPT_BANDS,
   exportProgress, importProgress, notesRead, markRead,
-} from './stats.js';
-import { progress, where, PATH_TIER } from './bench/path.js';
-import { engraveNote } from './engrave.js';
-import { renderPicker, syncPicker, pickerState, dialValue } from './bench/picker.js';
-import { makeLog } from './bench/log.js';
-import { notesFor } from './notes/index.js';
+} from './learn/stats.js';
+import { progress, where, PATH_TIER } from './learn/bench/path.js';
+import { engraveNote } from './lib/engrave.js';
+import { renderPicker, syncPicker, pickerState, dialValue } from './learn/bench/picker.js';
+import { makeLog } from './learn/bench/log.js';
+import { notesFor } from './learn/notes/index.js';
 import { AnalysisPage } from './analysis/page.js';
 import { SketchPage } from './sketch/grid.js';
 import { MixPage } from './mix/page.js';

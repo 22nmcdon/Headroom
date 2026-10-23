@@ -12,11 +12,11 @@ import {
   KNOBS, knobsFor, restFor, tidy, tidyAll, paramsFor, optionsFor, writeKnob, EQ_REST,
 } from '../src/sketch/knobs.js';
 import { EFFECT_IDS } from '../src/core/effects.js';
-import { COMP_DEFAULTS, COMP_LIMITS } from '../src/comp/dsp.js';
-import { HEAT_DEFAULTS, HEAT_LIMITS } from '../src/heat/shape.js';
-import { IMAGE_DEFAULTS, IMAGE_LIMITS } from '../src/image/field.js';
-import { VERB_DEFAULTS, VERB_LIMITS } from '../src/verb/ir.js';
-import { ECHO_DEFAULTS, ECHO_LIMITS } from '../src/echo/line.js';
+import { COMP_DEFAULTS, COMP_LIMITS } from '../src/plugins/compressor/dsp.js';
+import { HEAT_DEFAULTS, HEAT_LIMITS } from '../src/plugins/saturation/shape.js';
+import { IMAGE_DEFAULTS, IMAGE_LIMITS } from '../src/plugins/stereo/field.js';
+import { VERB_DEFAULTS, VERB_LIMITS } from '../src/plugins/reverb/ir.js';
+import { ECHO_DEFAULTS, ECHO_LIMITS } from '../src/plugins/delay/line.js';
 import { newProject, setTrack, serialise, parse } from '../src/sketch/project.js';
 
 /** The five that are their own settings. The EQ's four are not. */

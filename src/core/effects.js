@@ -33,16 +33,16 @@
 // 0.000001 dB - across a plain peak, two shelves, an off band, and the 48 dB
 // an octave cut that is a cascade of four.
 
-import { sectionsOf, averageLift, MOST_SECTIONS } from '../eq/filters.js';
-import { LiveCompressor } from '../comp/node.js';
-import { LiveSaturator } from '../heat/node.js';
-import { LiveImager } from '../image/node.js';
-import { makeImpulse, VERB_DEFAULTS } from '../verb/ir.js';
-import { makeEcho, ECHO_DEFAULTS } from '../echo/line.js';
-import { COMP_DEFAULTS } from '../comp/dsp.js';
-import { HEAT_DEFAULTS } from '../heat/shape.js';
-import { IMAGE_DEFAULTS } from '../image/field.js';
-import { newStrip } from '../eq/filters.js';
+import { sectionsOf, averageLift, MOST_SECTIONS } from '../plugins/eq/filters.js';
+import { LiveCompressor } from '../plugins/compressor/node.js';
+import { LiveSaturator } from '../plugins/saturation/node.js';
+import { LiveImager } from '../plugins/stereo/node.js';
+import { makeImpulse, VERB_DEFAULTS } from '../plugins/reverb/ir.js';
+import { makeEcho, ECHO_DEFAULTS } from '../plugins/delay/line.js';
+import { COMP_DEFAULTS } from '../plugins/compressor/dsp.js';
+import { HEAT_DEFAULTS } from '../plugins/saturation/shape.js';
+import { IMAGE_DEFAULTS } from '../plugins/stereo/field.js';
+import { newStrip } from '../plugins/eq/filters.js';
 import { wetDry } from './effect.js';
 
 /* --- the EQ --------------------------------------------------------------- */

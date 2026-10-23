@@ -19,7 +19,7 @@ import {
   truePeakOf, samplePeakOf, loudnessReading, loudnessGap,
   ABSOLUTE_GATE, BLOCK_MS,
 } from '../src/analysis/loudness.js';
-import { distance } from '../src/gap.js';
+import { distance } from '../src/lib/gap.js';
 
 const RATE = 48000;
 

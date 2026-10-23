@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 
-import { NOTES, notesFor } from '../src/notes/index.js';
-import { TOOLS as MODES } from '../src/bench/registry.js';
+import { NOTES, notesFor } from '../src/learn/notes/index.js';
+import { TOOLS as MODES } from '../src/learn/bench/registry.js';
 import { MODULES } from '../scripts/modules.mjs';
 
 // Prose that nobody can reach is prose nobody wrote.
@@ -89,12 +89,12 @@ test('each tool’s DSP points at the notes that explain it', () => {
   // to stay that way - but somebody arriving at the code should be told the
   // other one exists.
   const pairs = [
-    ['src/eq/filters.js', 'src/notes/eq.js'],
-    ['src/comp/dsp.js', 'src/notes/comp.js'],
-    ['src/image/field.js', 'src/notes/image.js'],
-    ['src/verb/ir.js', 'src/notes/verb.js'],
-    ['src/echo/line.js', 'src/notes/echo.js'],
-    ['src/heat/shape.js', 'src/notes/heat.js'],
+    ['src/plugins/eq/filters.js', 'src/learn/notes/eq.js'],
+    ['src/plugins/compressor/dsp.js', 'src/learn/notes/comp.js'],
+    ['src/plugins/stereo/field.js', 'src/learn/notes/image.js'],
+    ['src/plugins/reverb/ir.js', 'src/learn/notes/verb.js'],
+    ['src/plugins/delay/line.js', 'src/learn/notes/echo.js'],
+    ['src/plugins/saturation/shape.js', 'src/learn/notes/heat.js'],
   ];
 
   for (const [code, notes] of pairs) {
@@ -107,7 +107,8 @@ test('every notes file is in the bundle', () => {
   // The list is derived from what main.js imports now, so a file can no longer
   // be left out by hand - but it can be left unimported, which comes to the
   // same thing: a page where that tool silently has no notes.
-  for (const file of readdirSync(new URL('../src/notes', import.meta.url))) {
-    assert.ok(MODULES.includes(`notes/${file}`), `notes/${file} is not reachable from main.js`);
+  for (const file of readdirSync(new URL('../src/learn/notes', import.meta.url))) {
+    const at = `learn/notes/${file}`;
+    assert.ok(MODULES.includes(at), `${at} is not reachable from main.js`);
   }
 });

@@ -24,7 +24,7 @@
  * `in` and `out` are the two ends. `set` takes whatever that effect's
  * parameters are - the same objects the plugins already pass around, so
  * nothing has to be translated. `read` is optional and gives back the tool's
- * own measurement where there is one, in the envelope from `src/read.js`.
+ * own measurement where there is one, in the envelope from `src/lib/read.js`.
  */
 export const EFFECT_SHAPE = ['id', 'in', 'out', 'set', 'destroy'];
 

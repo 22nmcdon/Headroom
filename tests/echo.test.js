@@ -4,10 +4,10 @@ import assert from 'node:assert/strict';
 import {
   ECHO_DEFAULTS, DIVISIONS, SYNC_DIVISIONS, MOST_FEEDBACK, LONGEST_TIME,
   makeEcho, repeatsOf, echoProfile, timeOf, nearestDivision,
-} from '../src/echo/line.js';
-import { monoOf, bandOf, profileDistance, RESPONSE_BANDS } from '../src/fx/response.js';
-import { LOOP_BEAT } from '../src/audio.js';
-import { ECHO_WORK as delay } from '../src/work/delay.js';
+} from '../src/plugins/delay/line.js';
+import { monoOf, bandOf, profileDistance, RESPONSE_BANDS } from '../src/lib/response.js';
+import { LOOP_BEAT } from '../src/core/audio.js';
+import { ECHO_WORK as delay } from '../src/learn/work/delay.js';
 
 const rate = 48000;
 const echo = (params) => makeEcho(rate, { ...ECHO_DEFAULTS, ...params });

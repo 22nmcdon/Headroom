@@ -1,12 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { VERB_DEFAULTS, MOST_DECAY, makeImpulse, roomProfile } from '../src/verb/ir.js';
+import { VERB_DEFAULTS, MOST_DECAY, makeImpulse, roomProfile } from '../src/plugins/reverb/ir.js';
 import {
   RESPONSE_BANDS, monoOf, bandOf, rt60, decayTimes, profileDistance, wetDryImpulse,
-} from '../src/fx/response.js';
-import { VERB_WORK as reverb } from '../src/work/reverb.js';
-import { LOOP_BEAT } from '../src/audio.js';
+} from '../src/lib/response.js';
+import { VERB_WORK as reverb } from '../src/learn/work/reverb.js';
+import { LOOP_BEAT } from '../src/core/audio.js';
 
 const rate = 48000;
 const room = (settings) => makeImpulse(rate, { ...VERB_DEFAULTS, ...settings });

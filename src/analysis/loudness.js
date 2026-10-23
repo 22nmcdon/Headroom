@@ -16,7 +16,7 @@
 //
 // The prose on what any of it is FOR is not here yet; this is the arithmetic.
 
-import { readingOf, stampOf } from '../read.js';
+import { readingOf, stampOf } from '../lib/read.js';
 
 /** The absolute gate, in LUFS: below this a block is silence. */
 export const ABSOLUTE_GATE = -70;

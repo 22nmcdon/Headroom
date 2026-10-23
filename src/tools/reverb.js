@@ -1,5 +1,5 @@
-import { VerbPlugin } from '../verb/plugin.js';
-import { VERB_DEFAULTS } from '../verb/ir.js';
+import { VerbPlugin } from '../plugins/reverb/plugin.js';
+import { VERB_DEFAULTS } from '../plugins/reverb/ir.js';
 
 /**
  * The reverb, as a thing you open rather than a question you are asked.

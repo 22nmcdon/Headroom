@@ -10,8 +10,8 @@ import assert from 'node:assert/strict';
 
 import {
   steps, progress, where, TEACHING_ORDER, ENOUGH, ENOUGH_MIXES, PATH_TIER,
-} from '../src/bench/path.js';
-import { TOOL_IDS, TOOLS } from '../src/bench/registry.js';
+} from '../src/learn/bench/path.js';
+import { TOOL_IDS, TOOLS } from '../src/learn/bench/registry.js';
 
 /** Nothing played, nothing read. */
 const nobody = { solvesOf: () => 0, hasRead: () => false };

@@ -1,12 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { TOOLS as MODES, TOOL_IDS as MODE_IDS, toolOf as modeOf } from '../src/bench/registry.js';
-import { HIT, NEAR, MISS } from '../src/work/scoring.js';
+import { TOOLS as MODES, TOOL_IDS as MODE_IDS, toolOf as modeOf } from '../src/learn/bench/registry.js';
+import { HIT, NEAR, MISS } from '../src/learn/work/scoring.js';
 import {
   makePuzzle, createGame, submitGuess, reveal, settingsFor, startingGuess,
   scoreGuess,
-} from '../src/game.js';
+} from '../src/learn/game.js';
 import { answerAsGuess, wrongGuess, everyRound } from './helpers.js';
 
 const ROUNDS = everyRound();

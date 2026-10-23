@@ -11,8 +11,8 @@ globalThis.localStorage = {
 };
 
 const { getStats, recordGame, weakestKind, resetStats, ATTEMPT_BANDS, attemptBand } =
-  await import('../src/stats.js');
-const { createGame, submitGuess, makePuzzle, showAnswer } = await import('../src/game.js');
+  await import('../src/learn/stats.js');
+const { createGame, submitGuess, makePuzzle, showAnswer } = await import('../src/learn/game.js');
 
 // These used to be chord puzzles, because a chord quality is the simplest
 // thing a mode can call "one kind of answer". The chords are gone, so they are
@@ -177,7 +177,7 @@ test('corrupt storage degrades to empty stats instead of throwing', () => {
 
 /* --- carrying progress between browsers ---------------------------------- */
 
-const { exportProgress, importProgress, PROGRESS_FORMAT } = await import('../src/stats.js');
+const { exportProgress, importProgress, PROGRESS_FORMAT } = await import('../src/learn/stats.js');
 
 test('an export carries every bucket, and says what it is', () => {
   play(puzzleFor(MUD), [bandAt(MUD)]);

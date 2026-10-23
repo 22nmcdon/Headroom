@@ -6,7 +6,7 @@ import { promisify } from 'node:util';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { TOOL_IDS as MODE_IDS } from '../src/bench/registry.js';
+import { TOOL_IDS as MODE_IDS } from '../src/learn/bench/registry.js';
 import { MODULES, moduleOrder, stranded, allSources } from '../scripts/modules.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -28,8 +28,8 @@ test('the bundle builds, parses, and carries the whole app', async () => {
   assert.ok(!/^import\s|^export\s/m.test(page), 'module keywords cannot survive into one scope');
 
   // Named exports, all the way down. `export default X` flattens to
-  // `const <basename> = X`, which is how src/tools/eq.js, src/work/eq.js and
-  // src/notes/eq.js would have collided three ways on `const eq` - so nothing
+  // `const <basename> = X`, which is how src/tools/eq.js, src/learn/work/eq.js and
+  // src/learn/notes/eq.js would have collided three ways on `const eq` - so nothing
   // in this tree has a default export any more, and the names are explicit.
   for (const name of ['EQ_TOOL', 'EQ_WORK', 'EQ_NOTES', 'COMP_WORK', 'HEAT_EXERCISES']) {
     assert.match(page, new RegExp(`const ${name} = `), `${name} is missing from the bundle`);

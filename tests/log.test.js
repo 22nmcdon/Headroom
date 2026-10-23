@@ -43,7 +43,7 @@ function fakeDom() {
 }
 
 const root = fakeDom();
-const { makeLog, drawCell } = await import('../src/bench/log.js');
+const { makeLog, drawCell } = await import('../src/learn/bench/log.js');
 
 const write = (target, text) => { target.textContent = text; };
 const reading = (n) => ({

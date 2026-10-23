@@ -42,12 +42,12 @@ import {
 import { loadSketch, saveSketch, sketchFile, readSketchFile } from './store.js';
 import { knobsFor, writeKnob, tidy, optionsFor, fromTone } from './knobs.js';
 import { insertPlayer } from './insert.js';
-import { EQPlugin } from '../eq/plugin.js';
-import { CompPlugin } from '../comp/plugin.js';
-import { HeatPlugin } from '../heat/plugin.js';
-import { ImagePlugin } from '../image/plugin.js';
-import { EchoPlugin } from '../echo/plugin.js';
-import { VerbPlugin } from '../verb/plugin.js';
+import { EQPlugin } from '../plugins/eq/plugin.js';
+import { CompPlugin } from '../plugins/compressor/plugin.js';
+import { HeatPlugin } from '../plugins/saturation/plugin.js';
+import { ImagePlugin } from '../plugins/stereo/plugin.js';
+import { EchoPlugin } from '../plugins/delay/plugin.js';
+import { VerbPlugin } from '../plugins/reverb/plugin.js';
 import { tapInto, drift, timing } from './tap.js';
 import { Recorder, canRecord, barsFor, fitTo, loudestIn, SILENCE } from './record.js';
 import {

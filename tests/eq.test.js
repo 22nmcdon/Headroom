@@ -5,9 +5,9 @@ import {
   BAND_TYPES, STRIP, newStrip, bandGainAt, contributionOf, curveOf,
   averageLift, liftFrequencies, logFrequencies,
   SLOPES, FLAT_CORNER, RESTING_Q, sectionsOf, butterworth, exactHz,
-} from '../src/eq/filters.js';
-import { averageSpectrum } from '../src/eq/spectrum.js';
-import { EQPlugin } from '../src/eq/plugin.js';
+} from '../src/plugins/eq/filters.js';
+import { averageSpectrum } from '../src/plugins/eq/spectrum.js';
+import { EQPlugin } from '../src/plugins/eq/plugin.js';
 
 const rate = 48000;
 const on = (band) => ({ gain: 0, q: 1, on: true, ...band });

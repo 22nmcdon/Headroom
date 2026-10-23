@@ -5,11 +5,11 @@ import {
   HEAT_DEFAULTS, HEAT_LATENCY, HARMONICS, MOST_TONE,
   shape, shaperCore, runShaper, heatTrim, harmonicsOf, heatGap, transferCurve, foldback,
   DC_CORNER, PROBE_BIN, PROBE_LENGTH, PROBE_LEVEL,
-} from '../src/heat/shape.js';
-import { fft } from '../src/fx/fft.js';
-import { saturatorSource } from '../src/heat/node.js';
-import { mulberry32 } from '../src/random.js';
-import { HEAT_WORK as saturation } from '../src/work/saturation.js';
+} from '../src/plugins/saturation/shape.js';
+import { fft } from '../src/lib/fft.js';
+import { saturatorSource } from '../src/plugins/saturation/node.js';
+import { mulberry32 } from '../src/lib/random.js';
+import { HEAT_WORK as saturation } from '../src/learn/work/saturation.js';
 
 const rate = 48000;
 

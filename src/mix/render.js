@@ -20,7 +20,7 @@ import { crestReading } from '../analysis/dynamics.js';
 import { balanceReading } from '../analysis/balance.js';
 import { widthReading } from '../analysis/width.js';
 import { placementReading } from './placement.js';
-import { stampOf } from '../read.js';
+import { stampOf } from '../lib/read.js';
 
 /** Long enough for the tails, short enough that a round is not a wait. */
 export const TAIL = 1.6;

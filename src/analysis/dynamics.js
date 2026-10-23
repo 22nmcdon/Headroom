@@ -11,7 +11,7 @@
 // does. A master that holds 12 dB through the verses and drops to 5 in the
 // choruses has been limited in the choruses, and only the series shows it.
 
-import { readingOf, stampOf } from '../read.js';
+import { readingOf, stampOf } from '../lib/read.js';
 
 // How long a window is, and how far apart two of them start. Named for the
 // crest reading rather than just `CREST_STEP_MS`: the loudness reading next door

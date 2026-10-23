@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { attach, bench } from '../src/bench/session.js';
-import { readingOf, stampOf, notReady } from '../src/read.js';
+import { attach, bench } from '../src/learn/bench/session.js';
+import { readingOf, stampOf, notReady } from '../src/lib/read.js';
 
 /**
  * A tool made of nothing but promises.

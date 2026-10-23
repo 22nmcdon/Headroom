@@ -1,6 +1,6 @@
 // How wide a track is, band by band, and whether it survives being summed.
 //
-// This one is almost entirely reuse. `src/image/field.js` already reads an
+// This one is almost entirely reuse. `src/plugins/stereo/field.js` already reads an
 // image - correlation, width and balance in six bands - because the imager is
 // marked on exactly that measurement. The imager reads it through its own
 // processing; here it is read off the audio as it arrived, with nothing in
@@ -11,8 +11,8 @@
 // asks that a track wants answered without being asked - what happens to the
 // low end when something sums it.
 
-import { imageProfile, IMAGE_BANDS } from '../image/field.js';
-import { readingOf, stampOf } from '../read.js';
+import { imageProfile, IMAGE_BANDS } from '../plugins/stereo/field.js';
+import { readingOf, stampOf } from '../lib/read.js';
 
 // The bands a low end has to survive a fold to mono in. The imager's own
 // exercise has a list of the same two under its own name; both stay, because
@@ -63,4 +63,4 @@ export function widthReading(channels, rate, { source = null } = {}) {
  * so that an analysis reading and a round of the imager's match exercise are
  * marked by the same arithmetic.
  */
-export { imageGap as widthGap } from '../image/field.js';
+export { imageGap as widthGap } from '../plugins/stereo/field.js';

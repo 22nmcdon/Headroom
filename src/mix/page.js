@@ -24,9 +24,9 @@ import {
 import { renderMix, readMaster } from './render.js';
 import { markMix, mixAdvice, READING_NAMES } from './score.js';
 import { makeStage } from '../sketch/stage.js';
-import { roundSeed } from '../game.js';
-import { recordMix, mixStats } from '../stats.js';
-import { toStep } from '../work/scoring.js';
+import { roundSeed } from '../learn/game.js';
+import { recordMix, mixStats } from '../learn/stats.js';
+import { toStep } from '../learn/work/scoring.js';
 
 /** What a fader reads, with its sign on it. */
 const writeTrim = (db) => `${db > 0 ? '+' : db < 0 ? '−' : ''}${Math.abs(db).toFixed(1)}`;

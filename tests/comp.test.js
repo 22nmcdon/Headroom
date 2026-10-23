@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 
 import {
   staticGain, compressorCore, runCompressor, analyse, autoGain, signalRms, COMP_DEFAULTS,
-} from '../src/comp/dsp.js';
-import { workletSource } from '../src/comp/node.js';
-import { COMP_WORK as compression } from '../src/work/compression.js';
-import { engraveNote } from '../src/engrave.js';
+} from '../src/plugins/compressor/dsp.js';
+import { workletSource } from '../src/plugins/compressor/node.js';
+import { COMP_WORK as compression } from '../src/learn/work/compression.js';
+import { engraveNote } from '../src/lib/engrave.js';
 
 const RATE = 48000;
 

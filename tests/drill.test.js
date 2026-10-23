@@ -11,9 +11,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { TOOLS, TOOL_IDS } from '../src/bench/registry.js';
-import { HIT, NEAR, MISS } from '../src/work/scoring.js';
-import { makePuzzle, settingsFor, scoreGuess } from '../src/game.js';
+import { TOOLS, TOOL_IDS } from '../src/learn/bench/registry.js';
+import { HIT, NEAR, MISS } from '../src/learn/work/scoring.js';
+import { makePuzzle, settingsFor, scoreGuess } from '../src/learn/game.js';
 
 /** Every tool that has a drill, and the tiers it offers one at. */
 const DRILLS = TOOL_IDS
@@ -225,7 +225,7 @@ test('the compression drill solves a compressor that does what it says', async (
   // the loop rather than stored - and this is the check that the solving
   // works. Over a loop of hits, which is what a test has instead of a
   // rendered bed.
-  const { analyse } = await import('../src/comp/dsp.js');
+  const { analyse } = await import('../src/plugins/compressor/dsp.js');
   const drill = TOOLS.compression.exercises.drill;
   const rate = 48000;
   const samples = hits(rate);
@@ -291,7 +291,7 @@ test('the compression drill reads a step out as a step out, in decibels', () => 
 test('the saturation drill makes the colour it claims to', async () => {
   // Measured on the sine probe this tool marks everything with. The odd side
   // is a symmetric curve, which makes no even harmonics at all.
-  const { harmonicsOf, HEAT_DEFAULTS } = await import('../src/heat/shape.js');
+  const { harmonicsOf, HEAT_DEFAULTS } = await import('../src/plugins/saturation/shape.js');
   const drill = TOOLS.saturation.exercises.drill;
 
   for (const tier of ['easy', 'medium', 'hard']) {
@@ -312,7 +312,7 @@ test('the saturation drill makes the colour it claims to', async () => {
 test('the saturation drill matches its amounts across the two colours', async () => {
   // Or the colour could be read off the volume and nobody would learn
   // anything. Measured: within 1.3 dB, with the bands about 4 dB apart.
-  const { harmonicsOf, HEAT_DEFAULTS } = await import('../src/heat/shape.js');
+  const { harmonicsOf, HEAT_DEFAULTS } = await import('../src/plugins/saturation/shape.js');
   const drill = TOOLS.saturation.exercises.drill;
 
   const thdOf = (colour, amount) => harmonicsOf(48000, {
@@ -378,7 +378,7 @@ test('the stereo drill counts places on the field, not on the chips', () => {
 /* --- the delay drill: which note ----------------------------------------- */
 
 test('the delay drill sets the time its division asks for', async () => {
-  const { DIVISIONS, timeOf, ECHO_DEFAULTS } = await import('../src/echo/line.js');
+  const { DIVISIONS, timeOf, ECHO_DEFAULTS } = await import('../src/plugins/delay/line.js');
   const drill = TOOLS.delay.exercises.drill;
 
   for (const tier of ['easy', 'medium', 'hard']) {
@@ -428,8 +428,8 @@ test('the reverb drill asks one question on a control and one with chips', () =>
 test('the reverb drill answers with the tail it measured, not the knob', async () => {
   // The two are not the same: a decay of 1.2 rings for 0.78 to 1.04 s. A
   // drill marked on the control would be teaching that number.
-  const { makeImpulse } = await import('../src/verb/ir.js');
-  const { monoOf, rt60 } = await import('../src/fx/response.js');
+  const { makeImpulse } = await import('../src/plugins/reverb/ir.js');
+  const { monoOf, rt60 } = await import('../src/lib/response.js');
   const drill = TOOLS.reverb.exercises.drill;
 
   for (const tier of ['easy', 'medium', 'hard']) {

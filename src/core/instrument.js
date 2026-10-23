@@ -21,8 +21,8 @@
 // drum. Peaks of -18.3, -11.3, -4.4 and -1.8 dBFS respectively - the synth is
 // the loud one and a track's fader is where that is dealt with.
 
-import { midiToFreq } from '../audio.js';
-import { mulberry32 } from '../random.js';
+import { midiToFreq } from './audio.js';
+import { mulberry32 } from '../lib/random.js';
 
 /** What a caller may rely on. */
 export const INSTRUMENT_SHAPE = ['id', 'out', 'noteOn', 'noteOff', 'allOff', 'destroy'];

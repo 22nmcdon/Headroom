@@ -1,4 +1,4 @@
-import { TOOLS as MODES, TOOL_IDS as MODE_IDS, toolOf as modeOf } from '../src/bench/registry.js';
+import { TOOLS as MODES, TOOL_IDS as MODE_IDS, toolOf as modeOf } from '../src/learn/bench/registry.js';
 
 /**
  * The answer, as a guess - or nothing, when the round does not have one.

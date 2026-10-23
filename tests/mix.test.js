@@ -21,9 +21,9 @@ import {
 import { placementOf, placementGap, placementReading, MOST_OFF_CENTRE } from '../src/mix/placement.js';
 import { MARKED } from '../src/mix/render.js';
 import { barTicks, clipAt } from '../src/sketch/project.js';
-import { IMAGE_BANDS } from '../src/image/field.js';
+import { IMAGE_BANDS } from '../src/plugins/stereo/field.js';
 import { THIRDS } from '../src/analysis/balance.js';
-import { toStep } from '../src/work/scoring.js';
+import { toStep } from '../src/learn/work/scoring.js';
 
 /* --- the material ---------------------------------------------------------- */
 

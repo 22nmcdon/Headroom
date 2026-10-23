@@ -1,5 +1,5 @@
-import { newStrip } from '../eq/filters.js';
-import { EQPlugin } from '../eq/plugin.js';
+import { newStrip } from '../plugins/eq/filters.js';
+import { EQPlugin } from '../plugins/eq/plugin.js';
 
 /**
  * The EQ, as a thing you open rather than a question you are asked.
@@ -12,8 +12,8 @@ import { EQPlugin } from '../eq/plugin.js';
  *
  * What is left of the old mode in this file is the part that is true of the
  * EQ whatever you are doing with it: what it is called, what it is for, and
- * how to work it. The exercises are in src/work/eq.js and the long prose is
- * in src/notes/eq.js.
+ * how to work it. The exercises are in src/learn/work/eq.js and the long prose is
+ * in src/learn/notes/eq.js.
  */
 export const EQ_TOOL = {
   id: 'eq',

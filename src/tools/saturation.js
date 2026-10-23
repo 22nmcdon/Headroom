@@ -1,5 +1,5 @@
-import { HeatPlugin } from '../heat/plugin.js';
-import { HEAT_DEFAULTS } from '../heat/shape.js';
+import { HeatPlugin } from '../plugins/saturation/plugin.js';
+import { HEAT_DEFAULTS } from '../plugins/saturation/shape.js';
 
 /**
  * The saturation, as a thing you open rather than a question you are asked.

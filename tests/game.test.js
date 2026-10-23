@@ -1,12 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { TOOLS as MODES, toolOf as modeOf } from '../src/bench/registry.js';
+import { TOOLS as MODES, toolOf as modeOf } from '../src/learn/bench/registry.js';
 import {
   scoreGuess, sameGuess, hintFor, hintsLeft, takeHint, showAnswer,
   createGame, submitGuess, makePuzzle, roundSeed, reveal, settingsFor,
-} from '../src/game.js';
-import { mulberry32, hashSeed } from '../src/random.js';
+} from '../src/learn/game.js';
+import { mulberry32, hashSeed } from '../src/lib/random.js';
 import { answerAsGuess, wrongGuess, everyRound } from './helpers.js';
 
 

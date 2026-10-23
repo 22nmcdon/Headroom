@@ -1,5 +1,5 @@
-import { CompPlugin } from '../comp/plugin.js';
-import { COMP_DEFAULTS } from '../comp/dsp.js';
+import { CompPlugin } from '../plugins/compressor/plugin.js';
+import { COMP_DEFAULTS } from '../plugins/compressor/dsp.js';
 
 /**
  * The compression, as a thing you open rather than a question you are asked.

@@ -1,17 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { stampOf, readingOf, notReady, isCurrent, comparable, gapOf } from '../src/read.js';
-import { distance, KINDS } from '../src/gap.js';
-import { curveReading, curveGap, JUDGED_HZ } from '../src/eq/filters.js';
-import { reductionReading, reductionGap, FRAME_MS, materialStamp } from '../src/comp/reading.js';
-import { decayReading, decayTimes, decayProfile, monoOf } from '../src/fx/response.js';
-import { imageReading } from '../src/image/field.js';
-import { harmonicsReading, HEAT_DEFAULTS } from '../src/heat/shape.js';
-import { makeImpulse, VERB_DEFAULTS, roomProfile } from '../src/verb/ir.js';
-import { COMP_DEFAULTS, analyse, meanFrames } from '../src/comp/dsp.js';
-import { IMAGE_DEFAULTS } from '../src/image/field.js';
-import { mulberry32 } from '../src/random.js';
+import { stampOf, readingOf, notReady, isCurrent, comparable, gapOf } from '../src/lib/read.js';
+import { distance, KINDS } from '../src/lib/gap.js';
+import { curveReading, curveGap, JUDGED_HZ } from '../src/plugins/eq/filters.js';
+import { reductionReading, reductionGap, FRAME_MS, materialStamp } from '../src/plugins/compressor/reading.js';
+import { decayReading, decayTimes, decayProfile, monoOf } from '../src/lib/response.js';
+import { imageReading } from '../src/plugins/stereo/field.js';
+import { harmonicsReading, HEAT_DEFAULTS } from '../src/plugins/saturation/shape.js';
+import { makeImpulse, VERB_DEFAULTS, roomProfile } from '../src/plugins/reverb/ir.js';
+import { COMP_DEFAULTS, analyse, meanFrames } from '../src/plugins/compressor/dsp.js';
+import { IMAGE_DEFAULTS } from '../src/plugins/stereo/field.js';
+import { mulberry32 } from '../src/lib/random.js';
 
 const rate = 48000;
 

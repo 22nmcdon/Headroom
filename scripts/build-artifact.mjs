@@ -1,7 +1,7 @@
 // Bundles the app into one self-contained HTML page.
 //
 // The same page, with the stylesheet and the ES modules folded in: an artifact
-// is published as a single file, and a page that fetched ./src/game.js from
+// is published as a single file, and a page that fetched ./src/learn/game.js from
 // somewhere it is not would simply do nothing. Nothing is minified and nothing
 // is rewritten beyond the module keywords, so the bundle is the source read
 // top to bottom.

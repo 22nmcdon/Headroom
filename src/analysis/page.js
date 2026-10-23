@@ -16,9 +16,9 @@ import { loudnessReading } from './loudness.js';
 import { crestReading } from './dynamics.js';
 import { balanceReading, THIRDS, THIRD_NAMES, TILT } from './balance.js';
 import { widthReading } from './width.js';
-import { IMAGE_BANDS } from '../image/field.js';
-import { readyCanvas } from '../fx/panel.js';
-import { distance } from '../gap.js';
+import { IMAGE_BANDS } from '../plugins/stereo/field.js';
+import { readyCanvas } from '../lib/panel.js';
+import { distance } from '../lib/gap.js';
 
 /** The material this app can make, for when there is no file to hand. */
 const OWN = [

@@ -1,5 +1,5 @@
-import { EchoPlugin } from '../echo/plugin.js';
-import { ECHO_DEFAULTS } from '../echo/line.js';
+import { EchoPlugin } from '../plugins/delay/plugin.js';
+import { ECHO_DEFAULTS } from '../plugins/delay/line.js';
 
 /**
  * The delay, as a thing you open rather than a question you are asked.

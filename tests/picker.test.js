@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { dialValue, pickedLabel, pickerState } from '../src/bench/picker.js';
+import { dialValue, pickedLabel, pickerState } from '../src/learn/bench/picker.js';
 
 // The picker has no consumer at the moment. The four modes that asked you to
 // name what you heard are gone, and the drills that will ask the same shape of

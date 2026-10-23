@@ -4,10 +4,10 @@ import assert from 'node:assert/strict';
 import {
   IMAGE_DEFAULTS, IMAGE_BANDS, IMAGE_FLOOR, WIDEST,
   imagerCore, runImager, widthOf, imageOf, imageDistance,
-} from '../src/image/field.js';
-import { imagerSource } from '../src/image/node.js';
-import { mulberry32 } from '../src/random.js';
-import { IMAGE_WORK as panning } from '../src/work/panning.js';
+} from '../src/plugins/stereo/field.js';
+import { imagerSource } from '../src/plugins/stereo/node.js';
+import { mulberry32 } from '../src/lib/random.js';
+import { IMAGE_WORK as panning } from '../src/learn/work/panning.js';
 
 const rate = 48000;
 
