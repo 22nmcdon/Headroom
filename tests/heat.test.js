@@ -296,6 +296,66 @@ test('tape breaks up at the top before the bottom, and only while there is room'
     `the spread should close as the curve saturates: ${spread.toFixed(1)} then ${narrowed.toFixed(1)}`);
 });
 
+test('a tube remembers what was playing before, and a knob says how much', () => {
+  // The one family the steady-tone probe cannot see at all: a steady tone has
+  // a steady envelope, so it measures the settled curve and reports no bloom
+  // whatever. It is measured on a burst instead - the same quiet passage,
+  // once cold and once straight after a loud one.
+  const N = 2048;
+  const BIN = 20;
+  const step = (2 * Math.PI * BIN) / N;
+
+  const colourOf = (settings, levels, want) => {
+    const core = shaperCore(rate, false);
+    core.set({ ...HEAT_DEFAULTS, ...settings, listen: 'out' });
+    let n = 0;
+    let out = 0;
+    for (let w = 0; w < levels.length; w += 1) {
+      const re = new Float64Array(N);
+      const im = new Float64Array(N);
+      for (let i = 0; i < N; i += 1) {
+        core.step(levels[w] * Math.sin(step * n));
+        re[i] = core.out;
+        n += 1;
+      }
+      if (w !== want) continue;
+      fft(re, im);
+      let evens = 0;
+      let odds = 0;
+      for (let m = 2; m <= 10; m += 1) {
+        const bin = BIN * m;
+        const power = bin < N / 2 ? re[bin] * re[bin] + im[bin] * im[bin] : 0;
+        if (m % 2 === 0) evens += power; else odds += power;
+      }
+      out = 10 * Math.log10(Math.max(evens, 1e-30) / Math.max(odds, 1e-30));
+    }
+    return out;
+  };
+
+  const LOUD = Math.pow(10, -4 / 20) * Math.SQRT2;
+  const SOFT = Math.pow(10, -22 / 20) * Math.SQRT2;
+  /** How much the colour of a quiet window moves for having had a loud one before it. */
+  const memory = (bloom) => {
+    const settings = { mode: 'tube', bias: 0.15, bloom, drive: 10 };
+    const cold = colourOf(settings, [SOFT, SOFT, SOFT, SOFT], 1);
+    const after = colourOf(settings, [LOUD, LOUD, LOUD, SOFT, SOFT], 4);
+    return after - cold;
+  };
+
+  const none = memory(0);
+  const some = memory(0.6);
+  const lots = memory(1);
+
+  assert.ok(Math.abs(none) < 0.5, `a fixed point should have no memory: ${none.toFixed(1)} dB`);
+  assert.ok(lots > 12, `the bloom should be audible: ${lots.toFixed(1)} dB`);
+
+  // and the knob may not turn back on itself, which the first version did:
+  // the even lead peaks around an operating point of 0.35 and falls past it,
+  // so a bloom allowed the whole range got weaker as it was turned up.
+  assert.ok(lots > some && some > none,
+    `more bloom should be more memory: ${[none, some, lots].map((v) => v.toFixed(1)).join(' ')}`);
+});
+
 test('a transformer breaks up at the bottom, which is tape upside down', () => {
   // Flux is the integral of the voltage, so for a signal of a given size it
   // goes as one over the frequency and the core runs out of room at the

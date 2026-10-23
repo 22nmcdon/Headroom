@@ -68,6 +68,13 @@ const HEAT_KNOBS = [
     write: (v) => (v >= MOST_TONE - 1 ? 'Open' : writeHertz(v)),
   },
   {
+    id: 'bloom',
+    name: 'Bloom',
+    ...span(HEAT_LIMITS.bloom),
+    step: 0.01,
+    write: (v) => (v < 0.02 ? 'Fixed' : `${Math.round(v * 100)}%`),
+  },
+  {
     id: 'core',
     name: 'Core',
     ...span(HEAT_LIMITS.core),

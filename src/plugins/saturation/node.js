@@ -1,7 +1,5 @@
-import {
-  shape, shaperCore, overKernel, rectify, foldOver, crushTo,
-  MOST_BIAS, MOST_TONE, DC_CORNER, TAPE_SPEEDS, IRON_PIVOT, HEAT_DEFAULTS,
-} from './shape.js';
+import * as heat from './shape.js';
+import { shaperCore, overKernel, shape, rectify, foldOver, crushTo } from './shape.js';
 import { makeBiquad, setBiquad, runBiquad } from '../../lib/dsp.js';
 import { workletModule, installWorklet } from '../../lib/worklet.js';
 
@@ -23,17 +21,22 @@ const HEAT_PARTS = [
   shape, rectify, foldOver, crushTo, overKernel, shaperCore,
 ];
 
-const HEAT_CONSTANTS = {
-  OVERSAMPLE: 8,
-  OVER_TAPS: 257,
-  HEAT_LATENCY: 32,
-  MOST_BIAS,
-  MOST_TONE,
-  DC_CORNER,
-  TAPE_SPEEDS,
-  IRON_PIVOT,
-  HEAT_DEFAULTS,
-};
+/**
+ * Every value the stringified functions read, taken from the module rather
+ * than listed here.
+ *
+ * It was a list, and three families in a row began by forgetting to add
+ * their constant to it - which does not fail at the module, it fails inside
+ * a worklet, where what you get is a tool that measures one thing and plays
+ * another. The test that compares the audio thread against the marking
+ * caught each one, and the list has now cost more than it ever saved.
+ *
+ * Anything exported that is not a function is a value, so it goes in. A few
+ * are not read by anything in here; they cost a line of prelude each.
+ */
+const HEAT_CONSTANTS = Object.fromEntries(
+  Object.entries(heat).filter(([, value]) => typeof value !== 'function'),
+);
 
 const HEAT_PROCESSOR = `class HeadroomSaturator extends AudioWorkletProcessor {
   constructor(options) {

@@ -97,6 +97,15 @@ export const MOST_TONE = 9000;
  *            0.6 dB more once the drive is at 14, because by then the curve
  *            is saturated and a lift has nothing left to give. Which is the
  *            lesson: emphasis is something you hear at the quiet end.
+ *   tube     the one that remembers. Drive the grid positive and it draws
+ *            current, charging the capacitor in front of it and pushing the
+ *            operating point out; the capacitor takes tens of milliseconds to
+ *            let go. So the curve a note meets depends on what was playing
+ *            before it. Measured: a quiet passage straight after a loud one
+ *            leads with its even harmonics by 22 dB more than the same quiet
+ *            passage cold, and falls back over about 130 ms. With the bloom
+ *            at zero the two are the same number to the decimal, which is
+ *            the control this was checked against.
  *   iron     the other end, and the exact mirror of tape. Flux in a core is
  *            the integral of the voltage across the winding, so for a signal
  *            of a given size it goes as one over the frequency and the core
@@ -145,7 +154,51 @@ export const CURVES = {
     knobs: ['core'],
     inharmonic: false,
   },
+  tube: {
+    label: 'Tube',
+    knobs: ['bias', 'bloom'],
+    inharmonic: false,
+  },
 };
+
+/**
+ * How a tube's operating point moves, and how fast.
+ *
+ * Every other family here answers the sample in front of it the same way
+ * every time. A tube does not: drive the grid positive and it draws current,
+ * which charges the capacitor in front of it and pushes the operating point
+ * the other way - and the capacitor takes tens of milliseconds to let go
+ * again. So the curve a note meets on its attack is not the curve its tail
+ * meets, and the harmonics change shape while one note is sounding.
+ *
+ * That is the whole of what makes a tube sound like a tube rather than like
+ * a soft clipper with a tilt on it, and it is the one thing on this list the
+ * steady-tone probe cannot see at all - a steady tone has a steady envelope,
+ * so it measures the settled curve and reports no bloom whatever. It is
+ * measured on a burst instead; see tests/heat.test.js.
+ *
+ * Charges quickly through the grid, lets go slowly through the leak.
+ */
+export const TUBE_CHARGE = 0.005;
+export const TUBE_LEAK = 0.060;
+
+/** And the bend itself is gentle, which is the other half of the character. */
+export const TUBE_KNEE = 1.6;
+
+/**
+ * How far the operating point may be pushed, which is less far than it looks.
+ *
+ * Measured against this knee: the even harmonics lead the odd ones by more
+ * and more as the point moves out to about 0.35, and then by less and less
+ * past it - at a tenth of full scale the lead peaks at 47 dB and has fallen
+ * back to 32 by the end of the travel. So a bloom allowed the whole range is
+ * a knob that turns back on itself, which the first version of this was.
+ *
+ * The static bias sets a point inside this, and the bloom moves it through
+ * whatever is left, so turning either of them up always does more of the
+ * same thing.
+ */
+export const TUBE_MOST = 0.35;
 
 /**
  * Where the core is reckoned to saturate, as a frequency.
@@ -186,7 +239,7 @@ export const TAPE_SPEEDS = [
 ];
 
 /** The order they are offered in: gentlest first, least analogue last. */
-export const CURVE_ORDER = ['soft', 'tape', 'iron', 'rectify', 'fold', 'crush'];
+export const CURVE_ORDER = ['soft', 'tape', 'iron', 'tube', 'rectify', 'fold', 'crush'];
 
 export const HEAT_DEFAULTS = {
   mode: 'soft',    // which family of curve - see CURVES
@@ -199,6 +252,7 @@ export const HEAT_DEFAULTS = {
   hold: 1,         // crush: how many samples each one is held for
   speed: 1,        // tape: which of TAPE_SPEEDS
   core: 0.5,       // transformer: how much room the iron has
+  bloom: 0.5,      // tube: how far the envelope moves the operating point
   tone: MOST_TONE, // a low-pass after the curve, on the harmonics it just made
   mix: 1,          // 0 is the dry signal, 1 is all shaped
   trim: 0,         // output, in dB - auto gain writes this
@@ -224,6 +278,7 @@ export const HEAT_LIMITS = {
   hold: [1, 16],
   speed: [0, 2],
   core: [0.05, 1],
+  bloom: [0, 1],
   tone: [LEAST_TONE, MOST_TONE],
   mix: [0, 1],
   trim: [-24, 24],
@@ -309,8 +364,11 @@ export function crushTo(x, bits) {
 // up and the first fold on the way down. Measured again afterwards, the same
 // hi-hat comes back 48 dB down rather than 10, and a note 91 rather than 61.
 
-const OVERSAMPLE = 8;
-const OVER_TAPS = 257;
+// Exported, though nothing outside reads them, because the worklet takes its
+// constants from this module's exports now rather than from a list somebody
+// has to remember to add to.
+export const OVERSAMPLE = 8;
+export const OVER_TAPS = 257;
 
 /** The interpolation kernel, and the same one again for the way back down. */
 export function overKernel() {
@@ -387,6 +445,9 @@ export function shaperCore(rate, blockDc = true) {
   let flux = 0;
   let wasSat = 0;
   let ironing = false;
+  let charge = 0;
+  const tubeUp = 1 - Math.exp(-1 / (TUBE_CHARGE * rate * OVERSAMPLE));
+  const tubeDown = 1 - Math.exp(-1 / (TUBE_LEAK * rate * OVERSAMPLE));
   const fluxStep = (2 * Math.PI * IRON_PIVOT) / (rate * OVERSAMPLE);
   const fluxLeak = 1 - (2 * Math.PI * 8) / (rate * OVERSAMPLE);
 
@@ -418,7 +479,9 @@ export function shaperCore(rate, blockDc = true) {
     gain = Math.pow(10, state.drive / 20);
     // Bias is the soft curve's. The other families have no use for a constant
     // on the input, and one would only move them off centre.
-    offset = state.mode === 'soft' || state.mode === 'tape' ? state.bias * MOST_BIAS : 0;
+    // The tube works out its own, because for it the point moves while the
+    // sound is playing and the generic one is a constant.
+    offset = ['soft', 'tape'].includes(state.mode) ? state.bias * MOST_BIAS : 0;
     // The bias puts a constant on the input, which comes out of the curve as
     // a constant on the output - a DC offset that would sit under the sound
     // doing nothing audible except eating headroom. Subtracting what the
@@ -451,6 +514,19 @@ export function shaperCore(rate, blockDc = true) {
       // it are flat to 21 kHz, so the signal comes out of the round trip as
       // it went in, and the crushing is done below at the rate it belongs to.
       curve = (v) => v;
+    } else if (state.mode === 'tube') {
+      const base = state.bias * TUBE_MOST;
+      const room = (TUBE_MOST - base) * state.bloom;
+      curve = (v) => {
+        // The envelope, up quickly and down slowly, exactly as a capacitor
+        // charged through a grid and bled through a resistor behaves.
+        const size = v < 0 ? -v : v;
+        charge += (size > charge ? tubeUp : tubeDown) * (size - charge);
+        // Where the curve is sitting this instant: the static point, plus as
+        // much of what is left above it as the envelope has earned.
+        const at = base + room * (charge > 1 ? 1 : charge);
+        return shape(v + at, TUBE_KNEE) - shape(at, TUBE_KNEE);
+      };
     } else if (ironing) {
       // Integrate to get the flux, saturate the flux, differentiate to get
       // the voltage back. Where the core has room the two undo each other
