@@ -1,6 +1,6 @@
 import {
   HEAT_DEFAULTS, HARMONICS, HEAT_FLOOR, HARMONIC_AXIS, MOST_TONE, MASKED,
-  CURVES, CURVE_ORDER,
+  CURVES, CURVE_ORDER, TAPE_SPEEDS,
   harmonicsOf, harmonicsReading, transferCurve,
   HEAT_LIMITS,
 } from './shape.js';
@@ -66,6 +66,13 @@ const HEAT_KNOBS = [
     ...span(HEAT_LIMITS.tone),
     log: true,
     write: (v) => (v >= MOST_TONE - 1 ? 'Open' : writeHertz(v)),
+  },
+  {
+    id: 'speed',
+    name: 'Speed',
+    ...span(HEAT_LIMITS.speed),
+    step: 1,
+    write: (v) => TAPE_SPEEDS[Math.max(0, Math.min(TAPE_SPEEDS.length - 1, Math.round(v)))].label,
   },
   {
     id: 'amount',

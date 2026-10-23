@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { signalRms } from '../src/lib/dsp.js';
+import { signalRms, makeBiquad, setBiquad, runBiquad } from '../src/lib/dsp.js';
 import { staticGain, compressorCore, runCompressor, analyse, autoGain, COMP_DEFAULTS } from '../src/plugins/compressor/dsp.js';
 import { workletSource } from '../src/plugins/compressor/node.js';
 import { COMP_WORK as compression } from '../src/learn/work/compression.js';
@@ -301,4 +301,39 @@ test('nothing a compressor reading says gets read as a chord symbol', () => {
   }
 
   assert.ok(said.length > 20, 'the readings were actually collected');
+});
+
+test('the shelves and the bell land on the gains they were asked for', () => {
+  // Added for the tape mode, which needs a shelf either side of its curve
+  // that actually undo each other. A shelf built out of a high-pass and an
+  // addition is nearly a shelf and does not quite invert, which is no good
+  // when the second filter's whole job is to cancel the first.
+  const gainAt = (bq, hz) => {
+    const n = 8192;
+    const copy = Object.assign(makeBiquad(), bq);
+    let re = 0;
+    let im = 0;
+    for (let i = 0; i < n; i += 1) {
+      const y = runBiquad(copy, Math.sin((2 * Math.PI * hz * i) / RATE));
+      if (i >= n / 2) {
+        re += y * Math.cos((2 * Math.PI * hz * i) / RATE);
+        im += y * Math.sin((2 * Math.PI * hz * i) / RATE);
+      }
+    }
+    return 20 * Math.log10((2 * Math.hypot(re, im)) / (n / 2));
+  };
+
+  for (const gain of [8, -8]) {
+    const shelf = setBiquad(makeBiquad(), 'highshelf', 2000, RATE, gain);
+    assert.ok(Math.abs(gainAt(shelf, 16000) - gain) < 0.1, `high shelf missed ${gain} at the top`);
+    assert.ok(Math.abs(gainAt(shelf, 2000) - gain / 2) < 0.1, 'a shelf is half its gain at the corner');
+  }
+
+  const low = setBiquad(makeBiquad(), 'lowshelf', 200, RATE, 6);
+  assert.ok(gainAt(low, 20) > 6, 'low shelf should reach its gain underneath');
+  assert.ok(Math.abs(gainAt(low, 16000)) < 0.1, 'and do nothing at the top');
+
+  const bell = setBiquad(makeBiquad(), 'peaking', 60, RATE, 3);
+  assert.ok(Math.abs(gainAt(bell, 60) - 3) < 0.2, 'the bell should hit its gain at its frequency');
+  assert.ok(Math.abs(gainAt(bell, 16000)) < 0.1, 'and nothing far from it');
 });

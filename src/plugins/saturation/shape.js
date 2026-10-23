@@ -89,6 +89,14 @@ export const MOST_TONE = 9000;
  *            which was a guess and was wrong: measured at six folds it is odd
  *            harmonics only with no foldback at all, because a sine folded by
  *            a sine is still a harmonic series and the eight times covers it.
+ *   tape     the one that breaks up at one end before the other. Everything
+ *            else here treats every frequency alike; this records with the
+ *            top lifted and plays back with it put down, so the highs reach
+ *            the curve loudest and bend first. Measured, a tone at 3.5 kHz
+ *            comes back 5.5 dB more distorted than one at 147 Hz - and only
+ *            0.6 dB more once the drive is at 14, because by then the curve
+ *            is saturated and a lift has nothing left to give. Which is the
+ *            lesson: emphasis is something you hear at the quiet end.
  *   crush    the one that is not analogue at all. Quantising and holding make
  *            energy at frequencies that are not multiples of anything, which
  *            is the single thing no real saturator does.
@@ -119,10 +127,38 @@ export const CURVES = {
     knobs: ['bits', 'hold'],
     inharmonic: true,
   },
+  tape: {
+    label: 'Tape',
+    knobs: ['speed', 'bias'],
+    inharmonic: false,
+  },
 };
 
+/**
+ * What each tape speed is.
+ *
+ * The emphasis pair is the whole of why this family sounds like tape and not
+ * like the soft clipper it is built on. Tape records with the top lifted and
+ * plays back with it put down again, so the highs arrive at the curve louder
+ * than everything else, break up first, and then get turned back down along
+ * with the harmonics they just made. Nothing else here distorts one end of
+ * the spectrum before the other.
+ *
+ * Slower tape lifts more and lifts lower, loses more at the top, and bumps
+ * lower down - which is why 7.5 sounds like a different machine rather than
+ * the same one run slowly. The head bump is a real thing and these are not a
+ * real machine's numbers: they are chosen to be audibly apart and to move in
+ * the directions the physics moves in. Measured effects are in the comments
+ * on `CURVES` and in tests/heat.test.js.
+ */
+export const TAPE_SPEEDS = [
+  { label: '7½ ips', emphasis: 10, corner: 1500, bump: 2.5, bumpHz: 40, loss: 10000 },
+  { label: '15 ips', emphasis: 7, corner: 3000, bump: 2.0, bumpHz: 60, loss: 15000 },
+  { label: '30 ips', emphasis: 5, corner: 6000, bump: 1.5, bumpHz: 90, loss: 19000 },
+];
+
 /** The order they are offered in: gentlest first, least analogue last. */
-export const CURVE_ORDER = ['soft', 'rectify', 'fold', 'crush'];
+export const CURVE_ORDER = ['soft', 'tape', 'rectify', 'fold', 'crush'];
 
 export const HEAT_DEFAULTS = {
   mode: 'soft',    // which family of curve - see CURVES
@@ -133,6 +169,7 @@ export const HEAT_DEFAULTS = {
   folds: 1,        // fold: how many times the curve turns back on itself
   bits: 16,        // crush: the depth it is quantised to
   hold: 1,         // crush: how many samples each one is held for
+  speed: 1,        // tape: which of TAPE_SPEEDS
   tone: MOST_TONE, // a low-pass after the curve, on the harmonics it just made
   mix: 1,          // 0 is the dry signal, 1 is all shaped
   trim: 0,         // output, in dB - auto gain writes this
@@ -156,6 +193,7 @@ export const HEAT_LIMITS = {
   folds: [1, 6],
   bits: [2, 16],
   hold: [1, 16],
+  speed: [0, 2],
   tone: [LEAST_TONE, MOST_TONE],
   mix: [0, 1],
   trim: [-24, 24],
@@ -282,7 +320,7 @@ export const HEAT_LATENCY = (OVER_TAPS - 1) / OVERSAMPLE;
 export function shaperCore(rate, blockDc = true) {
   const state = {
     mode: 'soft', drive: 0, bias: 0, hardness: 2, tone: 20000, mix: 1, trim: 0,
-    listen: 'out', amount: 1, folds: 1, bits: 16, hold: 1,
+    listen: 'out', amount: 1, folds: 1, bits: 16, hold: 1, speed: 1,
   };
 
   const kernel = overKernel();
@@ -312,6 +350,14 @@ export function shaperCore(rate, blockDc = true) {
   let fastAt = 0;
   let dryAt = 0;
 
+  // The pair either side of the curve, and the two that come after it. Only
+  // the tape family uses them, and only it pays for them.
+  const pre = makeBiquad();
+  const post = makeBiquad();
+  const bump = makeBiquad();
+  const loss = makeBiquad();
+  let taping = false;
+
   const tone = [makeBiquad(), makeBiquad()];
   // y[n] = x[n] - x[n-1] + R*y[n-1]. Unity through the band, nothing at
   // nothing, and one multiply to get there.
@@ -332,7 +378,7 @@ export function shaperCore(rate, blockDc = true) {
     gain = Math.pow(10, state.drive / 20);
     // Bias is the soft curve's. The other families have no use for a constant
     // on the input, and one would only move them off centre.
-    offset = state.mode === 'soft' ? state.bias * MOST_BIAS : 0;
+    offset = state.mode === 'soft' || state.mode === 'tape' ? state.bias * MOST_BIAS : 0;
     // The bias puts a constant on the input, which comes out of the curve as
     // a constant on the output - a DC offset that would sit under the sound
     // doing nothing audible except eating headroom. Subtracting what the
@@ -342,6 +388,16 @@ export function shaperCore(rate, blockDc = true) {
     // Which family, resolved once here rather than branched per sample - the
     // inner loop runs eight times for every sample that arrives.
     crushing = state.mode === 'crush';
+    taping = state.mode === 'tape';
+    if (taping) {
+      const pick = Math.round(state.speed);
+      const at = TAPE_SPEEDS[Number.isFinite(pick)
+        ? Math.max(0, Math.min(TAPE_SPEEDS.length - 1, pick)) : 1];
+      setBiquad(pre, 'highshelf', at.corner, rate, at.emphasis);
+      setBiquad(post, 'highshelf', at.corner, rate, -at.emphasis);
+      setBiquad(bump, 'peaking', at.bumpHz, rate, at.bump);
+      setBiquad(loss, 'lowpass', Math.min(at.loss, rate * 0.45), rate);
+    }
     if (state.mode === 'rectify') {
       const amount = state.amount;
       const middle = rectify(0, amount);
@@ -381,9 +437,14 @@ export function shaperCore(rate, blockDc = true) {
     },
 
     step(x) {
+      // Into the curve with the top lifted, if this is tape. The dry path
+      // below keeps the signal as it arrived, because a mix control that
+      // blends in an equalised copy is an equaliser.
+      const into = taping ? runBiquad(pre, x) : x;
+
       slowAt = slowAt === 0 ? branch - 1 : slowAt - 1;
-      slow[slowAt] = x;
-      slow[slowAt + branch] = x;
+      slow[slowAt] = into;
+      slow[slowAt + branch] = into;
 
       let wet = 0;
 
@@ -437,6 +498,16 @@ export function shaperCore(rate, blockDc = true) {
         dcWas = wet;
         dcOut = lifted;
         wet = lifted;
+      }
+
+      // Put the top back down, then the bump the heads make and what the
+      // tape could not hold on to. The first of these undoes the lift, taking
+      // the harmonics it caused down with it - which is the part that sounds
+      // like tape rather than like a bright distortion.
+      if (taping) {
+        wet = runBiquad(post, wet);
+        wet = runBiquad(bump, wet);
+        wet = runBiquad(loss, wet);
       }
 
       if (filtered) for (const stage of tone) wet = runBiquad(stage, wet);

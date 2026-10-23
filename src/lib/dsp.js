@@ -19,13 +19,52 @@ export function makeBiquad() {
  * kick from pulling the whole mix down every bar, and it is the same filter
  * every engineer reaches for.
  */
-export function setBiquad(bq, kind, hz, rate) {
+/**
+ * Design one, by the usual cookbook.
+ *
+ * `gainDb` is only read by the three kinds that have a gain - the shelves and
+ * the bell - and is ignored by the passes, which is why it is last and
+ * optional. The tape mode wanted a shelf either side of its curve, and
+ * building one out of a high-pass and an addition gets you something that is
+ * nearly a shelf and does not quite invert, which is no good when the whole
+ * point is that the second filter undoes the first.
+ */
+export function setBiquad(bq, kind, hz, rate, gainDb = 0) {
   const w = (2 * Math.PI * Math.min(hz, rate * 0.49)) / rate;
   const cos = Math.cos(w);
   const sin = Math.sin(w);
   const alpha = sin / (2 * Math.SQRT1_2);
-  const a0 = 1 + alpha;
 
+  if (kind === 'highshelf' || kind === 'lowshelf' || kind === 'peaking') {
+    const A = Math.pow(10, gainDb / 40);
+    const root = 2 * Math.sqrt(A) * alpha;
+    let b0; let b1; let b2; let a0; let a1; let a2;
+
+    if (kind === 'peaking') {
+      b0 = 1 + alpha * A; b1 = -2 * cos; b2 = 1 - alpha * A;
+      a0 = 1 + alpha / A; a1 = -2 * cos; a2 = 1 - alpha / A;
+    } else if (kind === 'highshelf') {
+      b0 = A * ((A + 1) + (A - 1) * cos + root);
+      b1 = -2 * A * ((A - 1) + (A + 1) * cos);
+      b2 = A * ((A + 1) + (A - 1) * cos - root);
+      a0 = (A + 1) - (A - 1) * cos + root;
+      a1 = 2 * ((A - 1) - (A + 1) * cos);
+      a2 = (A + 1) - (A - 1) * cos - root;
+    } else {
+      b0 = A * ((A + 1) - (A - 1) * cos + root);
+      b1 = 2 * A * ((A - 1) - (A + 1) * cos);
+      b2 = A * ((A + 1) - (A - 1) * cos - root);
+      a0 = (A + 1) + (A - 1) * cos + root;
+      a1 = -2 * ((A - 1) + (A + 1) * cos);
+      a2 = (A + 1) + (A - 1) * cos - root;
+    }
+
+    bq.b0 = b0 / a0; bq.b1 = b1 / a0; bq.b2 = b2 / a0;
+    bq.a1 = a1 / a0; bq.a2 = a2 / a0;
+    return bq;
+  }
+
+  const a0 = 1 + alpha;
   if (kind === 'highpass') {
     bq.b0 = ((1 + cos) / 2) / a0;
     bq.b1 = -(1 + cos) / a0;

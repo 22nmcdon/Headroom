@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {
   HEAT_DEFAULTS, HEAT_LATENCY, HARMONICS, MOST_TONE,
   shape, shaperCore, runShaper, heatTrim, harmonicsOf, heatGap, transferCurve, foldback,
-  CURVES, CURVE_ORDER, HEAT_LIMITS,
+  CURVES, CURVE_ORDER, HEAT_LIMITS, TAPE_SPEEDS,
   DC_CORNER, PROBE_BIN, PROBE_LENGTH, PROBE_LEVEL,
 } from '../src/plugins/saturation/shape.js';
 import { fft } from '../src/lib/fft.js';
@@ -240,6 +240,69 @@ test('every family has a deck, and the three universal knobs are not in it', () 
       assert.ok(!['drive', 'tone', 'mix'].includes(knob), `${id} names ${knob}, which every family has`);
       assert.ok(knob in HEAT_DEFAULTS, `${id} wants a ${knob} knob with no default`);
     }
+  }
+});
+
+test('tape breaks up at the top before the bottom, and only while there is room', () => {
+  // The whole of why this family exists. Everything else here treats every
+  // frequency alike; tape lifts the top going in and puts it back down coming
+  // out, so the highs reach the curve loudest and bend first.
+  //
+  // And it narrows as the drive comes up, which is the part worth knowing:
+  // once the curve is saturated a lift has nothing left to give. Measured
+  // when this was written - 5.5 dB of spread at drive 0, 0.6 dB at drive 14.
+  const thdAt = (settings, bin) => {
+    const step = (2 * Math.PI * bin) / PROBE_LENGTH;
+    const amp = Math.pow(10, PROBE_LEVEL / 20) * Math.SQRT2;
+    const core = shaperCore(rate, false);
+    core.set({ ...HEAT_DEFAULTS, ...settings, listen: 'out' });
+    for (let i = 0; i < 24000; i += 1) core.step(amp * Math.sin(step * i));
+    const re = new Float64Array(PROBE_LENGTH);
+    const im = new Float64Array(PROBE_LENGTH);
+    for (let i = 0; i < PROBE_LENGTH; i += 1) {
+      core.step(amp * Math.sin(step * (i + 24000)));
+      re[i] = core.out;
+    }
+    fft(re, im);
+    let total = 0;
+    let first = 0;
+    for (let i = 1; i < PROBE_LENGTH / 2; i += 1) {
+      const power = re[i] * re[i] + im[i] * im[i];
+      total += power;
+      if (i === bin) first = power;
+    }
+    return 10 * Math.log10(Math.max(total - first, 1e-20) / Math.max(first, 1e-20));
+  };
+
+  const LOW = 50;    // 147 Hz, well under the emphasis corner
+  const HIGH = 1200; // 3.5 kHz, well over it
+
+  // the soft clipper it is built on cares about no frequency in particular
+  const flatLow = thdAt({ mode: 'soft', drive: 0, bias: 0.3 }, LOW);
+  const flatHigh = thdAt({ mode: 'soft', drive: 0, bias: 0.3 }, HIGH);
+  assert.ok(Math.abs(flatLow - flatHigh) < 0.5,
+    `the soft curve should be frequency-blind: ${flatLow.toFixed(1)} against ${flatHigh.toFixed(1)}`);
+
+  const quiet = { mode: 'tape', drive: 0, bias: 0.3, speed: 0 };
+  const spread = thdAt(quiet, HIGH) - thdAt(quiet, LOW);
+  assert.ok(spread > 3, `tape should break up at the top first, by ${spread.toFixed(1)} dB`);
+
+  const loud = { ...quiet, drive: 14 };
+  const narrowed = thdAt(loud, HIGH) - thdAt(loud, LOW);
+  assert.ok(narrowed < spread - 2,
+    `the spread should close as the curve saturates: ${spread.toFixed(1)} then ${narrowed.toFixed(1)}`);
+});
+
+test('a slower tape lifts more, loses more, and bumps lower', () => {
+  // Not a real machine's numbers, but they have to move in the directions the
+  // physics moves in or the three speeds are just three sounds.
+  for (let i = 1; i < TAPE_SPEEDS.length; i += 1) {
+    const slower = TAPE_SPEEDS[i - 1];
+    const faster = TAPE_SPEEDS[i];
+    assert.ok(slower.emphasis > faster.emphasis, `${slower.label} should lift more than ${faster.label}`);
+    assert.ok(slower.corner < faster.corner, `${slower.label} should lift from lower down`);
+    assert.ok(slower.loss < faster.loss, `${slower.label} should lose more at the top`);
+    assert.ok(slower.bumpHz < faster.bumpHz, `${slower.label} should bump lower down`);
   }
 });
 
