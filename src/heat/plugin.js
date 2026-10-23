@@ -1,5 +1,5 @@
 import {
-  HEAT_DEFAULTS, HARMONICS, HEAT_FLOOR, HARMONIC_AXIS, MOST_TONE,
+  HEAT_DEFAULTS, HARMONICS, HEAT_FLOOR, HARMONIC_AXIS, MOST_TONE, MASKED,
   harmonicsOf, harmonicsReading, transferCurve,
   HEAT_LIMITS,
 } from './shape.js';
@@ -92,6 +92,12 @@ function heatPalette(el) {
     soft: 'rgba(250, 246, 240, 0.55)',
     grid: 'rgba(250, 246, 240, 0.14)',
     zero: 'rgba(250, 246, 240, 0.3)',
+    faint: 'rgba(250, 246, 240, 0.3)',
+    // Odd harmonics are not a verdict, so they are drawn in nothing in
+    // particular and the even ones carry the only colour on the panel.
+    odd: 'rgba(250, 246, 240, 0.5)',
+    floorWash: 'rgba(250, 246, 240, 0.045)',
+    rustWash: 'rgba(164, 85, 63, 0.18)',
   };
 }
 
@@ -127,32 +133,35 @@ export class HeatPlugin {
     this.el.innerHTML = `
       <div class="plugin heat${this.role === 'insert' ? ' is-insert' : ''}">
         <div class="plugin-head">
+          <span class="plugin-lamp"></span>
           <span class="plugin-name">Saturation</span>
           <span class="plugin-trim" id="heatTrim"></span>
           <span class="plugin-read" id="heatRead"></span>
-        </div>
-
-        <div class="heat-display">
-          <div class="plugin-panel heat-panel-curve">
-            <canvas id="heatCurve"></canvas>
-          </div>
-          <div class="plugin-panel heat-panel-bars">
-            <canvas id="heatBars"></canvas>
-          </div>
-        </div>
-
-        <div class="plugin-controls" id="heatKnobs"></div>
-
-        <div class="heat-routing">
-          <span class="panel-name">Listen</span>
           <div class="eq-ab" role="group" aria-label="What you are monitoring">
             ${HEAT_LISTENS.map((l) => `<button class="ab-btn${l.id === 'out' ? ' is-on' : ''}" type="button" data-listen="${l.id}">${l.label}</button>`).join('')}
           </div>
-          <label class="toggle">
-            <input type="checkbox" id="heatAuto" checked>
-            Auto gain
-          </label>
-          <span class="eq-hint">only the heat is the difference the curve made — nothing else</span>
+        </div>
+
+        <div class="heat-meters">
+          <div class="heat-bay heat-bay-curve">
+            <span class="panel-name">Transfer</span>
+            <div class="plugin-panel"><canvas id="heatCurve"></canvas></div>
+          </div>
+          <div class="heat-bay heat-bay-series">
+            <span class="panel-name">Harmonic series</span>
+            <div class="plugin-panel"><canvas id="heatBars"></canvas></div>
+            <div class="heat-balance" id="heatBalance"></div>
+          </div>
+          <div class="heat-bay heat-bay-out">
+            <span class="panel-name">Lvl</span>
+            <div class="plugin-panel"><canvas id="heatMeters"></canvas></div>
+            <div class="heat-delta" id="heatDelta"></div>
+          </div>
+        </div>
+
+        <div class="heat-deck">
+          <span class="panel-name">Curve &amp; output</span>
+          <div class="plugin-controls" id="heatKnobs"></div>
         </div>
 
         <div class="eq-transport heat-transport">
@@ -171,12 +180,18 @@ export class HeatPlugin {
             </select>
           </label>
           <label class="file-btn">Open a file<input type="file" id="heatFile" accept="audio/*"></label>
+          <label class="toggle">
+            <input type="checkbox" id="heatAuto" checked>
+            Auto gain
+          </label>
           <button class="link-btn" type="button" data-heat="reset">Reset</button>
         </div>
-      </div>`;
+      </div>
+      <div class="heat-drill" id="heatDrill" hidden></div>`;
 
     this.curve = this.el.querySelector('#heatCurve');
     this.bars = this.el.querySelector('#heatBars');
+    this.meters = this.el.querySelector('#heatMeters');
     this.el.querySelector('#heatSource').value = this.player.source;
 
     this.buildKnobs();
@@ -459,6 +474,9 @@ export class HeatPlugin {
     const ink = heatPalette(this.el);
     this.drawCurve(ink);
     this.drawBars(ink);
+    this.drawBalance();
+    this.drawLevels(ink);
+    this.drawDrill();
     this.writeReadout();
   }
 
@@ -520,7 +538,6 @@ export class HeatPlugin {
       c.setLineDash([]);
     };
 
-    if (this.targetSettings) line(this.targetSettings, ink.sage, true);
     line(this.settings, ink.blush, false);
 
     c.font = '9.5px system-ui, sans-serif';
@@ -564,6 +581,8 @@ export class HeatPlugin {
     // are just not a reading of what is on the knobs this instant.
     const behind = !reading.ready;
 
+    this.drawFloors(c, reading.values, width, height, ink);
+
     const slot = width / HARMONICS.length;
     const bar = Math.min(26, slot * 0.52);
     const base = barY(HEAT_FLOOR, height);
@@ -573,32 +592,250 @@ export class HeatPlugin {
       const x = barX(i, width);
       const top = barY(level, height);
 
-      c.fillStyle = m % 2 === 0 ? ink.gold : ink.blush;
+      // Blush for even, a neutral for odd. Not gold and rust: those two
+      // pigments mean "in the chord but misplaced" and "outside the chord"
+      // everywhere else in this app, and a harmonic's parity is not a verdict
+      // on it. The rust below is the one place here that does mean that.
+      c.fillStyle = m % 2 === 0 ? ink.blush : ink.odd;
       c.globalAlpha = behind ? 0.32 : 0.8;
       c.fillRect(x - bar / 2, top, bar, Math.max(1, base - top));
       c.globalAlpha = 1;
-
-      if (this.target) {
-        const theirs = barY(Math.max(HEAT_FLOOR, this.target.harmonics[m]), height);
-        c.strokeStyle = ink.sage;
-        c.lineWidth = 2;
-        c.setLineDash([5, 3]);
-        c.beginPath();
-        c.moveTo(x - bar * 0.85, theirs); c.lineTo(x + bar * 0.85, theirs);
-        c.stroke();
-        c.setLineDash([]);
-      }
 
       c.fillStyle = ink.soft;
       c.textAlign = 'center';
       c.fillText(String(m), x, height - 4);
     });
 
-    c.fillStyle = ink.soft;
     c.textAlign = 'left';
-    c.fillText(behind
-      ? 'harmonics · measuring…'
-      : 'harmonics · gold is even, pink is odd', 6, 12);
+    if (behind) {
+      c.fillStyle = ink.soft;
+      c.fillText('harmonics · measuring…', 6, 12);
+    } else {
+      // Two notes, and only as many of them as fit. On a phone the panel is
+      // narrow enough that the second one ran off the edge, and a caption
+      // clipped mid-word reads worse than a caption that is not there.
+      const legend = 'harmonics · pink is even';
+      const floor = this.floorSays ?? '';
+      const joined = `${legend} · `;
+      c.fillStyle = ink.soft;
+      const room = 6 + c.measureText(joined).width + c.measureText(floor).width < width - 6;
+      c.fillText(room ? joined : legend, 6, 12);
+      if (room) {
+        c.fillStyle = this.floorCovered ? ink.rust : ink.faint;
+        c.fillText(floor, 6 + c.measureText(joined).width, 12);
+      }
+    }
+  }
+
+  /**
+   * Two floors, and only ever one of them drawn.
+   *
+   * The low one is masking: a harmonic more than MASKED under the loudest of
+   * them is covered by its neighbours, and there is no point marking anybody
+   * on something they cannot hear. That is normal and it is drawn quietly.
+   *
+   * The other is everything the curve made that is not at a multiple of the
+   * note - `aliasing`, which is measured on the same scale as the bars and in
+   * every honest mode sits at -279 dB, far below the bottom of this panel. It
+   * climbs when a curve runs too fast for the rate it is running at, and a bar
+   * whose top is under it is a harmonic you can no longer hear as one, because
+   * it is inside hash that belongs to no note. Rust, because that pigment
+   * already means outside the chord, and inharmonic is exactly that.
+   */
+  drawFloors(c, values, width, height, ink) {
+    const loudest = Math.max(...HARMONICS.map((m) => values.harmonics[m]));
+    const masking = Math.max(HEAT_FLOOR, loudest - MASKED);
+    const junk = values.aliasing ?? -200;
+    const covered = junk > masking;
+    const at = Math.max(masking, Math.min(HEAT_TOP, junk));
+    const y = barY(at, height);
+    const base = barY(HEAT_FLOOR, height);
+
+    c.fillStyle = covered ? ink.rustWash : ink.floorWash;
+    c.fillRect(0, y, width, Math.max(0, base - y));
+    c.strokeStyle = covered ? ink.rust : ink.grid;
+    c.lineWidth = 1;
+    c.setLineDash([3, 3]);
+    c.beginPath(); c.moveTo(0, y); c.lineTo(width, y); c.stroke();
+    c.setLineDash([]);
+
+    this.floorSays = covered
+      ? `inharmonic from ${junk.toFixed(0)}`
+      : `masked below ${at.toFixed(0)}`;
+    this.floorCovered = covered;
+  }
+
+  /**
+   * Parity on one strip, order on the other.
+   *
+   * Even against odd is the flavour, and it is the half of this an untrained
+   * ear can learn first. Low orders against high is the body: the second and
+   * the third both read as warmth whichever way their parity falls, and the
+   * seventh and the ninth both read as edge. One without the other is half a
+   * description, and both come off the same nine numbers at no cost.
+   */
+  drawBalance() {
+    const host = this.el.querySelector('#heatBalance');
+    if (!host) return;
+    const reading = this.read();
+
+    if (!this.strips) {
+      this.strips = [
+        { id: 'flavour', left: 'Odd', right: 'Even', name: 'Flavour', span: 24 },
+        { id: 'body', left: 'Fizz', right: 'Warmth', name: 'Body', span: 40 },
+      ];
+      host.innerHTML = this.strips.map((strip) => `
+        <div class="heat-strip">
+          <div class="heat-strip-names">
+            <span>${strip.left}</span><span>${strip.name}</span><span>${strip.right}</span>
+          </div>
+          <canvas data-strip="${strip.id}"></canvas>
+        </div>`).join('');
+    }
+
+    const values = reading.values;
+    const sum = (keep) => {
+      let total = 0;
+      for (const m of HARMONICS) if (keep(m)) total += Math.pow(10, values.harmonics[m] / 10);
+      return 10 * Math.log10(Math.max(total, 1e-20));
+    };
+    const tilts = values
+      ? {
+        flavour: sum((m) => m % 2 === 0) - sum((m) => m % 2 === 1),
+        body: sum((m) => m <= 4) - sum((m) => m >= 5),
+      }
+      : null;
+
+    const ink = heatPalette(this.el);
+    for (const strip of this.strips) {
+      const stage = readyCanvas(host.querySelector(`[data-strip="${strip.id}"]`));
+      if (!stage) continue;
+      const { c, width, height } = stage;
+      const mid = width / 2;
+      const reach = mid - 4;
+      const at = (v) => mid + Math.max(-1, Math.min(1, v / strip.span)) * reach;
+
+      c.strokeStyle = ink.grid;
+      c.lineWidth = 1;
+      c.beginPath(); c.moveTo(mid, 1); c.lineTo(mid, height - 1); c.stroke();
+
+      if (!tilts) continue;
+      const x = at(tilts[strip.id]);
+      c.globalAlpha = reading.ready ? 1 : 0.35;
+      c.fillStyle = ink.blush;
+      c.fillRect(Math.min(mid, x), height / 2 - 2, Math.abs(x - mid), 4);
+      c.fillStyle = '#faf6f0';
+      c.fillRect(x - 1.4, 0, 2.8, height);
+      c.globalAlpha = 1;
+    }
+  }
+
+  /**
+   * What went in against what came out, and the difference named.
+   *
+   * The difference is the point. A saturator makes everything louder and
+   * denser at once, louder wins every blind comparison there has ever been,
+   * and a number saying how much louder is the cheapest honesty on the face.
+   * Only the sketchpad's player meters anything, so in a drill this reads as
+   * dashes rather than disappearing - a control that vanishes teaches a
+   * different plugin.
+   */
+  drawLevels(ink) {
+    const stage = readyCanvas(this.meters);
+    if (!stage) return;
+    const { c, width, height } = stage;
+    const read = this.player.levels?.();
+    const delta = this.el.querySelector('#heatDelta');
+
+    const lane = Math.min(10, width / 3);
+    const bar = (x, db) => {
+      const h = height * Math.max(0, Math.min(1, (db + 48) / 48));
+      c.fillStyle = 'rgba(0, 0, 0, 0.3)';
+      c.fillRect(x, 0, lane, height);
+      c.fillStyle = db > -48 ? ink.blush : 'transparent';
+      c.fillRect(x, height - h, lane, h);
+    };
+
+    const bay = this.meters.closest('.heat-bay');
+    bay?.classList.toggle('is-idle', !read);
+
+    if (!read) {
+      c.fillStyle = 'rgba(0, 0, 0, 0.28)';
+      c.fillRect(0, 0, lane, height);
+      c.fillRect(width - lane, 0, lane, height);
+      if (delta) delta.textContent = 'no meter';
+      return;
+    }
+
+    bar(0, read.input ?? -96);
+    bar(width - lane, read.output ?? -96);
+    if (delta) {
+      const off = (read.output ?? -96) - (read.input ?? -96);
+      delta.textContent = `${off > 0 ? '+' : ''}${off.toFixed(1)} Δ`;
+    }
+  }
+
+  /**
+   * How far off this is, drawn on the paper rather than on the plugin.
+   *
+   * Nothing the exercise has to say goes on the face. A target dashed across
+   * a meter is still a mark on a device that will not have one, and somebody
+   * who learns to hit the mark has learned to read a mark rather than to
+   * hear - which is the one thing this is for. So it goes here, under the
+   * chassis, in the page's own ink: nine gauges, one per harmonic, each the
+   * distance between what is set and what is being matched.
+   *
+   * Better than the dashes it replaces, as it happens. Those made you compare
+   * two heights by eye; these are the error itself, which is what is marked.
+   */
+  drawDrill() {
+    const host = this.el.querySelector('#heatDrill');
+    if (!host) return;
+    const reading = this.read();
+    if (!this.target || !reading.values) {
+      host.hidden = true;
+      host.innerHTML = '';
+      return;
+    }
+
+    host.hidden = false;
+    const SPAN = 12;
+    const close = this.targetClose;
+    const gauges = HARMONICS.map((m) => {
+      const mine = Math.max(HEAT_FLOOR, reading.values.harmonics[m]);
+      const theirs = Math.max(HEAT_FLOOR, this.target.harmonics[m]);
+      const off = mine - theirs;
+      const span = Math.max(-SPAN, Math.min(SPAN, off));
+      const inside = close ? Math.abs(off) <= close : null;
+      const band = close ? Math.min(1, close / SPAN) * 46 : 0;
+      const y = 50 - (span / SPAN) * 46;
+      return `
+        <span class="gauge">
+          <svg viewBox="0 0 54 100" aria-hidden="true">
+            ${close ? `<rect x="14" y="${50 - band}" width="26" height="${band * 2}" rx="3"
+              fill="rgba(111,127,99,.22)"/>` : ''}
+            <line x1="27" y1="8" x2="27" y2="92" stroke="rgba(58,51,47,.14)" stroke-width="2"/>
+            <line x1="12" y1="50" x2="42" y2="50" stroke="rgba(58,51,47,.32)" stroke-width="2"/>
+            <circle cx="27" cy="${y.toFixed(1)}" r="8"
+              fill="${inside === null ? '#6b615a' : inside ? '#6f7f63' : '#a4553f'}"/>
+          </svg>
+          <b>${m}</b>
+        </span>`;
+    }).join('');
+
+    const scored = close
+      ? HARMONICS.filter((m) => Math.abs(
+        Math.max(HEAT_FLOOR, reading.values.harmonics[m])
+        - Math.max(HEAT_FLOOR, this.target.harmonics[m]),
+      ) <= close).length
+      : null;
+
+    host.innerHTML = `
+      <div class="heat-drill-head">
+        <span>Exercise · match the sound</span>
+        ${scored === null ? '' : `<span class="heat-drill-score">${scored} of ${HARMONICS.length} inside ±${close.toFixed(1)} dB</span>`}
+      </div>
+      <div class="heat-gauges">${gauges}</div>`;
   }
 
   writeReadout() {
@@ -634,7 +871,17 @@ export class HeatPlugin {
   }
 
   /** Draw the answer over yours, or take it back off. */
-  showTarget(target) {
+  /**
+   * `close` is the window the round is being marked to, in decibels, and it
+   * is optional because the one call that shows a target serves all six
+   * tools and none of them are handed one yet. Without it the gauges still
+   * say how far off each harmonic is; they just do not say which of them
+   * count as right, because inventing a tolerance here would be a second
+   * copy of a number that lives in work/ and the day the two drift is the
+   * day the page disagrees with the marking.
+   */
+  showTarget(target, { close = null } = {}) {
+    this.targetClose = close;
     if (!target) {
       this.target = null;
       this.targetSettings = null;

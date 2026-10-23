@@ -999,10 +999,10 @@ input.knob-value:focus {
   /* How big the plugin is drawn. A narrow container turns these down and
      everything on the face follows, so the plugin keeps its shape and gets
      smaller rather than coming apart into a different plugin. */
-  --bay:   46px;    /* the knob itself */
+  --bay:   56px;    /* the knob itself */
   --tag:   8.5px;   /* what it is */
   --read:  13.5px;  /* what it is set to */
-  --deck:  92px;    /* the narrowest a bay may be before the row wraps */
+  --deck:  130px;   /* how wide a bay is - fixed, so the row stays a row */
   --panel: clamp(96px, 16vh, 140px);   /* and how tall a display is */
 
   display: flex;
@@ -1375,10 +1375,10 @@ input.knob-value:focus {
    and the word THRESHOLD needs 60, so the deck comes out four and four. */
 @container (max-width: 560px) {
   .plugin {
-    --bay: 34px;
+    --bay: 38px;
     --tag: 7.5px;
     --read: 11.5px;
-    --deck: 72px;
+    --deck: 54px;
     --panel: clamp(58px, 9vh, 84px);
     --ladder: 34px;
   }
@@ -1478,6 +1478,75 @@ input.knob-value:focus {
    another and a stretched one lies about the symmetry - which is the only
    thing anybody is looking at it for. The bars get the width, because there
    are nine of them and they are read as a shape. */
+/* The saturator's own furniture, on the compressor's grammar: a row of bays
+   over a deck, each named with a printed rule, and nothing moving when the
+   face narrows. The series gets the width because it is the one reading here
+   that no shipping saturator gives you - see the three rules above. */
+.heat-meters {
+  display: grid;
+  grid-template-columns: minmax(0, 0.78fr) minmax(0, 2.5fr) 74px;
+  gap: 7px;
+  min-width: 0;
+}
+.heat-bay { position: relative; padding: 0 10px; min-width: 0; display: grid; gap: 5px; align-content: start; }
+.heat-bay:first-child { padding-left: 0; }
+.heat-bay-out { padding-inline: 6px; }
+.heat-bay-series, .heat-bay-out { border-left: 1px solid var(--cut); box-shadow: 1px 0 0 var(--lift); }
+.heat-bay > .plugin-panel { height: var(--panel); }
+
+/* Even against odd, and body against fizz. Both come off a series that is
+   already measured, so they cost nothing to show, and they carry the half of
+   the lesson the bars alone do not: parity is the flavour, order is the body. */
+.heat-balance { display: grid; gap: 4px; }
+.heat-strip { display: grid; gap: 1px; }
+.heat-strip-names {
+  display: flex; justify-content: space-between;
+  font-size: var(--tag); letter-spacing: 0.13em; text-transform: uppercase; color: var(--ink-faint);
+}
+.heat-strip canvas { width: 100%; height: 15px; display: block; }
+/* Nothing upstream of a drill meters anything, so this bay has nothing to
+   read there. Dimmed rather than taken away - the plugin somebody practises
+   on has to be the plugin they later open somewhere else. */
+.heat-bay.is-idle { opacity: 0.4; }
+.heat-bay.is-idle .heat-delta { font-family: var(--sans); font-size: var(--tag);
+  letter-spacing: 0.13em; text-transform: uppercase; }
+.heat-delta { text-align: center; font-family: var(--serif); font-size: var(--read); color: var(--ink-soft); }
+
+.heat-deck {
+  background: linear-gradient(180deg, #443c37, #342e2a);
+  border: 1px solid var(--cut); border-radius: 6px;
+  box-shadow: 0 1px 0 var(--lift) inset;
+  padding: 7px 9px 9px; display: grid; gap: 6px;
+}
+/* Fixed tracks, centred. Stretched ones put the whole width of the deck
+   between six knobs, and they stopped reading as one row of controls. */
+.heat-deck .plugin-controls,
+.comp-deck .plugin-controls {
+  grid-template-columns: repeat(auto-fit, var(--deck));
+  justify-content: center;
+  gap: 4px 6px;
+}
+
+/* The exercise, which is not part of the plugin - see rule three above. On
+   the paper, under the chassis, in the paper's ink, so that what is being
+   practised on is the device somebody would later open somewhere else. */
+.heat-drill {
+  margin-top: 10px; padding: 11px 14px 10px;
+  border: 1px solid var(--line); border-radius: 7px; background: var(--paper);
+}
+.heat-drill-head {
+  display: flex; justify-content: space-between; align-items: baseline;
+  font-size: 10px; letter-spacing: 0.19em; text-transform: uppercase; color: var(--text-soft);
+}
+.heat-drill-score {
+  font-family: var(--serif); font-size: 13px; letter-spacing: 0;
+  text-transform: none; color: var(--text);
+}
+.heat-gauges { display: flex; gap: 6px; margin-top: 8px; }
+.gauge { display: grid; justify-items: center; gap: 2px; flex: 1; }
+.gauge svg { width: 100%; height: 56px; display: block; }
+.gauge b { font-weight: 400; font-size: 10px; color: var(--text-soft); }
+
 .heat-display {
   display: grid;
   grid-template-columns: minmax(150px, 0.75fr) 1.6fr;
