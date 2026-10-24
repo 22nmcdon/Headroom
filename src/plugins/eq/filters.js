@@ -245,25 +245,85 @@ export function curveReading(bands, rate = 48000, { source = null } = {}) {
  * comparison works between anything that produces a curve - a guess against an
  * answer, yours against a reference, this chain against that one.
  */
+/**
+ * How wide a mismatch is worth, against how deep it is.
+ *
+ * Measured, because the two are not the same thing and the scoring used to
+ * treat them as one. A bell at 1 kHz on this app's bed, the curve's own
+ * decibels against how far the bed's octave band actually moves:
+ *
+ *       width   3 dB    6 dB    9 dB   12 dB
+ *    1.92 oct   1.88    3.49    4.78    5.74
+ *    1.00 oct   1.67    3.16    4.39    5.34
+ *    0.48 oct   1.01    2.04    3.09    4.09
+ *    0.24 oct   0.56    1.29    2.20    3.27
+ *    0.12 oct   0.37    0.91    1.69    2.69
+ *
+ * Twelve decibels of narrow bell move the bed less than six decibels of wide
+ * one. So a worst point of 2 dB is a different answer depending on whether it
+ * is two decibels across an octave or two decibels across a twelfth of one,
+ * and marking both the same lets an inaudible notch fail a match that is
+ * otherwise perfect.
+ *
+ * The ratio of band movement to curve decibels comes out at about 0.5 at an
+ * octave, 0.34 at a half, 0.23 at a quarter and 0.17 at an eighth. Inverted
+ * and referred to an octave, that is the square root of one over the width -
+ * which fits every row above to within 0.1 - and it stops widening past an
+ * octave, because beyond that an octave-band measure cannot see the
+ * difference anyway.
+ */
+export const OCTAVE_EQUIVALENT = (octaves) =>
+  Math.min(3, Math.max(1, Math.sqrt(1 / Math.max(octaves, 1e-3))));
+
+/**
+ * The worst point, and how wide the miss is around it.
+ *
+ * Still the worst point, deliberately: an average cannot say where you went
+ * wrong, and where is half of what makes the answer useful. What is new is
+ * `octaves`, the width of the mismatch measured the way a bandwidth is always
+ * measured - outwards from the peak until it has fallen by half - and `off`,
+ * which is now that worst point expressed as the octave-wide move it is worth.
+ * `peak` is the raw decibels, for anything that wants to print them.
+ */
 export function curveGap(mine, theirs) {
   const a = mine.values;
   const b = theirs.values;
 
   let worst = 0;
   let worstAt = 0;
+  let worstIndex = 0;
 
   for (let i = 0; i < a.length; i += 1) {
     const off = a[i] - b[i];
     if (Math.abs(off) > Math.abs(worst)) {
       worst = off;
       worstAt = JUDGED_HZ[i];
+      worstIndex = i;
     }
   }
 
+  // How wide the miss is, as the width of the rectangle holding the same area
+  // - the whole of the mismatch over its own peak, not the shoulders of one
+  // lobe.
+  //
+  // Reading it outwards from the worst point until it halved was the first
+  // try and it was wrong in a way a test caught: a band put a third of an
+  // octave off its mark does not make one narrow miss, it makes two - up on
+  // one side and down on the other - and measuring only the lobe the worst
+  // point sits in called an audible misplacement narrow and forgave it. The
+  // area counts both.
+  const step = Math.log2(JUDGED_HZ[1] / JUDGED_HZ[0]);
+  let area = 0;
+  for (let i = 0; i < a.length; i += 1) area += Math.abs(a[i] - b[i]) * step;
+  const octaves = Math.abs(worst) > 1e-9 ? area / Math.abs(worst) : step;
+
+  const peak = Math.abs(worst);
   return {
-    off: Math.abs(worst),
+    off: peak / OCTAVE_EQUIVALENT(octaves),
+    peak,
+    octaves,
     where: worstAt ? writeHz(worstAt) : null,
-    detail: { hz: worstAt, louder: worst },
+    detail: { hz: worstAt, louder: worst, octaves },
   };
 }
 

@@ -308,7 +308,14 @@ test('a curve gap names the frequency the two part company at', () => {
     [{ type: 'peaking', frequency: 1000, gain: 8, q: 4, on: true }], rate);
 
   const gap = distance(bumped, flat);
-  assert.ok(Math.abs(gap.off - 8) < 0.3, `the worst point read ${gap.off.toFixed(2)} dB`);
+  // `detail.louder` is the worst point in plain decibels, signed. `off` is
+  // that worth expressed as the octave-wide move it amounts to, which for a
+  // bell this narrow is less - see OCTAVE_EQUIVALENT.
+  const peak = Math.abs(gap.detail.louder);
+  assert.ok(Math.abs(peak - 8) < 0.3, `the worst point read ${peak.toFixed(2)} dB`);
+  assert.ok(gap.off < peak, 'a narrow miss should count for less than its depth');
+  assert.ok(gap.detail.octaves > 0 && gap.detail.octaves < 2,
+    `the miss measured ${gap.detail.octaves?.toFixed(2)} octaves wide`);
   assert.ok(gap.detail.hz > 850 && gap.detail.hz < 1200, `it was found at ${gap.detail.hz}`);
   assert.match(gap.where, /^1\.?0?k?|^9[0-9][0-9] Hz/);
   assert.ok(gap.detail.louder > 0, 'and yours is the louder of the two there');

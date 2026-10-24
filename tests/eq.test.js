@@ -5,6 +5,7 @@ import {
   BAND_TYPES, STRIP, newStrip, bandGainAt, contributionOf, curveOf,
   averageLift, liftFrequencies, logFrequencies,
   SLOPES, FLAT_CORNER, RESTING_Q, sectionsOf, butterworth, exactHz,
+  OCTAVE_EQUIVALENT, curveGap, curveReading,
 } from '../src/plugins/eq/filters.js';
 import { averageSpectrum } from '../src/plugins/eq/spectrum.js';
 import { EQPlugin } from '../src/plugins/eq/plugin.js';
@@ -234,4 +235,52 @@ test('a frequency survives being written down and read back', () => {
     const read = EQPlugin.readEntry(written, 'frequency');
     assert.ok(Math.abs(read - hz) < 0.5, `${hz} was written "${written}" and read back ${read}`);
   }
+});
+
+test('a narrow miss is worth less than a wide one of the same depth', () => {
+  // Measured on this app's bed: a bell at 1 kHz, what the curve claims against
+  // how far the bed's own octave band actually moves.
+  //
+  //       width   3 dB    6 dB    9 dB   12 dB
+  //    1.92 oct   1.88    3.49    4.78    5.74
+  //    1.00 oct   1.67    3.16    4.39    5.34
+  //    0.48 oct   1.01    2.04    3.09    4.09
+  //    0.24 oct   0.56    1.29    2.20    3.27
+  //    0.12 oct   0.37    0.91    1.69    2.69
+  //
+  // Twelve decibels of narrow bell move it less than six of a wide one, which
+  // is why the worst point alone could fail a match on something nobody can
+  // hear. These are the ratios that table gives, inverted and referred to an
+  // octave.
+  for (const [octaves, want] of [[1.92, 1], [1, 1], [0.48, 1.44], [0.24, 2.04], [0.12, 2.89]]) {
+    const got = OCTAVE_EQUIVALENT(octaves);
+    assert.ok(Math.abs(got - want) < 0.1,
+      `${octaves} octaves should be worth ${want}x, not ${got.toFixed(2)}x`);
+  }
+  // and it never forgives a wide one, nor forgives any more than threefold
+  assert.equal(OCTAVE_EQUIVALENT(4), 1);
+  assert.equal(OCTAVE_EQUIVALENT(0.001), 3);
+});
+
+test('a band put in the wrong place is not a narrow miss', () => {
+  // The first version of the width read outwards from the worst point until
+  // the miss halved, and called this narrow: a band a third of an octave off
+  // its mark makes two misses, up on one side and down on the other, and
+  // measuring only the lobe the worst point sits in forgave an audible
+  // misplacement. The width is the whole area over the peak now.
+  const rate = 48000;
+  const right = curveReading([{ type: 'peaking', frequency: 1000, gain: 9, q: 1.41, on: true }], rate);
+  const shifted = curveReading([{ type: 'peaking', frequency: 1260, gain: 9, q: 1.41, on: true }], rate);
+  const narrow = curveReading([{ type: 'peaking', frequency: 1000, gain: 9, q: 8, on: true }], rate);
+  const flat = curveReading([], rate);
+
+  const moved = curveGap(shifted, right);
+  assert.ok(moved.octaves > 1,
+    `a misplaced band should read wide, not ${moved.octaves.toFixed(2)} octaves`);
+  assert.ok(Math.abs(moved.off - moved.peak) < 0.01, 'and should get no forgiveness for it');
+
+  // where a genuinely narrow miss still does
+  const pointy = curveGap(narrow, flat);
+  assert.ok(pointy.octaves < 0.5, `a Q of 8 should read narrow, not ${pointy.octaves.toFixed(2)}`);
+  assert.ok(pointy.off < pointy.peak * 0.8, 'and should be forgiven for it');
 });
