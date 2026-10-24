@@ -14,9 +14,12 @@
       ?face=b   all six at once, a column each
 
       ?draw=none   the summed curve alone, as it is today
-      ?draw=one    and the selected band's own shape under it
-      ?draw=line   and every band's own shape, as lines
-      ?draw=fill   and every band's own shape, shaded from the zero line
+      ?draw=one    the selected band only, shaded
+      ?draw=line   every band's own shape, as lines
+      ?draw=zero   every band shaded from the zero line - detached from the
+                   curve, because a band on its own is not the sum
+      ?draw=fill   every band shaded from the curve to the curve without it,
+                   which is always attached and is what each band is worth
 
   Both share what is not in question: the host row outside the chassis, a
   levels bay beside the curve, the analyser's switches on the curve's own
@@ -331,28 +334,46 @@ function drawCurve(canvas, how) {
     if (band.kind === 'pk' || band.kind === 'ls' || band.kind === 'hs') {
       if (Math.abs(band.gain) < 0.05) continue;
     }
-    const points = walk((hz) => bandAt(band, hz));
     const here = band.i === HERE;
 
-    // Cuts get a line and no shading. What a high-pass contributes goes to
-    // minus infinity, so shading the area under it shades most of the
-    // display - and the thing it is telling you is where the corner is, not
-    // how much floor there is below it.
+    // Where a band's shape is measured from, which is the whole of what
+    // "attached to the curve" means.
+    //
+    // From the zero line, a band's shape is what that band would do on its
+    // own - and nothing about it touches the summed curve, because the curve
+    // is every band at once. A +8 bell under a +5 shelf draws a shape that
+    // stops 1.4 dB short of the line above it and reads as floating. That is
+    // ?draw=zero, kept so the two can be put side by side.
+    //
+    // From the curve, every band draws the same thing: the curve as it would
+    // be without that band. It meets the curve wherever the band does
+    // nothing, the gap between the two is exactly what the band is
+    // contributing there, and a cut stops drawing a flat line at zero across
+    // the whole display, because the curve without a high-pass above its
+    // corner IS the curve.
+    const top = walk(how === 'zero' ? ((hz) => bandAt(band, hz)) : sumAt);
+    const under = walk(how === 'zero'
+      ? (() => 0)
+      : ((hz) => sumAt(hz) - bandAt(band, hz)));
+
+    // Cuts get the line and no shading. What a high-pass takes away goes to
+    // minus infinity, so the region between the two edges is most of the
+    // display - and what it is telling you is where the corner is, not how
+    // much floor there is below it.
     const shaded = how !== 'line' && band.kind !== 'hp' && band.kind !== 'lp';
     if (shaded) {
       ctx.beginPath();
-      ctx.moveTo(points[0][0], y(0));
-      for (const [px, py] of points) ctx.lineTo(px, py);
-      ctx.lineTo(points[points.length - 1][0], y(0));
+      for (const [i, [px, py]] of top.entries()) { if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py); }
+      for (let i = under.length - 1; i >= 0; i -= 1) ctx.lineTo(under[i][0], under[i][1]);
       ctx.closePath();
       ctx.fillStyle = MARKS[band.i] + (here ? '66' : '30');
       ctx.fill();
     }
 
     ctx.beginPath();
-    for (const [i, [px, py]] of points.entries()) { if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py); }
-    ctx.strokeStyle = MARKS[band.i] + (here ? 'ff' : 'bb');
-    ctx.lineWidth = here ? 1.6 : 1;
+    for (const [i, [px, py]] of under.entries()) { if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py); }
+    ctx.strokeStyle = MARKS[band.i] + (here ? 'ee' : '99');
+    ctx.lineWidth = here ? 1.4 : 1;
     ctx.stroke();
   }
 
