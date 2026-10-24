@@ -60,22 +60,21 @@ import { wetDry } from './effect.js';
  * a caller mistake worth hearing about rather than silently dropping half an
  * EQ, which would be audible and inexplicable.
  */
-function eqEffect(ctx, { bands = newStrip(), slots = null } = {}) {
+async function eqEffect(ctx, { bands = newStrip(), slots = null } = {}) {
   const size = slots ?? bands.length;
-  const chain = eqSections(ctx, size);
+  // With the bands it was handed, not flat and tuned after. An EQ built
+  // transparent and told its curve afterwards was a wire until something
+  // moved a control - measured: a track with a +9 dB low shelf insert
+  // rendered bit-identical to the same track with no insert at all, the same
+  // reading on all five measurements, to the last decimal. It is now the
+  // chain's own doing rather than a line here that could be forgotten, and
+  // it has to be, because the coefficients cross a port.
+  const chain = await eqSections(ctx, size, { start: bands });
   const out = ctx.createGain();
   chain.trim.connect(out);
   let current = bands;
 
   const tune = (at = ctx.currentTime) => tuneSections(chain, current, at, ctx.sampleRate);
-
-  // Applied here, not only on the next `set`. `eqSections` builds the filters
-  // transparent and the bands it was handed were never put on them, so an EQ
-  // constructed with a curve was a wire until something moved a control.
-  // Measured: a track with a +9 dB low shelf insert rendered bit-identical to
-  // the same track with no insert at all - the same reading on all five
-  // measurements, to the last decimal.
-  tune(0);
 
   return {
     id: 'eq',
@@ -92,8 +91,7 @@ function eqEffect(ctx, { bands = newStrip(), slots = null } = {}) {
       return this;
     },
     destroy() {
-      for (const filter of chain.filters) { try { filter.disconnect(); } catch { /* gone */ } }
-      try { chain.trim.disconnect(); } catch { /* gone */ }
+      chain.destroy();
       try { out.disconnect(); } catch { /* gone */ }
     },
   };
@@ -271,12 +269,13 @@ const echoEffect = (ctx, { settings = {} } = {}) =>
  * By the same ids the tools use, so a chain can be described by a list of
  * them and nothing has to translate between two sets of names.
  *
- * Every one of these is async, including the three that need not be: a caller
+ * Every one of these is async, including the two that need not be: a caller
  * that had to know which ones to await would get it wrong the first time
- * somebody moved a worklet.
+ * somebody moved a worklet. Which has now happened - the EQ was one of the
+ * three that need not be and is one of the four that must.
  */
 export const EFFECTS = {
-  eq: async (ctx, options) => eqEffect(ctx, options),
+  eq: eqEffect,
   compression: compEffect,
   panning: stereoEffect,
   reverb: async (ctx, options) => verbEffect(ctx, options),

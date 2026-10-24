@@ -1,28 +1,30 @@
 // The EQ's drawn curve against the EQ you can actually hear.
 //
 // This is the one check here that exists because of a thing that turned out
-// NOT to be wrong. The EQ is the only one of the six tools whose audio and
-// whose marking are different code: `filters.js` computes cookbook
-// coefficients to draw and to score, and the live chain is native
+// NOT to be wrong. The EQ used to be the only one of the six tools whose
+// audio and whose marking were different code: `filters.js` computed cookbook
+// coefficients to draw and to score, and the live chain was native
 // BiquadFilterNodes. Two models, agreed by hand.
 //
-// Measured, they agree: no more than 0.013 dB apart on any bell or shelf,
+// Measured, they agreed: no more than 0.013 dB apart on any bell or shelf,
 // including at 10 and 15 kHz where the bilinear transform cramps hardest, and
-// no more than 0.04 dB on a resonant cut at any slope. The reason is not luck
-// - the W3C spec defines Web Audio's biquads with the same cookbook formulas
-// filters.js implements, so both sides cramp identically. The picture is
-// honest; it is simply not analogue.
+// no more than 0.04 dB on a resonant cut at any slope. The reason was not
+// luck - the W3C spec defines Web Audio's biquads with the same cookbook
+// formulas filters.js implemented, so both sides cramped identically.
 //
-// So why keep a check for something that is right? Because nothing was
-// holding it there. It was measured once, by hand, in one browser, and a
-// change to `sectionsOf` or to `coefficients` could part the picture from the
-// sound again without a single unit test noticing - which has happened once
-// already, when the low-pass resonance was read as a plain Q instead of
-// Web Audio's decibels and the drawn corner sat 3.7 dB from the audible one.
+// There is one model now: the sections run in a worklet, out of `svf.js`,
+// over the coefficients `sectionTable` hands them, and `tests/eq.test.js`
+// holds that filter against the response the curve is drawn from to the last
+// bit. So what is left for this to guard is the part no amount of arithmetic
+// can: that the graph is wired the way it says it is, that the trim being
+// taken off is the trim being put on, that a worklet actually installed and
+// the main-thread fallback is not quietly running instead. Which is most of
+// what has ever gone wrong here - the one divergence this has caught was
+// 3.7 dB, from a resonance read as a plain Q instead of Web Audio's decibels.
 //
-// What it does not guard is other browsers. If the coefficients are
-// spec-mandated then a divergence in Firefox or Safari is a browser bug, and
-// a check that only ever starts Chromium could not see it anyway.
+// What it does not guard is other browsers. Chromium is the only one it
+// starts, and now that the filter is this app's own rather than the
+// platform's, that matters less than it did.
 
 import { open } from './harness.mjs';
 import { SHELF_Q } from '../../src/plugins/eq/filters.js';
@@ -32,15 +34,17 @@ export const name = 'eq-curve';
 /**
  * How far apart the two may be, in decibels, where it is audible.
  *
- * Set from what they actually measure, not from taste. Every bell and every
- * shelf comes in under 0.015 dB, including at 15 kHz. The cuts reach 0.085,
- * and only down at -28 dB and below, inside a stopband - and further still
- * below that, which is why the floor underneath exists.
+ * Set from what they actually measure, not from taste. With two models it was
+ * 0.015 dB on the bells and shelves and 0.085 on the cuts; with one it is
+ * 0.000 on twelve of the thirteen cases and 0.002 on the thirteenth, which is
+ * the narrow 50 Hz bell still ringing when the thirty-two thousand samples
+ * being measured run out.
  *
- * A seventh of a decibel is therefore well clear of the arithmetic and
- * nowhere near a real fault: the one divergence this has ever had was 3.7 dB.
+ * A twentieth of a decibel is therefore twenty-five times the worst reading
+ * and nowhere near a real fault: the one divergence this has ever caught was
+ * 3.7 dB, and the one it caught the hour the worklet landed was 125.
  */
-const CLOSE = 0.15;
+const CLOSE = 0.05;
 
 /** And below this, down in a cut's stopband, nobody can hear the difference. */
 const INAUDIBLE = -30;
@@ -50,10 +54,11 @@ const INAUDIBLE = -30;
  * enough to cramp, both shelves, cuts at every slope with and without
  * resonance, a narrow bell at the bottom, and the whole strip at once.
  */
-// A shelf at a Q other than root-half is the one thing in the model the audio
-// cannot yet do: the SVF honours it, a BiquadFilterNode ignores it and is
-// fixed at S = 1, and the two part company by 0.038 dB at a Q of 0.7. Which is
-// why nothing exposes a shelf Q until the worklet lands - see SHELF_Q.
+// A shelf at a Q other than root-half used to be the one thing in the model
+// the audio could not do - the SVF honours it, a BiquadFilterNode ignores it
+// and is fixed at S = 1 - and these cases are still written in terms of
+// SHELF_Q because that is where the face leaves a shelf, not because the rack
+// could not be asked for something else.
 const CASES = [
   ['a bell at 1 kHz', [{ id: 'p1', type: 'peaking', frequency: 1000, gain: 9, q: 1.4, slope: 12 }]],
   ['a bell at 10 kHz', [{ id: 'p1', type: 'peaking', frequency: 10000, gain: 9, q: 1.4, slope: 12 }]],
@@ -93,17 +98,26 @@ export async function check({ browser, at, say }) {
 
     for (const [label, bands] of cases) {
       // The real chain, built the way the app builds it, measured by its own
-      // impulse response rather than by reading the coefficients back.
-      // `tuneSections` ramps every parameter with setTargetAtTime over 10 ms,
-      // which is what stops a knob clicking - so an impulse at sample zero
-      // would measure a chain still on its way to the settings asked for.
-      // Render a fifth of a second of nothing first, which is twenty time
-      // constants, then strike it.
+      // impulse response rather than by reading the coefficients back. Which
+      // now means awaiting it: the sections are a worklet, and installing one
+      // is a round trip.
+      //
+      // Tuned without gliding, so the filter is where it was sent at the
+      // first sample rather than ten milliseconds into arriving - the same
+      // thing every offline render in this app asks for. The settling run is
+      // kept anyway: it costs a fifth of a second and it is what would catch
+      // a chain that quietly went back to ramping.
       const SETTLE = Math.round(rate * 0.2);
       const length = SETTLE + 32768;
       const ctx = new OfflineAudioContext(1, length, rate);
-      const chain = eqSections(ctx, bands.length);
-      tuneSections(chain, bands, 0, rate, null);
+      // The bands go in with the chain. Posting them to it afterwards is a
+      // round trip through a port, and this context renders faster than one -
+      // which this check found the hour the worklet landed, as ten of these
+      // thirteen cases measuring a wire. `tuneSections` is called as well, to
+      // the same values, because it is the path the app's knobs take and it
+      // should produce the identical table.
+      const chain = await eqSections(ctx, bands.length, { start: bands });
+      tuneSections(chain, bands, 0, rate, null, { glide: false });
 
       const impulse = ctx.createBuffer(1, length, rate);
       impulse.getChannelData(0)[SETTLE] = 1;

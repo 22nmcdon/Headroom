@@ -1,4 +1,4 @@
-import { svfOf, svfBiquad } from '../src/plugins/eq/svf.js';
+import { svfOf, svfBiquad, svfRack } from '../src/plugins/eq/svf.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -6,8 +6,9 @@ import {
   BAND_TYPES, STRIP, newStrip, bandGainAt, contributionOf, curveOf,
   averageLift, liftFrequencies, logFrequencies,
   SLOPES, FLAT_CORNER, RESTING_Q, sectionsOf, butterworth, exactHz, SHELF_Q, sectionGainAt,
-  OCTAVE_EQUIVALENT, curveGap, curveReading,
+  OCTAVE_EQUIVALENT, curveGap, curveReading, sectionTable, MOST_SECTIONS,
 } from '../src/plugins/eq/filters.js';
+import { eqSource } from '../src/plugins/eq/node.js';
 import { averageSpectrum } from '../src/plugins/eq/spectrum.js';
 import { EQPlugin } from '../src/plugins/eq/plugin.js';
 
@@ -376,4 +377,169 @@ test('a shelf rests where S = 1 has always put it', () => {
   }
   assert.equal(RESTING_Q.lowshelf, SHELF_Q);
   assert.equal(RESTING_Q.highshelf, SHELF_Q);
+});
+
+/* --- the filter the audio thread actually runs ------------------------------ */
+
+/**
+ * What a rack does to an impulse, in decibels, at the frequencies asked for.
+ *
+ * Measured rather than read back out of the coefficients, which is the whole
+ * point: `sectionGainAt` is arithmetic on numbers, and this is the sample loop
+ * that will be running on the audio thread, with its own states and its own
+ * order of operations.
+ */
+function responseOf(rack, frequencies, rate, length = 65536) {
+  const ins = [new Float64Array(length)];
+  const outs = [new Float64Array(length)];
+  ins[0][0] = 1;
+  rack.block(ins, outs);
+
+  return frequencies.map((hz) => {
+    // Goertzel, which is one bin of a DFT for two multiplies a sample rather
+    // than a sine and a cosine. It is worth the four lines because the length
+    // has to be this long: a Q of 8 at 50 Hz rings for a third of a second,
+    // and at sixteen thousand samples the tail that was cut off read as
+    // 0.065 dB of disagreement between the filter and the curve. At
+    // sixty-five thousand it reads as zero.
+    const w = (2 * Math.PI * hz) / rate;
+    const twice = 2 * Math.cos(w);
+    let s1 = 0;
+    let s2 = 0;
+    for (let n = 0; n < length; n += 1) {
+      const s0 = outs[0][n] + twice * s1 - s2;
+      s2 = s1;
+      s1 = s0;
+    }
+    const re = s1 - s2 * Math.cos(w);
+    const im = s2 * Math.sin(w);
+    return 20 * Math.log10(Math.max(Math.hypot(re, im), 1e-12));
+  });
+}
+
+test('the filter the audio runs is the curve the app draws', () => {
+  // The one claim that matters, and the one that used to rest on the W3C spec
+  // defining BiquadFilterNode with the cookbook formulas filters.js
+  // implemented. It now rests on there being one filter: `svfOf` makes the
+  // coefficients, `sectionGainAt` reads their response for the picture, and
+  // `svfTick` runs them for the sound.
+  //
+  // Measured, below: the impulse response of the rack and the drawn curve
+  // agree to a ten-millionth of a decibel from 30 Hz to 16 kHz, on the whole
+  // strip at once and on every band type on its own. Most cases come in at
+  // 1e-11 dB, which is double precision and nothing else; the worst is the
+  // 50 Hz bell at 3e-7, which is the last of its ring still being cut off at
+  // sixty-five thousand samples rather than any disagreement.
+  const probe = logFrequencies(64, 30, 16000);
+
+  const CASES = [
+    ['a bell at 1 kHz', [on({ type: 'peaking', frequency: 1000, gain: 9, q: 1.4 })]],
+    ['a bell at 15 kHz', [on({ type: 'peaking', frequency: 15000, gain: -12, q: 2 })]],
+    ['a narrow bell at 50 Hz', [on({ type: 'peaking', frequency: 50, gain: 9, q: 8 })]],
+    ['a low shelf', [on({ type: 'lowshelf', frequency: 120, gain: 8, q: SHELF_Q })]],
+    ['a high shelf', [on({ type: 'highshelf', frequency: 8000, gain: -8, q: SHELF_Q })]],
+    ['a 48 dB/oct high-pass',
+      [on({ type: 'highpass', frequency: 100, q: FLAT_CORNER, slope: 48 })]],
+    ['a resonant low-pass', [on({ type: 'lowpass', frequency: 6000, q: 6, slope: 24 })]],
+    ['the whole strip', [
+      on({ type: 'highpass', frequency: 40, q: FLAT_CORNER, slope: 24 }),
+      on({ type: 'lowshelf', frequency: 120, gain: 5, q: SHELF_Q }),
+      on({ type: 'peaking', frequency: 400, gain: -4, q: 1.4 }),
+      on({ type: 'peaking', frequency: 2500, gain: 6, q: 2 }),
+      on({ type: 'highshelf', frequency: 9000, gain: 4, q: SHELF_Q }),
+      on({ type: 'lowpass', frequency: 17000, q: FLAT_CORNER }),
+    ]],
+  ];
+
+  for (const [label, bands] of CASES) {
+    const rack = svfRack(rate, bands.length * MOST_SECTIONS, 1);
+    // Immediately: a glide is for a knob, and this is the filter arriving.
+    rack.tune(sectionTable(bands, bands.length, rate), true);
+
+    const heard = responseOf(rack, probe, rate);
+    const drawn = curveOf(bands, probe, rate);
+
+    let worst = 0;
+    let worstAt = 0;
+    for (let i = 0; i < probe.length; i += 1) {
+      const off = Math.abs(heard[i] - drawn[i]);
+      if (off > worst) { worst = off; worstAt = probe[i]; }
+    }
+    assert.ok(worst < 1e-6,
+      `${label}: the rack is ${worst.toExponential(2)} dB from the curve at ${Math.round(worstAt)} Hz`);
+  }
+});
+
+test('a section the slope does not need, and a band switched off, are nothing', () => {
+  // Not "nearly nothing": a peak with no gain has m1 of exactly zero, so the
+  // section returns its input bit for bit. Which is what lets the chain be a
+  // fixed run of sections that is never added to or taken from - and a graph
+  // rebuilt under a running loop clicks.
+  const bands = [on({ type: 'peaking', frequency: 1000, gain: 0, q: 1.4 }), { ...STRIP[0], on: false }];
+  const rack = svfRack(rate, bands.length * MOST_SECTIONS, 1);
+  rack.tune(sectionTable(bands, bands.length, rate), true);
+
+  const ins = [new Float64Array(512)];
+  const outs = [new Float64Array(512)];
+  for (let i = 0; i < 512; i += 1) ins[0][i] = Math.sin(i * 0.07) * 0.5 + Math.sin(i * 0.9) * 0.2;
+  rack.block(ins, outs);
+
+  for (let i = 0; i < 512; i += 1) assert.equal(outs[0][i], ins[0][i]);
+});
+
+test('a knob glides to where it was sent, and arrives', () => {
+  // Ten milliseconds, the same time constant the AudioParams used, so a knob
+  // feels the way it felt before the engine changed underneath it.
+  const rack = svfRack(rate, MOST_SECTIONS, 1);
+  const flat = sectionTable([on({ type: 'peaking', frequency: 1000, gain: 0, q: 1.4 })], 1, rate);
+  const lifted = sectionTable([on({ type: 'peaking', frequency: 1000, gain: 12, q: 1.4 })], 1, rate);
+
+  rack.tune(flat, true);
+  rack.tune(lifted);
+
+  // A fifth of a second, because an exponential never actually arrives and
+  // this test wants exactness rather than inaudibility. The rack snaps the
+  // last of the distance once the five coefficients are within a millionth
+  // of where they were sent, which for twelve decibels of bell takes about
+  // fourteen time constants; twenty is comfortably past it. Ten was not, and
+  // read as seven millionths of a decibel at 30 Hz.
+  const warm = [new Float64Array(Math.round(rate * 0.2))];
+  rack.block(warm, [new Float64Array(warm[0].length)]);
+
+  const probe = logFrequencies(48, 30, 16000);
+  const heard = responseOf(rack, probe, rate);
+  const drawn = curveOf([on({ type: 'peaking', frequency: 1000, gain: 12, q: 1.4 })], probe, rate);
+  for (let i = 0; i < probe.length; i += 1) {
+    assert.ok(Math.abs(heard[i] - drawn[i]) < 1e-6,
+      `after gliding, ${Math.round(probe[i])} Hz is ${(heard[i] - drawn[i]).toExponential(2)} dB out`);
+  }
+});
+
+test('the audio thread runs the same arithmetic as the marking', () => {
+  // The worklet is written out of svf.js's own source, so this asks the
+  // stringified copy and the module for the same thing and insists on zero.
+  // The saturator's version of this test caught three constants missing from
+  // a hand-kept prelude; this one is the reason the prelude is derived.
+  const source = eqSource();
+  const build = new Function(`${source.replace(/class HeadroomEq[\s\S]*$/, '')}\nreturn svfRack;`)();
+
+  const bands = [on({ type: 'peaking', frequency: 1200, gain: 7, q: 2 }),
+    on({ type: 'highpass', frequency: 90, q: 4, slope: 48 })];
+  const table = sectionTable(bands, bands.length, rate);
+
+  const theirs = build(rate, bands.length * MOST_SECTIONS, 1);
+  const mine = svfRack(rate, bands.length * MOST_SECTIONS, 1);
+  theirs.tune(table, true);
+  mine.tune(table, true);
+
+  const ins = [new Float64Array(4096)];
+  for (let i = 0; i < 4096; i += 1) ins[0][i] = Math.sin(i * 0.07) * 0.5 + Math.sin(i * 0.9) * 0.2;
+  const a = [new Float64Array(4096)];
+  const b = [new Float64Array(4096)];
+  theirs.block(ins, a);
+  mine.block(ins, b);
+
+  let worst = 0;
+  for (let i = 0; i < 4096; i += 1) worst = Math.max(worst, Math.abs(a[0][i] - b[0][i]));
+  assert.equal(worst, 0);
 });

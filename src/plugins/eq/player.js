@@ -12,7 +12,7 @@ import { eqSections, tuneSections } from './sections.js';
  * which is how an A/B on a desk works - the two paths stay in step to the
  * sample, so what you hear when you flip is the processing and nothing else.
  *
- * A chain is a fixed run of biquads that are never added or removed, only
+ * A chain is a fixed run of sections that are never added or removed, only
  * retuned - four per band, because the steepest cut on offer is a cascade of
  * four. A band that is off, and a section its slope does not need, are left
  * transparent rather than unplugged: rebuilding the graph under a running
@@ -27,9 +27,23 @@ export class EQPlayer {
     this.ready = false;
   }
 
-  /** Builds the graph once the browser will let us make sound. */
+  /**
+   * Builds the graph once the browser will let us make sound.
+   *
+   * The promise is kept rather than the flag being checked, which matters now
+   * that there is an await inside: `if (this.ready) return` was enough while
+   * this was synchronous, and the moment it was not, two taps on Play would
+   * both get past it and build the whole graph twice - two analysers, four
+   * chains, the loop audible through both. The flag is still what every
+   * setter reads, because what they want to know is whether there is anything
+   * to tune yet.
+   */
   build() {
-    if (this.ready) return;
+    this.building ??= this.raise();
+    return this.building;
+  }
+
+  async raise() {
     const ctx = this.engine.ensure();
 
     this.analyser = ctx.createAnalyser();
@@ -37,8 +51,8 @@ export class EQPlayer {
     this.analyser.smoothingTimeConstant = this.ballistics ?? 0.72;
     this.analyser.connect(this.engine.out);
 
-    this.mine = this.chain(ctx);
-    this.theirs = this.chain(ctx);
+    this.mine = await this.chain(ctx);
+    this.theirs = await this.chain(ctx);
 
     // One band, on its own, for listening to what lives there.
     this.soloFilter = ctx.createBiquadFilter();
@@ -71,14 +85,13 @@ export class EQPlayer {
   /**
    * One EQ, built out of circuit, ending at a gain of its own.
    *
-   * The biquads and the tuning both live in `src/core/effects.js` now, which
-   * is where everything that has two ends and can go in series lives. This
-   * is the same chain the sketchpad puts on a track - it is only that here
-   * it is handed a source and an analyser and there it is handed whatever is
-   * upstream of it.
+   * The sections and the tuning both live in `sections.js`, which is the
+   * EQ's own. This is the same chain the sketchpad puts on a track - it is
+   * only that here it is handed a source and an analyser and there it is
+   * handed whatever is upstream of it.
    */
-  chain(ctx) {
-    const built = eqSections(ctx, this.strip.length);
+  async chain(ctx) {
+    const built = await eqSections(ctx, this.strip.length, { start: this.strip });
 
     const gain = ctx.createGain();
     gain.gain.value = 0;
@@ -107,7 +120,11 @@ export class EQPlayer {
   /** What the source is made of, so auto gain knows what a move is worth. */
   measure(buffer) {
     this.weights = averageSpectrum(buffer, liftFrequencies());
-    if (this.bands) this.setBands(this.bands);
+    // `this.strip` when nothing has set bands yet, which is the case the
+    // first time Play is pressed. The chain already arrived with the strip on
+    // it, so what this is really for is the auto gain: it is built with no
+    // weights, and now there is material to weigh it against.
+    this.setBands(this.bands ?? this.strip);
     if (this.targetBands) this.setTarget(this.targetBands);
   }
 
@@ -168,7 +185,7 @@ export class EQPlayer {
   }
 
   async play(kind) {
-    this.build();
+    await this.build();
     const buffer = kind === 'yours' ? this.yours : await this.engine.renderLoop(kind);
     if (!buffer) return false;
 

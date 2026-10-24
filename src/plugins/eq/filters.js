@@ -3,12 +3,14 @@
 // What an equaliser is, for somebody using one rather than changing one, is
 // in src/learn/notes/eq.js - including the long version of the slope note below.
 //
-// Every band is a biquad, from the Audio EQ Cookbook - the same filters Web
-// Audio builds, with the same coefficients, so the curve drawn on screen is
-// the curve the audio actually has rather than a picture of roughly what it is
-// doing. A drawing that drifts from the sound is worse than no drawing: this
-// one is checked against `BiquadFilterNode.getFrequencyResponse` to a
-// hundredth of a decibel.
+// Every band is a state-variable filter, from svf.js - the same filter the
+// audio thread runs, from the same coefficients, so the curve drawn on screen
+// is the curve the audio actually has rather than a picture of roughly what it
+// is doing. A drawing that drifts from the sound is worse than no drawing, and
+// this one cannot: `sectionTable` below is what the rack is handed, and
+// `sectionGainAt` is the response of those same numbers. Held to a
+// ten-millionth of a decibel in tests/eq.test.js, and the graph it is wired
+// into is held in tests/browser/eq-curve.mjs.
 
 
 import { readingOf, stampOf } from '../../lib/read.js';
@@ -136,11 +138,55 @@ export function sectionsOf(band) {
  * Through the state-variable filter, which is the same filter written another
  * way - measured bit-identical to the cookbook forms this used to compute, for
  * every band type at every frequency, once the shelves' Q was the root-half
- * that S = 1 has always meant. One description now draws, scores and, when the
- * worklet lands, sounds.
+ * that S = 1 has always meant. One description draws, scores and sounds.
  */
 export function coefficients(band, rate) {
   return svfBiquad(svfOf(band, rate));
+}
+
+/**
+ * Every section of every band, as the five numbers the audio thread runs.
+ *
+ * One table, flat, because it crosses a port into a worklet - and flat is
+ * also what stops it allocating twenty-four objects a frame while somebody
+ * drags a handle.
+ *
+ * `slots` is how many bands the chain was built for, which does not change
+ * while it is running, so the table is always the same length and a band
+ * that is off is a table entry rather than a graph edit. A section the
+ * slope does not need, and a band that is switched off, both get a peak
+ * with no gain: m1 comes out zero, so the section passes its input through
+ * exactly, and its corner is already where that band lives for when it
+ * comes back.
+ *
+ * Its resonance is deliberately not the band's. A cut states resonance in
+ * decibels and a peak states it as a plain Q, so a high-pass at the usual
+ * -3.0103 would arrive as a peak of Q -3.0103 - a negative k, which is not
+ * a transparent filter but an unstable one.
+ */
+export function sectionTable(bands, slots, rate) {
+  // Doubles, not floats. Thirty-two bits would cost 120 bytes a frame less
+  // and make the audio thread's coefficients a rounding away from the ones
+  // the curve is drawn and scored from - which is the one thing this file
+  // exists to stop. The gap would be about a millionth of a decibel and
+  // utterly inaudible; it would also mean "the same arithmetic" was an
+  // approximation, and the test that checks it could no longer ask for zero.
+  const table = new Float64Array(slots * MOST_SECTIONS * 5);
+
+  for (let b = 0; b < slots; b += 1) {
+    const band = bands[b];
+    const through = { type: 'peaking', frequency: band?.frequency ?? 1000, gain: 0, q: 1 };
+    const sections = band && band.on !== false ? sectionsOf(band) : [];
+
+    for (let s = 0; s < MOST_SECTIONS; s += 1) {
+      const { g, k, m0, m1, m2 } = svfOf(sections[s] ?? through, rate);
+      const i = (b * MOST_SECTIONS + s) * 5;
+      table[i] = g; table[i + 1] = k;
+      table[i + 2] = m0; table[i + 3] = m1; table[i + 4] = m2;
+    }
+  }
+
+  return table;
 }
 
 /** What one biquad does at one frequency, in decibels. */

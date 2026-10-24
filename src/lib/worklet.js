@@ -15,6 +15,12 @@
 /**
  * A worklet module, as source.
  *
+ * `parts` are the functions themselves, as source. They have to be function
+ * declarations: `toString` of an arrow assigned to a const carries no name
+ * with it, so the audio thread gets the body as a bare expression and
+ * nothing bound to call it. It fails inside a worklet, where a stack trace
+ * is a line number in a blob.
+ *
  * `constants` are the module-level values the functions read, written out as
  * a table rather than spelled into a template, for two reasons. The values
  * come from the real constants, so the audio thread cannot drift from the
