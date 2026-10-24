@@ -83,14 +83,21 @@ export async function eqSections(ctx, bands, { start = null } = {}) {
  * at 40 takes a decibel and a half off 60, and the drawn curve leaves an off
  * band out entirely, so the sound has to as well or the two stop agreeing.
  *
+ * `autoGain` false leaves the trim at unity, so the level change the curve
+ * makes is audible instead of being taken back off.
+ *
  * `glide` false puts the whole chain where it was sent on the spot, trim and
  * all. That is what a render wants and what a performance does not: ten
  * milliseconds of a filter arriving is a knob not clicking when somebody
  * turns it, and it is also the first ten milliseconds of an offline render
  * measuring something other than the EQ it was asked for.
  */
-export function tuneSections(chain, bands, at, rate, weights, { glide = true } = {}) {
-  const lift = averageLift(bands, rate, weights);
+export function tuneSections(chain, bands, at, rate, weights,
+  { glide = true, autoGain = true } = {}) {
+  // Auto gain off is a real setting and not a display one: the trim sits at
+  // unity and the curve's own level change is left in, which is the only way
+  // to hear what six decibels of two kilohertz actually did to the level.
+  const lift = autoGain ? averageLift(bands, rate, weights) : 0;
   const gain = 10 ** (-lift / 20);
   if (glide) chain.trim.gain.setTargetAtTime(gain, at, 0.02);
   else chain.trim.gain.value = gain;

@@ -558,72 +558,100 @@ body, .sheet, .dock, .top-bar, dialog { transition: background-color 280ms ease,
    inverting it here would be style at the cost of legibility. Everything
    around it is the same cream and charcoal as the rest. */
 
-.eq-display {
-  position: relative;
-  background: var(--charcoal);
-  border: 1px solid var(--charcoal);
-  border-radius: 1px;
+/* The display is a row of named bays now, not one dark rectangle: the curve,
+   and the levels beside it, the way the compressor and the saturator already
+   read. `.eq-display` was itself the glass - dark, bezelled, a fixed height -
+   so a bay inside it was glass inside glass. The bezel lives on
+   `.plugin-panel` with the other five, and this is only the row. */
+.eq-meters { display: flex; gap: 14px; align-items: stretch; }
+.eq-bay { display: flex; flex-direction: column; min-width: 0; }
+.eq-bay-curve { flex: 1; }
+.eq-bay-levels { width: 58px; flex: none; }
+.eq-meters .plugin-panel {
+  flex: 1 1 auto;
   /* Tall enough to read a curve on, and it gives ground on a phone before the
      controls under it do. */
-  height: clamp(200px, 34vh, 320px);
-  overflow: hidden;
+  min-height: clamp(170px, 26vh, 260px);
 }
+.eq-meters canvas { display: block; width: 100%; height: 100%; }
+
+/* The analyser's own switches, on the curve's name rule. They change the
+   picture and nothing else, which is why they are up there with the picture
+   rather than down among the controls that change the sound - and on the
+   rule they cost no height at all. */
+.rule-kit { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
+.rule-kit .ab-btn { padding: 3px 7px; font-size: 8px; letter-spacing: 0.12em; }
+.eq-bay-curve > .panel-name { white-space: normal; overflow: visible; flex-wrap: wrap; }
 /* It takes focus, because the arrow keys move the selected band - so it has
    to be able to say that it has it. */
 .eq-canvas:focus-visible { outline: 2px solid var(--blush-deep); outline-offset: -2px; }
 
-.eq-bands { display: flex; flex-wrap: wrap; gap: 6px; }
-.band-btn {
-  flex: 1 1 auto;
-  min-width: 64px;
-  background: none;
-  border: 1px solid var(--line);
-  border-radius: 20px;
-  padding: 6px 10px 7px;
-  text-align: center;
+/* The six bands, as one milled rail across the face.
+
+   It was six buttons the width of a thumb, which at 430 px wrapped four and
+   two and read as something broken. Each segment carries the colour its
+   handle and its shaded region wear on the curve, in `--mark`, so picking a
+   band off the rail and picking it off the display are visibly one act. */
+.eq-rail {
+  display: flex;
+  border-radius: 2px;
+  overflow: hidden;
+  box-shadow: 0 0 0 1px var(--cut, var(--line)), 0 1px 0 var(--lift, transparent);
 }
-.band-btn:hover { border-color: var(--blush); }
-.band-short {
-  display: block;
-  font-family: var(--serif);
-  font-weight: 600;
-  font-size: 13px;
-  color: var(--charcoal);
-  letter-spacing: 0.04em;
+.rail-btn {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  border-left: 3px solid var(--mark);
+  cursor: pointer;
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  padding: 4px 8px 5px;
+  font-family: var(--sans);
+  background: var(--cream-2);
 }
-.band-hz {
-  display: block;
+.rail-btn + .rail-btn { box-shadow: -1px 0 0 var(--cut, var(--line)); }
+.rail-type {
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  font-weight: 500;
+  color: var(--text-soft);
+}
+.rail-hz {
   font-size: 9.5px;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.06em;
   color: var(--text-soft);
   font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.band-btn { border-left-width: 3px; }
-/* Each band's own colour, the same one its region is shaded in. */
-.band-btn[data-band="0"] { border-left-color: var(--rust); }
-.band-btn[data-band="1"] { border-left-color: var(--blush-deep); }
-.band-btn[data-band="2"] { border-left-color: var(--gold); }
-.band-btn[data-band="3"] { border-left-color: var(--approach); }
-.band-btn[data-band="4"] { border-left-color: var(--sage); }
-.band-btn[data-band="5"] { border-left-color: var(--enclosure); }
-.band-btn[aria-pressed="true"] { background: var(--charcoal); border-color: var(--charcoal); }
-.band-btn[aria-pressed="true"][data-band="0"] { border-left-color: var(--rust); }
-.band-btn[aria-pressed="true"][data-band="1"] { border-left-color: var(--blush-deep); }
-.band-btn[aria-pressed="true"][data-band="2"] { border-left-color: var(--gold); }
-.band-btn[aria-pressed="true"][data-band="3"] { border-left-color: var(--approach); }
-.band-btn[aria-pressed="true"][data-band="4"] { border-left-color: var(--sage); }
-.band-btn[aria-pressed="true"][data-band="5"] { border-left-color: var(--enclosure); }
-.band-btn[aria-pressed="true"] .band-short,
-.band-btn[aria-pressed="true"] .band-hz { color: var(--cream); }
+.rail-btn.is-on .rail-type { color: var(--mark); }
 
 /* What kind of band this is, and how steep it is if it is a cut. A row of
    states, so: pills, the same ones the A/B is made of. */
-.eq-shape {
+.eq-deck { display: flex; flex-direction: column; gap: 10px; }
+.eq-deck-head {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px 12px;
+  gap: 8px 18px;
 }
+.eq-deck-head .panel-name { margin: 0; }
+.deck-field { display: flex; align-items: center; gap: 7px; }
+.deck-field > span {
+  font-size: 7.5px;
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+  color: var(--text-soft);
+}
+/* A control this band does not take is dimmed where it stands, never taken
+   away: hiding it moved everything to its right every time somebody changed
+   a band's type, and a control that comes and goes is harder to find than
+   one that is simply not available. */
+.deck-field.is-idle,
+.knob.is-idle { opacity: 0.3; }
+.deck-field.is-idle .pick-btn { cursor: default; }
 .pick-row { display: flex; border: 1px solid var(--line); border-radius: 30px; overflow: hidden; }
 .pick-btn {
   background: none;
@@ -649,23 +677,36 @@ body, .sheet, .dock, .top-bar, dialog { transition: background-color 280ms ease,
   color: var(--text-soft);
 }
 
-/* The analyser's own settings. They change the picture and nothing else, so
-   they sit apart from the controls that change the sound. */
-.eq-analyser {
+/* The three knobs a band has, together in the middle rather than spread
+   across the width of the face. Three bays on an eight-bay grid left them
+   with a hand's width of nothing between each one. */
+.eq-knobs {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: 10px 14px;
+  justify-content: center;
+  gap: 10px 26px;
 }
+/* A bay's width is the width to aim for, not the width to insist on.
+   Three at 130 plus their gaps come to 418 and the right-hand column of the
+   landscape layout is 355, so the third knob went to a row of its own - and
+   `flex-shrink` does not save it, because a flex line is broken on the base
+   size and only what is left on a line is shrunk. So the base size is the
+   one that has to fit: never wider than a bay, never wider than a third of
+   the row. */
+.eq-knobs .knob { flex: 0 1 min(var(--deck, 92px), 30%); min-width: 76px; }
 
-.eq-controls {
-  display: grid;
-  /* Narrow enough that eight bays come out as one row at the widths this
-     is used at - a deck is a row, and a deck that wraps seven and one is
-     a form again. */
-  grid-template-columns: repeat(auto-fit, minmax(var(--deck, 92px), 1fr));
-  gap: 10px 6px;
-}
+/* The right of a title strip is what the plugin is doing and the left is
+   what it is - which `.plugin-trim` arranges by pushing itself over, and the
+   EQ no longer has one up there. The saturator's read stays left because a
+   control group follows it, and pushing the read over would strand the
+   group against the edge. */
+.eq .plugin-read { margin-left: auto; }
+
+/* The settings that are about the whole EQ rather than about one band. */
+.eq-set { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; }
+/* `.plugin-trim` pushes itself to the right of the title strip, which is
+   where it normally lives. Here it belongs against the switch it describes. */
+.eq-auto-read { margin-left: 6px; }
 
 /* The readout is a field you can type into, and has to keep looking like a
    readout: no box, no chrome, just the number - until it is being used. */
@@ -900,11 +941,20 @@ input.knob-value:focus {
 .ab-btn.is-on { background: var(--charcoal); color: var(--cream); }
 
 /* Once the round is over the bands stop moving, and the answer is on screen. */
-.eq.is-locked .eq-bands,
-.eq.is-locked .eq-controls { opacity: 0.5; pointer-events: none; }
+.eq.is-locked .eq-rail,
+.eq.is-locked .eq-deck-head,
+.eq.is-locked .eq-knobs { opacity: 0.5; pointer-events: none; }
 
 @container (max-width: 620px) {
-  .eq-display { height: clamp(150px, 26vh, 220px); }
+  .eq-meters .plugin-panel { min-height: clamp(150px, 24vh, 220px); }
+  /* The curve is the instant read and the meters are not, so the meters are
+     what gives ground. */
+  .eq-bay-levels { width: 44px; }
+  /* A sixth of 430 px is not wide enough for "PK" and "2.0k" side by side,
+     and what happened instead was every segment ellipsing its own frequency
+     away. Stacked, each one has the whole segment for both. */
+  .rail-btn { flex-direction: column; align-items: flex-start; gap: 0; }
+  .plugin .rail-btn { padding-inline: 7px; }
   /* The hint is for a keyboard, and there is not one. */
   .eq-hint { display: none; }
 }
@@ -1005,7 +1055,7 @@ input.knob-value:focus {
 /* A display sits on the body rather than in a strip of its own, so no rule
    above it - the title strip's own edge is already there. */
 .plugin > .plugin-panel,
-.plugin > .eq-display,
+.plugin > .eq-meters,
 .plugin > .comp-display,
 .plugin > .heat-display,
 .plugin > .stereo-display,
@@ -1021,8 +1071,7 @@ input.knob-value:focus {
 
 /* Every display is let into the chassis behind a bezel, which is what makes
    it read as glass in a hole rather than as a dark rectangle. */
-.plugin .plugin-panel,
-.plugin .eq-display {
+.plugin .plugin-panel {
   background: #211c1a;
   border: none;
   border-radius: 3px;
@@ -1033,6 +1082,7 @@ input.knob-value:focus {
     0 3px 9px rgba(0, 0, 0, 0.4) inset;
 }
 /* The bezel is drawn outside the box, so the boxes need room between them. */
+.plugin .eq-meters,
 .plugin .comp-display,
 .plugin .heat-display,
 .plugin .stereo-display,
@@ -1200,23 +1250,31 @@ input.knob-value:focus {
   box-shadow: 0 0 0 1px var(--cut), 0 1px 0 var(--lift), 0 2px 5px rgba(0, 0, 0, 0.35) inset;
 }
 
-/* The EQ's band buttons: the colour down the left is the band's own, which
-   is the one thing about them that must not change. */
-.plugin .band-btn {
-  border: none;
-  border-left: 3px solid;
-  border-radius: 2px;
+/* The EQ's band rail, milled into the chassis. The colour down the left of
+   each segment is that band's own and is the one thing about it that must
+   not change: it is what ties the segment to its handle and its shaded
+   region on the curve.
+
+   Two states, which are two different questions. `is-on` is whether the band
+   is in the circuit; `is-here` is whether it is the one the knobs are
+   driving. They are independent - you select a band that is off in order to
+   switch it on - so the first is carried by the colour and the second by the
+   segment standing proud of the rail. */
+.plugin .rail-btn {
   background: linear-gradient(180deg, #4b433d, #352e2b);
-  box-shadow: 0 0 0 1px var(--cut), 0 1px 0 var(--lift);
-  padding: 5px 9px 6px;
+  padding: 4px 9px 5px;
 }
-.plugin .band-btn[aria-pressed="true"] {
-  background: linear-gradient(180deg, var(--blush), var(--blush-deep));
+.plugin .rail-type { color: var(--ink-soft); }
+.plugin .rail-hz { color: var(--ink-faint); }
+.plugin .rail-btn:hover .rail-type { color: var(--ink); }
+.plugin .rail-btn.is-on .rail-type { color: var(--mark); }
+.plugin .rail-btn.is-on .rail-hz { color: var(--ink-soft); }
+.plugin .rail-btn.is-here {
+  background: linear-gradient(180deg, #5d544c, #463d39);
+  box-shadow: 0 1px 0 var(--lift) inset, -1px 0 0 var(--cut);
 }
-.plugin .band-short { color: var(--ink); }
-.plugin .band-hz { color: var(--ink-faint); }
-.plugin .band-btn[aria-pressed="true"] .band-short,
-.plugin .band-btn[aria-pressed="true"] .band-hz { color: #1a1615; }
+.plugin .rail-btn.is-here .rail-type { color: var(--ink); }
+.plugin .rail-btn.is-here.is-on .rail-type { color: var(--mark); }
 
 /* The readout fields in the EQ's bays, which are typed into. */
 .plugin input.knob-value { color: var(--ink); }
@@ -3220,7 +3278,7 @@ button.insert-name:hover { color: var(--charcoal); }
     /* The display takes the left column for as many rows as the deck needs.
        Spanning past the last of them costs nothing: the rows it opens are
        empty, and an empty row is no height at all. */
-    .plugin > .eq-display,
+    .plugin > .eq-meters,
     .plugin > .comp-display,
     .plugin > .heat-display,
     .plugin > .stereo-display,
@@ -3258,16 +3316,16 @@ button.insert-name:hover { color: var(--charcoal); }
     /* Three bays across, which at this column width is what fits without the
        numbers wrapping, and three is what makes the usual counts - three, six,
        eight - come out as whole rows. */
-    .plugin:not(.comp) .plugin-controls,
-    .plugin:not(.comp) .eq-controls { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; }
+    .plugin:not(.comp) .plugin-controls { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; }
+    .eq-knobs { gap: 8px 14px; }
     .knob { padding: 4px 6px 1px; }
     .knob-name { font-size: 9px; letter-spacing: 0.1em; }
     .knob-value { font-size: 13px; }
     .knob-dial { height: 17px; }
 
-    /* Six bands in a column this wide wrap five and one, and the one that is
-       left over stretches across the row looking like something else. Two
-       rows of three. */
-    .eq-bands { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; }
+    /* The rail is one strip of six whatever the width: the segments give
+       ground together rather than one of them being left over on a row of
+       its own, which is what the six separate buttons used to do. */
+    .plugin .rail-btn { padding-inline: 6px; }
  }
 }

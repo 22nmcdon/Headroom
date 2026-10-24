@@ -24,6 +24,7 @@ export class EQPlayer {
     this.strip = strip;
     this.source = null;
     this.hearing = 'mine';
+    this.auto = true;
     this.ready = false;
   }
 
@@ -51,6 +52,18 @@ export class EQPlayer {
     this.analyser.smoothingTimeConstant = this.ballistics ?? 0.72;
     this.analyser.connect(this.engine.out);
 
+    // What went in, so what comes out can be read against it. The output
+    // meter is the analyser itself: a level is taken from the time domain and
+    // a spectrum from the frequency domain, and the smoothing that makes the
+    // picture readable does not touch the samples.
+    //
+    // It is the one thing an EQ with auto gain has to show. Auto gain is
+    // quietly undoing the level change your curve made, which is what makes
+    // an A/B honest, and a face with no meters leaves you to take that on
+    // trust.
+    this.inMeter = ctx.createAnalyser();
+    this.inMeter.fftSize = 2048;
+
     this.mine = await this.chain(ctx);
     this.theirs = await this.chain(ctx);
 
@@ -71,6 +84,7 @@ export class EQPlayer {
     this.faultNode.gain.value = 0;
     this.faultNode.connect(this.mine.input);
     this.faultNode.connect(this.theirs.input);
+    this.faultNode.connect(this.inMeter);
     // Solo is taken before the EQ: the question it answers is what is in the
     // sample at that frequency, not what your bands have done to it.
     this.faultNode.connect(this.soloFilter);
@@ -101,20 +115,43 @@ export class EQPlayer {
   }
 
   /** The shared tuning, under the name this class has always called it. */
-  static tune(chain, bands, at, rate, weights) {
-    tuneSections(chain, bands, at, rate, weights);
+  static tune(chain, bands, at, rate, weights, how) {
+    tuneSections(chain, bands, at, rate, weights, how);
+  }
+
+  /** The tuning this player does, with its own auto gain switch on it. */
+  tune(chain, bands) {
+    const ctx = this.engine.ctx;
+    EQPlayer.tune(chain, bands, ctx.currentTime, ctx.sampleRate, this.weights,
+      { autoGain: this.auto });
+  }
+
+  /**
+   * Whether the trim takes the curve's level change back off.
+   *
+   * On, an A/B is a comparison of two curves; off, it is a comparison of two
+   * curves and the level each one happens to come with, which is the thing
+   * that makes the louder one win every time. Both are worth hearing, which
+   * is why the switch is on the face rather than the behaviour being picked
+   * once by whoever wrote it.
+   */
+  setAuto(on) {
+    this.auto = on;
+    if (!this.ready) return;
+    if (this.bands) this.tune(this.mine, this.bands);
+    if (this.targetBands) this.tune(this.theirs, this.targetBands);
   }
 
   setBands(bands) {
     if (!this.ready) return;
     this.bands = bands;
-    EQPlayer.tune(this.mine, bands, this.engine.ctx.currentTime, this.engine.ctx.sampleRate, this.weights);
+    this.tune(this.mine, bands);
   }
 
   setTarget(bands) {
     if (!this.ready) return;
     this.targetBands = bands;
-    EQPlayer.tune(this.theirs, bands, this.engine.ctx.currentTime, this.engine.ctx.sampleRate, this.weights);
+    this.tune(this.theirs, bands);
   }
 
   /** What the source is made of, so auto gain knows what a move is worth. */
@@ -222,6 +259,28 @@ export class EQPlayer {
   setBallistics(value) {
     this.ballistics = value;
     if (this.analyser) this.analyser.smoothingTimeConstant = value;
+  }
+
+  /**
+   * What is going in and what is coming out, in decibels.
+   *
+   * Peak rather than average, read off the time domain: a meter on an EQ is
+   * there to say whether the curve has pushed the signal somewhere it should
+   * not be, and that is a question about the peaks.
+   */
+  levels() {
+    if (!this.ready) return { input: -60, output: -60 };
+    const read = (analyser) => {
+      const frame = new Float32Array(analyser.fftSize);
+      analyser.getFloatTimeDomainData(frame);
+      let peak = 0;
+      for (const sample of frame) {
+        const level = sample < 0 ? -sample : sample;
+        if (level > peak) peak = level;
+      }
+      return 20 * Math.log10(peak + 1e-6);
+    };
+    return { input: read(this.inMeter), output: read(this.analyser) };
   }
 
   /** The spectrum, in dB, for drawing behind the curve. */

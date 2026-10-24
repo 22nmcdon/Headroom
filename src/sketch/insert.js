@@ -127,6 +127,13 @@ export function insertPlayer(ctx, effect, { transport = null, before = null } = 
     setBands(next) { effect.set(next); },
     setSettings(next) { effect.set(next); },
 
+    /**
+     * Auto gain, which belongs to the effect on the track rather than to the
+     * view of it. A face with the switch wired to nothing on an insert and to
+     * something in a tool is two plugins wearing one chassis.
+     */
+    setAuto(on) { effect.setAuto?.(on); },
+
     /* --- what is going through it --------------------------------------- */
 
     spectrum() {

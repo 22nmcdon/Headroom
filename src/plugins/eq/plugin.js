@@ -1,6 +1,7 @@
 import {
   BAND_TYPES, SLOPES, RESTING_Q, FLAT_CORNER,
   averageLift, contributionOf, curveOf, curveReading, logFrequencies, shortHz, exactHz,
+  JUDGED_HZ, writeHz,
 } from './filters.js';
 import { EQPlayer } from './player.js';
 import { stampOf } from '../../lib/read.js';
@@ -30,15 +31,15 @@ const toDb = (y, height) => ((height / 2 - y) / (height / 2)) * RANGE;
  * is why every analyser has the switch.
  */
 const TILTS = [
-  { value: 0, label: 'Flat' },
-  { value: 3, label: '3 dB/oct' },
-  { value: 4.5, label: '4.5 dB/oct' },
+  { value: 0, label: 'Flat', short: 'Flat' },
+  { value: 3, label: '3 dB/oct', short: '3' },
+  { value: 4.5, label: '4.5 dB/oct', short: '4.5' },
 ];
 
 const BALLISTICS = [
-  { value: 0.45, label: 'Fast' },
-  { value: 0.72, label: 'Medium' },
-  { value: 0.93, label: 'Slow' },
+  { value: 0.45, label: 'Fast', short: 'Fast' },
+  { value: 0.72, label: 'Medium', short: 'Med' },
+  { value: 0.93, label: 'Slow', short: 'Slow' },
 ];
 
 /** How close a handle may come to the wall of the display. */
@@ -82,6 +83,7 @@ function palette(el) {
     paper: read('--paper'),
     sage: read('--sage'),
     gold: read('--gold'),
+    rust: read('--rust'),
   };
 }
 
@@ -124,6 +126,7 @@ export class EQPlugin {
     this.role = role;
     this.player = player ?? new EQPlayer(engine, this.bands);
     this.interactive = true;
+    this.autoGain = true; // whether the trim takes the curve's lift back off
     this.tilt = 0;        // decibels per octave added to the drawn spectrum
     this.holding = false; // whether the peaks are being held
     this.held = null;     // and where they have got to
@@ -139,61 +142,97 @@ export class EQPlugin {
   /* ---------- the furniture ---------- */
 
   build() {
-    this.el.innerHTML = `
+    // Everything a host does, outside the chassis. Choosing the material,
+    // starting it, comparing against a target: none of that is an
+    // equaliser's, and a channel EQ with a Sample menu screwed to its face is
+    // not one anybody would recognise. The sketchpad is its own host and has
+    // these already, so an insert gets none of it.
+    //
+    // Flatten went out with them rather than away, which is where the
+    // saturator's Reset sits for the same reason: most plugins have no reset
+    // at all - they have presets, and you reset by recalling one - so a
+    // button that silently undoes six bands of work does not belong on the
+    // face, and it does belong with the furniture that is about running an
+    // exercise. An insert has neither, because a track's EQ is undone with
+    // the sketchpad's own undo.
+    const host = this.role === 'insert' ? '' : `
+      <div class="eq-transport eq-host">
+        <button class="play-btn" type="button" data-eq="play">Play</button>
+        <div class="eq-ab" role="group" aria-label="What you are hearing">
+          <button class="ab-btn is-on" type="button" data-hear="mine">Yours</button>
+          <button class="ab-btn" type="button" data-hear="theirs" id="eqOther">Target</button>
+        </div>
+        <label class="field">
+          <span class="field-label">Sample</span>
+          <select id="eqSource">
+            <option value="mix">Full mix</option>
+            <option value="drums">Drums</option>
+            <option value="instrument">Keys</option>
+            <option value="noise">Pink noise</option>
+            <option value="yours" id="eqYours" hidden>Your own</option>
+          </select>
+        </label>
+        <label class="file-btn">Open a file<input type="file" id="eqFile" accept="audio/*"></label>
+        <button class="link-btn" type="button" data-eq="flatten">Flatten</button>
+      </div>`;
+
+    this.el.innerHTML = `${host}
       <div class="plugin eq${this.role === 'insert' ? ' is-insert' : ''}">
         <div class="plugin-head">
+          <span class="plugin-lamp"></span>
           <span class="plugin-name">Channel EQ</span>
-          <span class="plugin-trim" id="eqTrim"></span>
           <span class="plugin-read" id="eqRead"></span>
         </div>
-        <div class="plugin-panel eq-display">
-          <canvas class="eq-canvas" id="eqCanvas" tabindex="0"
-                  aria-label="The curve. Arrow keys move the selected band."></canvas>
-        </div>
-        <div class="eq-bands" id="eqBands"></div>
-        <div class="eq-shape" id="eqShape"></div>
-        <div class="eq-controls" id="eqControls"></div>
-        <div class="eq-analyser">
-          <span class="panel-name">Analyser</span>
-          <label class="field">
-            <span class="field-label">Tilt</span>
-            <select id="eqTilt">
-              ${TILTS.map((tilt) => `<option value="${tilt.value}">${tilt.label}</option>`).join('')}
-            </select>
-          </label>
-          <label class="field">
-            <span class="field-label">Ballistics</span>
-            <select id="eqBallistics">
-              ${BALLISTICS.map((b) => `<option value="${b.value}"${b.value === 0.72 ? ' selected' : ''}>${b.label}</option>`).join('')}
-            </select>
-          </label>
-          <label class="toggle"><input type="checkbox" id="eqHold"> Peak hold</label>
-        </div>
-        <div class="eq-transport">
-          <button class="play-btn" type="button" data-eq="play">Play</button>
-          <div class="eq-ab" role="group" aria-label="What you are hearing">
-            <button class="ab-btn is-on" type="button" data-hear="mine">Yours</button>
-            <button class="ab-btn" type="button" data-hear="theirs" id="eqOther">Target</button>
+
+        <div class="eq-meters">
+          <div class="eq-bay eq-bay-curve">
+            <span class="panel-name">Curve
+              <span class="rule-kit">
+                <div class="eq-ab" role="group" aria-label="Analyser tilt" id="eqTilt">
+                  ${TILTS.map((tilt) => `<button class="ab-btn${tilt.value === 0 ? ' is-on' : ''}"
+                    type="button" data-tilt="${tilt.value}" title="${tilt.label}">${tilt.short}</button>`).join('')}
+                </div>
+                <div class="eq-ab" role="group" aria-label="Analyser ballistics" id="eqBallistics">
+                  ${BALLISTICS.map((b) => `<button class="ab-btn${b.value === 0.72 ? ' is-on' : ''}"
+                    type="button" data-ballistics="${b.value}" title="${b.label}">${b.short}</button>`).join('')}
+                </div>
+                <div class="eq-ab" role="group" aria-label="Hold the peaks">
+                  <button class="ab-btn" type="button" data-eq="hold" aria-pressed="false">Hold</button>
+                </div>
+              </span>
+            </span>
+            <div class="plugin-panel">
+              <canvas class="eq-canvas" id="eqCanvas" tabindex="0"
+                      aria-label="The curve. Arrow keys move the selected band."></canvas>
+            </div>
           </div>
-          <button class="ab-btn solo-btn" type="button" data-eq="solo" aria-pressed="false">Solo band</button>
-          <label class="field">
-            <span class="field-label">Sample</span>
-            <select id="eqSource">
-              <option value="mix">Full mix</option>
-              <option value="drums">Drums</option>
-              <option value="instrument">Keys</option>
-              <option value="noise">Pink noise</option>
-              <option value="yours" id="eqYours" hidden>Your own</option>
-            </select>
+          <div class="eq-bay eq-bay-levels">
+            <span class="panel-name">Lvl</span>
+            <div class="plugin-panel"><canvas id="eqLevels"></canvas></div>
+          </div>
+        </div>
+
+        <div class="eq-deck">
+          <div class="eq-deck-head" id="eqShape"></div>
+          <div class="eq-rail" id="eqBands" role="group" aria-label="The six bands"></div>
+          <div class="eq-knobs" id="eqControls"></div>
+        </div>
+
+        <div class="eq-set">
+          <label class="toggle">
+            <input type="checkbox" id="eqAuto" checked>
+            Auto gain
+            <span class="plugin-trim eq-auto-read" id="eqAutoRead"></span>
           </label>
-          <label class="file-btn">Open a file<input type="file" id="eqFile" accept="audio/*"></label>
-          <button class="link-btn" type="button" data-eq="flatten">Flatten</button>
+          <button class="ab-btn solo-btn" type="button" data-eq="solo" aria-pressed="false">Solo band</button>
         </div>
       </div>`;
 
     this.canvas = this.el.querySelector('#eqCanvas');
+    this.levels = this.el.querySelector('#eqLevels');
     this.readout = this.el.querySelector('#eqRead');
-    this.el.querySelector('#eqSource').value = this.monitoring;
+    const picker = this.el.querySelector('#eqSource');
+    if (picker) picker.value = this.monitoring;
 
     this.buildBandButtons();
     this.buildShape();
@@ -201,12 +240,22 @@ export class EQPlugin {
     this.wire();
   }
 
+  /**
+   * The six bands, as one milled rail.
+   *
+   * It was six buttons the width of a thumb, which at 430 px wrapped four and
+   * two and read as something broken. A rail is the same six choices in one
+   * strip the width of the face, each one carrying the colour its handle and
+   * its region wear on the curve - so picking a band off the rail and picking
+   * it off the display are visibly the same act.
+   */
   buildBandButtons() {
     this.el.querySelector('#eqBands').innerHTML = this.bands.map((band, i) => `
-      <button class="band-btn" type="button" data-band="${i}"
+      <button class="rail-btn${band.on ? ' is-on' : ''}${i === this.selected ? ' is-here' : ''}"
+              type="button" data-band="${i}" style="--mark: var(${BAND_TINTS[i % BAND_TINTS.length]})"
               aria-pressed="${band.on ? 'true' : 'false'}">
-        <span class="band-short">${BAND_TYPES[band.type].short}</span>
-        <span class="band-hz">${shortHz(band.frequency)}</span>
+        <span class="rail-type">${BAND_TYPES[band.type].short}</span>
+        <span class="rail-hz">${shortHz(band.frequency)}</span>
       </button>`).join('');
   }
 
@@ -217,35 +266,90 @@ export class EQPlugin {
    * band being any type is a parametric EQ, which is what the display already
    * draws and what the scoring already reads - the curve does not care how
    * you arrived at it.
+   *
+   * Slope is here rather than on the deck because it is three values, and
+   * three buttons say that where a knob with three detents would not. It is
+   * dimmed rather than hidden on a band that has no slope: hiding it moved
+   * everything to its right every time somebody changed a band's type, and a
+   * control that comes and goes is harder to find than one that is simply
+   * not available.
    */
   buildShape() {
     const band = this.bands[this.selected];
     const cut = Boolean(BAND_TYPES[band.type].resonance);
 
     this.el.querySelector('#eqShape').innerHTML = `
-      <span class="panel-name">Type</span>
-      <div class="pick-row" role="group" aria-label="Band type">
-        ${Object.entries(BAND_TYPES).map(([id, type]) => `
-          <button class="pick-btn" type="button" data-type="${id}"
-                  aria-pressed="${id === band.type}" title="${type.label}">${type.short}</button>`).join('')}
+      <span class="panel-name">Band</span>
+      <div class="deck-field">
+        <span>Type</span>
+        <div class="pick-row" role="group" aria-label="Band type">
+          ${Object.entries(BAND_TYPES).map(([id, type]) => `
+            <button class="pick-btn" type="button" data-type="${id}"
+                    aria-pressed="${id === band.type}" title="${type.label}">${type.short}</button>`).join('')}
+        </div>
       </div>
-      <span class="panel-name" ${cut ? '' : 'hidden'}>Slope</span>
-      <div class="pick-row" role="group" aria-label="Slope" ${cut ? '' : 'hidden'}>
-        ${SLOPES.map((slope) => `
-          <button class="pick-btn" type="button" data-slope="${slope}"
-                  aria-pressed="${slope === (band.slope ?? 12)}">${slope}</button>`).join('')}
+      <div class="deck-field${cut ? '' : ' is-idle'}">
+        <span>Slope</span>
+        <div class="pick-row" role="group" aria-label="Slope">
+          ${SLOPES.map((slope) => `
+            <button class="pick-btn" type="button" data-slope="${slope}" ${cut ? '' : 'disabled'}
+                    aria-pressed="${cut && slope === (band.slope ?? 12)}">${slope}</button>`).join('')}
+        </div>
       </div>
-      <span class="eq-hint">arrows nudge · shift for fine · [ ] for Q</span>`;
+      <span class="eq-hint">1&ndash;6 picks a band · arrows nudge · shift for fine · [ ] for Q</span>`;
   }
 
+  /**
+   * The three knobs a band has, in the order a band is read.
+   *
+   * Three slots, always three, and the one that does not apply is dimmed
+   * where it stands rather than taken out. The row used to be built from
+   * whichever controls the type happened to have, so it changed width and
+   * re-centred itself under the pointer every time somebody switched a bell
+   * to a high-pass.
+   *
+   * The third slot is the one that moves: a bell has a Q, a cut has a
+   * resonance stated in decibels, and a shelf has neither - the filter will
+   * take a Q for a shelf now that it is this app's own rather than a
+   * BiquadFilterNode, but nothing on the face offers one yet, so for a shelf
+   * the slot is dark.
+   *
+   * The readouts are fields, not labels. A slider is how you find a
+   * frequency and a terrible way to state one: somebody who knows they want
+   * 3.15k should be able to say so, and get 3.15k rather than whatever
+   * 3.15k is to the nearest pixel.
+   */
   buildControls() {
     const band = this.bands[this.selected];
     const type = BAND_TYPES[band.type];
 
-    // The readouts are fields, not labels. A slider is how you find a
-    // frequency and a terrible way to state one: somebody who knows they want
-    // 3.15k should be able to say so, and get 3.15k rather than whatever
-    // 3.15k is to the nearest pixel.
+    const third = type.q
+      ? `
+      <div class="knob">
+        <label class="knob-name" for="eqQ">Q</label>
+        <input class="knob-value" id="eqQValue" data-entry="q" type="text"
+               inputmode="decimal" spellcheck="false" value="${band.q.toFixed(2)}" aria-label="Q">
+        <input class="knob-dial" type="range" id="eqQ" min="${Math.log2(0.4)}" max="${Math.log2(12)}"
+               step="0.01" value="${Math.log2(Math.max(0.4, band.q))}" aria-label="Q">
+      </div>`
+      : type.resonance
+        ? `
+      <div class="knob">
+        <label class="knob-name" for="eqRes">Resonance</label>
+        <input class="knob-value" id="eqResValue" data-entry="resonance" type="text"
+               inputmode="decimal" spellcheck="false"
+               value="${band.q > 0 ? '+' : ''}${band.q.toFixed(1)} dB" aria-label="Resonance, in decibels">
+        <input class="knob-dial" type="range" id="eqRes" min="-${RANGE}" max="${MOST_RESONANCE}" step="0.1"
+               value="${band.q}" aria-label="Resonance">
+      </div>`
+        : `
+      <div class="knob is-idle">
+        <span class="knob-name">Q</span>
+        <output class="knob-value">&mdash;</output>
+        <input class="knob-dial" type="range" min="0" max="1" step="0.01" value="0.5" disabled
+               aria-label="Q, which a shelf does not take">
+      </div>`;
+
     this.el.querySelector('#eqControls').innerHTML = `
       <div class="knob">
         <label class="knob-name" for="eqFreq">Frequency</label>
@@ -255,29 +359,22 @@ export class EQPlugin {
         <input class="knob-dial" type="range" id="eqFreq" min="${Math.log2(LOW)}" max="${Math.log2(HIGH)}"
                step="0.01" value="${Math.log2(band.frequency)}" aria-label="Frequency">
       </div>
-      <div class="knob" ${type.gain ? '' : 'hidden'}>
+      ${type.gain ? `
+      <div class="knob">
         <label class="knob-name" for="eqGain">Gain</label>
         <input class="knob-value" id="eqGainValue" data-entry="gain" type="text"
                inputmode="decimal" spellcheck="false" value="${band.gain.toFixed(1)} dB"
                aria-label="Gain, in decibels">
         <input class="knob-dial" type="range" id="eqGain" min="-${RANGE}" max="${RANGE}" step="0.1"
                value="${band.gain}" aria-label="Gain">
-      </div>
-      <div class="knob" ${type.q ? '' : 'hidden'}>
-        <label class="knob-name" for="eqQ">Q</label>
-        <input class="knob-value" id="eqQValue" data-entry="q" type="text"
-               inputmode="decimal" spellcheck="false" value="${band.q.toFixed(2)}" aria-label="Q">
-        <input class="knob-dial" type="range" id="eqQ" min="${Math.log2(0.4)}" max="${Math.log2(12)}"
-               step="0.01" value="${Math.log2(Math.max(0.4, band.q))}" aria-label="Q">
-      </div>
-      <div class="knob" ${type.resonance ? '' : 'hidden'}>
-        <label class="knob-name" for="eqRes">Resonance</label>
-        <input class="knob-value" id="eqResValue" data-entry="resonance" type="text"
-               inputmode="decimal" spellcheck="false"
-               value="${band.q > 0 ? '+' : ''}${band.q.toFixed(1)} dB" aria-label="Resonance, in decibels">
-        <input class="knob-dial" type="range" id="eqRes" min="-${RANGE}" max="${MOST_RESONANCE}" step="0.1"
-               value="${band.q}" aria-label="Resonance">
-      </div>`;
+      </div>` : `
+      <div class="knob is-idle">
+        <span class="knob-name">Gain</span>
+        <output class="knob-value">&mdash;</output>
+        <input class="knob-dial" type="range" min="0" max="1" step="0.01" value="0.5" disabled
+               aria-label="Gain, which a cut does not take">
+      </div>`}
+      ${third}`;
 
     dressKnobs(this.el);
   }
@@ -310,8 +407,7 @@ export class EQPlugin {
   /* ---------- working it ---------- */
 
   wire() {
-    const bands = this.el.querySelector('#eqBands');
-    bands.addEventListener('click', (e) => {
+    this.el.querySelector('#eqBands').addEventListener('click', (e) => {
       const button = e.target.closest('[data-band]');
       if (!button || !this.interactive) return;
 
@@ -381,6 +477,37 @@ export class EQPlugin {
     this.canvas.addEventListener('pointercancel', (e) => this.drop(e));
     this.canvas.addEventListener('wheel', (e) => this.wheel(e), { passive: false });
 
+    // The analyser's own switches, which are switches now rather than a row
+    // of dropdowns labelled ANALYSER. They sit on the display's name rule,
+    // where an analyser's furniture belongs and where it costs no height.
+    const pressed = (group, button) => {
+      for (const other of group.querySelectorAll('.ab-btn')) {
+        other.classList.toggle('is-on', other === button);
+      }
+    };
+
+    this.el.querySelector('#eqTilt').addEventListener('click', (e) => {
+      const button = e.target.closest('[data-tilt]');
+      if (!button) return;
+      pressed(e.currentTarget, button);
+      this.tilt = Number(button.dataset.tilt);
+      this.held = null;
+      this.draw();
+    });
+
+    this.el.querySelector('#eqBallistics').addEventListener('click', (e) => {
+      const button = e.target.closest('[data-ballistics]');
+      if (!button) return;
+      pressed(e.currentTarget, button);
+      this.player.setBallistics(Number(button.dataset.ballistics));
+    });
+
+    this.el.querySelector('#eqAuto').addEventListener('change', (e) => {
+      this.autoGain = e.target.checked;
+      this.player.setAuto?.(this.autoGain);
+      this.writeReadout();
+    });
+
     this.el.addEventListener('click', (e) => {
       const hear = e.target.closest('[data-hear]');
       if (hear) {
@@ -399,29 +526,22 @@ export class EQPlugin {
         for (const band of this.bands) { band.gain = 0; band.on = false; }
         this.changed();
       }
+      if (action.dataset.eq === 'hold') {
+        this.holding = !this.holding;
+        action.classList.toggle('is-on', this.holding);
+        action.setAttribute('aria-pressed', this.holding ? 'true' : 'false');
+        this.held = null;
+        this.draw();
+      }
     });
 
+    // The host's furniture only exists when there is a host. An insert is
+    // handed a track's transport and a track's material, so it has neither
+    // of these and asking for them is a TypeError at build time.
     this.el.querySelector('#eqSource')
-      .addEventListener('change', (e) => this.setSource(e.target.value));
-
-    this.el.querySelector('#eqTilt').addEventListener('change', (e) => {
-      this.tilt = Number(e.target.value);
-      this.held = null;
-      this.draw();
-    });
-
-    this.el.querySelector('#eqBallistics').addEventListener('change', (e) => {
-      this.player.setBallistics(Number(e.target.value));
-    });
-
-    this.el.querySelector('#eqHold').addEventListener('change', (e) => {
-      this.holding = e.target.checked;
-      this.held = null;
-      this.draw();
-    });
-
+      ?.addEventListener('change', (e) => this.setSource(e.target.value));
     this.el.querySelector('#eqFile')
-      .addEventListener('change', (e) => this.loadFile(e.target.files?.[0]));
+      ?.addEventListener('change', (e) => this.loadFile(e.target.files?.[0]));
 
     this.resize = () => this.draw();
     this.unwatch = watchSize(this.el, this.resize);
@@ -645,7 +765,12 @@ export class EQPlugin {
 
   /** The transport's own state, in one place. */
   playing(on) {
-    this.el.querySelector('[data-eq="play"]').textContent = on ? 'Stop' : 'Play';
+    // Only when there is one to label. The Play button went outside the
+    // chassis with the rest of the host's furniture, which for an insert
+    // means it is not built at all rather than built and hidden - and an
+    // insert calls this as it opens, so this threw on every one.
+    const button = this.el.querySelector('[data-eq="play"]');
+    if (button) button.textContent = on ? 'Stop' : 'Play';
 
     cancelAnimationFrame(this.frame);
     this.frame = null;
@@ -704,6 +829,7 @@ export class EQPlugin {
     if (this.target) this.drawCurve(c, width, height, this.target, ink.sage, 2, [6, 4]);
     this.drawCurve(c, width, height, this.bands, ink.accent, 2.5);
     this.drawNodes(c, width, height, ink);
+    this.drawLevels(ink);
     this.writeReadout();
   }
 
@@ -792,9 +918,22 @@ export class EQPlugin {
   }
 
   /**
-   * What each band is doing, on its own, shaded from the line it moves away
-   * from - so a curve made of several bands can be read as the bands that
-   * made it rather than as one shape nobody can take apart.
+   * What each band is doing, measured from the curve rather than from zero.
+   *
+   * Every band draws the same thing: the curve as it would be without that
+   * band. It meets the curve wherever the band does nothing, so it is always
+   * attached to it, and the gap between the two is exactly what that band is
+   * contributing there - which is the question somebody looking at a band's
+   * shape is asking. Not "what would this bell do on its own" but "which part
+   * of this curve is the bell's".
+   *
+   * It used to be drawn from the zero line, which is what a band does alone,
+   * and nothing about it touched the curve: a +8 bell under a +5 shelf drew a
+   * shape that stopped 1.4 dB short of the line above it and read as
+   * floating. It also meant a cut drew a flat line along zero across the
+   * whole display, because above its corner a high-pass contributes nothing -
+   * where the curve without a high-pass, above its corner, simply is the
+   * curve.
    *
    * The band being worked on is held a little stronger than the rest, which
    * saves hunting for which region belongs to the handle under the pointer.
@@ -802,38 +941,49 @@ export class EQPlugin {
   drawRegions(c, width, height, ink) {
     const points = Math.max(120, Math.round(width / 3));
     const frequencies = logFrequencies(points, LOW, HIGH);
-    const zero = toY(0, height);
+    const rate = this.rate();
+    const whole = curveOf(this.bands, frequencies, rate);
+    const at = (n) => (n / (points - 1)) * width;
 
     this.bands.forEach((band, i) => {
       if (band.on === false) return;
 
-      const curve = curveOf([band], frequencies, this.rate());
+      const own = curveOf([band], frequencies, rate);
       let moves = false;
-
-      c.beginPath();
-      c.moveTo(0, zero);
-      for (let n = 0; n < points; n += 1) {
-        if (Math.abs(curve[n]) > 0.05) moves = true;
-        c.lineTo((n / (points - 1)) * width, toY(curve[n], height));
-      }
-      c.lineTo(width, zero);
-      c.closePath();
-
-      // A band sitting at unity has no region: there is nothing between it
-      // and the line.
+      for (let n = 0; n < points; n += 1) if (Math.abs(own[n]) > 0.05) { moves = true; break; }
+      // A band sitting at unity has no shape: there is nothing between the
+      // curve and the curve without it.
       if (!moves) return;
 
       const tint = ink.tints[i % ink.tints.length];
+      const here = i === this.selected;
+      const type = BAND_TYPES[band.type];
 
-      c.fillStyle = tint;
-      c.globalAlpha = i === this.selected ? 0.36 : 0.15;
-      c.fill();
+      // Cuts get the line and no shading. What a high-pass takes away goes to
+      // minus infinity, so the region between the two edges is most of the
+      // display - and what it is telling you is where the corner is, not how
+      // much floor there is below it.
+      if (!type.resonance) {
+        c.beginPath();
+        c.moveTo(0, toY(whole[0], height));
+        for (let n = 1; n < points; n += 1) c.lineTo(at(n), toY(whole[n], height));
+        for (let n = points - 1; n >= 0; n -= 1) c.lineTo(at(n), toY(whole[n] - own[n], height));
+        c.closePath();
+        c.fillStyle = tint;
+        c.globalAlpha = here ? 0.4 : 0.16;
+        c.fill();
+      }
 
-      // Its own edge, drawn faintly. Without it, two regions that overlap are
-      // one wash and there is no telling which band is doing what.
+      // Its own edge, drawn as a line. Without it, two regions that overlap
+      // are one wash and there is no telling which band is doing what.
+      c.beginPath();
+      for (let n = 0; n < points; n += 1) {
+        const y = toY(whole[n] - own[n], height);
+        if (n === 0) c.moveTo(0, y); else c.lineTo(at(n), y);
+      }
       c.strokeStyle = tint;
-      c.globalAlpha = i === this.selected ? 0.9 : 0.45;
-      c.lineWidth = 1;
+      c.globalAlpha = here ? 0.9 : 0.5;
+      c.lineWidth = here ? 1.5 : 1;
       c.stroke();
       c.globalAlpha = 1;
     });
@@ -857,6 +1007,48 @@ export class EQPlugin {
     c.lineJoin = 'round';
     c.stroke();
     c.setLineDash([]);
+  }
+
+  /**
+   * What went in against what is coming out.
+   *
+   * The one meter an equaliser with auto gain has to have. Auto gain is
+   * quietly undoing the level change the curve made - which is the only
+   * thing that makes an A/B a comparison of two curves rather than of two
+   * levels - and a face with no meters leaves somebody to take that on
+   * trust. Switch it off and the two bars part by exactly the number in the
+   * header.
+   */
+  drawLevels(ink) {
+    const stage = readyCanvas(this.levels);
+    if (!stage) return;
+    const { c, width, height } = stage;
+
+    const { input, output } = this.player.levels?.() ?? { input: -60, output: -60 };
+    const top = 10;
+    const floor = height - 14;
+    const run = floor - top;
+    const bars = [['in', input], ['out', output]];
+
+    const lane = width / bars.length;
+    const bar = Math.min(16, lane - 6);
+
+    bars.forEach(([label, db], i) => {
+      const level = Math.max(0, Math.min(1, (db + 60) / 60));
+      const x = i * lane + (lane - bar) / 2;
+
+      c.fillStyle = 'rgba(250, 246, 240, 0.09)';
+      c.fillRect(x, top, bar, run);
+
+      const length = level * run;
+      c.fillStyle = db > -1 ? ink.rust : ink.soft;
+      c.fillRect(x, floor - length, bar, length);
+
+      c.fillStyle = ink.soft;
+      c.font = '9px system-ui, sans-serif';
+      c.textAlign = 'center';
+      c.fillText(label, i * lane + lane / 2, height - 3);
+    });
   }
 
   drawNodes(c, width, height, ink) {
@@ -894,22 +1086,42 @@ export class EQPlugin {
 
   writeReadout() {
     // What auto gain is taking back off, said out loud: it is doing something
-    // to what you hear, so it should not be doing it invisibly. It keeps its
-    // place whatever is loaded - the file's name belongs on the thing that
-    // chose it, not in front of the number.
+    // to what you hear, so it should not be doing it invisibly. Beside the
+    // switch that sets it, and nowhere else - it was in the title strip as
+    // well for a while, which is the same number twice and a reader checking
+    // whether the two agree.
+    const auto = this.autoGain;
     const lift = averageLift(this.bands, this.rate(), this.player.weights);
-    this.el.querySelector('#eqTrim').textContent = Math.abs(lift) < 0.1
-      ? 'auto gain · none'
-      : `auto gain · ${lift > 0 ? '−' : '+'}${Math.abs(lift).toFixed(1)} dB`;
+    this.el.querySelector('#eqAutoRead').textContent = !auto
+      ? 'off'
+      : Math.abs(lift) < 0.1 ? 'none' : `${lift > 0 ? '−' : '+'}${Math.abs(lift).toFixed(1)} dB`;
 
-    const band = this.bands[this.selected];
-    const type = BAND_TYPES[band.type];
-    const parts = [type.label, `${shortHz(band.frequency)} Hz`];
-    if (type.resonance) parts.push(`${band.slope ?? 12} dB/oct`);
-    if (type.gain) parts.push(`${band.gain > 0 ? '+' : ''}${band.gain.toFixed(1)} dB`);
-    if (type.q) parts.push(`Q ${band.q.toFixed(2)}`);
-    if (type.resonance) parts.push(`res ${band.q > 0 ? '+' : ''}${band.q.toFixed(1)} dB`);
-    this.readout.textContent = band.on ? parts.join(' · ') : `${type.label} · off`;
+    // The headline is a measurement of the curve rather than a restatement of
+    // the knobs under it: the knobs say what the selected band is set to, and
+    // saying it twice is not a reading.
+    //
+    // The most it lifts and the most it cuts, with where. It was the single
+    // worst point - `curveGap` against a flat curve, the same instrument the
+    // exercise marks with - and that reads well on paper and badly on a face,
+    // because a high-pass beats every boost an EQ will ever have and a strip
+    // usually has one. What you got was the corner of the high-pass, every
+    // time, pinned to 30 Hz, which is not a feature of the curve at all: it
+    // is where the judged range stops. Two numbers both move.
+    const curve = this.read().values;
+    const hz = JUDGED_HZ;
+    let up = 0;
+    let upAt = 0;
+    let down = 0;
+    let downAt = 0;
+    for (let i = 0; i < curve.length; i += 1) {
+      if (curve[i] > up) { up = curve[i]; upAt = hz[i]; }
+      if (curve[i] < down) { down = curve[i]; downAt = hz[i]; }
+    }
+
+    const said = [];
+    if (up >= 0.1) said.push(`+${up.toFixed(1)} dB at ${writeHz(upAt)}`);
+    if (down <= -0.1) said.push(`−${Math.abs(down).toFixed(1)} dB at ${writeHz(downAt)}`);
+    this.readout.textContent = said.length ? said.join(' · ') : 'flat';
   }
 
   /* ---------- what the round does to it ---------- */

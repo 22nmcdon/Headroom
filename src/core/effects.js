@@ -74,7 +74,12 @@ async function eqEffect(ctx, { bands = newStrip(), slots = null } = {}) {
   chain.trim.connect(out);
   let current = bands;
 
-  const tune = (at = ctx.currentTime) => tuneSections(chain, current, at, ctx.sampleRate);
+  // Auto gain is a setting of this effect, not a fact about it: a plugin
+  // face has a switch for it, and a switch that does nothing on a track and
+  // something in a tool is a worse plugin than one with no switch at all.
+  let auto = true;
+  const tune = (at = ctx.currentTime, how) =>
+    tuneSections(chain, current, at, ctx.sampleRate, null, { autoGain: auto, ...how });
 
   return {
     id: 'eq',
@@ -82,6 +87,12 @@ async function eqEffect(ctx, { bands = newStrip(), slots = null } = {}) {
     out,
     slots: size,
     params: () => current.map((band) => ({ ...band })),
+    /** Whether the trim takes the curve's own level change back off. */
+    setAuto(on) {
+      auto = on !== false;
+      tune();
+      return this;
+    },
     set(next, at = ctx.currentTime) {
       current = next ?? current;
       if (current.length > size) {

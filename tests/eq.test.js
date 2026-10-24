@@ -9,6 +9,7 @@ import {
   OCTAVE_EQUIVALENT, curveGap, curveReading, sectionTable, MOST_SECTIONS,
 } from '../src/plugins/eq/filters.js';
 import { eqSource } from '../src/plugins/eq/node.js';
+import { tuneSections } from '../src/plugins/eq/sections.js';
 import { averageSpectrum } from '../src/plugins/eq/spectrum.js';
 import { EQPlugin } from '../src/plugins/eq/plugin.js';
 
@@ -542,4 +543,56 @@ test('the audio thread runs the same arithmetic as the marking', () => {
   let worst = 0;
   for (let i = 0; i < 4096; i += 1) worst = Math.max(worst, Math.abs(a[0][i] - b[0][i]));
   assert.equal(worst, 0);
+});
+
+/* --- what the face draws, as arithmetic ------------------------------------ */
+
+test("a band's shaded edge is the curve the other bands make", () => {
+  // The property the display now rests on. Each band is drawn as the curve
+  // against the curve without that band, which is what makes its shaded
+  // region touch the line rather than float under it - and the face computes
+  // that second edge as `whole - own`, one subtraction per point, rather than
+  // by building a second curve out of the other five.
+  //
+  // That is only the same thing because a curve is the sum of its bands in
+  // decibels. Nothing says it has to stay that way: fold the auto gain into
+  // `curveOf`, or clamp it, and every region quietly stops meaning what it
+  // says while the picture still looks plausible.
+  const probe = logFrequencies(64, 20, 20000);
+  const strip = [
+    on({ type: 'highpass', frequency: 55, q: FLAT_CORNER, slope: 24 }),
+    on({ type: 'lowshelf', frequency: 150, gain: 7, q: SHELF_Q }),
+    on({ type: 'peaking', frequency: 450, gain: -6, q: 2.2 }),
+    on({ type: 'peaking', frequency: 2500, gain: 8, q: 1.1 }),
+    on({ type: 'highshelf', frequency: 7000, gain: 5, q: SHELF_Q }),
+  ];
+
+  const whole = curveOf(strip, probe, rate);
+
+  strip.forEach((band, i) => {
+    const own = curveOf([band], probe, rate);
+    const others = curveOf(strip.filter((_, n) => n !== i), probe, rate);
+    let worst = 0;
+    for (let n = 0; n < probe.length; n += 1) {
+      worst = Math.max(worst, Math.abs((whole[n] - own[n]) - others[n]));
+    }
+    assert.ok(worst < 1e-9,
+      `band ${i}: the edge drawn is ${worst.toExponential(2)} dB from the curve without it`);
+  });
+});
+
+test('auto gain can be switched off, and then the trim is unity', () => {
+  // The switch on the face is a real one. It was tempting to make it a label
+  // - the number is right there beside it - and a switch that does nothing is
+  // worse than no switch.
+  const bands = [on({ type: 'peaking', frequency: 1000, gain: 9, q: 1.4 })];
+  const chain = { bands: 0, engine: null, trim: { gain: { value: 1 } } };
+
+  tuneSections(chain, bands, 0, rate, null, { glide: false });
+  const lift = averageLift(bands, rate, null);
+  assert.ok(lift > 0.1, 'a +9 dB bell should lift the whole curve');
+  assert.ok(Math.abs(chain.trim.gain.value - 10 ** (-lift / 20)) < 1e-12);
+
+  tuneSections(chain, bands, 0, rate, null, { glide: false, autoGain: false });
+  assert.equal(chain.trim.gain.value, 1);
 });
