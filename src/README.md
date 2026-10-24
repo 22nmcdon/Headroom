@@ -28,6 +28,15 @@ The arrows that matter, all held by `tests/seams.test.js`:
 The folder-to-folder graph is written down in that test too. A new edge
 between two folders should be a decision, not an import somebody typed.
 
+## Checking it
+
+`npm test` is arithmetic: 543 assertions, no browser, no dependencies, runs on
+a bare checkout. `npm run check:browser` is the other half - the app in a real
+Chromium, at 430, 932 and 1280 - and it is where every layout fault and every
+class-name-in-a-string has been caught. It needs playwright, which is this
+project's one dev dependency and ships in nothing; without it the checks skip
+and say so. See `tests/browser/harness.mjs`.
+
 Three of these were already broken when the test was written, which is why
 there is a test: `lib/` imported upward into four plugins, five of the six
 plugins reached into the compressor for a biquad, and the EQ could not build
