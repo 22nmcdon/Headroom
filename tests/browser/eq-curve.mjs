@@ -25,6 +25,7 @@
 // a check that only ever starts Chromium could not see it anyway.
 
 import { open } from './harness.mjs';
+import { SHELF_Q } from '../../src/plugins/eq/filters.js';
 
 export const name = 'eq-curve';
 
@@ -49,14 +50,18 @@ const INAUDIBLE = -30;
  * enough to cramp, both shelves, cuts at every slope with and without
  * resonance, a narrow bell at the bottom, and the whole strip at once.
  */
+// A shelf at a Q other than root-half is the one thing in the model the audio
+// cannot yet do: the SVF honours it, a BiquadFilterNode ignores it and is
+// fixed at S = 1, and the two part company by 0.038 dB at a Q of 0.7. Which is
+// why nothing exposes a shelf Q until the worklet lands - see SHELF_Q.
 const CASES = [
   ['a bell at 1 kHz', [{ id: 'p1', type: 'peaking', frequency: 1000, gain: 9, q: 1.4, slope: 12 }]],
   ['a bell at 10 kHz', [{ id: 'p1', type: 'peaking', frequency: 10000, gain: 9, q: 1.4, slope: 12 }]],
   ['a bell at 15 kHz', [{ id: 'p1', type: 'peaking', frequency: 15000, gain: 12, q: 2, slope: 12 }]],
   ['a cut bell at 15 kHz', [{ id: 'p1', type: 'peaking', frequency: 15000, gain: -12, q: 2, slope: 12 }]],
   ['a narrow bell at 50 Hz', [{ id: 'p1', type: 'peaking', frequency: 50, gain: 9, q: 8, slope: 12 }]],
-  ['a low shelf', [{ id: 'ls', type: 'lowshelf', frequency: 120, gain: 8, q: 0.7, slope: 12 }]],
-  ['a high shelf', [{ id: 'hs', type: 'highshelf', frequency: 8000, gain: -8, q: 0.7, slope: 12 }]],
+  ['a low shelf', [{ id: 'ls', type: 'lowshelf', frequency: 120, gain: 8, q: SHELF_Q, slope: 12 }]],
+  ['a high shelf', [{ id: 'hs', type: 'highshelf', frequency: 8000, gain: -8, q: SHELF_Q, slope: 12 }]],
   ['a 12 dB/oct high-pass', [{ id: 'hp', type: 'highpass', frequency: 100, gain: 0, q: -3.0103, slope: 12 }]],
   ['a 24 dB/oct high-pass', [{ id: 'hp', type: 'highpass', frequency: 100, gain: 0, q: -3.0103, slope: 24 }]],
   ['a 48 dB/oct high-pass', [{ id: 'hp', type: 'highpass', frequency: 100, gain: 0, q: -3.0103, slope: 48 }]],
@@ -64,10 +69,10 @@ const CASES = [
   ['a resonant low-pass', [{ id: 'lp', type: 'lowpass', frequency: 6000, gain: 0, q: 6, slope: 24 }]],
   ['the whole strip', [
     { id: 'hp', type: 'highpass', frequency: 40, gain: 0, q: -3.0103, slope: 24 },
-    { id: 'ls', type: 'lowshelf', frequency: 120, gain: 5, q: 0.7, slope: 12 },
+    { id: 'ls', type: 'lowshelf', frequency: 120, gain: 5, q: SHELF_Q, slope: 12 },
     { id: 'p1', type: 'peaking', frequency: 400, gain: -4, q: 1.4, slope: 12 },
     { id: 'p2', type: 'peaking', frequency: 2500, gain: 6, q: 2, slope: 12 },
-    { id: 'hs', type: 'highshelf', frequency: 9000, gain: 4, q: 0.7, slope: 12 },
+    { id: 'hs', type: 'highshelf', frequency: 9000, gain: 4, q: SHELF_Q, slope: 12 },
     { id: 'lp', type: 'lowpass', frequency: 17000, gain: 0, q: -3.0103, slope: 12 },
   ]],
 ];

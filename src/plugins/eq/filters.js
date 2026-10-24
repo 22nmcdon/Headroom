@@ -12,6 +12,7 @@
 
 
 import { readingOf, stampOf } from '../../lib/read.js';
+import { svfOf, svfBiquad } from './svf.js';
 
 /**
  * What each kind of band has, and what its handle means vertically.
@@ -73,15 +74,31 @@ export const FLAT_CORNER = 20 * Math.log10(Math.SQRT1_2);
 /** The most biquads any one band is built from - a 48 dB/oct cut. */
 export const MOST_SECTIONS = 4;
 
+/**
+ * What a shelf's Q rests at, and why it is not 0.7.
+ *
+ * The cookbook shelf takes a slope S rather than a Q, and Web Audio's shelves
+ * take neither - they are fixed at S = 1, which is the steepest a shelf can be
+ * and still rise or fall all the way without overshooting. The band carried a
+ * Q of 0.7 anyway, for the day it became a bell, and nothing read it.
+ *
+ * Now something does, and S = 1 is exactly a Q of one over root two. Measured:
+ * at 0.70710678 the state-variable shelf is bit-identical to the cookbook
+ * shelf at every frequency; at 0.7 it is 0.038 dB out at the corner. A
+ * rounding nobody could hear, and the sort that makes two models disagree for
+ * no reason anybody can find later.
+ */
+export const SHELF_Q = Math.SQRT1_2;
+
 /** The channel strip, in the order an engineer reads it: low to high. */
 export const STRIP = [
   // The cuts start flat - in Web Audio's decibels, the maximally flat filter
   // every desk calls Butterworth, which reads -3.0 on the face of it.
   { id: 'hp', type: 'highpass', frequency: 40, gain: 0, q: FLAT_CORNER, slope: 12 },
-  { id: 'ls', type: 'lowshelf', frequency: 120, gain: 0, q: 0.7, slope: 12 },
+  { id: 'ls', type: 'lowshelf', frequency: 120, gain: 0, q: SHELF_Q, slope: 12 },
   { id: 'p1', type: 'peaking', frequency: 400, gain: 0, q: 1.4, slope: 12 },
   { id: 'p2', type: 'peaking', frequency: 2000, gain: 0, q: 1.4, slope: 12 },
-  { id: 'hs', type: 'highshelf', frequency: 8000, gain: 0, q: 0.7, slope: 12 },
+  { id: 'hs', type: 'highshelf', frequency: 8000, gain: 0, q: SHELF_Q, slope: 12 },
   { id: 'lp', type: 'lowpass', frequency: 18000, gain: 0, q: FLAT_CORNER, slope: 12 },
 ];
 
@@ -89,7 +106,7 @@ export const newStrip = () => STRIP.map((band) => ({ ...band, on: false }));
 
 /** What a band's q means when it becomes this kind of band. */
 export const RESTING_Q = {
-  highpass: FLAT_CORNER, lowpass: FLAT_CORNER, peaking: 1.4, lowshelf: 0.7, highshelf: 0.7,
+  highpass: FLAT_CORNER, lowpass: FLAT_CORNER, peaking: 1.4, lowshelf: SHELF_Q, highshelf: SHELF_Q,
 };
 
 /**
@@ -113,56 +130,17 @@ export function sectionsOf(band) {
   }));
 }
 
-/** The six coefficients of one band, normalised so a0 is 1. */
-export function coefficients({ type, frequency, gain, q }, rate) {
-  const w0 = (2 * Math.PI * frequency) / rate;
-  const cos = Math.cos(w0);
-  const sin = Math.sin(w0);
-  const A = 10 ** (gain / 40);
-
-  let b0; let b1; let b2; let a0; let a1; let a2;
-
-  if (type === 'peaking') {
-    const alpha = sin / (2 * q);
-    b0 = 1 + alpha * A; b1 = -2 * cos; b2 = 1 - alpha * A;
-    a0 = 1 + alpha / A; a1 = -2 * cos; a2 = 1 - alpha / A;
-  } else if (type === 'lowshelf' || type === 'highshelf') {
-    // Shelves take their slope from S = 1, and ignore Q - which is what Web
-    // Audio does with them, so the two agree.
-    const alpha = (sin / 2) * Math.sqrt((A + 1 / A) * (1 / 1 - 1) + 2);
-    const root = 2 * Math.sqrt(A) * alpha;
-
-    if (type === 'lowshelf') {
-      b0 = A * ((A + 1) - (A - 1) * cos + root);
-      b1 = 2 * A * ((A - 1) - (A + 1) * cos);
-      b2 = A * ((A + 1) - (A - 1) * cos - root);
-      a0 = (A + 1) + (A - 1) * cos + root;
-      a1 = -2 * ((A - 1) + (A + 1) * cos);
-      a2 = (A + 1) + (A - 1) * cos - root;
-    } else {
-      b0 = A * ((A + 1) + (A - 1) * cos + root);
-      b1 = -2 * A * ((A - 1) + (A + 1) * cos);
-      b2 = A * ((A + 1) + (A - 1) * cos - root);
-      a0 = (A + 1) - (A - 1) * cos + root;
-      a1 = 2 * ((A - 1) - (A + 1) * cos);
-      a2 = (A + 1) - (A - 1) * cos - root;
-    }
-  } else {
-    // Web Audio reads Q as *decibels of resonance* on a low-pass or a
-    // high-pass, where on a peak it is a plain Q. Use a plain Q here and the
-    // drawn corner sits 3.7 dB away from the one you can hear - which is what
-    // checking the curve against the node rather than against the textbook
-    // turned up.
-    const alpha = sin / (2 * 10 ** (q / 20));
-    if (type === 'lowpass') {
-      b0 = (1 - cos) / 2; b1 = 1 - cos; b2 = (1 - cos) / 2;
-    } else {
-      b0 = (1 + cos) / 2; b1 = -(1 + cos); b2 = (1 + cos) / 2;
-    }
-    a0 = 1 + alpha; a1 = -2 * cos; a2 = 1 - alpha;
-  }
-
-  return { b0: b0 / a0, b1: b1 / a0, b2: b2 / a0, a1: a1 / a0, a2: a2 / a0 };
+/**
+ * The six coefficients of one band, normalised so a0 is 1.
+ *
+ * Through the state-variable filter, which is the same filter written another
+ * way - measured bit-identical to the cookbook forms this used to compute, for
+ * every band type at every frequency, once the shelves' Q was the root-half
+ * that S = 1 has always meant. One description now draws, scores and, when the
+ * worklet lands, sounds.
+ */
+export function coefficients(band, rate) {
+  return svfBiquad(svfOf(band, rate));
 }
 
 /** What one biquad does at one frequency, in decibels. */

@@ -1,10 +1,11 @@
+import { svfOf, svfBiquad } from '../src/plugins/eq/svf.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
   BAND_TYPES, STRIP, newStrip, bandGainAt, contributionOf, curveOf,
   averageLift, liftFrequencies, logFrequencies,
-  SLOPES, FLAT_CORNER, RESTING_Q, sectionsOf, butterworth, exactHz,
+  SLOPES, FLAT_CORNER, RESTING_Q, sectionsOf, butterworth, exactHz, SHELF_Q, sectionGainAt,
   OCTAVE_EQUIVALENT, curveGap, curveReading,
 } from '../src/plugins/eq/filters.js';
 import { averageSpectrum } from '../src/plugins/eq/spectrum.js';
@@ -283,4 +284,96 @@ test('a band put in the wrong place is not a narrow miss', () => {
   const pointy = curveGap(narrow, flat);
   assert.ok(pointy.octaves < 0.5, `a Q of 8 should read narrow, not ${pointy.octaves.toFixed(2)}`);
   assert.ok(pointy.off < pointy.peak * 0.8, 'and should be forgiven for it');
+});
+
+test('the state-variable filter is the cookbook filter, written another way', () => {
+  // The whole basis for swapping the engine underneath the EQ: every band type
+  // the app has, the cookbook coefficients it used to compute against the ones
+  // the SVF produces, at 200 frequencies from 20 Hz to 23 kHz.
+  //
+  // Measured bit-identical - genuinely 0.000000 dB - for bells at every
+  // frequency including 15 kHz, for both shelves, and for cuts flat and
+  // resonant. A trapezoidal SVF is the bilinear transform in other clothes, so
+  // it warps near Nyquist exactly as the cookbook does, which is the point:
+  // the first job was to change nothing.
+  //
+  // The shelves were the one exception until the resting Q became root-half.
+  // See SHELF_Q.
+  const rate = 48000;
+  const probe = logFrequencies(200, 20, 23000);
+
+  const cookbook = ({ type, frequency, gain, q }) => {
+    const w0 = (2 * Math.PI * frequency) / rate;
+    const cos = Math.cos(w0);
+    const sin = Math.sin(w0);
+    const A = 10 ** (gain / 40);
+    let b0; let b1; let b2; let a0; let a1; let a2;
+    if (type === 'peaking') {
+      const alpha = sin / (2 * q);
+      b0 = 1 + alpha * A; b1 = -2 * cos; b2 = 1 - alpha * A;
+      a0 = 1 + alpha / A; a1 = -2 * cos; a2 = 1 - alpha / A;
+    } else if (type === 'lowshelf' || type === 'highshelf') {
+      const alpha = (sin / 2) * Math.sqrt(2);
+      const root = 2 * Math.sqrt(A) * alpha;
+      if (type === 'lowshelf') {
+        b0 = A * ((A + 1) - (A - 1) * cos + root);
+        b1 = 2 * A * ((A - 1) - (A + 1) * cos);
+        b2 = A * ((A + 1) - (A - 1) * cos - root);
+        a0 = (A + 1) + (A - 1) * cos + root;
+        a1 = -2 * ((A - 1) + (A + 1) * cos);
+        a2 = (A + 1) + (A - 1) * cos - root;
+      } else {
+        b0 = A * ((A + 1) + (A - 1) * cos + root);
+        b1 = -2 * A * ((A - 1) + (A + 1) * cos);
+        b2 = A * ((A + 1) + (A - 1) * cos - root);
+        a0 = (A + 1) - (A - 1) * cos + root;
+        a1 = 2 * ((A - 1) - (A + 1) * cos);
+        a2 = (A + 1) - (A - 1) * cos - root;
+      }
+    } else {
+      const alpha = sin / (2 * 10 ** (q / 20));
+      if (type === 'lowpass') { b0 = (1 - cos) / 2; b1 = 1 - cos; b2 = (1 - cos) / 2; } else { b0 = (1 + cos) / 2; b1 = -(1 + cos); b2 = (1 + cos) / 2; }
+      a0 = 1 + alpha; a1 = -2 * cos; a2 = 1 - alpha;
+    }
+    return { b0: b0 / a0, b1: b1 / a0, b2: b2 / a0, a1: a1 / a0, a2: a2 / a0 };
+  };
+
+  const CASES = [
+    { type: 'peaking', frequency: 1000, gain: 9, q: 1.4 },
+    { type: 'peaking', frequency: 15000, gain: 9, q: 2 },
+    { type: 'peaking', frequency: 60, gain: -12, q: 4 },
+    { type: 'lowshelf', frequency: 120, gain: 8, q: SHELF_Q },
+    { type: 'lowshelf', frequency: 40, gain: -10, q: SHELF_Q },
+    { type: 'highshelf', frequency: 8000, gain: -8, q: SHELF_Q },
+    { type: 'highshelf', frequency: 12000, gain: 10, q: SHELF_Q },
+    { type: 'lowpass', frequency: 6000, gain: 0, q: FLAT_CORNER },
+    { type: 'lowpass', frequency: 6000, gain: 0, q: 6 },
+    { type: 'highpass', frequency: 100, gain: 0, q: FLAT_CORNER },
+    { type: 'highpass', frequency: 100, gain: 0, q: 6 },
+  ];
+
+  for (const band of CASES) {
+    const was = cookbook(band);
+    const now = svfBiquad(svfOf(band, rate));
+    let worst = 0;
+    for (const hz of probe) {
+      worst = Math.max(worst, Math.abs(sectionGainAt(was, hz, rate) - sectionGainAt(now, hz, rate)));
+    }
+    assert.ok(worst < 1e-6,
+      `${band.type} at ${band.frequency} Hz is ${worst.toFixed(6)} dB away from the cookbook`);
+  }
+});
+
+test('a shelf rests where S = 1 has always put it', () => {
+  // 0.7 was close enough to be invisible and wrong enough to make two models
+  // disagree: 0.038 dB at the corner, which is nothing to hear and everything
+  // to chase.
+  assert.ok(Math.abs(SHELF_Q - Math.SQRT1_2) < 1e-12);
+  for (const band of STRIP) {
+    if (band.type === 'lowshelf' || band.type === 'highshelf') {
+      assert.equal(band.q, SHELF_Q, `the ${band.id} band rests at ${band.q}`);
+    }
+  }
+  assert.equal(RESTING_Q.lowshelf, SHELF_Q);
+  assert.equal(RESTING_Q.highshelf, SHELF_Q);
 });
