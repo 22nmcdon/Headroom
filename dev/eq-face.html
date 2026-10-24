@@ -13,6 +13,11 @@
       ?face=a   one band at a time, its knobs across the deck
       ?face=b   all six at once, a column each
 
+      ?draw=none   the summed curve alone, as it is today
+      ?draw=one    and the selected band's own shape under it
+      ?draw=line   and every band's own shape, as lines
+      ?draw=fill   and every band's own shape, shaded from the zero line
+
   Both share what is not in question: the host row outside the chassis, a
   levels bay beside the curve, the analyser's switches on the curve's own
   rule, and the six fat band buttons replaced by a rail. This file goes when
@@ -109,11 +114,11 @@ import { dressKnobs } from '../src/lib/knob.js';
 
 const MARKS = ['#a4553f', '#c07f79', '#b08d57', '#8fae6d', '#6f7f63', '#3f8f88'];
 const BANDS = [
-  { short: 'HP', hz: '40',   on: true  },
-  { short: 'LS', hz: '120',  on: true  },
-  { short: 'PK', hz: '400',  on: true  },
+  { short: 'HP', hz: '55',   on: true  },
+  { short: 'LS', hz: '150',  on: true  },
+  { short: 'PK', hz: '450',  on: true  },
   { short: 'PK', hz: '2k50', on: true  },
-  { short: 'HS', hz: '8k00', on: true  },
+  { short: 'HS', hz: '7k00', on: true  },
   { short: 'LP', hz: '18k',  on: false },
 ];
 const HERE = 3;
@@ -132,7 +137,7 @@ const head = `
     <span class="plugin-lamp"></span>
     <span class="plugin-name">Channel EQ</span>
     <span class="plugin-trim">auto gain &minus;2.1 dB</span>
-    <span class="plugin-read">+6.0 dB at 2k50 &middot; widest 1.1 oct</span>
+    <span class="plugin-read">+9.4 dB at 3k15 &middot; widest 1.4 oct</span>
   </div>`;
 
 const display = (id) => `
@@ -190,8 +195,8 @@ const A = `${host}
       <div class="eq-rail">${rail}</div>
       <div class="eq-knobs">
         ${knob('Frequency', '2k50', { at: 0.62 })}
-        ${knob('Gain', '+6.0 dB', { at: 0.74 })}
-        ${knob('Q', '1.40', { at: 0.44 })}
+        ${knob('Gain', '+8.0 dB', { at: 0.78 })}
+        ${knob('Q', '1.10', { at: 0.42 })}
         ${knob('Slope', '&mdash;', { at: 0.25, idle: true })}
       </div>
     </div>
@@ -244,10 +249,36 @@ function fit(canvas) {
   return { ctx, w: box.width, h: box.height };
 }
 
-function drawCurve(canvas) {
+/* The bands this drawup is showing, each with its own shape - so the summed
+   curve is genuinely the sum of them rather than a line that looks about
+   right. Rough forms, but the right rough forms: a shelf is flat on one side
+   and zero on the other, a bell is a bump, a cut is a slope. */
+const SHAPES = [
+  { i: 0, kind: 'hp', hz: 55,    gain: 0,    order: 4, on: true },
+  { i: 1, kind: 'ls', hz: 150,   gain: 7.0,            on: true },
+  { i: 2, kind: 'pk', hz: 450,   gain: -6.0, width: 0.34, on: true },
+  { i: 3, kind: 'pk', hz: 2500,  gain: 8.0,  width: 0.62, on: true },
+  { i: 4, kind: 'hs', hz: 7000,  gain: 5.0,            on: true },
+  { i: 5, kind: 'lp', hz: 18000, gain: 0,    order: 2, on: false },
+];
+
+function bandAt(band, hz) {
+  switch (band.kind) {
+    case 'hp': return -10 * Math.log10(1 + (band.hz / hz) ** (2 * band.order));
+    case 'lp': return -10 * Math.log10(1 + (hz / band.hz) ** (2 * band.order));
+    case 'ls': return band.gain / (1 + (hz / band.hz) ** 2);
+    case 'hs': return band.gain / (1 + (band.hz / hz) ** 2);
+    default:   return band.gain * Math.exp(-((Math.log2(hz / band.hz)) ** 2) / (2 * band.width ** 2));
+  }
+}
+
+const sumAt = (hz) => SHAPES.reduce((db, b) => db + (b.on ? bandAt(b, hz) : 0), 0);
+
+function drawCurve(canvas, how) {
   const { ctx, w, h } = fit(canvas);
   const x = (hz) => (Math.log2(hz / 20) / Math.log2(1000)) * w;
   const y = (db) => h / 2 - (db / 18) * (h / 2 - 8);
+  const floor = h - 2;
 
   // the spectrum behind it
   ctx.fillStyle = 'rgba(250,246,240,0.09)';
@@ -280,37 +311,73 @@ function drawCurve(canvas) {
   }
   for (const db of [12, 6, -6, -12]) ctx.fillText((db > 0 ? '+' : '') + db, 4, y(db) - 3);
 
-  // the curve
-  const at = (hz) => 6 * Math.exp(-((Math.log2(hz / 2500)) ** 2) / 0.22)
-    + 3.2 * Math.exp(-((Math.log2(hz / 120)) ** 2) / 1.1)
-    - 24 * Math.max(0, Math.log2(40 / hz))
-    + 2.4 / (1 + (2000 / hz) ** 2);
-  ctx.strokeStyle = '#d9a6a0';
-  ctx.lineWidth = 1.8;
-  ctx.beginPath();
-  for (let i = 0; i <= 240; i += 1) {
-    const hz = 20 * 1000 ** (i / 240);
-    const point = Math.max(-20, at(hz));
-    if (i === 0) ctx.moveTo(x(hz), y(point)); else ctx.lineTo(x(hz), y(point));
+  // what each band is doing on its own
+  const walk = (f) => {
+    const points = [];
+    for (let i = 0; i <= 240; i += 1) {
+      const hz = 20 * 1000 ** (i / 240);
+      points.push([x(hz), Math.min(floor, y(Math.max(-22, f(hz))))]);
+    }
+    return points;
+  };
+
+  const showing = how === 'one' ? SHAPES.filter((b) => b.i === HERE)
+    : how === 'none' ? [] : SHAPES.filter((b) => b.on);
+
+  for (const band of showing) {
+    // A band sitting at unity is not in the signal path in any audible sense,
+    // and the summed curve already leaves it out. Six flat lines on the zero
+    // line are six ways of drawing nothing.
+    if (band.kind === 'pk' || band.kind === 'ls' || band.kind === 'hs') {
+      if (Math.abs(band.gain) < 0.05) continue;
+    }
+    const points = walk((hz) => bandAt(band, hz));
+    const here = band.i === HERE;
+
+    // Cuts get a line and no shading. What a high-pass contributes goes to
+    // minus infinity, so shading the area under it shades most of the
+    // display - and the thing it is telling you is where the corner is, not
+    // how much floor there is below it.
+    const shaded = how !== 'line' && band.kind !== 'hp' && band.kind !== 'lp';
+    if (shaded) {
+      ctx.beginPath();
+      ctx.moveTo(points[0][0], y(0));
+      for (const [px, py] of points) ctx.lineTo(px, py);
+      ctx.lineTo(points[points.length - 1][0], y(0));
+      ctx.closePath();
+      ctx.fillStyle = MARKS[band.i] + (here ? '66' : '30');
+      ctx.fill();
+    }
+
+    ctx.beginPath();
+    for (const [i, [px, py]] of points.entries()) { if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py); }
+    ctx.strokeStyle = MARKS[band.i] + (here ? 'ff' : 'bb');
+    ctx.lineWidth = here ? 1.6 : 1;
+    ctx.stroke();
   }
+
+  // the sum, over the top of all of it
+  ctx.strokeStyle = '#faf6f0';
+  ctx.lineWidth = 2.2;
+  ctx.beginPath();
+  for (const [i, [px, py]] of walk(sumAt).entries()) { if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py); }
   ctx.stroke();
 
   // the handles
-  const HANDLES = [[40, 'HP', 0], [120, 'LS', 1], [400, 'PK', 2], [2500, 'PK', 3], [8000, 'HS', 4], [18000, 'LP', 5]];
-  for (const [hz, label, i] of HANDLES) {
-    const here = i === HERE;
-    const py = Math.min(h - 12, Math.max(12, y(Math.max(-16, at(hz)))));
+  for (const band of SHAPES) {
+    const here = band.i === HERE;
+    const py = Math.min(h - 12, Math.max(12, y(Math.max(-16, sumAt(band.hz)))));
     ctx.beginPath();
-    ctx.arc(x(hz), py, here ? 10 : 7.5, 0, Math.PI * 2);
-    ctx.fillStyle = here ? MARKS[i] : 'rgba(33,28,26,0.86)';
+    ctx.arc(x(band.hz), py, here ? 10 : 7.5, 0, Math.PI * 2);
+    ctx.fillStyle = here ? MARKS[band.i] : 'rgba(33,28,26,0.86)';
     ctx.fill();
-    ctx.strokeStyle = MARKS[i];
+    ctx.strokeStyle = MARKS[band.i];
     ctx.lineWidth = here ? 2 : 1.4;
     ctx.stroke();
-    ctx.fillStyle = here ? '#1a1615' : MARKS[i];
+    ctx.fillStyle = here ? '#1a1615' : MARKS[band.i];
     ctx.font = `${here ? 600 : 400} 8.5px Jost, sans-serif`;
     ctx.textAlign = 'center';
-    ctx.fillText(label, x(hz), py + 3);
+    ctx.fillText(BANDS[band.i].short, x(band.hz), py + 3);
     ctx.textAlign = 'left';
   }
 }
@@ -335,8 +402,9 @@ function drawMeters(canvas) {
   }
 }
 
+const how = new URL(location.href).searchParams.get('draw') ?? 'fill';
 for (const canvas of document.querySelectorAll('canvas')) {
-  if (canvas.id.endsWith('Curve')) drawCurve(canvas);
+  if (canvas.id.endsWith('Curve')) drawCurve(canvas, how);
   else drawMeters(canvas);
 }
 </script>
