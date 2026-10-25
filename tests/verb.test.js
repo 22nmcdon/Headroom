@@ -1,7 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { VERB_DEFAULTS, MOST_DECAY, makeImpulse, roomProfile } from '../src/plugins/reverb/ir.js';
+import {
+  VERB_DEFAULTS, VERB_LIMITS, MOST_DECAY, makeImpulse, roomProfile,
+  SPACES, SPACE_ORDER, verbDeckFor,
+} from '../src/plugins/reverb/ir.js';
 import {
   RESPONSE_BANDS, monoOf, bandOf, rt60, decayTimes, profileDistance, wetDryImpulse,
 } from '../src/lib/response.js';
@@ -215,4 +218,109 @@ test('fitting the tempo wants the room gone by the beat, but not gone long befor
 
   // And the pre-delay has to be on the subdivision, whatever the decay.
   assert.ok(!guess(works[0], answer.preDelay * 2.2).correct, 'answering late should not pass');
+});
+
+/* --- the spaces ----------------------------------------------------------- */
+
+/** How long until the tail is within 6 dB of the loudest thing in it, in ms. */
+function arrivesAt(impulse, rate) {
+  const mono = monoOf(impulse);
+  const look = Math.min(mono.length, Math.round(rate * 0.2));
+  let peak = 0;
+  for (let i = 0; i < look; i += 1) peak = Math.max(peak, Math.abs(mono[i]));
+  for (let i = 0; i < look; i += 1) if (Math.abs(mono[i]) > peak * 0.5) return (i / rate) * 1000;
+  return Infinity;
+}
+
+/** Where a band's energy sits in time, in ms - its centre of gravity. */
+function centreMs(samples, rate) {
+  let energy = 0;
+  let moment = 0;
+  for (let i = 0; i < samples.length; i += 1) {
+    const e = samples[i] * samples[i];
+    energy += e;
+    moment += e * i;
+  }
+  return energy > 0 ? (moment / energy / rate) * 1000 : 0;
+}
+
+test('a plate is a wash from the first sample and a room is not', () => {
+  // The most audible of the three things that separate them, and the cheapest
+  // to measure. A room has to bounce a few times before it is a wash; a plate
+  // is a sheet of steel and the wave crosses it and comes back in a couple of
+  // milliseconds. Measured at decay 1.8 s and no pre-delay: the room reaches
+  // half level at 20.7 ms and the plate at 1.5 ms.
+  const settings = { preDelay: 0, decay: 1.8 };
+  const asRoom = arrivesAt(room({ ...settings, space: 'room' }), rate);
+  const asPlate = arrivesAt(room({ ...settings, space: 'plate' }), rate);
+
+  assert.ok(asPlate < 4, `the plate takes ${asPlate.toFixed(1)} ms to arrive`);
+  assert.ok(asRoom > 12, `the room arrives in ${asRoom.toFixed(1)} ms, which is no build-up at all`);
+});
+
+test('a plate puts the highs in front of the lows, and only when asked', () => {
+  // Dispersion, which is the one thing here that is new arithmetic rather
+  // than an absence. Bending waves in steel travel faster the higher they
+  // are, so the top of a transient crosses the plate and arrives while the
+  // bottom is still on the way.
+  //
+  // Measured over the first 150 ms, as the gap between the low band's centre
+  // of energy and the high band's: 10.6 ms with no spread, which is what the
+  // damping alone comes to, and 19.0 ms at full spread.
+  const gapOf = (spread) => {
+    const impulse = room({ space: 'plate', preDelay: 0, decay: 1.8, spread });
+    const mono = monoOf(impulse).subarray(0, Math.round(rate * 0.15));
+    const [low, , high] = RESPONSE_BANDS.map((band) => centreMs(bandOf(mono, rate, band), rate));
+    return low - high;
+  };
+
+  const none = gapOf(0);
+  const most = gapOf(1);
+  assert.ok(most - none > 6,
+    `full spread only moved the lows ${(most - none).toFixed(1)} ms further back`);
+  // And it is monotonic, so the knob means one thing all the way along.
+  const half = gapOf(0.5);
+  assert.ok(half > none && most > half, `${none.toFixed(1)} / ${half.toFixed(1)} / ${most.toFixed(1)}`);
+});
+
+test('a plate has no walls, so the early control is not its to have', () => {
+  // Not "ignores it quietly": the control is not on a plate's deck at all,
+  // because a sheet of steel has no far wall to come back off. The test is
+  // both halves - that the deck leaves it out, and that the generator would
+  // not be moved by one if something set it anyway.
+  assert.ok(!verbDeckFor('plate').includes('early'));
+  assert.ok(!verbDeckFor('plate').includes('size'));
+  assert.ok(verbDeckFor('room').includes('early'));
+  assert.ok(verbDeckFor('room').includes('size'));
+
+  const quiet = room({ space: 'plate', preDelay: 0, decay: 1.8, early: 0 });
+  const loud = room({ space: 'plate', preDelay: 0, decay: 1.8, early: 0.8 });
+  for (let i = 0; i < quiet.length; i += 1) {
+    assert.equal(quiet.channels[0][i], loud.channels[0][i]);
+  }
+});
+
+test('every knob a space asks for is a knob the deck can build', () => {
+  // A seam, and the kind that breaks in silence: a space naming a control the
+  // face has no entry for drops it from the deck and nobody finds out until
+  // somebody wonders where the knob went.
+  const known = new Set(Object.keys(VERB_LIMITS));
+  for (const id of SPACE_ORDER) {
+    assert.ok(SPACES[id], `${id} is in the order and not in the table`);
+    for (const knob of SPACES[id].knobs) {
+      assert.ok(known.has(knob), `${id} asks for a ${knob} knob and there is no such range`);
+    }
+  }
+  // And the other way: every space in the table is offered.
+  for (const id of Object.keys(SPACES)) assert.ok(SPACE_ORDER.includes(id), `${id} is not offered`);
+});
+
+test('a space nobody has heard of is a room, not a silence', () => {
+  // The sketchpad keeps this as a string and a file written by a later
+  // version may name a space this one does not have. The right answer to that
+  // is a reverb.
+  const asked = room({ space: 'cathedral-of-the-future', preDelay: 0, decay: 1.8 });
+  const asRoom = room({ space: 'room', preDelay: 0, decay: 1.8 });
+  assert.equal(asked.length, asRoom.length);
+  assert.ok(energyOf(asked) > 0);
 });

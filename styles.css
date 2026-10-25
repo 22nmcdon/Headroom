@@ -1319,6 +1319,20 @@ input.knob-value:focus {
 .is-locked .plugin-controls,
 .is-locked .comp-detector { opacity: 0.5; pointer-events: none; }
 
+/* --- the reverb ------------------------------------------------------------ */
+/* The space row sits above the deck, the way the saturator's curve row does:
+   it changes what the knobs mean and which of them are there, so it belongs
+   over them rather than beside them. */
+.verb-deck { display: flex; flex-direction: column; gap: 10px; }
+.verb-spaces { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.verb-spaces .panel-name { margin: 0; flex: none; }
+/* Narrower bays than the other decks, so that eight knobs come out as one
+   row and seven do too. At 130 the grid fits six of them at desktop width,
+   which left the room's eight as six and two and the plate's seven as six
+   and one - a knob on its own on a second row, which is the thing these
+   decks were laid out to stop happening. */
+.verb .plugin-controls { --deck: 108px; }
+
 /* --- the compressor -------------------------------------------------------- */
 /* Three readings of the same thing, side by side, because a compressor is the
    one processor where the picture, the bar and the moment genuinely differ:

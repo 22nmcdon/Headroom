@@ -1,4 +1,6 @@
-import { VERB_DEFAULTS, makeImpulse, VERB_LIMITS } from './ir.js';
+import {
+  VERB_DEFAULTS, makeImpulse, VERB_LIMITS, SPACES, SPACE_ORDER, verbDeckFor,
+} from './ir.js';
 import {
   RESPONSE_BANDS, DECAY_FLOOR, decayProfile, decayTimes, rt60, bandOf, monoOf, wetDryImpulse, decayReading, decayAxis
 } from '../../lib/response.js';
@@ -32,8 +34,25 @@ const VERB_KNOBS = [
   { id: 'early', name: 'Early', ...span(VERB_LIMITS.early), step: 0.01, write: (v) => `${Math.round(v * 100)} %` },
   { id: 'lowCut', name: 'Low cut', ...span(VERB_LIMITS.lowCut), log: true, write: writeHertz },
   { id: 'highCut', name: 'High cut', ...span(VERB_LIMITS.highCut), log: true, write: writeHertz },
+  // A plate's own control, and the only one the room does not have: how far
+  // ahead of the lows the highs arrive. See `disperse` in ir.js.
+  { id: 'spread', name: 'Spread', ...span(VERB_LIMITS.spread), step: 0.01, write: (v) => `${Math.round(v * 100)} %` },
   { id: 'mix', name: 'Mix', ...span(VERB_LIMITS.mix), step: 0.01, write: (v) => `${Math.round(v * 100)} %` },
 ];
+
+/**
+ * The knobs this space has, in the order the space lists them.
+ *
+ * The space's order and not this file's: a plate's Spread sits with the
+ * decay controls it belongs to rather than after the send filters, which is
+ * where filtering VERB_KNOBS put it.
+ */
+/** The space this is set to, resolved to one that exists. */
+const spaceOf = (settings) => (SPACES[settings?.space] ? settings.space : 'room');
+
+const deckFor = (space) => verbDeckFor(space)
+  .map((id) => VERB_KNOBS.find((knob) => knob.id === id))
+  .filter(Boolean);
 
 /** The three bands wear the same warm-to-cool ramp the EQ's regions do. */
 const VERB_TINTS = { low: '--rust', mid: '--gold', high: '--enclosure' };
@@ -111,7 +130,16 @@ export class VerbPlugin {
           </div>
         </div>
 
-        <div class="plugin-controls" id="verbKnobs"></div>
+        <div class="verb-deck">
+          <div class="verb-spaces">
+            <span class="panel-name">Space</span>
+            <div class="eq-ab" role="group" aria-label="What kind of space">
+              ${SPACE_ORDER.map((id) => `<button class="ab-btn${id === spaceOf(this.settings) ? ' is-on' : ''}"
+                type="button" data-space="${id}">${SPACES[id].label}</button>`).join('')}
+            </div>
+          </div>
+          <div class="plugin-controls" id="verbKnobs"></div>
+        </div>
 
         <div class="eq-transport verb-transport">
           <button class="play-btn" type="button" data-verb="play">Play</button>
@@ -143,7 +171,7 @@ export class VerbPlugin {
   }
 
   buildKnobs() {
-    this.el.querySelector('#verbKnobs').innerHTML = VERB_KNOBS.map((knob) => {
+    this.el.querySelector('#verbKnobs').innerHTML = deckFor(spaceOf(this.settings)).map((knob) => {
       const dial = dialOf(knob, this.settings[knob.id]);
       return `
         <div class="knob">
@@ -168,6 +196,25 @@ export class VerbPlugin {
     });
 
     this.el.addEventListener('click', (e) => {
+      // Changing the space changes which knobs exist, so the deck is built
+      // again rather than updated. What the two have in common keeps its
+      // setting across the change - what you had the decay at is still what
+      // you want the decay at - and what only one of them has goes back to
+      // resting when it reappears.
+      const space = e.target.closest('[data-space]');
+      if (space && this.interactive) {
+        const next = space.dataset.space;
+        if (next !== this.settings.space) {
+          this.settings.space = next;
+          for (const button of this.el.querySelectorAll('[data-space]')) {
+            button.classList.toggle('is-on', button === space);
+          }
+          this.buildKnobs();
+          this.changed();
+        }
+        return;
+      }
+
       const hear = e.target.closest('[data-hear]');
       if (hear) {
         this.player.hear(hear.dataset.hear);
@@ -182,6 +229,9 @@ export class VerbPlugin {
       if (action.dataset.verb === 'play') this.toggle();
       if (action.dataset.verb === 'reset' && this.interactive) {
         Object.assign(this.settings, VERB_DEFAULTS);
+        for (const button of this.el.querySelectorAll('[data-space]')) {
+          button.classList.toggle('is-on', button.dataset.space === VERB_DEFAULTS.space);
+        }
         this.buildKnobs();
         this.changed();
       }
@@ -425,7 +475,11 @@ export class VerbPlugin {
     c.fillStyle = ink.soft;
     c.font = '9.5px system-ui, sans-serif';
     c.textAlign = 'left';
-    c.fillText(`the room · ${writeSeconds(seconds)} · dB`, 6, height - 6);
+    // Named for what it is, because the two spaces look different here and
+    // the difference is the point: a room ramps in over its first bounces and
+    // a plate is at full level from the first sample.
+    const space = SPACES[spaceOf(this.settings)].label.toLowerCase();
+    c.fillText(`the ${space} · ${writeSeconds(seconds)} · dB`, 6, height - 6);
   }
 
   drawDecay(ink) {
