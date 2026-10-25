@@ -34,11 +34,12 @@
 // underneath was a change nobody could hear. Matched responses come after, and
 // come to this file.
 //
-// Shelf Q is the first thing the swap has unlocked. Web Audio's shelves ignore
-// it and are fixed at S = 1, so for as long as the sound was a
-// BiquadFilterNode a shelf anywhere but SHELF_Q drew what it did not play, by
-// 0.038 dB at a Q of 0.7. The rack honours it. Nothing on the face offers it
-// yet, which is a face decision rather than an engine one.
+// Shelf Q is the first thing the swap unlocked, and the face now offers it:
+// Web Audio's shelves ignore the number and are fixed at S = 1, so for as
+// long as the sound was a BiquadFilterNode a shelf anywhere but SHELF_Q drew
+// what it did not play, by 0.038 dB at a Q of 0.7. Measured through the rack
+// and against the drawing at every Q the face allows, including a resonant
+// shelf with a four-decibel bump in it: 0.000 dB.
 
 /** Web Audio reads a cut's resonance in decibels; so does this app's UI. */
 const qOf = (db) => 10 ** (db / 20);

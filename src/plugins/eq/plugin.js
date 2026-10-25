@@ -308,11 +308,14 @@ export class EQPlugin {
    * re-centred itself under the pointer every time somebody switched a bell
    * to a high-pass.
    *
-   * The third slot is the one that moves: a bell has a Q, a cut has a
-   * resonance stated in decibels, and a shelf has neither - the filter will
-   * take a Q for a shelf now that it is this app's own rather than a
-   * BiquadFilterNode, but nothing on the face offers one yet, so for a shelf
-   * the slot is dark.
+   * The third slot is the one that moves: a bell and a shelf have a Q, a cut
+   * has a resonance stated in decibels, and the only band with nothing to put
+   * there is a cut at six decibels an octave. A shelf's Q used to be dark
+   * here, because a BiquadFilterNode ignores the number and is fixed at the
+   * steepest shelf that does not overshoot, so a face offering it would have
+   * drawn a shelf the sound did not have. The rack is this app's own now and
+   * honours it, so the slot is lit - over its own range, because a shelf and
+   * a bell stop being themselves in different places. BAND_TYPES carries both.
    *
    * The readouts are fields, not labels. A slider is how you find a
    * frequency and a terrible way to state one: somebody who knows they want
@@ -331,14 +334,16 @@ export class EQPlugin {
     // for.
     const flat = type.resonance && (band.slope ?? 12) === 6;
 
+    const [leastQ, mostQ] = type.qRange ?? [];
+
     const third = type.q
       ? `
       <div class="knob">
         <label class="knob-name" for="eqQ">Q</label>
         <input class="knob-value" id="eqQValue" data-entry="q" type="text"
                inputmode="decimal" spellcheck="false" value="${band.q.toFixed(2)}" aria-label="Q">
-        <input class="knob-dial" type="range" id="eqQ" min="${Math.log2(0.4)}" max="${Math.log2(12)}"
-               step="0.01" value="${Math.log2(Math.max(0.4, band.q))}" aria-label="Q">
+        <input class="knob-dial" type="range" id="eqQ" min="${Math.log2(leastQ)}" max="${Math.log2(mostQ)}"
+               step="0.01" value="${Math.log2(Math.max(leastQ, band.q))}" aria-label="Q">
       </div>`
       : type.resonance && !flat
         ? `
@@ -352,10 +357,10 @@ export class EQPlugin {
       </div>`
         : `
       <div class="knob is-idle">
-        <span class="knob-name">${flat ? 'Resonance' : 'Q'}</span>
+        <span class="knob-name">Resonance</span>
         <output class="knob-value">&mdash;</output>
         <input class="knob-dial" type="range" min="0" max="1" step="0.01" value="0.5" disabled
-               aria-label="${flat ? 'Resonance, which one pole does not have' : 'Q, which a shelf does not take'}">
+               aria-label="Resonance, which one pole does not have">
       </div>`;
 
     this.el.querySelector('#eqControls').innerHTML = `
@@ -631,8 +636,9 @@ export class EQPlugin {
     }
   }
 
-  /** The wheel is the Q of a peak, which is what it does in every EQ worth
-      using. A cut has no Q to speak of - its handle is the resonance. */
+  /** The wheel is the Q of a peak or a shelf, which is what it does in every
+      EQ worth using. A cut has no Q to speak of - its handle is the
+      resonance. */
   wheel(e) {
     if (!this.interactive) return;
     const { x, y } = this.at(e);
@@ -644,7 +650,8 @@ export class EQPlugin {
     if (!BAND_TYPES[band.type].q) return;
 
     this.selected = found;
-    band.q = Math.min(12, Math.max(0.4, band.q * (e.deltaY > 0 ? 1.12 : 1 / 1.12)));
+    const [leastQ, mostQ] = BAND_TYPES[band.type].qRange;
+    band.q = Math.min(mostQ, Math.max(leastQ, band.q * (e.deltaY > 0 ? 1.12 : 1 / 1.12)));
     this.changed();
   }
 
@@ -680,7 +687,7 @@ export class EQPlugin {
 
     set('#eqFreq', Math.log2(band.frequency));
     set('#eqGain', band.gain);
-    set('#eqQ', Math.log2(Math.max(0.4, band.q)));
+    set('#eqQ', Math.log2(Math.max(BAND_TYPES[band.type].qRange?.[0] ?? 0.4, band.q)));
     set('#eqRes', band.q);
     paintKnobs(this.el);
   }
@@ -713,7 +720,7 @@ export class EQPlugin {
       band.on = true;
     } else if ((e.key === '[' || e.key === ']') && type.q) {
       const by = fine ? 1.02 : 1.12;
-      band.q = hold(e.key === ']' ? band.q * by : band.q / by, 0.4, 12);
+      band.q = hold(e.key === ']' ? band.q * by : band.q / by, ...type.qRange);
     } else if (e.key === 'Enter' || e.key === ' ') {
       band.on = !band.on;
     } else if (/^[1-6]$/.test(e.key)) {
@@ -736,7 +743,7 @@ export class EQPlugin {
       const hold = (v, low, high) => Math.max(low, Math.min(high, v));
       if (input.dataset.entry === 'frequency') band.frequency = hold(value, LOW, HIGH);
       if (input.dataset.entry === 'gain') { band.gain = hold(value, -RANGE, RANGE); band.on = true; }
-      if (input.dataset.entry === 'q') band.q = hold(value, 0.4, 12);
+      if (input.dataset.entry === 'q') band.q = hold(value, ...BAND_TYPES[band.type].qRange);
       if (input.dataset.entry === 'resonance') { band.q = hold(value, -RANGE, MOST_RESONANCE); band.on = true; }
     }
 

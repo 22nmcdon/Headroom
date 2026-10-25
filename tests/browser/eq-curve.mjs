@@ -56,9 +56,10 @@ const INAUDIBLE = -30;
  */
 // A shelf at a Q other than root-half used to be the one thing in the model
 // the audio could not do - the SVF honours it, a BiquadFilterNode ignores it
-// and is fixed at S = 1 - and these cases are still written in terms of
-// SHELF_Q because that is where the face leaves a shelf, not because the rack
-// could not be asked for something else.
+// and is fixed at S = 1. The face offers it now, so the two ends of what it
+// offers are cases here as well as the rest position: a resonant shelf has a
+// bump and an equal scoop in it, which is the shape most likely to come out
+// differently if the drawing and the rack ever part company.
 const CASES = [
   ['a bell at 1 kHz', [{ id: 'p1', type: 'peaking', frequency: 1000, gain: 9, q: 1.4, slope: 12 }]],
   ['a bell at 10 kHz', [{ id: 'p1', type: 'peaking', frequency: 10000, gain: 9, q: 1.4, slope: 12 }]],
@@ -67,6 +68,9 @@ const CASES = [
   ['a narrow bell at 50 Hz', [{ id: 'p1', type: 'peaking', frequency: 50, gain: 9, q: 8, slope: 12 }]],
   ['a low shelf', [{ id: 'ls', type: 'lowshelf', frequency: 120, gain: 8, q: SHELF_Q, slope: 12 }]],
   ['a high shelf', [{ id: 'hs', type: 'highshelf', frequency: 8000, gain: -8, q: SHELF_Q, slope: 12 }]],
+  ['a resonant low shelf', [{ id: 'ls', type: 'lowshelf', frequency: 150, gain: 12, q: 2, slope: 12 }]],
+  ['a broad high shelf', [{ id: 'hs', type: 'highshelf', frequency: 4000, gain: 10, q: 0.25, slope: 12 }]],
+  ['a resonant high shelf cut', [{ id: 'hs', type: 'highshelf', frequency: 6000, gain: -12, q: 2, slope: 12 }]],
   // The odd orders, which have a real pole in them rather than only pairs -
   // a different branch in the rack and a different branch in the drawing, so
   // the one place they could part company is exactly here.

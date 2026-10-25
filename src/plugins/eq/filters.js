@@ -17,6 +17,42 @@ import { readingOf, stampOf } from '../../lib/read.js';
 import { svfOf, svfBiquad, SECTION_WIDTH } from './svf.js';
 
 /**
+ * How wide a bell goes, and how wide a shelf goes.
+ *
+ * A bell is a bell at any Q: at 0.4 it is a two-and-a-half-octave hump and at
+ * 12 it is a sliver, and both are things people reach for.
+ *
+ * A shelf is not. Above root-half it overshoots - a boost grows a bump on top
+ * of its step and an equal scoop on the flat side of it, which is the
+ * "resonant shelf" every console with a shelf slope control has. Measured, on
+ * a low shelf at 1 kHz:
+ *
+ *            overshoot above the plateau, in dB
+ *     Q       +3 dB    +6 dB   +12 dB   +18 dB   transition, in octaves
+ *     0.25     0.00     0.00     0.00     0.00     5.8
+ *     0.707    0.00     0.00     0.00     0.00     1.75
+ *     1        0.23     0.44     0.78     1.00     0.91
+ *     2        1.55     2.86     4.58     5.45     0.40
+ *     3        2.90     5.09     7.54     8.65     0.32
+ *
+ * so the ceiling is where the bump stops being a detail of the step and
+ * becomes the loudest thing in the band. For a three-decibel shelf that
+ * happens at Q 3.08, for six at 3.46, for twelve at 5.21: it arrives soonest
+ * on the gentlest move, which is the one somebody is most likely to be making
+ * carelessly. Two is comfortably below all three and still a plainly resonant
+ * shelf.
+ *
+ * And 0.25 to 2 has root-half as its geometric mean exactly, so on a dial
+ * that is logarithmic in Q - which is the only scale a Q reads evenly on -
+ * the Butterworth shelf the band rests at is the middle of the travel. Left
+ * is a tilt across five octaves, right is a resonant step. At 0.25 the
+ * transition is 5.8 octaves wide, which is most of the range it is drawn in
+ * and as broad as a shelf can get before it is a trim.
+ */
+export const BELL_QS = [0.4, 12];
+export const SHELF_QS = [0.25, 2];
+
+/**
  * What each kind of band has, and what its handle means vertically.
  *
  * Every type contributes something known at its own corner frequency, which is
@@ -28,12 +64,23 @@ import { svfOf, svfBiquad, SECTION_WIDTH } from './svf.js';
  *
  * So dragging a handle up and down is the same gesture on all five: it sets
  * whichever number that band contributes there.
+ *
+ * A shelf has a Q now, which is the second thing the swap to this app's own
+ * filter unlocked. Web Audio's shelves ignore the number and are fixed at the
+ * steepest shelf that does not overshoot; the state-variable shelf takes it.
+ * Measured, a shelf still contributes exactly half its gain at its corner at
+ * every Q in the range - 6.000 dB of a 12 dB shelf at 0.2, at root-half and
+ * at 12 - so nothing about the handle changes, which is why this entry is one
+ * flag and a range rather than a special case.
+ *
+ * `qRange` is where that control stops, and the two ranges are different
+ * because the two filters stop being themselves in different places.
  */
 export const BAND_TYPES = {
   highpass: { label: 'High-pass', short: 'HP', gain: false, resonance: true, contributes: 1 },
-  lowshelf: { label: 'Low shelf', short: 'LS', gain: true, contributes: 0.5 },
-  peaking: { label: 'Peak', short: 'PK', gain: true, q: true, contributes: 1 },
-  highshelf: { label: 'High shelf', short: 'HS', gain: true, contributes: 0.5 },
+  lowshelf: { label: 'Low shelf', short: 'LS', gain: true, q: true, qRange: SHELF_QS, contributes: 0.5 },
+  peaking: { label: 'Peak', short: 'PK', gain: true, q: true, qRange: BELL_QS, contributes: 1 },
+  highshelf: { label: 'High shelf', short: 'HS', gain: true, q: true, qRange: SHELF_QS, contributes: 0.5 },
   lowpass: { label: 'Low-pass', short: 'LP', gain: false, resonance: true, contributes: 1 },
 };
 

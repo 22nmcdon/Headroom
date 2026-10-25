@@ -7,6 +7,7 @@ import {
   averageLift, liftFrequencies, logFrequencies,
   SLOPES, FLAT_CORNER, RESTING_Q, sectionsOf, butterworth, exactHz, SHELF_Q, sectionGainAt,
   OCTAVE_EQUIVALENT, curveGap, curveReading, sectionTable, MOST_SECTIONS,
+  BELL_QS, SHELF_QS,
 } from '../src/plugins/eq/filters.js';
 import { eqSource } from '../src/plugins/eq/node.js';
 import { tuneSections } from '../src/plugins/eq/sections.js';
@@ -414,6 +415,79 @@ test('a shelf rests where S = 1 has always put it', () => {
   }
   assert.equal(RESTING_Q.lowshelf, SHELF_Q);
   assert.equal(RESTING_Q.highshelf, SHELF_Q);
+
+  // And it rests in the middle of the dial, which is the reason the shelf's
+  // range is 0.25 to 2 and not some other pair of numbers: on a scale that is
+  // logarithmic in Q, the geometric mean is the midpoint of the travel.
+  assert.ok(Math.abs(Math.sqrt(SHELF_QS[0] * SHELF_QS[1]) - SHELF_Q) < 1e-12,
+    `a shelf's range centres on ${Math.sqrt(SHELF_QS[0] * SHELF_QS[1])}, not on root-half`);
+});
+
+test('a shelf sits halfway up its own corner at every Q it can be set to', () => {
+  // This is the whole reason shelf Q is a flag and a range rather than a new
+  // case everywhere: the handle maths does not care. A shelf contributes half
+  // its gain at its corner at 0.25, at root-half and at 2, and at every
+  // thirtieth of that range in between.
+  for (let i = 0; i <= 30; i += 1) {
+    const q = SHELF_QS[0] * (SHELF_QS[1] / SHELF_QS[0]) ** (i / 30);
+    for (const type of ['lowshelf', 'highshelf']) {
+      for (const gain of [-18, -6, 3, 12, 18]) {
+        const band = on({ type, frequency: 1000, gain, q });
+        assert.ok(Math.abs(contributionOf(band, rate) - gain / 2) < 1e-9,
+          `a ${type} of ${gain} dB at Q ${q.toFixed(3)} contributes `
+          + `${contributionOf(band, rate).toFixed(4)}, not ${gain / 2}`);
+      }
+    }
+  }
+});
+
+test('a shelf is still a shelf everywhere its Q goes', () => {
+  // The ceiling is not a taste: above it the overshoot a shelf grows is the
+  // loudest thing in the band, and the band is no longer a step with a bump
+  // on it. It arrives soonest on the gentlest boost, which is the move
+  // somebody is least likely to be watching closely, so that is the one the
+  // range has to clear.
+  const sweep = (band) => {
+    let peak = -Infinity;
+    for (let i = 0; i <= 2000; i += 1) {
+      peak = Math.max(peak, bandGainAt(band, 20 * 1000 ** (i / 2000), rate));
+    }
+    return peak;
+  };
+
+  for (const gain of [3, 6, 12, 18]) {
+    const band = on({ type: 'lowshelf', frequency: 1000, gain, q: SHELF_QS[1] });
+    const over = sweep(band) - gain;
+    assert.ok(over < gain,
+      `a ${gain} dB shelf at Q ${SHELF_QS[1]} overshoots by ${over.toFixed(2)} dB, `
+      + 'which is more than the step it is meant to be making');
+  }
+
+  // Measured, where it does go wrong: Q 3.08 for a three-decibel shelf, 3.46
+  // for six, 5.21 for twelve. The ceiling of 2 is under all three.
+  const three = on({ type: 'lowshelf', frequency: 1000, gain: 3, q: 3.2 });
+  assert.ok(sweep(three) - 3 > 3, 'the test for too much overshoot never fires');
+
+  // And the floor is a tilt rather than a step, but still reaches the gain it
+  // was asked for: measured, 11.94 dB of a 12 dB shelf by 20 Hz at Q 0.25.
+  const broad = on({ type: 'lowshelf', frequency: 1000, gain: 12, q: SHELF_QS[0] });
+  assert.ok(bandGainAt(broad, 20, rate) > 11.9,
+    `a shelf at Q ${SHELF_QS[0]} only reaches ${bandGainAt(broad, 20, rate).toFixed(2)} dB`);
+});
+
+test('every band with a Q has somewhere for it to go', () => {
+  for (const [type, spec] of Object.entries(BAND_TYPES)) {
+    assert.equal(Boolean(spec.q), Boolean(spec.qRange),
+      `${type} has a Q and no range for it, or the other way round`);
+    if (!spec.qRange) continue;
+    const [least, most] = spec.qRange;
+    assert.ok(least > 0 && most > least, `${type}'s range is ${least} to ${most}`);
+    assert.ok(RESTING_Q[type] >= least && RESTING_Q[type] <= most,
+      `${type} rests at ${RESTING_Q[type]}, outside its own range`);
+  }
+  // The bell's range is the one the face has always had; this only records
+  // that moving it into the table did not move it.
+  assert.deepEqual(BELL_QS, [0.4, 12]);
 });
 
 /* --- the filter the audio thread actually runs ------------------------------ */
