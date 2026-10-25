@@ -19,6 +19,7 @@ quietly did nothing would be a preset wearing a plugin's controls.
     plate    no walls, no build-up, and the highs arriving first
     gated    the same room, not decaying, then cut
     reverse  the same room, backwards
+    spring   a chirp going round a wire, which is nothing like the others
 
 Gated and reverse are the room's own generator with something done to the
 envelope afterwards, which is why neither needed a second one. A gate is
@@ -32,6 +33,22 @@ which is a fade rather than the click a rising envelope would leave.
 Neither can be read as a decay time, so neither is asked for one. The
 headline measures what each space actually does - a gate holds and shuts, a
 reverse swells - off the response, the same as everything else here.
+
+The spring is the one that could not share any of it. A reverb tank is a
+helical spring with a transducer at each end, and a torsional wave along a
+wire is dispersive, hard: every traverse arrives as a chirp sweeping
+downwards, then reflects and does it again. That is a feedback loop with a
+stretched-allpass chain in it, not an envelope on noise. Measured over a fixed window, the gap between its loud tenth and its quiet
+tenth is 9.6 dB where a room's is 5.5 - which is the difference between a
+train of bounces and a wash.
+
+Its decay knob is a request rather than a promise, and the reading on the
+face is the measurement. A spring has no single decay time to hold it to: a
+stretched allpass delays one frequency eighty times as long as another, so
+the loop goes round at a different rate everywhere in the band. The knob is
+reckoned at 500 Hz, which `QUOTED_AT` in ir.js shows is both the closest over
+twenty-four settings and the right kind of wrong - a spring asked for two
+seconds is never found ringing for three and a half.
 
 Three of the four things that make a plate a plate are things it does not
 have: no early reflections, no build-up, no size. The fourth is the only one

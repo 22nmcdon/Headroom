@@ -490,3 +490,104 @@ test('every space says what it is called and what to call it', () => {
     assert.ok(SPACES[id].shown, `${id} has nothing to call itself on the display`);
   }
 });
+
+/* --- the spring ----------------------------------------------------------- */
+
+/**
+ * How much louder a tail's peaks are than its troughs, in dB, over a fixed
+ * window rather than a fraction of the tail.
+ *
+ * Fixed because the obvious measure - loudest against average over the middle
+ * of the tail - mostly reports how long the tail is. A loop that dies early
+ * has three bounces in that window and reads 23; the same loop ringing twice
+ * as long has eight and reads 14, with no change to how distinct any of them
+ * is. Fifty to two hundred and fifty milliseconds, for everything.
+ */
+function bounceContrast(impulse, rate) {
+  const channel = impulse.channels[0];
+  const window = Math.round(rate * 0.004);
+  const from = Math.round(rate * 0.05);
+  const energy = [];
+  let running = 0;
+  for (let i = 0; i < Math.round(rate * 0.25); i += 1) {
+    running += channel[i] * channel[i];
+    if (i >= window) running -= channel[i - window] * channel[i - window];
+    if (i > from) energy.push(running);
+  }
+  energy.sort((a, b) => a - b);
+  const trough = energy[Math.round(energy.length * 0.1)];
+  const peak = energy[Math.round(energy.length * 0.9)];
+  return 10 * Math.log10(peak / Math.max(trough, 1e-30));
+}
+
+test('a spring bounces where a room washes', () => {
+  // The whole difference. A room is a wash - noise under an envelope, lumpy
+  // the way noise is - and a spring is a train of discrete chirps coming back
+  // round a wire. Measured as the gap between the loud tenth and the quiet
+  // tenth of a fixed window: the spring reads 9.6 dB and the room 5.5.
+  const settings = { preDelay: 0, decay: 1.8 };
+  const spring = bounceContrast(room({ ...settings, space: 'spring' }), rate);
+  const wash = bounceContrast(room({ ...settings, space: 'room' }), rate);
+  assert.ok(spring > wash + 2.5,
+    `the spring reads ${spring.toFixed(1)} dB against the room's ${wash.toFixed(1)} - it is a wash`);
+});
+
+test('a spring chirps downwards, and the spread knob says how far', () => {
+  // Torsional waves in a wire are dispersive, hard: the top of a transient
+  // reaches the far end while the bottom is halfway, so every traverse
+  // arrives as a chirp sweeping down.
+  //
+  // Measured over the first bounce alone - 22 ms, before the next one lands
+  // on top of it - as the gap between the low band's centre of energy and the
+  // high band's: 3.4 ms at no spread, 5.0 at half, 7.4 at full.
+  //
+  // Over a longer window it does not read, and that is the measurement and
+  // not the sound: three springs of different lengths put a bounce every few
+  // milliseconds, and across sixty of them the band centres average out.
+  const chirpOf = (spread) => {
+    const mono = monoOf(room({ space: 'spring', preDelay: 0, decay: 1.8, spread }));
+    const look = mono.subarray(0, Math.round(rate * 0.022));
+    const centre = (samples) => {
+      let energy = 0;
+      let moment = 0;
+      for (let i = 0; i < samples.length; i += 1) {
+        const v = samples[i] * samples[i];
+        energy += v;
+        moment += v * i;
+      }
+      return energy > 0 ? (moment / energy / rate) * 1000 : 0;
+    };
+    const [low, , high] = RESPONSE_BANDS.map((band) => centre(bandOf(look, rate, band)));
+    return low - high;
+  };
+
+  const none = chirpOf(0);
+  const most = chirpOf(1);
+  assert.ok(none > 0, 'even at no spread the lows should trail the highs');
+  assert.ok(most > none * 1.5,
+    `full spread reads ${most.toFixed(1)} ms against ${none.toFixed(1)} at none`);
+});
+
+test('a spring has no bottom end, because a spring never has', () => {
+  // There is no air in a tank and no room, only a wire. The high-pass at
+  // 110 Hz is baked into the space rather than left to the send filter: what
+  // makes a spring recognisable on a guitar is as much what is missing
+  // underneath as the boing on top.
+  const energyIn = (impulse, band) => {
+    const samples = bandOf(monoOf(impulse), rate, band);
+    let sum = 0;
+    for (let i = 0; i < samples.length; i += 1) sum += samples[i] * samples[i];
+    return sum;
+  };
+  const settings = { preDelay: 0, decay: 1.8, lowCut: 20 };
+  const spring = room({ ...settings, space: 'spring' });
+  const wash = room({ ...settings, space: 'room' });
+
+  const low = (impulse) => energyIn(impulse, RESPONSE_BANDS[0])
+    / RESPONSE_BANDS.reduce((sum, band) => sum + energyIn(impulse, band), 0);
+  // Measured: 3.2% of the tank's energy sits below 400 Hz against the room's
+  // 5.7%, with both send filters wide open.
+  assert.ok(low(spring) < low(wash) * 0.7,
+    `the tank holds ${(low(spring) * 100).toFixed(1)}% of its energy down low against the room's `
+    + `${(low(wash) * 100).toFixed(1)}%`);
+});

@@ -41,6 +41,9 @@ const VERB_KNOBS = [
   // A plate's own control, and the only one the room does not have: how far
   // ahead of the lows the highs arrive. See `disperse` in ir.js.
   { id: 'spread', name: 'Spread', ...span(VERB_LIMITS.spread), step: 0.01, write: (v) => `${Math.round(v * 100)} %` },
+  // A spring's own: how fast the bounces come round. Tighter is quicker and
+  // higher, which is what tension does to a wire.
+  { id: 'tension', name: 'Tension', ...span(VERB_LIMITS.tension), step: 0.01, write: (v) => `${Math.round(v * 100)} %` },
   { id: 'mix', name: 'Mix', ...span(VERB_LIMITS.mix), step: 0.01, write: (v) => `${Math.round(v * 100)} %` },
 ];
 
@@ -593,6 +596,19 @@ export class VerbPlugin {
       parts.push(`holds ${writeSeconds(this.measured.holds)}, then shuts`);
     } else if (this.measured && space === 'reverse') {
       parts.push(`swells over ${writeSeconds(this.measured.peaks)}`);
+    } else if (this.measured && space === 'spring') {
+      // One number, not three. A tank has no bottom to quote a decay time
+      // for - there is a two-pole high-pass at 110 Hz baked into it, because
+      // a spring is thin and that is not a fault to be corrected.
+      //
+      // It said how often it bounced for a while, which is the right thing to
+      // want and the wrong thing to claim: three springs of different lengths
+      // in two channels interleave six trains of bounces, and the gap between
+      // the peaks in the sum is not any of their periods. Measured, it read
+      // 15 ms at four tensions out of five while the loop was going round
+      // between 8 and 27.
+      const { mid, high } = this.measured.rt;
+      parts.push(`rings ${writeSeconds(mid || high)}`);
     } else if (this.measured) {
       const { low, mid, high } = this.measured.rt;
       parts.push(`${writeSeconds(low)} low · ${writeSeconds(mid)} mid · ${writeSeconds(high)} high`);

@@ -30,7 +30,8 @@ export const VERB_DEFAULTS = {
   early: 0.35,       // the level of the early reflections against the tail
   lowCut: 20,        // Hz, on the way in
   highCut: 20000,    // Hz, on the way in
-  spread: 0.5,       // a plate's dispersion: how far ahead the highs arrive
+  spread: 0.5,       // dispersion: how far ahead of the lows the highs arrive
+  tension: 0.5,      // a spring's: how fast the bounces come round
   mix: 0.3,          // 0 is dry, 1 is nothing but room
 };
 
@@ -73,9 +74,16 @@ export const SPACES = {
     shown: 'the room, backwards',
     knobs: ['preDelay', 'decay', 'bass', 'damping', 'size', 'early', 'lowCut', 'highCut', 'mix'],
   },
+  spring: {
+    label: 'Spring',
+    shown: 'the tank',
+    // No size, no early, no bass. A tank has no walls to be a distance from
+    // and nothing underneath to lift.
+    knobs: ['preDelay', 'decay', 'tension', 'spread', 'damping', 'lowCut', 'highCut', 'mix'],
+  },
 };
 
-export const SPACE_ORDER = ['room', 'plate', 'gated', 'reverse'];
+export const SPACE_ORDER = ['room', 'plate', 'gated', 'reverse', 'spring'];
 
 /** Which knobs a space has, by id, for a deck to be built from. */
 export const verbDeckFor = (space) => (SPACES[space] ?? SPACES.room).knobs;
@@ -175,6 +183,7 @@ export const VERB_LIMITS = {
   lowCut: [20, 800],
   highCut: [1500, 20000],
   spread: [0, 1],
+  tension: [0, 1],
   mix: [0, 1],
 };
 const CACHE_SECONDS = MOST_DECAY * 1.1 + 0.5;
@@ -675,6 +684,263 @@ function plateImpulse(rate, settings) {
 }
 
 /**
+ * A spring, and why it is the only space here that is a loop rather than a
+ * shaped noise.
+ *
+ * A reverb tank is a helical spring with a transducer at each end, and what
+ * travels along it is a torsional wave - which is dispersive, hard. The top
+ * of a transient reaches the far end while the bottom is still halfway, so
+ * every single traverse arrives as a chirp sweeping downwards, and then it
+ * reflects and does it again. What you hear is not a wash at all: it is a
+ * train of chirps, which is the "boing", and the metallic ring on top of them
+ * is the dispersion rippling across the band rather than sliding smoothly.
+ *
+ * None of that can be done by putting an envelope on noise, which is why the
+ * other four spaces could share a generator and this one cannot.
+ *
+ * After Valimaki, Parker and Abel: a cascade of identical *stretched*
+ * allpasses, H(z) = (a + z^-K)/(1 + a z^-K), inside a feedback loop. The
+ * stretch is what makes it a spring rather than a plate. An ordinary
+ * first-order allpass slides its group delay once from top to bottom; a
+ * stretched one wraps that K times across the band, so the chirp ripples
+ * instead of sweeping, and the ripple is the metal.
+ *
+ * It also sets the two round trips a spring has, which is the whole of the
+ * sound. At a = -0.6 a stretched stage holds the bottom back 4K samples and
+ * the top 0.25K, so with a plain 20 ms line the lows come round every 40 ms
+ * and the highs every 21. Measured on the built response: the bounces land
+ * 17.4 ms apart at a 16 ms line, and across the first 120 ms the low band's
+ * energy sits 31 ms behind the high band's.
+ *
+ * The stretch is 20 and that is a measured trade rather than a number from
+ * the paper. A chirp of a given length can be built from many weak stages or
+ * few strong ones, and the cost is all in the stages - for a 20 ms chirp:
+ *
+ *     K x stages    low behind high    bounces      to build
+ *      5 x 48          37.3 ms         17.4 ms       21 ms
+ *     10 x 24          35.0 ms         17.4 ms        9 ms
+ *     20 x 12          31.1 ms         17.4 ms        5 ms
+ *     40 x  6          26.7 ms         17.5 ms        4 ms
+ *     80 x  3          24.2 ms         17.7 ms        3 ms
+ *
+ * The bounce never moves, because the chirp length is what sets it. What a
+ * coarser chain costs is a few milliseconds of the sweep. Twenty is where
+ * that stops being a good trade: half the work of ten for four milliseconds.
+ *
+ * It is still the expensive one. Three springs in two channels is six passes
+ * with the chain inside each of them, which comes to 29 ms a knob move
+ * against 11 to 15 for the other four spaces. Worth knowing and not worth
+ * fixing: it is twice the worst of the rest, not ten times it, and the
+ * picture is built on the main thread for all five of them.
+ */
+const SPRING_STRETCH = 20;
+
+/**
+ * The springs in the tank, as ratios of the shortest.
+ *
+ * Real tanks have two or three of slightly different lengths, which is what
+ * stops the bounces landing on top of each other and turning into a pitch.
+ * Nothing harmonic: 1.00, 1.14 and 1.29 share no small ratio.
+ */
+const SPRING_RATIOS = [1, 1.14, 1.29];
+
+/** How long the plain part of the loop is, at most and least tension, in ms. */
+const SPRING_BOUNCE = [26, 7];
+
+/** The longest a tank rings. Eight seconds is not a spring, it is a hall. */
+const SPRING_LONGEST = 4;
+
+/**
+ * Where a tank stops having any bottom at all.
+ *
+ * A spring is thin and that is not a flaw to be corrected: there is no air in
+ * it and no room, only a wire, and what makes a spring recognisable on a
+ * guitar is as much what is missing underneath as the boing on top.
+ */
+const SPRING_FLOOR = 110;
+
+/**
+ * One spring: the chain and the line, round and round.
+ *
+ * Stable by construction - the cascade is allpass, so unity gain at every
+ * frequency, the one-pole can only lose, and the feedback is under one.
+ */
+function springLoop(out, from, until, { stages, delay, feedback, damp }) {
+  const K = SPRING_STRETCH;
+  // The rings are stored by position and then by stage, which reads better
+  // and is worth nothing at all. It looked like it should be worth a lot:
+  // every sample touches one slot in each stage, and stage-major those slots
+  // sit K doubles apart so the chain walks a fresh cache line for each one,
+  // where position-major they are side by side. Measured at fourteen stages
+  // over two seconds, twenty runs each: 8.63 ms stage-major against 8.50
+  // position-major. The rings are two kilobytes and they were in L1 either
+  // way. Recorded so nobody spends the afternoon on it twice.
+  const xs = new Float64Array(K * stages);
+  const ys = new Float64Array(K * stages);
+  const line = new Float64Array(delay);
+  let at = 0;
+  let head = 0;
+  let lost = 0;
+
+  for (let i = from; i < until; i += 1) {
+    let v = out[i] + feedback * line[head];
+
+    const ring = at * stages;
+    for (let s = 0; s < stages; s += 1) {
+      const slot = ring + s;
+      const y = DISPERSE_A * v + xs[slot] - DISPERSE_A * ys[slot];
+      xs[slot] = v;
+      ys[slot] = y;
+      v = y;
+    }
+    at += 1;
+    if (at === K) at = 0;
+
+    // What the wire loses on the way round, which takes the top off first.
+    lost += (v - lost) * damp;
+    line[head] = lost;
+    head += 1;
+    if (head === delay) head = 0;
+
+    out[i] = v;
+  }
+}
+
+/**
+ * Where a spring's decay is reckoned, in Hz.
+ *
+ * A choice, and not a detail. A stretched allpass does not delay the whole
+ * band by one amount - at a = -0.6 and K = 20 it holds a frequency back
+ * anywhere between 5 and 80 samples a stage depending where it falls in the
+ * ripple - so there is no such thing as *the* round trip, and the loop's
+ * one-pole takes a different amount out at every frequency on top of that.
+ * Which means there is no such thing as *the* decay time either. That is
+ * what dispersion is; it is not a flaw in the model.
+ *
+ * So the knob is a request and the reading on the face is the truth, and this
+ * is the frequency that gets them closest. Swept, as the worst ratio between
+ * the decay asked for and the mid band's measured RT60 over twenty-four
+ * settings - every damping against every decay, and the ends of tension and
+ * spread:
+ *
+ *      500 Hz   worst 1.75x    0.91 - 1.75
+ *      700 Hz   worst 1.85x    0.54 - 1.39
+ *      900 Hz   worst 2.45x    0.41 - 1.15
+ *     1095 Hz   worst 2.77x    0.36 - 1.04   <- the mid band's own centre
+ *     1800 Hz   worst 3.06x    0.33 - 0.98
+ *
+ * Five hundred is both the closest and the right kind of wrong: every ratio
+ * is at or above one, so a spring asked for two seconds never rings for three
+ * and a half. The centre of the band it is read in reads best on average and
+ * overshoots worst, which on a knob is the trade nobody wants.
+ */
+const QUOTED_AT = 500;
+
+/**
+ * How long one stretched stage holds a frequency back, in samples.
+ *
+ * The group delay of (a + z^-K)/(1 + a z^-K), which is K(1-a^2) over
+ * (1 + 2a cos Kw + a^2). It is the cos Kw that makes a spring a spring: K
+ * times across the band the delay swings between its longest and its
+ * shortest, and that ripple is the metal.
+ */
+function stageDelay(hz, rate) {
+  const w = SPRING_STRETCH * ((2 * Math.PI * hz) / rate);
+  const a = DISPERSE_A;
+  return (SPRING_STRETCH * (1 - a * a)) / (1 + 2 * a * Math.cos(w) + a * a);
+}
+
+/**
+ * The feedback a spring needs to ring for as long as the knob says.
+ *
+ * Not simply 10^(-3t/RT), which is what every other space here uses, because
+ * the loop has a filter in it. The one-pole that takes the top off on each
+ * pass takes some of the middle off too, so the loss per round trip is the
+ * feedback and the filter together - and the knob was out by anywhere from
+ * 1.41x to 3.85x depending on where the other three knobs were:
+ *
+ *     ratio asked / got     decay 0.5   1.2   1.8   3.0
+ *       damping 0.20          3.33    3.33  3.53  3.85
+ *       damping 0.55          1.96    1.90  2.00  2.13
+ *       damping 1.00          1.75    1.60  1.54  1.54
+ *
+ * No constant fixes that. What does is dividing the filter back out: a
+ * one-pole y += (x - y)a has magnitude a / |1 - (1-a)e^-jw|, so asking for
+ * the feedback that lands the *pair* on 60 dB over the decay is a matter of
+ * evaluating it at the frequency the decay is quoted at. The mid band is
+ * 400 to 3000, so that is 1095 Hz, its geometric centre.
+ *
+ * Held under one, because a loop at unity gain is a space that never stops.
+ */
+function springFeedback(trip, rings, rate, damp) {
+  const w = (2 * Math.PI * QUOTED_AT) / rate;
+  const pole = 1 - damp;
+  const loss = damp / Math.hypot(1 - pole * Math.cos(w), pole * Math.sin(w));
+  const wanted = 10 ** ((-3 * trip) / (rings * rate));
+  return Math.min(0.9995, wanted / Math.max(1e-6, loss));
+}
+
+function springImpulse(rate, settings) {
+  const { preDelay, decay, tension, spread, damping } = settings;
+
+  const pre = Math.round((preDelay / 1000) * rate);
+  const rings = Math.min(SPRING_LONGEST, Math.max(0.05, decay));
+  const length = Math.max(rate * 0.05, Math.ceil(pre + rate * (rings * 1.08 + 0.02)));
+  const channels = [new Float32Array(length), new Float32Array(length)];
+
+  // How far the chirp smears, which is the same knob the plate dispersion
+  // sits on, and for the same reason - it is the same thing happening.
+  const held = Math.min(1, Math.max(0, spread));
+  const chirp = Math.round(((4 + held * 26) / 1000) * rate);
+  const stages = Math.max(1, Math.round(chirp / (4 * SPRING_STRETCH)));
+
+  const tight = Math.min(1, Math.max(0, tension));
+  const bounce = SPRING_BOUNCE[0] + tight * (SPRING_BOUNCE[1] - SPRING_BOUNCE[0]);
+
+  // A one-pole, so the coefficient is the knob: at 1 nothing is lost on the
+  // way round and at 0.2 the loop is down 3 dB by about 1.5 kHz.
+  const damp = Math.min(1, Math.max(0.2, damping));
+  const voice = new Float64Array(length);
+
+  for (let c = 0; c < channels.length; c += 1) {
+    const out = channels[c];
+    for (const ratio of SPRING_RATIOS) {
+      // A hair apart in the two ears. A real tank is one mono box; two of
+      // them an inch different is what a stereo send to one sounds like, and
+      // identical in both ears is a sound inside your head.
+      const skew = ratio * (1 + (c === 0 ? -0.018 : 0.018));
+      const delay = Math.max(1, Math.round(((bounce * skew) / 1000) * rate));
+      // One round trip at the frequency the decay is quoted at - not at DC,
+      // which is a different trip entirely. See `springTrip`.
+      const trip = delay + stages * stageDelay(QUOTED_AT, rate);
+
+      voice.fill(0);
+      voice[pre] = 1 / SPRING_RATIOS.length;
+      springLoop(voice, pre, length, {
+        stages,
+        delay,
+        feedback: springFeedback(trip, rings, rate, damp),
+        damp,
+      });
+      for (let i = pre; i < length; i += 1) out[i] += voice[i];
+    }
+
+    // The tank's own bottom end, which it has never had.
+    const floor = Array.from({ length: 2 },
+      () => setBiquad(makeBiquad(), 'highpass', SPRING_FLOOR, rate));
+    for (let i = 0; i < length; i += 1) {
+      let v = out[i];
+      for (const stage of floor) v = runBiquad(stage, v);
+      out[i] = v;
+    }
+  }
+
+  const out = finishImpulse(channels, length, rate, settings);
+  out.preDelay = pre / rate;
+  return out;
+}
+
+/**
  * The space, as samples.
  *
  * An unknown space is a room rather than a throw: the sketchpad keeps a
@@ -692,6 +958,7 @@ const BUILDERS = {
   plate: plateImpulse,
   gated: gatedImpulse,
   reverse: reverseImpulse,
+  spring: springImpulse,
 };
 
 /** A room, built and read in the terms a guess is marked in. */
