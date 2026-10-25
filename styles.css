@@ -1563,14 +1563,18 @@ input.knob-value:focus {
    out through the side of the chassis. */
 .heat-modes .eq-ab { flex-wrap: wrap; min-width: 0; }
 
-/* And the chassis moves a stop with it. Not a reskin: the knobs keep their
-   colour and the furniture keeps its shape, because somebody is meant to
-   learn one device with four curves in it rather than four devices. The
-   digital one is a shade cooler and the folding one a shade warmer, which is
-   enough to know where you are without reading anything. */
-.heat[data-curve="rectify"] { --face-hi: #514740; --face: #3f3730; --face-lo: #2f2823; }
-.heat[data-curve="fold"]    { --face-hi: #554840; --face: #42382f; --face-lo: #312922; }
-.heat[data-curve="crush"]   { --face-hi: #464648; --face: #37373a; --face-lo: #292a2d; }
+/* The chassis used to move a stop with the curve - three of the seven got a
+   slightly cooler or warmer face, on the idea that it would say where you
+   were without reading anything. It did not say anything. Measured against
+   the face it replaced: 2.2 dE for rectify, 3.9 for fold and 5.8 for crush,
+   where two flat colours side by side stop reading as one colour at about 2,
+   and all of that is under a gradient and a grain. Side by side at full size
+   the crush face and the default one are the same picture.
+
+   So it was three rules buying nothing, and the row of buttons above the
+   knobs already says which curve is on. `data-curve` stays on the element: it
+   costs an attribute and it is the hook anything that does want to know would
+   reach for. */
 
 .heat-bay.is-idle { opacity: 0.4; }
 /* Beside the switch it belongs to, not at the other end of the face. */
