@@ -23,8 +23,9 @@ import {
 export const VERB_DEFAULTS = {
   space: 'room',     // which kind of space this is
   preDelay: 20,      // ms of silence before the room answers
-  decay: 1.8,        // RT60, in seconds
+  decay: 1.8,        // RT60 of the mid band, in seconds - the number anyone quotes
   size: 18,          // metres - how far away the first walls are
+  bass: 1,           // how much longer the lows ring than the mids: 1 is not at all
   damping: 0.55,     // how much shorter the highs decay: 1 is not at all
   early: 0.35,       // the level of the early reflections against the tail
   lowCut: 20,        // Hz, on the way in
@@ -51,11 +52,11 @@ export const VERB_DEFAULTS = {
 export const SPACES = {
   room: {
     label: 'Room',
-    knobs: ['preDelay', 'decay', 'size', 'damping', 'early', 'lowCut', 'highCut', 'mix'],
+    knobs: ['preDelay', 'decay', 'bass', 'damping', 'size', 'early', 'lowCut', 'highCut', 'mix'],
   },
   plate: {
     label: 'Plate',
-    knobs: ['preDelay', 'decay', 'damping', 'spread', 'lowCut', 'highCut', 'mix'],
+    knobs: ['preDelay', 'decay', 'bass', 'damping', 'spread', 'lowCut', 'highCut', 'mix'],
   },
 };
 
@@ -65,17 +66,62 @@ export const SPACE_ORDER = ['room', 'plate'];
 export const verbDeckFor = (space) => (SPACES[space] ?? SPACES.room).knobs;
 
 /**
- * Where the tail is split into something that damps and something that does
- * not, and how sharply.
+ * Where the tail is split, and why the two edges are not in the same place.
  *
- * Sharply matters. A first-order split left a fifth of the slow band's energy
- * sitting up at 4 kHz, so once the fast part had died the slow part's leakage
- * took over and a room set to decay five times faster up top measured only
- * one and a half times faster. Two cascaded Butterworths - a Linkwitz-Riley
- * crossover, which is what a speaker uses and sums flat - put the bands
- * thirty decibels apart where the reading is taken.
+ * It used to split once at 1200 Hz into something that damps and something
+ * that does not, while `decayProfile` read three bands at 60-400, 400-3000
+ * and 3000-12000 - two band plans with nothing to do with each other. The
+ * result was a damping knob that moved one of the three readings. Measured,
+ * at decay 1.8 s, across the whole range of the knob:
+ *
+ *     damping    low(60-400)   mid(400-3k)   high(3k-12k)
+ *       0.20       1.80 s        1.83 s        0.41 s
+ *       0.55       1.80 s        1.65 s        1.01 s
+ *       1.00       1.83 s        1.80 s        1.80 s
+ *
+ * The low band never moved at all - it sat entirely inside the slow half of a
+ * split at 1200 - and the mid band moved ten per cent, which is inside the
+ * smallest difference in reverberation time anyone can hear.
+ *
+ * The obvious fix is to split where the bands are read, so each knob names a
+ * reading. Half of it works. The other half does not, and the measurement is
+ * worth keeping because the answer is not symmetrical:
+ *
+ *     split at       damping 0.2 -> 1.0, read 3k-12k      bass 0.5 -> 2.0, read 60-400
+ *     400 / 3000     1.19 0.99 1.13 1.40 1.82  <- falls then rises
+ *     400 / 2000     0.53 0.69 1.02 1.37 1.82      1.28 1.52 1.91 2.65 3.61
+ *     400 / 1500     0.38 0.65 1.01 1.37 1.82      1.28 1.50 1.92 2.67 3.61
+ *     300 / 1500     0.38 0.66 1.01 1.37 1.82      1.53 1.61 1.91 2.65 3.52
+ *     250 / 1500     0.38 0.66 1.01 1.37 1.82      1.64 1.71 1.91 2.53 3.45
+ *
+ * Splitting the top at 3000 gives a damping knob that goes down and then back
+ * up. At 0.2 the high band dies so fast that what is left in the reading is
+ * the mid band's skirt, and the skirt is strongest right at 3000 because that
+ * is where the crossover is. A band has to be well clear of the skirt of the
+ * one below it by the time the reading that measures it begins - so the top
+ * splits an octave early, at 1500, where by 3000 the mid band is 24 dB down
+ * and the reading is the high band and nothing else.
+ *
+ * The bottom has the opposite problem and so takes the opposite answer. The
+ * low reading is 60-400, which is narrow and ends where the crossover would
+ * be, so putting the split at 400 is what puts the whole of that reading
+ * inside the band the knob moves. Moving it down to 250 costs the bass knob
+ * most of its downward range: 0.5x reads 1.64 s instead of 1.28.
+ *
+ * Sharpness is not a taste either. Measured as how much of each band's energy
+ * lands in the reading it is meant for, and how flat the three sum back:
+ *
+ *     stages   low / mid / high purity      summed against white
+ *       1      73% / 76% / 95%              -3.61 / -4.81 / -2.01 dB
+ *       2      90% / 90% / 98%              -0.05 / -0.18 / -0.02 dB
+ *       3      95% / 95% / 99%              -2.14 / -2.41 / -0.89 dB
+ *
+ * One stage is too shallow to separate and does not sum flat; three separate
+ * better and do not sum flat either. Two does both, which is the whole reason
+ * Linkwitz-Riley exists, and is what makes a space with no damping and no
+ * bass lift the flat noise it always was.
  */
-const DAMP_CROSSOVER = 1200;
+const BAND_EDGES = [RESPONSE_BANDS[0].high, 1500];
 const CROSSOVER_POLES = 2;
 
 /**
@@ -108,6 +154,7 @@ export const VERB_LIMITS = {
   preDelay: [0, 200],
   decay: [0.2, MOST_DECAY],
   size: [4, 60],
+  bass: [0.5, 2],
   damping: [0.2, 1],
   early: [0, 0.8],
   lowCut: [20, 800],
@@ -118,17 +165,25 @@ export const VERB_LIMITS = {
 const CACHE_SECONDS = MOST_DECAY * 1.1 + 0.5;
 
 /**
- * The noise the rooms are all made from, split once and kept.
+ * The noise every space is made from, split once and kept.
  *
- * Every room is the same noise under a different envelope - the filtering
- * that splits it into something that damps and something that does not
- * depends on neither the decay nor the damping, only on the crossover. Doing
- * it per room meant four biquads a sample a channel, which came to a sixth of
- * a second to build an eight second hall: a knob you could turn and then wait
- * for. Split once, building a room is a multiply and an add.
+ * Every space is the same noise under three envelopes - the filtering that
+ * splits it depends on neither the decay nor the damping, only on where the
+ * bands are read. Doing it per room meant biquads a sample a channel, which
+ * came to a sixth of a second to build an eight second hall: a knob you could
+ * turn and then wait for. Split once, building a space is a multiply and an
+ * add.
  *
- * It also means a room is the same room every time it is asked for, on every
- * machine, which is what a shared daily needs.
+ * It also means a space is the same space every time it is asked for, on
+ * every machine, which is what a shared daily needs.
+ *
+ * The middle band is a band-pass and not what is left over after the other
+ * two. Subtraction looks exact - the three sum back to the original by
+ * construction - and is not a split at all: measured, `white - low - high`
+ * put 73% of its energy above 3 kHz, because a steep high-pass has phase
+ * shift up there and subtracting it does not cancel. A ladder of lowpasses
+ * sums exactly too and separates no better: its top band reads 31% in the mid
+ * band. See BAND_EDGES for the slope, which is the other half of this.
  */
 const splits = new Map();
 
@@ -138,28 +193,36 @@ function noiseBands(rate) {
 
   const length = Math.ceil(rate * CACHE_SECONDS);
   const noise = mulberry32(0x5eed1e);
-  const bands = { low: [], high: [], length };
+  const bands = { low: [], mid: [], high: [], length };
+  const stack = (kind, hz) => Array.from({ length: CROSSOVER_POLES },
+    () => setBiquad(makeBiquad(), kind, hz, rate));
 
   for (let c = 0; c < 2; c += 1) {
     const low = new Float32Array(length);
+    const mid = new Float32Array(length);
     const high = new Float32Array(length);
 
-    const lows = Array.from({ length: CROSSOVER_POLES },
-      () => setBiquad(makeBiquad(), 'lowpass', DAMP_CROSSOVER, rate));
-    const highs = Array.from({ length: CROSSOVER_POLES },
-      () => setBiquad(makeBiquad(), 'highpass', DAMP_CROSSOVER, rate));
+    const lows = stack('lowpass', BAND_EDGES[0]);
+    const midLows = stack('highpass', BAND_EDGES[0]);
+    const midHighs = stack('lowpass', BAND_EDGES[1]);
+    const highs = stack('highpass', BAND_EDGES[1]);
 
     for (let i = 0; i < length; i += 1) {
       const white = noise() * 2 - 1;
       let l = white;
+      let m = white;
       let h = white;
       for (const stage of lows) l = runBiquad(stage, l);
+      for (const stage of midLows) m = runBiquad(stage, m);
+      for (const stage of midHighs) m = runBiquad(stage, m);
       for (const stage of highs) h = runBiquad(stage, h);
       low[i] = l;
+      mid[i] = m;
       high[i] = h;
     }
 
     bands.low.push(low);
+    bands.mid.push(mid);
     bands.high.push(high);
   }
 
@@ -295,55 +358,86 @@ function finishImpulse(channels, length, rate, { lowCut, highCut }) {
 }
 
 /**
- * The tail every space is made of: the cached noise, under an envelope.
+ * The three decay times, in seconds, as the knobs come to them.
+ *
+ * Capped at the longest tail the app has, which is not pedantry: the noise is
+ * cached to a fixed length, so a low band asked to ring for sixteen seconds
+ * did not fade out at all - it stopped dead at the end of the cache, 9.3
+ * seconds in, inside a seventeen-second buffer whose last eight seconds were
+ * silence being convolved. Decay 8 with a bass lift of two is reachable from
+ * the knobs, so it had to be reachable from here.
+ */
+function decaySeconds({ decay, bass, damping }) {
+  const held = (seconds) => Math.min(MOST_DECAY, Math.max(0.05, seconds));
+  return {
+    low: held(decay * bass),
+    mid: held(decay),
+    high: held(decay * damping),
+  };
+}
+
+/**
+ * The tail every space is made of: the cached noise, under three envelopes.
  *
  * Two channels, from two uncorrelated noises: a reverb in mono is a filter,
  * and what makes a space sound like a space is that the two ears are not
  * hearing the same thing.
  *
- * The tail is built in two bands. The low one decays over the time on the
- * knob, the high one over a fraction of it, and that fraction is the damping
- * control - which is how a real room behaves and, more to the point, how a
- * decay time is actually quoted: per band, because there is no such thing as
- * one decay time for a room with soft furnishings in it.
+ * One decay time per band, because there is no such thing as one decay time
+ * for a room with soft furnishings in it, and because that is how a decay
+ * time is actually quoted. The knob names the mid band - which is the number
+ * anybody means by "a one-point-eight second hall" - and the other two are
+ * multiples of it. A hall rings longer in the bass than the mids, which this
+ * could not do at all before: damping only ever shortened the top, so the
+ * lows were pinned to the decay knob and every space was a room with its
+ * treble turned down.
  *
  * `build` is how long the wash takes to arrive at full level. A room needs
  * one; a plate is handed zero, because being dense from the first sample is
  * most of what a plate is.
  */
-function tail(channels, length, pre, rate, { decay, damping }, build) {
+function tail(channels, length, pre, rate, settings, build) {
   const bands = noiseBands(rate);
-  const lowRate = -3 / Math.max(0.05, decay);
-  const highRate = -3 / Math.max(0.05, decay * damping);
+  const seconds = decaySeconds(settings);
 
   // The envelopes are exponential, so they are stepped rather than evaluated:
   // one multiply a sample instead of a call to pow. Over eight seconds that
   // is a million and a half of them, and it was most of the time it took to
   // build a hall.
-  const lowStep = 10 ** (lowRate / rate);
-  const highStep = 10 ** (highRate / rate);
+  //
+  // 10^(-3t/RT) is -60 dB at t = RT, which is what RT60 means.
+  const steps = {
+    low: 10 ** (-3 / seconds.low / rate),
+    mid: 10 ** (-3 / seconds.mid / rate),
+    high: 10 ** (-3 / seconds.high / rate),
+  };
   const buildSamples = Math.max(1, build * rate);
 
   for (let c = 0; c < channels.length; c += 1) {
     const out = channels[c];
     const low = bands.low[c];
+    const mid = bands.mid[c];
     const high = bands.high[c];
     const last = Math.min(length, pre + bands.length);
 
-    // 10^(-3t/RT) is -60 dB at t = RT, which is what RT60 means.
     let lowEnv = 1;
+    let midEnv = 1;
     let highEnv = 1;
 
     for (let i = pre; i < last; i += 1) {
       const j = i - pre;
       const swell = build > 0 && j < buildSamples ? j / buildSamples : 1;
-      out[i] = swell * (low[j] * lowEnv + high[j] * highEnv);
-      lowEnv *= lowStep;
-      highEnv *= highStep;
+      out[i] = swell * (low[j] * lowEnv + mid[j] * midEnv + high[j] * highEnv);
+      lowEnv *= steps.low;
+      midEnv *= steps.mid;
+      highEnv *= steps.high;
     }
   }
 
-  return lowRate;
+  // The rate the walls fall at. The mid band, because a reflection is a whole
+  // copy of the sound rather than a part of its spectrum, and the mid band is
+  // the one the decay knob names.
+  return -3 / seconds.mid;
 }
 
 /** The energy in a set of channels, which is what `early` is a share of. */
@@ -359,10 +453,11 @@ function energyOf(channels, length) {
  * A room: walls at a distance, then a wash that closes over them.
  */
 function roomImpulse(rate, settings) {
-  const { preDelay, decay, size, damping, early } = settings;
+  const { preDelay, size, early } = settings;
 
   const pre = Math.round((preDelay / 1000) * rate);
-  const tailFor = Math.max(decay, decay * damping, (2 * size) / SPEED * 1.6);
+  const longest = decaySeconds(settings);
+  const tailFor = Math.max(longest.low, longest.mid, longest.high, (2 * size) / SPEED * 1.6);
   const length = Math.max(rate * 0.05, Math.ceil(pre + rate * (tailFor * 1.08 + 0.02)));
   const channels = [new Float32Array(length), new Float32Array(length)];
 
@@ -375,7 +470,7 @@ function roomImpulse(rate, settings) {
   // is the walls one at a time. Starting the tail at full level buried every
   // early reflection underneath it, which meant the size control changed the
   // numbers and nothing anybody could hear.
-  const build = Math.max(0.004, Math.min(across * 1.4, decay * 0.35));
+  const build = Math.max(0.004, Math.min(across * 1.4, longest.mid * 0.35));
   const lowRate = tail(channels, length, pre, rate, settings, build);
 
   // The early reflections: the walls, one at a time, before the room turns to
@@ -433,10 +528,11 @@ function roomImpulse(rate, settings) {
  * highs arrive before the lows. See `disperse`.
  */
 function plateImpulse(rate, settings) {
-  const { preDelay, decay, damping, spread } = settings;
+  const { preDelay, spread } = settings;
 
   const pre = Math.round((preDelay / 1000) * rate);
-  const tailFor = Math.max(decay, decay * damping);
+  const longest = decaySeconds(settings);
+  const tailFor = Math.max(longest.low, longest.mid, longest.high);
   const length = Math.max(rate * 0.05, Math.ceil(pre + rate * (tailFor * 1.08 + 0.02)));
   const channels = [new Float32Array(length), new Float32Array(length)];
 

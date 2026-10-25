@@ -324,3 +324,99 @@ test('a space nobody has heard of is a room, not a silence', () => {
   assert.equal(asked.length, asRoom.length);
   assert.ok(energyOf(asked) > 0);
 });
+
+test('each band decays over the time its own knob asks for', () => {
+  // The whole point of there being three. The decay knob names the mid band,
+  // which is the number anybody means by "a one-point-eight second hall", and
+  // the other two are multiples of it.
+  //
+  // Measured at decay 1.8 s, reading the bands the profile reads:
+  //
+  //   bass 0.5 / 1 / 1.5 / 2      low reads 1.26 / 1.85 / 2.58 / 3.61 s
+  //   damping 0.2 / 0.55 / 1     high reads 0.50 / 1.01 / 1.79 s
+  const bandsOf = (settings) => {
+    const mono = monoOf(room({ preDelay: 0, decay: 1.8, ...settings }));
+    return RESPONSE_BANDS.map((band) => rt60(bandOf(mono, rate, band), rate));
+  };
+
+  // A hall: the bass rings longer than the mids and the top is shorter than
+  // either, which is what every hall anybody has stood in does and what this
+  // could not produce at all when there were two bands and damping could only
+  // ever shorten the top.
+  const [low, mid, high] = bandsOf({ bass: 1.5, damping: 0.7 });
+  assert.ok(low > mid * 1.3, `a hall's bass reads ${low.toFixed(2)} s against ${mid.toFixed(2)} in the mids`);
+  assert.ok(high < mid * 0.85, `and its top reads ${high.toFixed(2)} s`);
+
+  // And each knob only moves its own band.
+  const flat = bandsOf({ bass: 1, damping: 1 });
+  const bassy = bandsOf({ bass: 2, damping: 1 });
+  const dark = bandsOf({ bass: 1, damping: 0.2 });
+  assert.ok(bassy[0] > flat[0] * 1.6, 'the bass knob moves the low band');
+  assert.ok(Math.abs(bassy[2] - flat[2]) < 0.1, 'and leaves the high band alone');
+  assert.ok(dark[2] < flat[2] * 0.4, 'the damping knob moves the high band');
+  assert.ok(Math.abs(dark[0] - flat[0]) < 0.1, 'and leaves the low band alone');
+});
+
+test('a knob that moves a band moves it the same way all the way along', () => {
+  // Which the first attempt at this did not. With the top split at 3000 - on
+  // the edge of the band it is read in - the damping knob read 1.19, 0.99,
+  // 1.13, 1.40, 1.82 across its range: down, then back up, because at the
+  // fastest setting the high band was gone and what the reading found was the
+  // mid band's skirt, which is strongest exactly at the crossover.
+  const highAt = (damping) => {
+    const mono = monoOf(room({ preDelay: 0, decay: 1.8, damping }));
+    return rt60(bandOf(mono, rate, RESPONSE_BANDS[2]), rate);
+  };
+  const read = [0.2, 0.35, 0.55, 0.75, 1].map(highAt);
+  for (let i = 1; i < read.length; i += 1) {
+    assert.ok(read[i] > read[i - 1] - 0.02,
+      `damping reads ${read.map((v) => v.toFixed(2)).join(' ')} - it turns back on itself`);
+  }
+  assert.ok(read[0] < 0.7, `the fastest setting only reaches ${read[0].toFixed(2)} s`);
+});
+
+test('three bands at one rate are the flat noise they came from', () => {
+  // The Linkwitz-Riley property, and the reason the crossover is two cascaded
+  // Butterworths a side rather than one or three. If the bands did not sum
+  // flat, a space with no damping and no bass lift would be a coloured one,
+  // and every reading taken of it would be of the colour rather than of the
+  // space.
+  const mono = monoOf(room({
+    preDelay: 0, decay: 1.8, bass: 1, damping: 1, early: 0, lowCut: 20, highCut: 20000,
+  }));
+  const look = mono.subarray(0, Math.round(rate * 0.3));
+  const energy = RESPONSE_BANDS.map((band) => {
+    const samples = bandOf(look, rate, band);
+    let sum = 0;
+    for (let i = 0; i < samples.length; i += 1) sum += samples[i] * samples[i];
+    return sum;
+  });
+  const total = energy.reduce((a, b) => a + b, 0);
+
+  // White noise puts energy in a band in proportion to how wide the band is.
+  RESPONSE_BANDS.forEach((band, i) => {
+    const wide = band.high - band.low;
+    const all = RESPONSE_BANDS.reduce((sum, b) => sum + (b.high - b.low), 0);
+    const want = wide / all;
+    const got = energy[i] / total;
+    assert.ok(Math.abs(got - want) < 0.03,
+      `the ${band.label} band holds ${(got * 100).toFixed(1)}% where white noise would put ${(want * 100).toFixed(1)}%`);
+  });
+});
+
+test('a long decay with a bass lift still fades out', () => {
+  // Reachable from the knobs: decay 8 s and a bass lift of two asks the low
+  // band for sixteen seconds. The noise it is built from is cached to a fixed
+  // length, so what came out was a tail that stopped dead at 9.32 s inside a
+  // 17.3 s buffer whose last eight seconds were silence being convolved.
+  for (const [decay, bass] of [[MOST_DECAY, 2], [6, 1.5], [MOST_DECAY, 1]]) {
+    const impulse = room({ preDelay: 0, decay, bass });
+    const channel = impulse.channels[0];
+    let last = 0;
+    for (let i = 0; i < impulse.length; i += 1) if (Math.abs(channel[i]) > 1e-7) last = i;
+    assert.ok(impulse.seconds <= MOST_DECAY * 1.1 + 0.1,
+      `decay ${decay} at ${bass}x built a ${impulse.seconds.toFixed(2)} s buffer`);
+    assert.ok(last > impulse.length - 2000,
+      `decay ${decay} at ${bass}x goes quiet ${((impulse.length - last) / rate).toFixed(2)} s early`);
+  }
+});

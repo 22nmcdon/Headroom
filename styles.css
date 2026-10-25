@@ -1326,12 +1326,11 @@ input.knob-value:focus {
 .verb-deck { display: flex; flex-direction: column; gap: 10px; }
 .verb-spaces { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
 .verb-spaces .panel-name { margin: 0; flex: none; }
-/* Narrower bays than the other decks, so that eight knobs come out as one
-   row and seven do too. At 130 the grid fits six of them at desktop width,
-   which left the room's eight as six and two and the plate's seven as six
-   and one - a knob on its own on a second row, which is the thing these
-   decks were laid out to stop happening. */
-.verb .plugin-controls { --deck: 108px; }
+/* Narrower bays than the other decks, so that the room's nine knobs come out
+   as one row and the plate's eight do too. At 130 the grid fits six at
+   desktop width, which left a knob on its own on a second row - the thing
+   these decks were laid out to stop happening. */
+.verb .plugin-controls { --deck: 94px; }
 
 /* --- the compressor -------------------------------------------------------- */
 /* Three readings of the same thing, side by side, because a compressor is the

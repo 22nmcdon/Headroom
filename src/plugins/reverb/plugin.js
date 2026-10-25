@@ -30,6 +30,10 @@ const VERB_KNOBS = [
   { id: 'preDelay', name: 'Pre-delay', ...span(VERB_LIMITS.preDelay), step: 1, write: (v) => `${Math.round(v)} ms` },
   { id: 'decay', name: 'Decay', ...span(VERB_LIMITS.decay), log: true, write: (v) => writeSeconds(v) },
   { id: 'size', name: 'Size', ...span(VERB_LIMITS.size), log: true, write: (v) => `${Math.round(v)} m` },
+  // The two multiples of the decay knob, which names the mid band. A hall
+  // rings longer in the bass than the mids and the reverb could not do that
+  // at all until there were three bands to put it in.
+  { id: 'bass', name: 'LF decay', ...span(VERB_LIMITS.bass), step: 0.01, write: (v) => `× ${v.toFixed(2)}` },
   { id: 'damping', name: 'HF decay', ...span(VERB_LIMITS.damping), step: 0.01, write: (v) => `× ${v.toFixed(2)}` },
   { id: 'early', name: 'Early', ...span(VERB_LIMITS.early), step: 0.01, write: (v) => `${Math.round(v * 100)} %` },
   { id: 'lowCut', name: 'Low cut', ...span(VERB_LIMITS.lowCut), log: true, write: writeHertz },

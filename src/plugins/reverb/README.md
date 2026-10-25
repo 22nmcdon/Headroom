@@ -24,6 +24,23 @@ that is new arithmetic - a cascade of first-order allpasses, which holds the
 bottom of a transient back further than the top, because that is what a
 bending wave in steel does. `disperse` in ir.js has the measurements.
 
+## Decay, per band
+
+Three bands, and the decay knob names the middle one - which is the number
+anybody means by "a one-point-eight second hall". The other two are multiples
+of it: LF decay for the bass, HF decay for the top. A hall rings longer in
+the bass than the mids, which this could not produce at all when there were
+two bands and damping could only ever shorten the treble.
+
+The crossovers are at 400 and 1500 Hz, and the asymmetry is measured rather
+than chosen. A band has to be well clear of the skirt of the one below it by
+the time the reading that measures it begins: the low reading is 60-400 and
+ends where its crossover is, so 400 puts the whole of it inside the band the
+knob moves; the high reading starts at 3000, so a crossover there sits in the
+middle of the reading and the mid band's skirt takes the measurement over -
+the damping knob went down and then back up. An octave early, at 1500, the
+mid band is 24 dB down by 3000. `BAND_EDGES` in ir.js has the sweep.
+
 Everything here is still one impulse response per setting, convolved,
 measured, displayed and marked. That is what rules out shimmer and freeze: a
 pitch shifter inside a feedback loop and a loop gain of one are not linear
