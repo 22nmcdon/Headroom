@@ -161,6 +161,38 @@ const TAPS = [0.21, 0.34, 0.41, 0.58, 0.63, 0.79, 0.87, 1.0, 1.19, 1.31];
 /** How fast sound travels, in metres a second. */
 const SPEED = 343;
 
+/**
+ * How long a room of a given size takes to become a wash, in seconds.
+ *
+ * This used to be the time it takes sound to cross the room and come back,
+ * times 1.4 - which is linear in size, and mixing time is not. The number of
+ * reflections arriving by time t grows as t cubed over the volume, so the
+ * moment the reflections run together goes as the square root of the volume:
+ * Griesinger's rule of thumb is sqrt(V) milliseconds, V in cubic metres. The
+ * knob names one dimension, so a cube of that side is the fair reading of it,
+ * and sqrt(size cubed) is size to the three halves.
+ *
+ * Measured, against what the old rule gave:
+ *
+ *     size     was      is    the old rule was
+ *      4 m    33 ms    8 ms       4.08x too slow
+ *      8 m    65 ms   23 ms       2.89x
+ *     18 m   147 ms   76 ms       1.92x
+ *     35 m   286 ms  207 ms       1.38x
+ *     60 m   490 ms  465 ms       1.05x
+ *
+ * Right at the top of the range and four times out at the bottom, which is
+ * the shape of an error that comes from using a length where a volume
+ * belongs. What it sounded like is a small room taking as long to turn to a
+ * wash as a hall does - so the size knob changed the delay before the wash
+ * and barely the character of it, and small rooms did not sound small.
+ *
+ * The numbers it gives are the ones the acoustics books give: eight
+ * milliseconds for a room four metres across, 76 for a hall of eighteen,
+ * 465 for a cathedral of sixty.
+ */
+export const mixingTime = (size) => size ** 1.5 / 1000;
+
 /** The longest room on offer, plus room for it to finish. */
 export const MOST_DECAY = LONGEST_TAIL;
 
@@ -513,7 +545,12 @@ function roomBody(rate, settings, seconds, { tailFor }) {
   // is the walls one at a time. Starting the tail at full level buried every
   // early reflection underneath it, which meant the size control changed the
   // numbers and nothing anybody could hear.
-  const build = Math.max(0.004, Math.min(across * 1.4, tailFor * 0.35));
+  //
+  // How long that takes is `mixingTime`, which is a property of the room's
+  // volume rather than of the distance across it. The cap is still the tail
+  // itself: a burst that is over in a fifth of a second cannot spend half of
+  // it arriving, whatever the walls are doing.
+  const build = Math.max(0.004, Math.min(mixingTime(size), tailFor * 0.35));
   const fall = tail(channels, length, pre, rate, seconds, build);
 
   // The early reflections: the walls, one at a time, before the room turns to

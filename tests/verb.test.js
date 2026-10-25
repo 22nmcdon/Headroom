@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   VERB_DEFAULTS, VERB_LIMITS, MOST_DECAY, makeImpulse, roomProfile,
-  SPACES, SPACE_ORDER, verbDeckFor,
+  SPACES, SPACE_ORDER, verbDeckFor, mixingTime,
 } from '../src/plugins/reverb/ir.js';
 import {
   RESPONSE_BANDS, monoOf, bandOf, rt60, decayTimes, profileDistance, wetDryImpulse,
@@ -258,6 +258,83 @@ test('a plate is a wash from the first sample and a room is not', () => {
   assert.ok(asRoom > 12, `the room arrives in ${asRoom.toFixed(1)} ms, which is no build-up at all`);
 });
 
+test('a room mixes at a rate set by its volume, not by its width', () => {
+  // The number of reflections arriving by time t grows as t cubed over the
+  // volume, so the moment they run together goes as the square root of the
+  // volume - sqrt(V) milliseconds, V in cubic metres. The knob names one
+  // dimension, so a cube of that side is the fair reading of it.
+  for (const size of [4, 8, 18, 35, 60]) {
+    assert.ok(Math.abs(mixingTime(size) - Math.sqrt(size ** 3) / 1000) < 1e-12,
+      `a ${size} m room mixes in ${(mixingTime(size) * 1000).toFixed(1)} ms`);
+  }
+
+  // The values, because this is the whole of the change and a wrong exponent
+  // would still pass the identity above if both sides were wrong together.
+  assert.equal((mixingTime(4) * 1000).toFixed(0), '8');
+  assert.equal((mixingTime(18) * 1000).toFixed(0), '76');
+  assert.equal((mixingTime(60) * 1000).toFixed(0), '465');
+
+  // And that it is a three-halves power rather than a straight line, which is
+  // what it used to be: fifteen times the width is fifty-eight times the
+  // mixing time, not fifteen.
+  assert.ok(Math.abs(mixingTime(60) / mixingTime(4) - 15 ** 1.5) < 1e-9);
+});
+
+test('a small room turns to a wash quickly and a large one does not', () => {
+  // The arithmetic above, as a thing you can hear. Is the wash still arriving
+  // at fifteen milliseconds? Compare the level at thirty with the level at
+  // fifteen: a linear ramp doubles, something already settled holds. Read
+  // early enough that the decay has not had time to matter, with the walls
+  // out so the only thing in the window is the wash.
+  //
+  // Measured, before this and after:
+  //
+  //             was    is
+  //    4 m     1.67   0.93     settled, like the plate's 0.92
+  //    8 m     1.72   1.18
+  //   12 m     1.72   1.72     still arriving
+  //   60 m     1.72   1.72
+  //
+  // A four-metre room used to read 1.67 - a cathedral's number. That is the
+  // fault this is here to keep out: a size knob that changed when the wash
+  // started and not how long it took to get there, so no room ever sounded
+  // small.
+  const stillArriving = (impulse, atMs = 15) => {
+    const channel = impulse.channels[0];
+    const pre = Math.round((impulse.preDelay ?? 0) * rate);
+    const span = Math.round((6 * rate) / 1000);
+    const level = (ms) => {
+      const from = pre + Math.round((ms * rate) / 1000);
+      let energy = 0;
+      for (let i = from; i < Math.min(channel.length, from + span); i += 1) {
+        energy += channel[i] * channel[i];
+      }
+      return Math.sqrt(energy / span);
+    };
+    return level(2 * atMs) / level(atMs);
+  };
+
+  const settings = { preDelay: 0, decay: 1.8, early: 0 };
+  const small = stillArriving(room({ ...settings, space: 'room', size: 4 }));
+  const large = stillArriving(room({ ...settings, space: 'room', size: 60 }));
+  const plate = stillArriving(room({ ...settings, space: 'plate' }));
+
+  assert.ok(small < 1.1, `a four-metre room is still arriving at 15 ms: ${small.toFixed(2)}`);
+  assert.ok(large > 1.5, `a sixty-metre room has already arrived at 15 ms: ${large.toFixed(2)}`);
+  assert.ok(Math.abs(small - plate) < 0.15,
+    `the small room reads ${small.toFixed(2)} where the plate, which is handed no `
+    + `build-up at all, reads ${plate.toFixed(2)}`);
+
+  // Monotone in between, which a straight line would also be - the point of
+  // the pair above is the two ends, and this is that nothing kinks between.
+  let last = 0;
+  for (const size of [4, 8, 12, 18, 25, 35, 45, 60]) {
+    const got = stillArriving(room({ ...settings, space: 'room', size }));
+    assert.ok(got >= last - 0.05, `a ${size} m room arrives sooner than a smaller one`);
+    last = Math.max(last, got);
+  }
+});
+
 test('a plate puts the highs in front of the lows, and only when asked', () => {
   // Dispersion, which is the one thing here that is new arithmetic rather
   // than an absence. Bending waves in steel travel faster the higher they
@@ -503,33 +580,78 @@ test('every space says what it is called and what to call it', () => {
  * as long has eight and reads 14, with no change to how distinct any of them
  * is. Fifty to two hundred and fifty milliseconds, for everything.
  */
-function bounceContrast(impulse, rate) {
+/**
+ * Echo density, after Abel and Huang: the share of samples in a window that
+ * exceed the window's own standard deviation, over the share a Gaussian would
+ * have outside one sigma. Dense noise reads 1; a handful of discrete arrivals
+ * reads near nothing.
+ *
+ * This replaced a measurement that did not work. The old one took the gap
+ * between the loud tenth and the quiet tenth of a four-millisecond running
+ * energy, and it separated nothing: measured, the plate - which is this
+ * file's own definition of a wash, dense from the first sample - read 9.6 dB,
+ * exactly what the spring read, and a four-metre room read 9.6 as well. The
+ * test passed because the eighteen-metre room happened to read 5.5, and it
+ * read 5.5 because its wash was ramping in over 147 ms inside the window
+ * being measured. Correcting the build-up to a real mixing time took the
+ * eighteen-metre room to 9.1 and the test went red, which is the only reason
+ * anybody looked: for as long as that one number sat low, a metric that
+ * cannot tell a plate from a spring looked like it was working.
+ *
+ * What it was actually reading is the variance of noise energy in a short
+ * window. Pure Gaussian noise reads 5.3 dB through it at every window length
+ * from one millisecond to thirty-two.
+ *
+ * The window starts at the onset rather than straddling it, because a window
+ * half full of pre-delay silence reads sparse for a reason that has nothing
+ * to do with the space.
+ */
+const GAUSSIAN_OVER_SIGMA = 0.3173105078629141;
+
+function echoDensity(impulse, rate, forMs = 20) {
   const channel = impulse.channels[0];
-  const window = Math.round(rate * 0.004);
-  const from = Math.round(rate * 0.05);
-  const energy = [];
-  let running = 0;
-  for (let i = 0; i < Math.round(rate * 0.25); i += 1) {
-    running += channel[i] * channel[i];
-    if (i >= window) running -= channel[i - window] * channel[i - window];
-    if (i > from) energy.push(running);
-  }
-  energy.sort((a, b) => a - b);
-  const trough = energy[Math.round(energy.length * 0.1)];
-  const peak = energy[Math.round(energy.length * 0.9)];
-  return 10 * Math.log10(peak / Math.max(trough, 1e-30));
+  const from = Math.round((impulse.preDelay ?? 0) * rate);
+  const until = Math.min(channel.length, from + Math.round((forMs * rate) / 1000));
+
+  let sum = 0;
+  for (let i = from; i < until; i += 1) sum += channel[i] * channel[i];
+  const sigma = Math.sqrt(sum / (until - from));
+  if (sigma === 0) return 0;
+
+  let over = 0;
+  for (let i = from; i < until; i += 1) if (Math.abs(channel[i]) > sigma) over += 1;
+  return over / (until - from) / GAUSSIAN_OVER_SIGMA;
 }
 
 test('a spring bounces where a room washes', () => {
   // The whole difference. A room is a wash - noise under an envelope, lumpy
   // the way noise is - and a spring is a train of discrete chirps coming back
-  // round a wire. Measured as the gap between the loud tenth and the quiet
-  // tenth of a fixed window: the spring reads 9.6 dB and the room 5.5.
-  const settings = { preDelay: 0, decay: 1.8 };
-  const spring = bounceContrast(room({ ...settings, space: 'spring' }), rate);
-  const wash = bounceContrast(room({ ...settings, space: 'room' }), rate);
-  assert.ok(spring > wash + 2.5,
-    `the spring reads ${spring.toFixed(1)} dB against the room's ${wash.toFixed(1)} - it is a wash`);
+  // round a wire, with silence between them.
+  //
+  // Asked with the walls out of it, because early reflections are a third
+  // thing and not a wash: one tap towers over the tail by design, so a room
+  // with its walls in reads sparse for the same arithmetic reason a spring
+  // does. `early: 0` is the wash on its own, which is what this is about.
+  //
+  // Measured over the first twenty milliseconds, and the separation holds at
+  // every size, every tension and every window length from ten milliseconds
+  // to forty: the room reads 0.83 to 1.06, the plate 0.97 to 1.11, and the
+  // spring 0.12 to 0.20.
+  const settings = { preDelay: 0, decay: 1.8, early: 0 };
+  const spring = echoDensity(room({ ...settings, space: 'spring' }), rate);
+  const wash = echoDensity(room({ ...settings, space: 'room' }), rate);
+  const plate = echoDensity(room({ ...settings, space: 'plate' }), rate);
+
+  assert.ok(wash > 0.6, `the room reads ${wash.toFixed(2)} - that is not a wash`);
+  assert.ok(plate > 0.6, `the plate reads ${plate.toFixed(2)} - that is not a wash`);
+  assert.ok(spring < 0.35,
+    `the spring reads ${spring.toFixed(2)} against the room's ${wash.toFixed(2)} - it is a wash`);
+
+  // And the plate is in here for a reason: it is the densest thing the app
+  // builds, so a metric that calls it bouncy is a metric measuring something
+  // else. The one this replaced called it exactly as bouncy as the spring.
+  assert.ok(plate > spring * 2.5,
+    `the plate reads ${plate.toFixed(2)} and the spring ${spring.toFixed(2)}`);
 });
 
 test('a spring chirps downwards, and the spread knob says how far', () => {
