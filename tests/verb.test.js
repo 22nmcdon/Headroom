@@ -420,3 +420,73 @@ test('a long decay with a bass lift still fades out', () => {
       `decay ${decay} at ${bass}x goes quiet ${((impulse.length - last) / rate).toFixed(2)} s early`);
   }
 });
+
+test('a gate holds at level and then stops', () => {
+  // Not a natural thing and not pretending to be: the RMX16's NonLin2 holds a
+  // reverb pattern at level for as long as the Decay control says and then
+  // drops it, and that is the sound on every big snare of the eighties.
+  //
+  // Measured in 50 ms windows at decay 1.2 s, against the loudest window:
+  // the burst sits between -10.4 and -10.9 dB from 0.2 s to 1.1 s - flat to
+  // half a decibel, which is noise - and is at -60 by 1.3 s.
+  const mono = monoOf(room({ space: 'gated', preDelay: 0, decay: 1.2 }));
+  const level = (at) => {
+    const from = Math.round(at * rate);
+    const to = Math.min(mono.length, from + Math.round(0.05 * rate));
+    let energy = 0;
+    for (let i = from; i < to; i += 1) energy += mono[i] * mono[i];
+    return 10 * Math.log10(Math.max(energy / Math.max(1, to - from), 1e-30));
+  };
+
+  const held = [0.3, 0.5, 0.7, 0.9, 1.1].map(level);
+  const spread = Math.max(...held) - Math.min(...held);
+  assert.ok(spread < 1.5, `the burst wanders ${spread.toFixed(2)} dB while it is meant to hold`);
+  assert.ok(level(1.35) < Math.max(...held) - 40,
+    'and it is still going after the gate should have shut');
+});
+
+test('a reverse room is loudest at the end', () => {
+  // Because it is the room backwards, which is what a reverse reverb has
+  // always literally been. Measured: the loudest moment sits 98% of the way
+  // through, against 3% for the room it was built from.
+  const where = (space) => {
+    const mono = monoOf(room({ space, preDelay: 0, decay: 1.2 }));
+    const window = Math.round(rate * 0.02);
+    let running = 0;
+    let peak = 0;
+    let at = 0;
+    for (let i = 0; i < mono.length; i += 1) {
+      running += mono[i] * mono[i];
+      if (i >= window) running -= mono[i - window] * mono[i - window];
+      if (running > peak) { peak = running; at = i; }
+    }
+    return at / mono.length;
+  };
+
+  assert.ok(where('reverse') > 0.9, 'a reverse room should peak at the end');
+  assert.ok(where('room') < 0.1, 'and the room it is built from at the start');
+});
+
+test('a reverse room fades out rather than stopping dead', () => {
+  // By accident, and worth keeping: a room begins with its build-up, so
+  // turned over it finishes with one. A rising envelope on its own would end
+  // on a corner, and a corner is a click.
+  const impulse = room({ space: 'reverse', preDelay: 0, decay: 1.2 });
+  const channel = impulse.channels[0];
+  const end = impulse.length - 1;
+  let loudest = 0;
+  for (let i = 0; i < impulse.length; i += 1) loudest = Math.max(loudest, Math.abs(channel[i]));
+  assert.ok(Math.abs(channel[end]) < loudest * 0.02,
+    `it ends at ${(Math.abs(channel[end]) / loudest).toFixed(3)} of its loudest`);
+});
+
+test('every space says what it is called and what to call it', () => {
+  // The display names what it is showing, and "the gated" is not a thing. A
+  // seam, because the caption is built from this table and a space without
+  // the field would print "undefined · 2.02 s · dB" and nobody would find out
+  // until they switched to it.
+  for (const id of SPACE_ORDER) {
+    assert.ok(SPACES[id].label, `${id} has no label`);
+    assert.ok(SPACES[id].shown, `${id} has nothing to call itself on the display`);
+  }
+});

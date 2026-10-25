@@ -43,8 +43,9 @@ export const VERB_DEFAULTS = {
  * distance. Handing a plate a Size knob that quietly does nothing would be a
  * preset wearing a plugin's controls.
  *
- * So each space says what it is made of and what it answers to, the way the
- * saturator's curve families do, and the deck is rebuilt when it changes.
+ * So each space says what it is called, what to call it on the display, what
+ * it is made of and what it answers to - the way the saturator's curve
+ * families do - and the deck is rebuilt when it changes.
  * What the two share - pre-delay, decay, damping, the send filters, the mix -
  * keeps its setting across the change: what you had the decay at is still
  * what you want the decay at.
@@ -52,15 +53,29 @@ export const VERB_DEFAULTS = {
 export const SPACES = {
   room: {
     label: 'Room',
+    shown: 'the room',
     knobs: ['preDelay', 'decay', 'bass', 'damping', 'size', 'early', 'lowCut', 'highCut', 'mix'],
   },
   plate: {
     label: 'Plate',
+    shown: 'the plate',
     knobs: ['preDelay', 'decay', 'bass', 'damping', 'spread', 'lowCut', 'highCut', 'mix'],
+  },
+  gated: {
+    label: 'Gated',
+    shown: 'the gate',
+    // No band multiples: nothing decays for them to be multiples of. The
+    // decay knob says how long it holds before the gate shuts.
+    knobs: ['preDelay', 'decay', 'size', 'early', 'lowCut', 'highCut', 'mix'],
+  },
+  reverse: {
+    label: 'Reverse',
+    shown: 'the room, backwards',
+    knobs: ['preDelay', 'decay', 'bass', 'damping', 'size', 'early', 'lowCut', 'highCut', 'mix'],
   },
 };
 
-export const SPACE_ORDER = ['room', 'plate'];
+export const SPACE_ORDER = ['room', 'plate', 'gated', 'reverse'];
 
 /** Which knobs a space has, by id, for a deck to be built from. */
 export const verbDeckFor = (space) => (SPACES[space] ?? SPACES.room).knobs;
@@ -264,6 +279,17 @@ const DISPERSE_A = -0.6;
  */
 const PER_STAGE = (1 - DISPERSE_A) / (1 + DISPERSE_A) - (1 + DISPERSE_A) / (1 - DISPERSE_A);
 
+/**
+ * How long a gate takes to shut, in seconds.
+ *
+ * Fixed rather than a knob. What a gated reverb is recognised by is the cut,
+ * not how the cut is shaped, and the RMX16 - which is the record every gated
+ * snare is measured against - has a Decay control for the length and nothing
+ * for the shape. Thirty milliseconds is slow enough not to click and fast
+ * enough to be the effect.
+ */
+const GATE_CLOSE = 0.03;
+
 /** The most dispersion the knob can ask for, in milliseconds. */
 const MOST_SPREAD = 24;
 
@@ -395,10 +421,13 @@ function decaySeconds({ decay, bass, damping }) {
  * `build` is how long the wash takes to arrive at full level. A room needs
  * one; a plate is handed zero, because being dense from the first sample is
  * most of what a plate is.
+ *
+ * `seconds` is handed in rather than worked out here, because not every space
+ * decays: a gated burst holds at full level until it is cut, which is three
+ * decay times of Infinity and an envelope that stays at one.
  */
-function tail(channels, length, pre, rate, settings, build) {
+function tail(channels, length, pre, rate, seconds, build) {
   const bands = noiseBands(rate);
-  const seconds = decaySeconds(settings);
 
   // The envelopes are exponential, so they are stepped rather than evaluated:
   // one multiply a sample instead of a call to pow. Over eight seconds that
@@ -450,14 +479,19 @@ function energyOf(channels, length) {
 }
 
 /**
- * A room: walls at a distance, then a wash that closes over them.
+ * The body every room-shaped space is built from: a wash, and walls in front
+ * of it.
+ *
+ * Shared because a gated reverb is a room that is cut off and a reverse one
+ * is a room played backwards. Neither is a different generator; they are this
+ * one with something done to the envelope afterwards, which is also why both
+ * are still a single impulse response and still marked the way everything
+ * else here is.
  */
-function roomImpulse(rate, settings) {
+function roomBody(rate, settings, seconds, { tailFor }) {
   const { preDelay, size, early } = settings;
 
   const pre = Math.round((preDelay / 1000) * rate);
-  const longest = decaySeconds(settings);
-  const tailFor = Math.max(longest.low, longest.mid, longest.high, (2 * size) / SPEED * 1.6);
   const length = Math.max(rate * 0.05, Math.ceil(pre + rate * (tailFor * 1.08 + 0.02)));
   const channels = [new Float32Array(length), new Float32Array(length)];
 
@@ -470,8 +504,8 @@ function roomImpulse(rate, settings) {
   // is the walls one at a time. Starting the tail at full level buried every
   // early reflection underneath it, which meant the size control changed the
   // numbers and nothing anybody could hear.
-  const build = Math.max(0.004, Math.min(across * 1.4, longest.mid * 0.35));
-  const lowRate = tail(channels, length, pre, rate, settings, build);
+  const build = Math.max(0.004, Math.min(across * 1.4, tailFor * 0.35));
+  const fall = tail(channels, length, pre, rate, seconds, build);
 
   // The early reflections: the walls, one at a time, before the room turns to
   // a wash.
@@ -495,7 +529,7 @@ function roomImpulse(rate, settings) {
       const at = pre + Math.round(across * tap * skew * rate);
       if (at >= length) return;
 
-      const level = (10 ** (lowRate * ((at - pre) / rate))) * (0.85 ** k);
+      const level = (10 ** (fall * ((at - pre) / rate))) * (0.85 ** k);
       walls.push({ c, at, level: (k % 2 ? -1 : 1) * level });
     });
   }
@@ -505,6 +539,93 @@ function roomImpulse(rate, settings) {
   if (wallEnergy > 0 && tailEnergy > 0 && share > 0) {
     const scale = Math.sqrt(((share / (1 - share)) * tailEnergy) / wallEnergy);
     for (const wall of walls) channels[wall.c][wall.at] += wall.level * scale;
+  }
+
+  return { channels, length, pre };
+}
+
+/**
+ * A room: walls at a distance, then a wash that closes over them.
+ */
+function roomImpulse(rate, settings) {
+  const longest = decaySeconds(settings);
+  const tailFor = Math.max(longest.low, longest.mid, longest.high,
+    (2 * settings.size) / SPEED * 1.6);
+  const { channels, length, pre } = roomBody(rate, settings, longest, { tailFor });
+
+  const out = finishImpulse(channels, length, rate, settings);
+  out.preDelay = pre / rate;
+  return out;
+}
+
+/**
+ * A gated room: the same walls and the same wash, not decaying, then cut.
+ *
+ * Not a natural thing and not pretending to be. The AMS RMX16's NonLin2
+ * programs hold a reverb pattern at level for a time the Decay control sets
+ * and then drop it, and that is the sound on every big snare of the eighties.
+ * So the three decay times are Infinity, the envelope stays at one, and the
+ * decay knob says how long before the gate shuts rather than how long the
+ * room rings. The band multiples are not on its deck, because nothing decays
+ * for them to be multiples of.
+ *
+ * What it keeps is the walls. A gated reverb is a gated *room*, and the
+ * reflections arriving one at a time under a burst that does not fade is most
+ * of what gives it its size.
+ */
+function gatedImpulse(rate, settings) {
+  const hold = Math.max(0.02, Math.min(MOST_DECAY, settings.decay));
+  const held = { low: Infinity, mid: Infinity, high: Infinity };
+  const { channels, length, pre } = roomBody(rate, settings, held,
+    { tailFor: hold + GATE_CLOSE });
+
+  const shuts = pre + Math.round(hold * rate);
+  const closing = Math.round(GATE_CLOSE * rate);
+  for (const out of channels) {
+    for (let i = shuts; i < length; i += 1) {
+      const gone = i - shuts;
+      // A raised cosine rather than a straight line, because a gate that
+      // shuts on a corner is a click at the corner.
+      out[i] *= gone < closing ? 0.5 * (1 + Math.cos((Math.PI * gone) / closing)) : 0;
+    }
+  }
+
+  const out = finishImpulse(channels, length, rate, settings);
+  out.preDelay = pre / rate;
+  return out;
+}
+
+/**
+ * The room, backwards.
+ *
+ * Which is what a reverse reverb has always literally been - a tape turned
+ * over - and is why this is the room's own generator rather than a rising
+ * envelope on fresh noise. Everything the room does happens in reverse order:
+ * the top end that died first is the last thing to arrive, the wash swells
+ * out of nothing, and the reflections off the walls land as a rattle just
+ * before the end.
+ *
+ * It also ends properly by accident. The room begins with its build-up, so
+ * reversed it finishes with one - a few milliseconds of fade rather than the
+ * hard cut that a rising envelope on its own would leave, and a hard cut is a
+ * click.
+ *
+ * Only the part after the pre-delay is turned over. Reversing the whole
+ * buffer would put the silence at the end, which is a reverb that answers
+ * before it is asked.
+ */
+function reverseImpulse(rate, settings) {
+  const longest = decaySeconds(settings);
+  const tailFor = Math.max(longest.low, longest.mid, longest.high,
+    (2 * settings.size) / SPEED * 1.6);
+  const { channels, length, pre } = roomBody(rate, settings, longest, { tailFor });
+
+  for (const out of channels) {
+    for (let i = pre, j = length - 1; i < j; i += 1, j -= 1) {
+      const held = out[i];
+      out[i] = out[j];
+      out[j] = held;
+    }
   }
 
   const out = finishImpulse(channels, length, rate, settings);
@@ -537,7 +658,7 @@ function plateImpulse(rate, settings) {
   const channels = [new Float32Array(length), new Float32Array(length)];
 
   // Nothing for the wash to wait for.
-  tail(channels, length, pre, rate, settings, 0);
+  tail(channels, length, pre, rate, longest, 0);
 
   const stages = Math.round((Math.min(1, Math.max(0, spread)) * MOST_SPREAD / 1000) * rate / PER_STAGE);
   if (stages > 0) {
@@ -563,10 +684,15 @@ function plateImpulse(rate, settings) {
  */
 export function makeImpulse(rate, params = {}) {
   const settings = { ...VERB_DEFAULTS, ...params };
-  return settings.space === 'plate'
-    ? plateImpulse(rate, settings)
-    : roomImpulse(rate, settings);
+  return (BUILDERS[settings.space] ?? roomImpulse)(rate, settings);
 }
+
+const BUILDERS = {
+  room: roomImpulse,
+  plate: plateImpulse,
+  gated: gatedImpulse,
+  reverse: reverseImpulse,
+};
 
 /** A room, built and read in the terms a guess is marked in. */
 export function roomProfile(rate, settings, times = decayTimes()) {

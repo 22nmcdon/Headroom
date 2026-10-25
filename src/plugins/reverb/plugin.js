@@ -77,6 +77,40 @@ function verbPalette(el) {
   };
 }
 
+/**
+ * Two readings of an envelope, for the spaces a decay time does not describe.
+ *
+ * `peaks` is where the loudest moment is and `holds` is the last moment still
+ * within twenty decibels of it - taken off a twenty-millisecond running
+ * energy, because a single sample of noise is not a level. Measured off the
+ * response rather than read back off the knob, the same as everything else on
+ * this face: a gate set to 1.2 s and measured at 1.23 is telling you about
+ * the thirty milliseconds it takes to shut.
+ */
+function envelopeOf(mono, rate, preDelay = 0) {
+  const window = Math.round(rate * 0.02);
+  const from = Math.round(preDelay * rate);
+  let running = 0;
+  let peak = 0;
+  let peaks = from;
+  const energy = new Float32Array(mono.length);
+
+  for (let i = from; i < mono.length; i += 1) {
+    running += mono[i] * mono[i];
+    if (i - from >= window) running -= mono[i - window] * mono[i - window];
+    energy[i] = running;
+    if (running > peak) { peak = running; peaks = i; }
+  }
+
+  const floor = peak * 10 ** (-20 / 10);
+  let holds = peaks;
+  for (let i = mono.length - 1; i > peaks; i -= 1) {
+    if (energy[i] > floor) { holds = i; break; }
+  }
+
+  return { peaks: (peaks - from) / rate, holds: (holds - from) / rate };
+}
+
 export class VerbPlugin {
   constructor(el, {
     engine, settings, onChange, source = 'instrument',
@@ -364,6 +398,7 @@ export class VerbPlugin {
     this.measured = {
       rt: Object.fromEntries(RESPONSE_BANDS.map((band) =>
         [band.id, rt60(bandOf(mono, rate, band), rate)])),
+      ...envelopeOf(mono, rate, this.impulse.preDelay),
     };
 
     this.columns = null;
@@ -482,8 +517,8 @@ export class VerbPlugin {
     // Named for what it is, because the two spaces look different here and
     // the difference is the point: a room ramps in over its first bounces and
     // a plate is at full level from the first sample.
-    const space = SPACES[spaceOf(this.settings)].label.toLowerCase();
-    c.fillText(`the ${space} · ${writeSeconds(seconds)} · dB`, 6, height - 6);
+    const space = SPACES[spaceOf(this.settings)].shown;
+    c.fillText(`${space} · ${writeSeconds(seconds)} · dB`, 6, height - 6);
   }
 
   drawDecay(ink) {
@@ -547,8 +582,18 @@ export class VerbPlugin {
       ? 'auto gain · none'
       : `auto gain · ${back > 0 ? '+' : '−'}${Math.abs(back).toFixed(1)} dB`;
 
+    // What this space actually does, which is not the same sentence for all
+    // four of them. A decay time per band is the reading for anything that
+    // decays; a gate holds and then shuts, and nothing about it is an RT60 -
+    // asked for one it answered "2.98 s mid" about a burst that stops dead
+    // after 1.8. A reverse reverb has no decay either: it swells.
     const parts = [];
-    if (this.measured) {
+    const space = spaceOf(this.settings);
+    if (this.measured && space === 'gated') {
+      parts.push(`holds ${writeSeconds(this.measured.holds)}, then shuts`);
+    } else if (this.measured && space === 'reverse') {
+      parts.push(`swells over ${writeSeconds(this.measured.peaks)}`);
+    } else if (this.measured) {
       const { low, mid, high } = this.measured.rt;
       parts.push(`${writeSeconds(low)} low · ${writeSeconds(mid)} mid · ${writeSeconds(high)} high`);
     }

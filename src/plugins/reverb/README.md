@@ -17,6 +17,21 @@ quietly did nothing would be a preset wearing a plugin's controls.
 
     room     walls at a distance, then a wash that closes over them
     plate    no walls, no build-up, and the highs arriving first
+    gated    the same room, not decaying, then cut
+    reverse  the same room, backwards
+
+Gated and reverse are the room's own generator with something done to the
+envelope afterwards, which is why neither needed a second one. A gate is
+three decay times of Infinity and a raised-cosine cut, so its decay knob says
+how long it holds rather than how long it rings and the band multiples are
+not on its deck - nothing decays for them to be multiples of. Reverse turns
+the samples after the pre-delay around; everything the room does happens in
+reverse order, and it ends with the room's own build-up played backwards,
+which is a fade rather than the click a rising envelope would leave.
+
+Neither can be read as a decay time, so neither is asked for one. The
+headline measures what each space actually does - a gate holds and shuts, a
+reverse swells - off the response, the same as everything else here.
 
 Three of the four things that make a plate a plate are things it does not
 have: no early reflections, no build-up, no size. The fourth is the only one
