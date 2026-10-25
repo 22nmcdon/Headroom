@@ -67,13 +67,20 @@ const CASES = [
   ['a narrow bell at 50 Hz', [{ id: 'p1', type: 'peaking', frequency: 50, gain: 9, q: 8, slope: 12 }]],
   ['a low shelf', [{ id: 'ls', type: 'lowshelf', frequency: 120, gain: 8, q: SHELF_Q, slope: 12 }]],
   ['a high shelf', [{ id: 'hs', type: 'highshelf', frequency: 8000, gain: -8, q: SHELF_Q, slope: 12 }]],
+  // The odd orders, which have a real pole in them rather than only pairs -
+  // a different branch in the rack and a different branch in the drawing, so
+  // the one place they could part company is exactly here.
+  ['a 6 dB/oct high-pass', [{ id: 'hp', type: 'highpass', frequency: 100, gain: 0, q: -3.0103, slope: 6 }]],
+  ['an 18 dB/oct high-pass', [{ id: 'hp', type: 'highpass', frequency: 100, gain: 0, q: -3.0103, slope: 18 }]],
+  ['a resonant 18 dB/oct high-pass', [{ id: 'hp', type: 'highpass', frequency: 100, gain: 0, q: 6, slope: 18 }]],
+  ['a 6 dB/oct low-pass', [{ id: 'lp', type: 'lowpass', frequency: 6000, gain: 0, q: -3.0103, slope: 6 }]],
   ['a 12 dB/oct high-pass', [{ id: 'hp', type: 'highpass', frequency: 100, gain: 0, q: -3.0103, slope: 12 }]],
   ['a 24 dB/oct high-pass', [{ id: 'hp', type: 'highpass', frequency: 100, gain: 0, q: -3.0103, slope: 24 }]],
   ['a 48 dB/oct high-pass', [{ id: 'hp', type: 'highpass', frequency: 100, gain: 0, q: -3.0103, slope: 48 }]],
   ['a resonant 48 dB/oct high-pass', [{ id: 'hp', type: 'highpass', frequency: 100, gain: 0, q: 6, slope: 48 }]],
   ['a resonant low-pass', [{ id: 'lp', type: 'lowpass', frequency: 6000, gain: 0, q: 6, slope: 24 }]],
   ['the whole strip', [
-    { id: 'hp', type: 'highpass', frequency: 40, gain: 0, q: -3.0103, slope: 24 },
+    { id: 'hp', type: 'highpass', frequency: 40, gain: 0, q: -3.0103, slope: 18 },
     { id: 'ls', type: 'lowshelf', frequency: 120, gain: 5, q: SHELF_Q, slope: 12 },
     { id: 'p1', type: 'peaking', frequency: 400, gain: -4, q: 1.4, slope: 12 },
     { id: 'p2', type: 'peaking', frequency: 2500, gain: 6, q: 2, slope: 12 },

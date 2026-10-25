@@ -135,8 +135,8 @@ test('a cut is three decibels down at its corner, however steep it is', () => {
   }
 });
 
-test('resonance is what a cut contributes at its corner, at any slope', () => {
-  for (const slope of SLOPES) {
+test('resonance is what a cut contributes at its corner, at any slope but six', () => {
+  for (const slope of SLOPES.filter((db) => db !== 6)) {
     for (const resonance of [-12, FLAT_CORNER, 0, 6, 12]) {
       const band = { type: 'highpass', frequency: 800, gain: 0, q: resonance, slope, on: true };
       const there = contributionOf(band, 48000);
@@ -146,22 +146,49 @@ test('resonance is what a cut contributes at its corner, at any slope', () => {
   }
 });
 
+test('and six decibels an octave has no resonance to contribute', () => {
+  // Not an exception made for it: a cut at six is a single real pole and a
+  // single pole cannot ring. There is no quadratic section in that cascade
+  // for the knob to land on, so whatever it is set to the corner sits where
+  // Butterworth puts it. Measured at nought, three and six decibels of
+  // resonance: -3.010 every time. The face dims the control rather than
+  // leaving it to be turned against nothing.
+  for (const resonance of [FLAT_CORNER, 0, 6]) {
+    const band = { type: 'highpass', frequency: 800, gain: 0, q: resonance, slope: 6, on: true };
+    assert.ok(Math.abs(contributionOf(band, 48000) - FLAT_CORNER) < 0.01,
+      `with ${resonance.toFixed(1)} dB asked for it contributes `
+      + `${contributionOf(band, 48000).toFixed(3)}`);
+  }
+});
+
 test('a cut is built from as many biquads as its slope needs, resonance on the last', () => {
   for (const slope of SLOPES) {
     const band = { type: 'lowpass', frequency: 2000, gain: 0, q: 9, slope, on: true };
     const sections = sectionsOf(band);
 
-    assert.equal(sections.length, slope / 12, `${slope} dB/oct wants ${slope / 12} biquads`);
+    // A quadratic per pair of poles, plus a real one where the order is odd.
+    const order = slope / 6;
+    const want = Math.floor(order / 2) + (order % 2);
+    assert.equal(sections.length, want, `${slope} dB/oct wants ${want} sections`);
     for (const section of sections) {
       assert.equal(section.type, 'lowpass');
       assert.equal(section.frequency, 2000);
     }
 
-    // The resonance rides on the sharpest section and the rest stay flat.
-    const last = sections[sections.length - 1];
-    assert.ok(last.q > (sections[0]?.q ?? 0) || sections.length === 1, 'the last section is the sharp one');
-    assert.ok(Math.abs(sections.reduce((sum, s) => sum + s.q, 0) - 9) < 0.01,
-      'the sections together come to the resonance asked for');
+    // The resonance rides on the sharpest quadratic and the rest stay flat.
+    const pairs = sections.filter((section) => !section.one);
+    if (pairs.length) {
+      const last = pairs[pairs.length - 1];
+      assert.ok(last.q >= pairs[0].q, 'the last quadratic is the sharp one');
+      // What it comes to at the corner is tested on the built filter, above,
+      // and not by summing these. Summing them is only the same thing at an
+      // even order: at eighteen the real pole supplies the three decibels and
+      // the quadratic supplies none, so the Qs add to nothing while the
+      // filter is exactly where it should be.
+    }
+    for (const section of sections.filter((section) => section.one)) {
+      assert.equal(section.q, 0, 'a real pole carries no resonance');
+    }
   }
 
   // Everything else is one biquad, and is itself.
@@ -218,17 +245,26 @@ test('gains and Qs are read as plain numbers, units and all', () => {
 });
 
 test('a Butterworth cascade is flat at its corner at every order', () => {
-  // The fact the whole slope design rests on. The section Qs multiply to
-  // 1/root 2 whatever the order, so the cascade is 3 dB down at its corner
-  // whether it is one biquad or four - which is why the drawing does not have
+  // The fact the whole slope design rests on. The sections come to 3 dB down
+  // at the corner whatever the order, which is why the drawing does not have
   // to know about slope to put a handle on the curve.
+  //
+  // Read off the built filter rather than off the Qs, because at an odd order
+  // part of the answer is a real pole and a real pole has no Q. Summing the
+  // quadratics alone said a six decibel cut was flat at its corner, which is
+  // 3.01 dB out and exactly the kind of thing a test of the arithmetic rather
+  // than of the filter will tell you.
   for (const slope of SLOPES) {
-    const corners = butterworth(slope / 6);
-    const together = corners.reduce((sum, db) => sum + db, 0);
-    assert.ok(Math.abs(together - FLAT_CORNER) < 1e-9,
-      `${slope} dB/oct comes to ${together.toFixed(6)} dB, not ${FLAT_CORNER.toFixed(6)}`);
-    // And they are sorted gentlest first, so the last one is the sharp one.
-    for (let i = 1; i < corners.length; i += 1) assert.ok(corners[i] > corners[i - 1]);
+    const band = { type: 'highpass', frequency: 800, gain: 0, q: FLAT_CORNER, slope, on: true };
+    const there = bandGainAt(band, 800, rate);
+    assert.ok(Math.abs(there - FLAT_CORNER) < 0.01,
+      `${slope} dB/oct is ${there.toFixed(3)} dB at its own corner, not ${FLAT_CORNER.toFixed(3)}`);
+  }
+
+  // And the quadratics are sorted gentlest first, so the last is the sharp one.
+  for (const slope of SLOPES) {
+    const { pairs } = butterworth(slope / 6);
+    for (let i = 1; i < pairs.length; i += 1) assert.ok(pairs[i] > pairs[i - 1]);
   }
 });
 

@@ -14,7 +14,7 @@
 
 
 import { readingOf, stampOf } from '../../lib/read.js';
-import { svfOf, svfBiquad } from './svf.js';
+import { svfOf, svfBiquad, SECTION_WIDTH } from './svf.js';
 
 /**
  * What each kind of band has, and what its handle means vertically.
@@ -40,34 +40,55 @@ export const BAND_TYPES = {
 /**
  * How steep a cut is, in decibels per octave.
  *
- * Six is missing and it is not an oversight. A 6 dB/oct filter is first
- * order, and every filter Web Audio will build is second: BiquadFilterNode
- * has no one-pole type and takes no coefficients of its own. It could be had
- * from an IIRFilterNode, whose coefficients are fixed at construction - so
- * moving the corner would mean building a new node under a dragging finger,
- * sixty times a second, each one starting from no state at all. That is a
- * click per frame. The three slopes here are the ones a desk actually gives
- * you, and they are exact.
+ * Six and eighteen were missing and the reason was good at the time: they are
+ * odd orders, so each has a single real pole in it, and every filter Web Audio
+ * will build is second order - BiquadFilterNode has no one-pole type and takes
+ * no coefficients of its own. The alternative was an IIRFilterNode, whose
+ * coefficients are fixed at construction, so moving the corner meant building
+ * a new node under a dragging finger sixty times a second, each one starting
+ * from no state at all. That is a click a frame.
+ *
+ * The filter is this app's own now, so a real pole is eleven lines in svf.js
+ * and the reason is gone. Six decibels an octave is the gentle console cut
+ * nothing here could do; eighteen is the one in between.
+ *
+ * What a real pole cannot do is resonate, so a cut at six has no resonance to
+ * set - there is no quadratic section in it for the knob to land on. The face
+ * dims it rather than pretending.
  */
-export const SLOPES = [12, 24, 48];
+export const SLOPES = [6, 12, 18, 24, 48];
 
 /**
- * A Butterworth cascade, as the resonance each of its sections needs - in
- * Web Audio's decibels, which is what its low-pass and high-pass read.
+ * A Butterworth cascade, as the sections it is made of.
  *
- * The useful fact about these numbers is that they multiply to 1/root 2 at
- * every even order, so the cascade is 3 dB down at its corner whether it is
- * twelve an octave or forty-eight. Which means the handle maths does not care
- * about slope at all: a cut still contributes exactly its resonance at its
- * own corner, and still sits on the curve.
+ * `pairs` are the quadratic sections, as the resonance each one needs - in
+ * Web Audio's decibels, which is what this app's low-pass and high-pass have
+ * always read. `one` says whether there is a real pole as well, which there
+ * is at every odd order.
+ *
+ * The useful fact about these numbers is that the cascade is 3 dB down at its
+ * corner at every order, odd ones included, because that is what Butterworth
+ * means. Which is why the handle maths does not care about slope at all: a cut
+ * still contributes exactly its resonance at its own corner, and still sits on
+ * the curve.
+ *
+ * The quadratic Qs are 1 / 2 sin((2m-1)pi/2n), which is not how this was
+ * written. It was the cosine of the same angle counted from the other end,
+ * which gives an identical list at every even order - 0.707, then 0.541 and
+ * 1.307, then 0.510 0.601 0.900 2.563 - and at an odd order hands back the
+ * real pole as a quadratic with a Q of eight thousand million million. That is
+ * where the 318 dB of resonance came from when odd slopes were first tried.
  */
 export function butterworth(order) {
-  const sections = [];
-  for (let k = 0; k < order / 2; k += 1) {
-    const q = 1 / (2 * Math.cos(((2 * k + 1) * Math.PI) / (2 * order)));
-    sections.push(20 * Math.log10(q));
+  const pairs = [];
+  for (let m = 1; m <= Math.floor(order / 2); m += 1) {
+    const q = 1 / (2 * Math.sin(((2 * m - 1) * Math.PI) / (2 * order)));
+    pairs.push(20 * Math.log10(q));
   }
-  return sections;
+  // Sharpest last, which is where a cascade keeps its resonance and what the
+  // cosine form happened to give. The sine form counts from the other end.
+  pairs.reverse();
+  return { pairs, one: order % 2 === 1 };
 }
 
 /** Flat, in the decibels a cut's resonance is stated in. */
@@ -121,15 +142,22 @@ export const RESTING_Q = {
 export function sectionsOf(band) {
   if (!BAND_TYPES[band.type].resonance) return [band];
 
-  const corners = butterworth((band.slope ?? 12) / 6);
+  const { pairs, one } = butterworth((band.slope ?? 12) / 6);
   const resonance = (band.q ?? FLAT_CORNER) - FLAT_CORNER;
 
-  return corners.map((q, i) => ({
+  const sections = pairs.map((q, i) => ({
     type: band.type,
     frequency: band.frequency,
     gain: 0,
-    q: q + (i === corners.length - 1 ? resonance : 0),
+    q: q + (i === pairs.length - 1 ? resonance : 0),
   }));
+
+  // The real pole, where the order is odd. It carries no resonance because a
+  // single pole has none to carry - at six decibels an octave there is no
+  // quadratic section at all, so the knob has nowhere to land.
+  if (one) sections.push({ type: band.type, frequency: band.frequency, gain: 0, q: 0, one: true });
+
+  return sections;
 }
 
 /**
@@ -145,7 +173,7 @@ export function coefficients(band, rate) {
 }
 
 /**
- * Every section of every band, as the five numbers the audio thread runs.
+ * Every section of every band, as the numbers the audio thread runs.
  *
  * One table, flat, because it crosses a port into a worklet - and flat is
  * also what stops it allocating twenty-four objects a frame while somebody
@@ -171,7 +199,7 @@ export function sectionTable(bands, slots, rate) {
   // exists to stop. The gap would be about a millionth of a decibel and
   // utterly inaudible; it would also mean "the same arithmetic" was an
   // approximation, and the test that checks it could no longer ask for zero.
-  const table = new Float64Array(slots * MOST_SECTIONS * 5);
+  const table = new Float64Array(slots * MOST_SECTIONS * SECTION_WIDTH);
 
   for (let b = 0; b < slots; b += 1) {
     const band = bands[b];
@@ -179,10 +207,11 @@ export function sectionTable(bands, slots, rate) {
     const sections = band && band.on !== false ? sectionsOf(band) : [];
 
     for (let s = 0; s < MOST_SECTIONS; s += 1) {
-      const { g, k, m0, m1, m2 } = svfOf(sections[s] ?? through, rate);
-      const i = (b * MOST_SECTIONS + s) * 5;
+      const { g, k, m0, m1, m2, one } = svfOf(sections[s] ?? through, rate);
+      const i = (b * MOST_SECTIONS + s) * SECTION_WIDTH;
       table[i] = g; table[i + 1] = k;
       table[i + 2] = m0; table[i + 3] = m1; table[i + 4] = m2;
+      table[i + 5] = one ? 1 : 0;
     }
   }
 

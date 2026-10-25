@@ -52,41 +52,50 @@ const qOf = (db) => 10 ** (db / 20);
  * decibels because that is what Web Audio has always done and what every
  * saved sketch in this app has stored.
  */
-export function svfOf({ type, frequency, gain = 0, q = 0 }, rate) {
+export function svfOf({ type, frequency, gain = 0, q = 0, one = false }, rate) {
   const w = Math.tan((Math.PI * Math.min(frequency, rate * 0.49)) / rate);
   const A = 10 ** (gain / 40);
 
+  // A real pole on its own, which is what the odd slopes are made of and
+  // what a second-order structure cannot be asked to pretend to be. One
+  // integrator, one state, six decibels an octave. `k` and `m2` are not read.
+  if (one) {
+    return type === 'highpass'
+      ? { g: w, k: 0, m0: 1, m1: -1, m2: 0, one: 1 }
+      : { g: w, k: 0, m0: 0, m1: 1, m2: 0, one: 1 };
+  }
+
   switch (type) {
     case 'lowpass':
-      return { g: w, k: 1 / qOf(q), m0: 0, m1: 0, m2: 1 };
+      return { g: w, k: 1 / qOf(q), m0: 0, m1: 0, m2: 1, one: 0 };
     case 'highpass': {
       const k = 1 / qOf(q);
-      return { g: w, k, m0: 1, m1: -k, m2: -1 };
+      return { g: w, k, m0: 1, m1: -k, m2: -1, one: 0 };
     }
     case 'bandpass':
-      return { g: w, k: 1 / q, m0: 0, m1: 1, m2: 0 };
+      return { g: w, k: 1 / q, m0: 0, m1: 1, m2: 0, one: 0 };
     case 'notch': {
       const k = 1 / q;
-      return { g: w, k, m0: 1, m1: -k, m2: 0 };
+      return { g: w, k, m0: 1, m1: -k, m2: 0, one: 0 };
     }
     case 'allpass': {
       const k = 1 / q;
-      return { g: w, k, m0: 1, m1: -2 * k, m2: 0 };
+      return { g: w, k, m0: 1, m1: -2 * k, m2: 0, one: 0 };
     }
     case 'peaking': {
       const k = 1 / (q * A);
-      return { g: w, k, m0: 1, m1: k * (A * A - 1), m2: 0 };
+      return { g: w, k, m0: 1, m1: k * (A * A - 1), m2: 0, one: 0 };
     }
     case 'lowshelf': {
       const k = 1 / q;
-      return { g: w / Math.sqrt(A), k, m0: 1, m1: k * (A - 1), m2: A * A - 1 };
+      return { g: w / Math.sqrt(A), k, m0: 1, m1: k * (A - 1), m2: A * A - 1, one: 0 };
     }
     case 'highshelf': {
       const k = 1 / q;
-      return { g: w * Math.sqrt(A), k, m0: A * A, m1: k * (1 - A) * A, m2: 1 - A * A };
+      return { g: w * Math.sqrt(A), k, m0: A * A, m1: k * (1 - A) * A, m2: 1 - A * A, one: 0 };
     }
     default:
-      return { g: w, k: 1, m0: 1, m1: 0, m2: 0 };
+      return { g: w, k: 1, m0: 1, m1: 0, m2: 0, one: 0 };
   }
 }
 
@@ -103,7 +112,31 @@ export function svfOf({ type, frequency, gain = 0, q = 0 }, rate) {
  * band-pass and (1-z⁻¹)² for the high-pass, all over D. Mixing them by
  * m0 m1 m2 and collecting powers of z gives what is below.
  */
-export function svfBiquad({ g, k, m0, m1, m2 }) {
+export function svfBiquad({ g, k, m0, m1, m2, one = 0 }) {
+  // One pole, bilinear. The integrator's own output is
+  //
+  //     H_lp(z) = G(1 + z^-1) / (1 + a1 z^-1),  G = g/(1+g),  a1 = (g-1)/(1+g)
+  //
+  // and the section returns m0 x + m1 lp, so collecting powers of z gives
+  // b0 = m0 + m1 G and b1 = m0 a1 + m1 G. The second order is simply empty.
+  //
+  // b1 was -m0 + m1 G in the first version of this, which is right for a
+  // low-pass because m0 is zero there and wrong for a high-pass by twenty
+  // decibels - the corner read +0.14 dB instead of -3.01. The test that
+  // compares the drawn response against the sample loop found it in a minute,
+  // which is the whole reason that test exists.
+  if (one) {
+    const scale = g / (1 + g);
+    const pole = (g - 1) / (1 + g);
+    return {
+      b0: m0 + m1 * scale,
+      b1: m0 * pole + m1 * scale,
+      b2: 0,
+      a1: pole,
+      a2: 0,
+    };
+  }
+
   const gg = g * g;
   const a0 = 1 + g * k + gg;
   const a1 = 2 * gg - 2;
@@ -115,6 +148,17 @@ export function svfBiquad({ g, k, m0, m1, m2 }) {
 
   return { b0: b0 / a0, b1: b1 / a0, b2: b2 / a0, a1: a1 / a0, a2: a2 / a0 };
 }
+
+/**
+ * How many numbers one section takes in a table: g, k, m0, m1, m2, and
+ * whether it is a single real pole rather than a pair.
+ *
+ * Six rather than five since the odd slopes landed. The flag could have been
+ * folded into one of the other five - k is unused on a real pole, and k is
+ * one over Q so it is never negative on a real section - but a table that has
+ * to be decoded is a table somebody decodes wrongly.
+ */
+export const SECTION_WIDTH = 6;
 
 /**
  * The two states one section carries between samples.
@@ -134,7 +178,16 @@ export function svfState() {
  * The delay-free loop solved rather than approximated, which is the whole
  * point of the structure: `a1 a2 a3` below are the solution, not a filter.
  */
-export function svfTick(state, { g, k, m0, m1, m2 }, x) {
+export function svfTick(state, { g, k, m0, m1, m2, one = 0 }, x) {
+  if (one) {
+    // Trapezoidal, same as the pair below and with half the state: solve the
+    // one-sample loop rather than approximate it.
+    const v = ((x - state.ic1) * g) / (1 + g);
+    const low = v + state.ic1;
+    state.ic1 = low + v;
+    return m0 * x + m1 * low;
+  }
+
   const a1 = 1 / (1 + g * (g + k));
   const a2 = g * a1;
   const a3 = g * a2;
@@ -194,7 +247,7 @@ export const SVF_SETTLED = 1e-6;
  * of the things this was swapped in for.
  */
 export function svfRack(rate, slots, channels = 2) {
-  const flat = () => ({ g: 0, k: 1, m0: 1, m1: 0, m2: 0 });
+  const flat = () => ({ g: 0, k: 1, m0: 1, m1: 0, m2: 0, one: 0 });
   const now = Array.from({ length: slots }, flat);
   const target = Array.from({ length: slots }, flat);
   const moving = new Uint8Array(slots);
@@ -216,10 +269,18 @@ export function svfRack(rate, slots, channels = 2) {
     tune(table, immediately = false) {
       for (let s = 0; s < slots; s += 1) {
         const t = target[s];
-        const i = s * 5;
+        const i = s * SECTION_WIDTH;
         t.g = table[i]; t.k = table[i + 1];
         t.m0 = table[i + 2]; t.m1 = table[i + 3]; t.m2 = table[i + 4];
-        if (immediately) {
+        // Not glided. A section is either a pair of poles or a single one and
+        // there is nothing in between to be half way to, so what a change of
+        // order needs is for the five numbers to glide to where the new shape
+        // wants them while the shape itself changes at once. Which is also
+        // what a change of band type has always done.
+        const was = now[s].one;
+        t.one = table[i + 5];
+        now[s].one = t.one;
+        if (immediately || was !== t.one) {
           const c = now[s];
           c.g = t.g; c.k = t.k; c.m0 = t.m0; c.m1 = t.m1; c.m2 = t.m2;
           moving[s] = 0;

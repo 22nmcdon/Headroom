@@ -323,6 +323,14 @@ export class EQPlugin {
     const band = this.bands[this.selected];
     const type = BAND_TYPES[band.type];
 
+    // A cut at six decibels an octave is a single real pole, and a single pole
+    // has no resonance to set - there is no quadratic section in the cascade
+    // for the knob to land on. Measured: asked for nought, three and six
+    // decibels of resonance there, the curve contributes -3.01 every time.
+    // Dimmed where it stands, like every other control this face has nothing
+    // for.
+    const flat = type.resonance && (band.slope ?? 12) === 6;
+
     const third = type.q
       ? `
       <div class="knob">
@@ -332,7 +340,7 @@ export class EQPlugin {
         <input class="knob-dial" type="range" id="eqQ" min="${Math.log2(0.4)}" max="${Math.log2(12)}"
                step="0.01" value="${Math.log2(Math.max(0.4, band.q))}" aria-label="Q">
       </div>`
-      : type.resonance
+      : type.resonance && !flat
         ? `
       <div class="knob">
         <label class="knob-name" for="eqRes">Resonance</label>
@@ -344,10 +352,10 @@ export class EQPlugin {
       </div>`
         : `
       <div class="knob is-idle">
-        <span class="knob-name">Q</span>
+        <span class="knob-name">${flat ? 'Resonance' : 'Q'}</span>
         <output class="knob-value">&mdash;</output>
         <input class="knob-dial" type="range" min="0" max="1" step="0.01" value="0.5" disabled
-               aria-label="Q, which a shelf does not take">
+               aria-label="${flat ? 'Resonance, which one pole does not have' : 'Q, which a shelf does not take'}">
       </div>`;
 
     this.el.querySelector('#eqControls').innerHTML = `
