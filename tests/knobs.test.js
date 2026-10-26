@@ -11,6 +11,7 @@ import assert from 'node:assert/strict';
 import {
   KNOBS, knobsFor, restFor, tidy, tidyAll, paramsFor, optionsFor, writeKnob, EQ_REST,
 } from '../src/sketch/knobs.js';
+import { knobColumns } from '../src/lib/knob.js';
 import { EFFECT_IDS } from '../src/core/effects.js';
 import { COMP_DEFAULTS, COMP_LIMITS } from '../src/plugins/compressor/dsp.js';
 import { HEAT_DEFAULTS, HEAT_LIMITS } from '../src/plugins/saturation/shape.js';
@@ -193,4 +194,67 @@ test('a track settings survive being written out and read back', () => {
     inserts: ['saturation'], settings: { saturation: { drive: 9 } },
   });
   assert.equal(parse(serialise(project)).tracks[2].settings.saturation.drive, 9);
+});
+
+/* --- how a deck lays its knobs out ---------------------------------------- */
+
+test('a deck never ends in one knob unless the arithmetic forces it', () => {
+  // The greedy count - as many as fit, remainder wraps - stranded one knob on
+  // its own on every face in the app at some width. `knobColumns` takes the
+  // rows the greedy count needs and spreads the knobs evenly over them.
+  //
+  // Whether a row of one was avoidable is a question with an answer, so it is
+  // asked rather than assumed: is there any column count, at most the number
+  // that fit, that takes no more rows than the greedy count would and whose
+  // last row holds more than one?
+  //
+  // The row budget is part of the question and not a detail of it. Ten knobs
+  // three to a row is 3+3+3+1 or it is 2+2+2+2+2, and the second buys an even
+  // deck with an extra row - which is how a deck grows until it pushes out
+  // through the bottom of the chassis, and that is a fault the faces check
+  // calls broken where a stranded knob is only untidy. So rows are never
+  // spent, and where that leaves one stranded it is left stranded.
+  const lastRow = (count, columns) => count - (Math.ceil(count / columns) - 1) * columns;
+  const couldDoBetter = (count, fit) => {
+    const rows = Math.ceil(count / fit);
+    for (let c = 2; c <= fit; c += 1) {
+      if (Math.ceil(count / c) === rows && lastRow(count, c) !== 1) return true;
+    }
+    return false;
+  };
+
+  for (let count = 2; count <= 16; count += 1) {
+    for (let fit = 2; fit <= 16; fit += 1) {
+      const columns = knobColumns(count, fit);
+      assert.ok(columns >= 1 && columns <= fit,
+        `${count} knobs in a width fitting ${fit} came out as ${columns} columns`);
+
+      // Never more rows than the greedy count would have taken. Spreading is
+      // free or it is not worth doing.
+      assert.equal(Math.ceil(count / columns), Math.ceil(count / fit),
+        `${count} knobs at ${fit} per row cost an extra row`);
+
+      if (couldDoBetter(count, fit)) {
+        assert.notEqual(lastRow(count, columns), 1,
+          `${count} knobs at ${fit} per row strand one, and did not have to`);
+      }
+    }
+  }
+});
+
+test('the knob counts the faces actually have', () => {
+  // The cases measured in the browser, so the arithmetic is pinned to the
+  // real decks rather than only to the general rule.
+  assert.equal(knobColumns(6, 5), 3, 'the stereo deck at 430 px: 5+1 becomes 3+3');
+  assert.equal(knobColumns(9, 8), 5, 'the reverb deck at 1024 px: 8+1 becomes 5+4');
+  assert.equal(knobColumns(9, 4), 3, 'the reverb deck at 500 px: 4+4+1 becomes 3+3+3');
+  assert.equal(knobColumns(5, 4), 3, 'the saturator and delay at 700 px: 4+1 becomes 3+2');
+  assert.equal(knobColumns(10, 8), 5, "the compressor's ten, which never stranded one anyway");
+
+  // And the ones the arithmetic will not fix. Two to a row leaves any odd
+  // count stranded, and ten three to a row cannot be evened without a fifth
+  // row - so those are left as they are rather than made taller.
+  assert.equal(knobColumns(9, 2), 2, 'nine knobs two to a row is 2+2+2+2+1 whatever happens');
+  assert.equal(knobColumns(3, 2), 2, "and the EQ's three are 2+1");
+  assert.equal(knobColumns(10, 3), 3, 'ten knobs three to a row stay 3+3+3+1');
 });

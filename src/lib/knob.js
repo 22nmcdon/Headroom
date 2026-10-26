@@ -156,5 +156,93 @@ export function dressKnobs(root) {
     root.dataset.knobsWired = '1';
   }
 
+  for (const deck of root.querySelectorAll('.plugin-controls')) spreadKnobs(deck);
   paintKnobs(root);
+}
+
+/**
+ * How many knobs a row should hold, so the last row is never one knob.
+ *
+ * `n` knobs into rows of at most `fit` is a choice of column count, and the
+ * grid was making it the greedy way: as many as fit, and the remainder wraps.
+ * Measured across widths from 360 to 1440, every face in the app ended a deck
+ * with a single stranded knob somewhere - the stereo plugin at 390, 430, 820
+ * and 932, which is two phone widths and one of the three sizes the browser
+ * checks run at; the reverb at 360, 500 and 1024; the EQ, saturator and delay
+ * at 360 and 700. Only the compressor never did, and that was luck in its
+ * knob count rather than anything it does differently.
+ *
+ * The fix is to take the rows the greedy count would need and then spread the
+ * knobs evenly over them, which is one line of arithmetic: ceil(n / rows)
+ * where rows is ceil(n / fit). Nine knobs in a width that fits eight stops
+ * being 8+1 and becomes 5+4; six in a width that fits five stops being 5+1
+ * and becomes 3+3. It never costs a row, because the row count is the greedy
+ * one.
+ *
+ * It cannot always win, and does not pretend to: nine knobs two to a row is
+ * 2+2+2+2+1 whatever you do with it, and so is three knobs two to a row. The
+ * browser check that guards this works out whether a better split existed
+ * before it complains.
+ */
+export function knobColumns(count, fit) {
+  if (!(count > 0) || !(fit > 0)) return fit;
+  return Math.ceil(count / Math.ceil(count / fit));
+}
+
+/**
+ * The widths each deck was last laid out at, so this is idempotent.
+ *
+ * Changing the column count changes the deck's height, and a ResizeObserver
+ * watching a box watches both of its sides - so without this, spreading the
+ * knobs would wake the observer that then spreads them again. Keyed on the
+ * width and the knob count, which are the only two things the answer depends
+ * on, so the second call is a lookup and the loop stops at one pass.
+ */
+const spread = new WeakMap();
+
+/**
+ * Lay a deck's knobs out so the last row is not a single knob.
+ *
+ * The column count comes from the grid rather than from arithmetic on
+ * `--deck`, because `--deck` is not what decides it: the tracks are
+ * `minmax(var(--deck), 1fr)` and a track cannot be narrower than the widest
+ * thing in it, so a knob whose name wraps to two lines makes its column wider
+ * than the variable asks for. Measured at 430 px, the stereo deck has room
+ * for six 54 px tracks and lays out five of 62.8 px, because "Low width" does
+ * not fit in 54. So the browser is asked how many columns it managed, and
+ * only the spread of knobs over them is changed.
+ *
+ * The EQ's deck is not one of these. It is flex rather than grid, because its
+ * three knobs have to hold a basis of `min(var(--deck), 30%)` to survive a
+ * landscape column, and three knobs two to a row strand one however they are
+ * laid out - so there is nothing here for it to win.
+ */
+export function spreadKnobs(deck) {
+  if (!deck) return;
+
+  const count = deck.querySelectorAll('.knob').length;
+  const width = Math.round(deck.getBoundingClientRect().width);
+  const seen = spread.get(deck);
+  if (seen && seen.width === width && seen.count === count) return;
+  spread.set(deck, { width, count });
+
+  if (!seen) {
+    // Watching the deck itself rather than the chassis, because a deck inside
+    // a container query can change width without the window doing anything.
+    try {
+      new ResizeObserver(() => spreadKnobs(deck)).observe(deck);
+    } catch { /* no observer here; it will still be right on every rebuild */ }
+  }
+
+  // Back to the stylesheet's own count, so what is read next is how many the
+  // grid can actually fit rather than how many it was last told to use.
+  deck.style.removeProperty('grid-template-columns');
+  if (count < 3) return;
+
+  const tracks = getComputedStyle(deck).gridTemplateColumns;
+  const fit = tracks && tracks !== 'none' ? tracks.split(' ').length : 0;
+  if (!(fit > 1) || fit >= count) return;
+
+  const columns = knobColumns(count, fit);
+  if (columns < fit) deck.style.gridTemplateColumns = `repeat(${columns}, minmax(0, 1fr))`;
 }

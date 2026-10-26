@@ -9,7 +9,7 @@
 
 import { serve, launch } from '../tests/browser/harness.mjs';
 
-const CHECKS = ['faces', 'inserts', 'chain', 'tracks', 'wide', 'shape', 'knobs', 'eq-curve'];
+const CHECKS = ['faces', 'inserts', 'chain', 'tracks', 'wide', 'shape', 'knobs', 'decks', 'eq-curve'];
 
 const asked = process.argv.slice(2).filter((a) => !a.startsWith('-'));
 const wanted = asked.length ? CHECKS.filter((c) => asked.includes(c)) : CHECKS;
