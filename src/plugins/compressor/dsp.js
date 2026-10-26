@@ -56,6 +56,9 @@ export const COMP_DEFAULTS = {
   detector: 'peak', // or 'rms'
   rmsTime: 12,      // ms the mean square averages over; RMS mode only
   auto: false,      // a slow gain platform under the release
+  family: 'modern', // or 'opto', which has its own two controls and no knobs
+  peakReduction: 0.5, // opto only: how hard the cell is driven
+  optoMode: 'compress', // opto only: or 'limit'
   sidechain: false, // listen to the key input instead of the signal
   scHigh: 20,       // detector high-pass corner
   scLow: 20000,     // detector low-pass corner
@@ -86,7 +89,99 @@ export const COMP_LIMITS = {
   scHigh: [20, 1000],
   scLow: [200, 20000],
   rmsTime: [0.5, 50],
+  peakReduction: [0, 1],
 };
+
+/**
+ * An optical compressor, as a photocell with a memory.
+ *
+ * A T4 is an electroluminescent panel shining at a cadmium sulphide
+ * photoresistor. The panel lights in a millisecond or two; the cell's
+ * resistance falls quickly and comes back in two stages, and how long the
+ * second stage takes depends on how long and how brightly the cell has been
+ * lit. UA's manual gives about 10 ms of attack and "dual stage: ~60 ms for
+ * 50% release", and Mix explains the memory: "the duration of the second
+ * stage of release - ruled by the cell's memory effect - depends on how long
+ * light has been shining on the cell and at what brightness before it
+ * ceased."
+ *
+ * So: a light that is fast on and fast off, an exposure that follows it over
+ * seconds, and a conductance that chases the light quickly upward and lets go
+ * at a rate the exposure sets.
+ *
+ * Measured, lighting the bare cell and letting go:
+ *
+ *     attack to 63%      11.6 ms        (hardware: about 10 ms)
+ *     lit 50 ms          64 ms to half  (hardware: about 60 ms to 50%)
+ *     lit 200 ms         67 ms
+ *     lit 600 ms         88 ms
+ *     lit 2 s            273 ms
+ *     lit 6 s            982 ms
+ *     lit 20 s           1881 ms
+ *
+ * The exposure is squared on the way in, and that is not a flourish: with it
+ * linear, a fifty-millisecond burst already dragged the half-release out to
+ * 116 ms, nearly double what the hardware does. A flash has to leave almost
+ * no memory and only a passage has to leave one.
+ *
+ * Through the whole loop the memory is gentler, because the cell settles at a
+ * partial brightness rather than full: 64 ms to half after a short burst,
+ * rising to 74 after a second, 125 after three and 313 after ten. Five times
+ * the tail for ten seconds of programme, which is the effect the hardware is
+ * described by even if the published figures are for full recovery rather
+ * than half.
+ */
+export const OPTO_CELL = {
+  lightOn: 0.0015,   // the panel coming up
+  lightOff: 0.004,   // and going out
+  memory: 6,         // how long the cell remembers having been lit
+  attack: 0.010,     // conductance rising
+  fastTail: 0.0866,  // the first stage: 60 ms to half
+  slowTail: 4,       // and the second, at full exposure
+};
+
+/**
+ * How deep the cell can pull, in decibels, and how wide its knee is.
+ *
+ * The ceiling is the whole reason this loop is safe where a general feedback
+ * topology is not. A feedback gain computer with a slope of R - 1 and a lag
+ * winds up on transients: measured on one hit at ratio 8 with a 20 ms attack,
+ * it reached 92.6 dB of reduction where the feed-forward path reached 16.5.
+ * A photoresistor has a floor on its resistance, so an opto cannot do that -
+ * it runs out instead. Measured here, the same single hit peaks at 15.1 dB in
+ * compress and 20.4 in limit and comes back cleanly.
+ *
+ * 36 dB because it is the point where limit stops running out of cell inside
+ * its own range. Measured as the local ratio climbing through the range at
+ * three ceilings:
+ *
+ *     ceiling   compress                     limit
+ *      24 dB    1.91 2.51 3.01 3.38 3.55     4.05 5.64 5.05 2.63 1.81
+ *      30 dB    1.91 2.51 3.01 3.37 3.54     4.05 5.62 6.92 5.85 3.41
+ *      36 dB    1.91 2.51 3.00 3.37 3.54     4.04 5.62 6.90 7.84 7.19
+ *
+ * Compress never reaches any of them - it is the same curve at all three -
+ * and limit stops collapsing at 36.
+ *
+ * The knee is twelve decibels, which is very wide, and that is most of what
+ * an opto is: there is no threshold on the front panel because there is no
+ * corner to put one at.
+ */
+export const MOST_OPTO = 36;
+export const OPTO_KNEE = 12;
+
+/**
+ * What the two positions of Compress/Limit are, as ratios.
+ *
+ * The ratio is not a control on an opto - it emerges - but it is still what
+ * the gain computer is set to, because the feedback slope of R - 1 is how a
+ * ratio gets into a loop at all. What comes out is softer than what goes in:
+ * measured at peak reduction 0.5, the local ratio climbs 1.21, 1.91, 2.51,
+ * 3.01, 3.38 and 3.55 to one across the range in compress - the "about 4:1,
+ * soft knee, program dependent" the manual claims - and 4.04 up to 7.84 in
+ * limit.
+ */
+export const OPTO_RATIOS = { compress: 4, limit: 20 };
 
 /**
  * The slow half of a program-dependent release, in seconds.
@@ -210,12 +305,46 @@ export const PEAK_HOLD = 0;
  * `step(signal, key)` returns the processed sample and leaves the gain
  * reduction it just applied on `reduction`, in decibels, at or below zero.
  */
+/**
+ * One photocell, one sample at a time.
+ *
+ * Closes over nothing but its own state, because node.js stringifies it onto
+ * the audio thread along with everything else in here.
+ */
+export function optoCell(rate) {
+  const on = 1 - Math.exp(-1 / (OPTO_CELL.lightOn * rate));
+  const off = 1 - Math.exp(-1 / (OPTO_CELL.lightOff * rate));
+  const mem = 1 - Math.exp(-1 / (OPTO_CELL.memory * rate));
+  const up = 1 - Math.exp(-1 / (OPTO_CELL.attack * rate));
+
+  let light = 0;
+  let expo = 0;
+  let cond = 0;
+
+  return {
+    /** `drive` is how hard the panel is lit, 0 to 1. Returns conductance. */
+    step(drive) {
+      light += (drive > light ? on : off) * (drive - light);
+      expo += mem * (light - expo);
+
+      // Squared, so a flash leaves almost no memory and only a passage does.
+      const soaked = Math.min(1, expo) * Math.min(1, expo);
+      const tail = OPTO_CELL.fastTail + (OPTO_CELL.slowTail - OPTO_CELL.fastTail) * soaked;
+      const down = 1 - Math.exp(-1 / (tail * rate));
+
+      cond += (light > cond ? up : down) * (light - cond);
+      return cond;
+    },
+  };
+}
+
 export function compressorCore(rate) {
   const state = {
     threshold: -18, ratio: 4, attack: 10, release: 120, knee: 6,
     makeup: 0, mix: 1, lookahead: 0,
     detector: 'peak', sidechain: false, scHigh: 20, scLow: 20000, listen: false,
     rmsTime: 12, auto: false,
+    family: 'modern', peakReduction: 0.5, optoMode: 'compress',
   };
 
   const hp = makeBiquad();
@@ -230,6 +359,8 @@ export function compressorCore(rate) {
   let mean = 0;     // running mean square, for the RMS detector
   let letGo = 0;    // the release stage, which is also what holds the peak
   let platform = 0; // the slow release underneath it, when auto is on
+  const cell = optoCell(rate);
+  let lastOut = 0;  // what the cell is looking at, one sample back
 
   // The audio is delayed against the detector, so that a compressor with
   // lookahead is already pulling down by the time the transient arrives.
@@ -282,6 +413,39 @@ export function compressorCore(rate) {
         level = Math.sqrt(mean);
       } else {
         level = side < 0 ? -side : side;
+      }
+
+      // The optical path, which is a different instrument rather than a
+      // different setting: no threshold, no ratio, no attack and no release,
+      // because a T4 has none of those on its front panel. Peak Reduction
+      // slides the onset and the cell does all the timing.
+      //
+      // It is a feedback design - the cell sits across the output, so the
+      // light it sees is the light after the reduction - and the slope has to
+      // be R - 1 rather than 1 - 1/R for the ratio to come out as R at all,
+      // which is the same factor-of-R rule a general feedback topology needs.
+      // What makes this one safe where that one is not is the ceiling: a
+      // photoresistor runs out, so the loop cannot wind up.
+      if (state.family === 'opto') {
+        const ratio = OPTO_RATIOS[state.optoMode] ?? OPTO_RATIOS.compress;
+        const onset = -4 - Math.min(1, Math.max(0, state.peakReduction)) * 40;
+        const seen = state.sidechain ? side : lastOut;
+        const heard = 20 * Math.log10(Math.abs(seen) + 1e-9);
+        const want = Math.min(MOST_OPTO,
+          -staticGain(heard, onset, ratio, OPTO_KNEE) * ratio);
+
+        held = MOST_OPTO * cell.step(want / MOST_OPTO);
+        this.reduction = -held;
+
+        delay[writeAt] = signal;
+        const read = (writeAt - delayed + delay.length) % delay.length;
+        const was = delay[read];
+        writeAt = (writeAt + 1) % delay.length;
+
+        const squashed = was * (10 ** (-held / 20));
+        lastOut = squashed;
+        if (state.listen) return side;
+        return (was * (1 - state.mix) + squashed * state.mix) * (10 ** (state.makeup / 20));
       }
 
       const db = 20 * Math.log10(level + 1e-9);

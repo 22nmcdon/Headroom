@@ -1,6 +1,6 @@
 import { makeBiquad, setBiquad, runBiquad } from '../../lib/dsp.js';
 import * as dsp from './dsp.js';
-import { compressorCore, staticGain } from './dsp.js';
+import { compressorCore, staticGain, optoCell } from './dsp.js';
 import { workletModule, installWorklet } from '../../lib/worklet.js';
 
 /**
@@ -19,7 +19,7 @@ import { workletModule, installWorklet } from '../../lib/worklet.js';
  */
 
 /** The functions the audio thread needs, in the order they are defined. */
-const COMPRESSOR_PARTS = [staticGain, makeBiquad, setBiquad, runBiquad, compressorCore];
+const COMPRESSOR_PARTS = [staticGain, makeBiquad, setBiquad, runBiquad, optoCell, compressorCore];
 
 /**
  * The module-level values those functions read, taken from the module rather

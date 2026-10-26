@@ -2,7 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { signalRms, makeBiquad, setBiquad, runBiquad } from '../src/lib/dsp.js';
-import { staticGain, compressorCore, runCompressor, analyse, autoGain, COMP_DEFAULTS, COMP_LIMITS } from '../src/plugins/compressor/dsp.js';
+import {
+  staticGain, compressorCore, runCompressor, analyse, autoGain,
+  COMP_DEFAULTS, COMP_LIMITS, optoCell, MOST_OPTO,
+} from '../src/plugins/compressor/dsp.js';
 import { workletSource } from '../src/plugins/compressor/node.js';
 import { COMP_WORK as compression } from '../src/learn/work/compression.js';
 import { mulberry32 } from '../src/lib/random.js';
@@ -577,4 +580,131 @@ test('what the release drill leaves to hear is how far it comes back', () => {
   }
   assert.ok(between[4] > between[0] * 20,
     `the slowest release should sit far deeper between hits: ${read}`);
+});
+
+/* --- the optical family ---------------------------------------------------- */
+
+/** Settled reduction on a steady tone, in dB. */
+function optoSettled(db, over, hz = 300) {
+  const core = compressorCore(RATE);
+  core.set({ ...COMP_DEFAULTS, family: 'opto', makeup: 0, mix: 1, ...over });
+  const amp = 10 ** (db / 20) * Math.SQRT2;
+  for (let i = 0; i < Math.round(RATE * 1.5); i += 1) {
+    core.step(Math.sin((2 * Math.PI * hz * i) / RATE) * amp, 0);
+  }
+  return -core.reduction;
+}
+
+test('the photocell hits the timings the hardware is quoted at', () => {
+  // UA: about 10 ms of attack and "dual stage: ~60 ms for 50% release", with
+  // a second stage whose length depends on how long the cell was lit.
+  const cell = optoCell(RATE);
+  const trace = [];
+  for (let i = 0; i < RATE; i += 1) trace.push(cell.step(1));
+  const top = trace[trace.length - 1];
+  const at63 = trace.findIndex((v) => v >= top * 0.6321) / RATE * 1000;
+  assert.ok(at63 > 7 && at63 < 16, `the cell takes ${at63.toFixed(1)} ms to reach 63%`);
+
+  // Half-release, after being lit for a while. A flash has to leave almost no
+  // memory and a passage has to leave one: measured 64 ms after 50 ms of
+  // light, 273 after two seconds, 1881 after twenty.
+  const halfAfter = (heldMs) => {
+    const c = optoCell(RATE);
+    let lit = 0;
+    for (let i = 0; i < Math.round((heldMs * RATE) / 1000); i += 1) lit = c.step(1);
+    const want = lit * 0.5;
+    for (let i = 0; i < Math.round(RATE * 60); i += 1) {
+      if (c.step(0) <= want) return (i / RATE) * 1000;
+    }
+    return Infinity;
+  };
+
+  const flash = halfAfter(50);
+  assert.ok(flash > 45 && flash < 80, `a 50 ms flash half-releases in ${flash.toFixed(0)} ms, not about 60`);
+
+  const held = [50, 600, 2000, 6000, 20000].map(halfAfter);
+  for (let i = 1; i < held.length; i += 1) {
+    assert.ok(held[i] > held[i - 1],
+      `the tail is not longer the longer it was lit: ${held.map((h) => h.toFixed(0)).join(', ')}`);
+  }
+  assert.ok(held[4] > held[0] * 10,
+    `twenty seconds of light should leave a far longer tail than fifty milliseconds: `
+    + `${held[4].toFixed(0)} against ${held[0].toFixed(0)} ms`);
+});
+
+test('the opto has no threshold and a ratio that firms up', () => {
+  // The whole character: a knee so soft there is no corner to put a threshold
+  // at, and a ratio that climbs with level rather than sitting where a knob
+  // put it. Measured at peak reduction 0.5 in compress: 1.21, 1.91, 2.51,
+  // 3.00, 3.37, 3.54 to one - the "about 4:1, soft knee, program dependent"
+  // the manual claims.
+  const ratios = [];
+  let prev = null;
+  for (const db of [-34, -28, -22, -16, -10, -6, -2]) {
+    const out = db - optoSettled(db, { optoMode: 'compress', peakReduction: 0.5 });
+    if (prev && out - prev.out > 1e-6) ratios.push((db - prev.db) / (out - prev.out));
+    prev = { db, out };
+  }
+
+  const read = ratios.map((r) => r.toFixed(2)).join(', ');
+  for (let i = 1; i < ratios.length; i += 1) {
+    assert.ok(ratios[i] > ratios[i - 1] - 0.01, `the ratio does not firm up: ${read}`);
+  }
+  assert.ok(ratios[ratios.length - 1] > 3 && ratios[ratios.length - 1] < 5,
+    `it should settle near four to one, not ${read}`);
+
+  // Limit is the same cell at a harder slope.
+  const limiting = (() => {
+    let was = null; let steepest = 0;
+    for (const db of [-28, -22, -16, -10, -6]) {
+      const out = db - optoSettled(db, { optoMode: 'limit', peakReduction: 0.5 });
+      if (was && out - was.out > 1e-6) steepest = Math.max(steepest, (db - was.db) / (out - was.out));
+      was = { db, out };
+    }
+    return steepest;
+  })();
+  assert.ok(limiting > 6, `limit only reaches ${limiting.toFixed(2)}:1`);
+});
+
+test('the optical loop cannot wind up, which is the point of the ceiling', () => {
+  // A feedback gain computer with a slope of R - 1 and a lag winds up on
+  // transients: measured on one hit at ratio 8 with a 20 ms attack, a general
+  // feedback topology reached 92.6 dB of reduction where the feed-forward path
+  // reached 16.5. A photoresistor has a floor on its resistance, so this one
+  // runs out instead.
+  for (const optoMode of ['compress', 'limit']) {
+    const core = compressorCore(RATE);
+    core.set({ ...COMP_DEFAULTS, family: 'opto', optoMode, peakReduction: 1, makeup: 0, mix: 1 });
+    let deepest = 0;
+    for (let i = 0; i < Math.round(RATE * 0.6); i += 1) {
+      const t = i / RATE;
+      const hit = t < 0.2 ? Math.exp(-t * 14) * Math.sin(2 * Math.PI * 200 * t) * 0.9 : 0;
+      core.step(hit, 0);
+      deepest = Math.min(deepest, core.reduction);
+    }
+    assert.ok(deepest > -MOST_OPTO - 0.01,
+      `${optoMode} pulled ${deepest.toFixed(1)} dB, past the cell's ${MOST_OPTO} dB floor`);
+    assert.ok(deepest < -5, `${optoMode} barely did anything: ${deepest.toFixed(1)} dB`);
+  }
+});
+
+test('peak reduction is the only thing driving it', () => {
+  // One knob where a modern compressor has a threshold, and it has to cover
+  // the range on its own: measured 0, 1.87, 7.51, 14.32 and 21.54 dB at a
+  // -16 dBFS tone.
+  const sweep = [0, 0.25, 0.5, 0.75, 1]
+    .map((peakReduction) => optoSettled(-16, { optoMode: 'compress', peakReduction }));
+  const read = sweep.map((v) => v.toFixed(2)).join(', ');
+  for (let i = 1; i < sweep.length; i += 1) {
+    assert.ok(sweep[i] > sweep[i - 1], `peak reduction is not monotone: ${read}`);
+  }
+  assert.ok(sweep[0] < 0.1, `it should do nothing at zero, not ${read}`);
+  assert.ok(sweep[4] > 15, `it should reach well over fifteen decibels, not ${read}`);
+
+  // And attack, release and ratio do nothing at all here, because the cell is
+  // the only thing with an opinion about time.
+  const a = optoSettled(-16, { peakReduction: 0.5, attack: 0.1, release: 20, ratio: 2 });
+  const b = optoSettled(-16, { peakReduction: 0.5, attack: 200, release: 2000, ratio: 20 });
+  assert.equal(a.toFixed(6), b.toFixed(6),
+    'the modern knobs still reach the optical path');
 });

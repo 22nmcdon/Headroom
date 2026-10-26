@@ -1351,6 +1351,13 @@ input.knob-value:focus {
    these decks were laid out to stop happening. */
 .verb .plugin-controls { --deck: 94px; }
 
+/* The family switch, at the head of the deck it governs - the same gesture the
+   saturator makes with its curve row and the reverb with its spaces. An opto
+   is a different instrument rather than a different setting, so the deck under
+   it changes rather than its knobs being dimmed one at a time. */
+.comp-family { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; margin-bottom: 2px; min-width: 0; }
+.comp-family .eq-ab { flex-wrap: wrap; min-width: 0; }
+
 /* --- the compressor -------------------------------------------------------- */
 /* Three readings of the same thing, side by side, because a compressor is the
    one processor where the picture, the bar and the moment genuinely differ:

@@ -57,6 +57,31 @@ const COMP_KNOBS = [
   { id: 'lookahead', name: 'Lookahead', ...span(COMP_LIMITS.lookahead), step: 0.5, write: writeTime },
 ];
 
+/**
+ * The two decks, because an opto is a different instrument and not a setting.
+ *
+ * A T4 has no threshold, no ratio, no attack and no release: it has Peak
+ * Reduction and a Compress/Limit switch, and everything else about how it
+ * behaves is the photocell. So the deck changes with the family rather than
+ * the knobs being dimmed one by one - which is the reverb's arrangement for
+ * its spaces, and for the same reason.
+ *
+ * Makeup and Mix are on both, because those are the plugin's rather than the
+ * compressor's: a wet/dry blend and a level are outside whatever is doing the
+ * reducing.
+ */
+const OPTO_KNOBS = [
+  { id: 'peakReduction', name: 'Peak reduction', ...span(COMP_LIMITS.peakReduction), step: 0.01,
+    write: (v) => `${Math.round(v * 100)} %` },
+  { id: 'makeup', name: 'Makeup', ...span(COMP_LIMITS.makeup), step: 0.5, write: writeDbValue },
+  { id: 'mix', name: 'Mix', ...span(COMP_LIMITS.mix), step: 0.01, write: (v) => `${Math.round(v * 100)} %` },
+];
+
+const COMP_FAMILIES = {
+  modern: { label: 'Modern', knobs: null },
+  opto: { label: 'Opto', knobs: OPTO_KNOBS },
+};
+
 /** The detector's own controls - the half of a compressor nobody touches. */
 const COMP_SIDECHAIN = [
   { id: 'scHigh', name: 'Key high-pass', ...span(COMP_LIMITS.scHigh), log: true, write: writeHertz },
@@ -194,7 +219,22 @@ export class CompPlugin {
         </div>
 
         <div class="comp-deck">
-          <span class="panel-name">Dynamics &amp; output</span>
+          <div class="comp-family">
+            <span class="panel-name">Family</span>
+            <div class="eq-ab" role="group" aria-label="Which compressor">
+              ${Object.entries(COMP_FAMILIES).map(([id, fam]) => `<button
+                class="ab-btn${id === (this.settings.family ?? 'modern') ? ' is-on' : ''}"
+                type="button" data-family="${id}">${fam.label}</button>`).join('')}
+            </div>
+            <div class="eq-ab" role="group" aria-label="Compress or limit" id="compOptoMode"
+                 ${this.settings.family === 'opto' ? '' : 'hidden'}>
+              <button class="ab-btn${this.settings.optoMode !== 'limit' ? ' is-on' : ''}"
+                      type="button" data-opto="compress">Compress</button>
+              <button class="ab-btn${this.settings.optoMode === 'limit' ? ' is-on' : ''}"
+                      type="button" data-opto="limit">Limit</button>
+            </div>
+            <span class="eq-hint" ${this.settings.family === 'opto' ? '' : 'hidden'}>a photocell with a memory — no attack, no release, no threshold</span>
+          </div>
           <div class="plugin-controls" id="compKnobs"></div>
         </div>
 
@@ -276,7 +316,8 @@ export class CompPlugin {
         </div>`;
     }).join('');
 
-    this.el.querySelector('#compKnobs').innerHTML = write(COMP_KNOBS);
+    this.el.querySelector('#compKnobs').innerHTML =
+      write(COMP_FAMILIES[this.settings.family]?.knobs ?? COMP_KNOBS);
     this.el.querySelector('#compKeyKnobs').innerHTML = write(COMP_SIDECHAIN);
     this.showWindow();
     this.syncKnobs();
@@ -361,6 +402,29 @@ export class CompPlugin {
       this.player.setAuto(e.target.checked);
       this.el.querySelector('[data-knob="makeup"]').classList.toggle('is-auto', e.target.checked);
       this.writeReadout();
+    });
+
+    this.el.querySelector('#compKnobs').closest('.comp-deck').addEventListener('click', (e) => {
+      if (!this.interactive) return;
+
+      const family = e.target.closest('[data-family]');
+      if (family) {
+        this.settings.family = family.dataset.family;
+        // The whole face, because the family changes which knobs there are and
+        // whether the Compress/Limit switch is on screen at all.
+        this.build();
+        this.changed();
+        return;
+      }
+
+      const mode = e.target.closest('[data-opto]');
+      if (mode) {
+        this.settings.optoMode = mode.dataset.opto;
+        for (const button of this.el.querySelectorAll('[data-opto]')) {
+          button.classList.toggle('is-on', button === mode);
+        }
+        this.changed();
+      }
     });
 
     this.el.querySelector('#compAutoRelease').addEventListener('change', (e) => {
@@ -693,6 +757,31 @@ export class CompPlugin {
 
     const at = (db) => db + staticGain(db, threshold, ratio, knee);
 
+    // An opto gets no curve at all, and that is the honest answer rather than
+    // a gap. It has no threshold, ratio or knee to draw one from, so drawing
+    // the modern one would be a picture of a compressor the face is not
+    // running. Solving for the real one was tried and is not accurate enough
+    // to draw: the cell sits in a feedback loop and is lit by a rectified
+    // waveform rather than by a level, so where it settles depends on the
+    // shape of what is going through it and not only on how loud it is.
+    // Measured against the running engine, a solve that assumed a level was
+    // out by up to 1.9 dB in compress and 9.6 in limit.
+    //
+    // Which is the one thing about an optical compressor everybody says
+    // first, so the panel says it instead of drawing something wrong. The
+    // trace beside it is measured and stays true.
+    if (this.settings.family === 'opto') {
+      c.fillStyle = ink.soft;
+      c.font = '12px system-ui, sans-serif';
+      c.textAlign = 'center';
+      c.fillText('no fixed curve', width / 2, height / 2 - 6);
+      c.font = '10px system-ui, sans-serif';
+      c.fillText('a cell follows the', width / 2, height / 2 + 10);
+      c.fillText('programme, not a line', width / 2, height / 2 + 23);
+      c.textAlign = 'left';
+      return;
+    }
+
     // What is being taken off, as the gap between doing this and doing
     // nothing - the area is the compression, and it grows as you work it.
     c.beginPath();
@@ -1004,10 +1093,17 @@ export class CompPlugin {
     }
 
     const { threshold, ratio, attack, release } = this.settings;
-    const parts = [
-      `${writeRatio(ratio)} over ${threshold.toFixed(1)} dB`,
-      `${writeTime(attack)} / ${writeTime(release)}`,
-    ];
+    // An opto has none of those four. Saying "4.0 : 1 over -18.0 dB, 10 ms /
+    // 120 ms" over a photocell is naming a ratio that emerges, a threshold
+    // that is not there and two time constants nothing reads - and the only
+    // true part of it would be the measured depth at the end.
+    const parts = this.settings.family === 'opto'
+      ? [`${Math.round(this.settings.peakReduction * 100)} % into the cell`,
+        this.settings.optoMode === 'limit' ? 'limiting' : 'compressing']
+      : [
+        `${writeRatio(ratio)} over ${threshold.toFixed(1)} dB`,
+        `${writeTime(attack)} / ${writeTime(release)}`,
+      ];
     // Only when it is a reading of what is on the knobs now. Saying "6.2 dB
     // deepest" beside settings that have moved since is the same class of
     // untruth as saying it about a loop that is no longer loaded.
