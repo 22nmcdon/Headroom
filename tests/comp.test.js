@@ -5,6 +5,7 @@ import { signalRms, makeBiquad, setBiquad, runBiquad } from '../src/lib/dsp.js';
 import { staticGain, compressorCore, runCompressor, analyse, autoGain, COMP_DEFAULTS, COMP_LIMITS } from '../src/plugins/compressor/dsp.js';
 import { workletSource } from '../src/plugins/compressor/node.js';
 import { COMP_WORK as compression } from '../src/learn/work/compression.js';
+import { mulberry32 } from '../src/lib/random.js';
 import { engraveNote } from '../src/lib/engrave.js';
 
 const RATE = 48000;
@@ -504,4 +505,76 @@ test('auto release off is the compressor that was there before it', () => {
   const alsoFixed = run(false);
   assert.deepEqual(fixed, alsoFixed, 'and it is the same compressor twice');
   assert.equal(COMP_DEFAULTS.auto, false, 'and it is off unless somebody asks');
+});
+
+/* --- the release drill ----------------------------------------------------- */
+
+test('the release drill asks a question with only one variable in it', () => {
+  // The mirror of the reduction drill: that one fixes the release and asks
+  // how much, this one fixes how much and asks the release. Which only works
+  // if every round does the same amount of work - the release is most of how
+  // much a compressor takes off, so without solving the threshold per release
+  // this would be a level test wearing a timing label.
+  const rounds = ['40', '80', '150', '300', '600'].map((id) => ({
+    id,
+    settings: compression.exercises.release.startOf({
+      settings: { exercise: 'release' }, answer: { release: id },
+    }),
+  }));
+
+  for (const { id, settings } of rounds) {
+    assert.equal(settings.release, Number(id), 'the round sets the release it asked about');
+    assert.ok(Math.abs(settings.makeup - 6) < 0.25,
+      `${id} ms does ${settings.makeup.toFixed(2)} dB rather than six`);
+  }
+
+  // Each needs its own threshold to get there, and a slower release needs a
+  // higher one - it holds on longer, so it takes more off for the same
+  // threshold. That monotonicity is the whole mechanism of the drill.
+  const thresholds = rounds.map((r) => r.settings.threshold);
+  assert.equal(new Set(thresholds).size, rounds.length,
+    `the five rounds share a threshold: ${thresholds.join(', ')}`);
+  for (let i = 1; i < thresholds.length; i += 1) {
+    assert.ok(thresholds[i] > thresholds[i - 1],
+      `thresholds are not monotone in the release: ${thresholds.join(', ')}`);
+  }
+});
+
+test('what the release drill leaves to hear is how far it comes back', () => {
+  // With the amount matched and the level put back, what separates the five
+  // is the reduction sitting between the hits. Measured over a bed this test
+  // supplies, so the figures are the ones asserted rather than ones taken on
+  // trust: the drill's own bed is private to its module, and the property
+  // being held here is the shape of the answer rather than one loop's numbers.
+  const rate = 48000;
+  const bed = new Float32Array(Math.round(rate * 4));
+  const grit = mulberry32(31337);
+  const beat = 60 / 96;
+  for (let b = 0; b * beat < 4; b += 1) {
+    const at = Math.round(b * beat * rate);
+    for (let i = 0; i < Math.round(rate * 0.25) && at + i < bed.length; i += 1) {
+      const t = i / rate;
+      bed[at + i] += b % 2 === 0
+        ? Math.exp(-t * 14) * Math.sin(2 * Math.PI * 55 * Math.exp(-t * 6) * t) * 0.95
+        : Math.exp(-t * 22) * ((grit() * 2 - 1) * 0.7 + Math.sin(2 * Math.PI * 190 * t) * 0.4);
+    }
+  }
+
+  const between = ['40', '80', '150', '300', '600'].map((id) => {
+    const settings = compression.exercises.release.startOf({
+      settings: { exercise: 'release' }, answer: { release: id },
+      material: { rate, samples: bed, even: bed },
+    });
+    const got = analyse(bed, rate, { ...settings, makeup: 0 });
+    const quiet = [...got.gr].map(Math.abs).sort((a, b) => a - b);
+    return quiet[Math.round(quiet.length * 0.25)];
+  });
+
+  const read = between.map((b) => b.toFixed(2)).join(', ');
+  for (let i = 1; i < between.length; i += 1) {
+    assert.ok(between[i] > between[i - 1],
+      `the reduction between hits is not monotone in the release: ${read}`);
+  }
+  assert.ok(between[4] > between[0] * 20,
+    `the slowest release should sit far deeper between hits: ${read}`);
 });

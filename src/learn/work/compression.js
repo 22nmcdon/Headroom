@@ -263,6 +263,89 @@ const REDUCTION_DRILL = {
 const DRILL_SHAPE = { ratio: 8, attack: 5, release: 150, knee: 6 };
 
 /**
+ * The releases the other drill offers, and what each one does to a drum loop.
+ *
+ * The mirror of the reduction drill: that one fixes the release and asks how
+ * much, this one fixes how much and asks the release. Same ratio, same attack,
+ * same bed, and the amount solved to six decibels every round with the level
+ * put back - so the only thing left to hear is when the reduction leaves.
+ *
+ * On this drill's own bed, the threshold each release needs to reach six
+ * decibels - measured through `startOf`, so these are the numbers the drill
+ * actually sets:
+ *
+ *     40 ms  -15.5     80 ms  -14.0     150 ms  -13.5
+ *    300 ms  -12.0    600 ms  -11.0
+ *
+ * A slower release needs a higher threshold for the same work, because
+ * holding on longer is most of how much a compressor takes off. That
+ * monotonicity is the mechanism, and tests/comp.test.js holds it.
+ *
+ * What is left to hear, once the amount is matched and the level is back, is
+ * how far the reduction comes back between the hits. On a drum probe of this
+ * bed's shape - not the bed itself, whose samples are private to this module,
+ * so the figures below are indicative where the thresholds above are exact -
+ * at six decibels, level-matched:
+ *
+ *     release   mean GR   swing   between hits
+ *       40 ms      1.48    2.57           0.03
+ *       80 ms      1.92    2.54           0.26
+ *      150 ms      2.62    2.57           0.52
+ *      300 ms      3.87    2.13           1.97
+ *      600 ms      4.97    1.45           3.70
+ *
+ * Monotone on all three, and it stays monotone at four and nine decibels of
+ * reduction as well. A fast release comes all the way back between the hits
+ * and moves with every one of them; a slow one never comes back and barely
+ * moves. Between the hits is the reading that moves most - more than
+ * twentyfold across the range, which is the part the test asserts - and it is
+ * also the thing people are describing when they say pumping.
+ *
+ * What is NOT in this drill is the auto release, and that is a measurement
+ * rather than an omission. A gain platform only adds anything just after
+ * loudness stops, and a looping bed never stops: measured on a band at
+ * matched reduction, auto came out identical to fixed at both 40 ms and 600 -
+ * the same threshold, mean, swing and between-hits to two decimals. On drums
+ * alone it moved the between-hits figure from 0.03 to 0.38 dB and nothing
+ * else. So "pumping against breathing against auto" is not a question this
+ * material can ask, and asking it would be a coin toss dressed as an ear
+ * test.
+ *
+ * Six decibels because the contrast is widest there and because it is a
+ * working amount rather than a demonstration. Four and nine both separate
+ * too, measured, if this should ever vary the depth as well.
+ */
+const RELEASES = [
+  { id: '40', ms: 40, symbol: '40', name: 'fast' },
+  { id: '80', ms: 80, symbol: '80', name: 'quick' },
+  { id: '150', ms: 150, symbol: '150', name: 'medium' },
+  { id: '300', ms: 300, symbol: '300', name: 'slow' },
+  { id: '600', ms: 600, symbol: '600', name: 'very slow' },
+];
+
+const releaseAt = (id) => RELEASES.findIndex((r) => r.id === id);
+
+/**
+ * Which releases each tier offers.
+ *
+ * The same rule the reduction drill follows: the easy tier takes three that
+ * are far apart and forgives nothing, the medium tier takes all five and
+ * forgives a step, the hard tier takes all five exactly. 40 against 80 is the
+ * close pair - a mean reduction of 1.48 dB against 1.92 and a quarter of a
+ * decibel between the hits against three hundredths - so easy leaves 80 and
+ * 300 out rather than asking it.
+ */
+const RELEASE_DRILL = {
+  easy: { releases: ['40', '150', '600'], near: 0 },
+  medium: { releases: RELEASES.map((r) => r.id), near: 1 },
+  hard: { releases: RELEASES.map((r) => r.id), near: 0 },
+};
+
+/** Everything but the release, and how much work it is set to do. */
+const RELEASE_SHAPE = { ratio: 8, attack: 5, knee: 6 };
+const RELEASE_DEPTH = 6;
+
+/**
  * The threshold that takes `want` decibels off this loop.
  *
  * Solved rather than stored, because the answer is a property of the audio:
@@ -278,21 +361,21 @@ const DRILL_SHAPE = { ratio: 8, attack: 5, release: 150, knee: 6 };
  */
 const solved = new Map();
 
-function thresholdFor(want, samples, rate) {
+function thresholdFor(want, samples, rate, shape = DRILL_SHAPE) {
   if (want <= 0) return 0;
 
   // Kept, because the answer is a property of the loop and the loop does not
   // change: the same six thresholds come out for every round of every tier.
   // Fourteen passes over a five-second loop is about 300 ms, which is a
   // noticeable stall to pay once and absurd to pay every round.
-  const held = `${materialStamp(samples)}:${rate}:${want}`;
+  const held = `${materialStamp(samples)}:${rate}:${want}:${shape.release ?? 'x'}:${shape.ratio}`;
   if (solved.has(held)) return solved.get(held);
 
   let low = -60;
   let high = 0;
   for (let i = 0; i < 14; i += 1) {
     const mid = (low + high) / 2;
-    if (analyse(samples, rate, { ...COMP_DEFAULTS, ...DRILL_SHAPE, threshold: mid }).makeup < want) {
+    if (analyse(samples, rate, { ...COMP_DEFAULTS, ...shape, threshold: mid }).makeup < want) {
       high = mid;
     } else {
       low = mid;
@@ -315,6 +398,24 @@ function drillSettings(puzzle) {
   // quieter", which is a level test and not a compression test.
   const settings = { ...COMP_DEFAULTS, ...DRILL_SHAPE, threshold, makeup: 0 };
   settings.makeup = want <= 0 ? 0 : analyse(samples, rate, settings).makeup;
+  return settings;
+}
+
+/** The compressor that does this round's release, at the fixed amount. */
+function releaseSettings(puzzle) {
+  const { samples, rate } = materialOf(puzzle);
+  const release = RELEASES[releaseAt(puzzle.answer.release)].ms;
+  const shape = { ...RELEASE_SHAPE, release };
+  const threshold = thresholdFor(RELEASE_DEPTH, samples, rate, shape);
+
+  // Same as the reduction drill: the measured reduction goes back on as
+  // makeup, so both sides of the A/B and every round of the drill are the
+  // same loudness. Without it this is "which one is quieter" again, and
+  // worse than in the other drill - the release is what sets how much a
+  // compressor takes off on average, so it is exactly the thing that would
+  // leak into the level.
+  const settings = { ...COMP_DEFAULTS, ...shape, threshold, makeup: 0 };
+  settings.makeup = analyse(samples, rate, settings).makeup;
   return settings;
 }
 
@@ -385,6 +486,29 @@ export const COMP_EXERCISES = {
     cleanOf: () => ({ ...COMP_DEFAULTS, mix: 0, makeup: 0 }),
     restores: true,
   },
+  release: {
+    id: 'release',
+    label: 'How fast does it let go?',
+    drill: true,
+    ask: 'How long is this compressor\'s release?',
+    lede: 'The mirror of the other drill. The amount is fixed at six decibels '
+        + 'and the level is back, so what is left to hear is not how much it '
+        + 'is doing but when it stops doing it.',
+    opening: 'Play it, flip to the untreated side, then say how fast it lets go.',
+    tierBlurbs: {
+      easy: 'Three releases, far apart',
+      medium: 'Five releases, a step forgiven',
+      hard: 'Five releases, exact',
+    },
+    source: 'drums',
+    sourceOptions: { key: null },
+    other: 'Untreated',
+    faultOf: () => null,
+    targetOf: () => ({ ...COMP_DEFAULTS, mix: 0 }),
+    startOf: (puzzle) => releaseSettings(puzzle),
+    cleanOf: () => ({ ...COMP_DEFAULTS, mix: 0, makeup: 0 }),
+    restores: true,
+  },
 };
 
 /**
@@ -446,6 +570,71 @@ function scoreReduction(state, puzzle) {
   };
 }
 
+/**
+ * Name the release.
+ *
+ * Two cells, as the reduction drill has: the chip on its own only repeats the
+ * guess, and "one step fast" is a correction where "wrong" is not. The second
+ * cell counts steps rather than milliseconds, because the five on offer are
+ * not evenly spaced in time - 40 to 80 is forty milliseconds and 300 to 600 is
+ * three hundred - and they are near enough evenly spaced in what they do.
+ */
+function scoreRelease(state, puzzle) {
+  const { answer, tier } = puzzle;
+  const spec = RELEASE_DRILL[tier] ?? RELEASE_DRILL.medium;
+  const offered = RELEASES.filter((r) => spec.releases.includes(r.id));
+
+  const guessedAt = offered.findIndex((r) => r.id === state.release);
+  const answerAt = offered.findIndex((r) => r.id === answer.release);
+  const mark = onScale(guessedAt, answerAt, { near: spec.near });
+
+  const guessed = RELEASES[releaseAt(state.release)];
+  const wanted = RELEASES[releaseAt(answer.release)];
+  const steps = releaseAt(state.release) - releaseAt(answer.release);
+
+  return {
+    correct: mark === HIT,
+    cells: [
+      { state: mark, text: `${guessed.symbol} ms · ${guessed.name}` },
+      {
+        state: mark,
+        text: steps === 0 ? 'that is it'
+          : `${Math.abs(steps)} step${Math.abs(steps) > 1 ? 's' : ''} too ${steps > 0 ? 'slow' : 'fast'}`,
+        narrow: true,
+      },
+    ],
+    why: [
+      {
+        label: 'How far off',
+        value: steps === 0 ? 'on it'
+          : `${guessed.ms} ms against ${wanted.ms}`,
+        how: 'In steps rather than milliseconds, because the five on offer are '
+           + 'not evenly spaced in time and are near enough evenly spaced in '
+           + 'what they do to this loop.',
+      },
+      {
+        label: 'What tells them apart',
+        value: 'how far it comes back between the hits',
+        how: 'With the amount matched, the reduction sitting between the hits '
+           + 'grows more than twentyfold from the fastest release to the '
+           + 'slowest - measured, and the widest-moving thing there is to hear '
+           + 'here. A fast release comes all the way back and moves with every '
+           + 'hit; a slow one never comes back at all and barely moves, so the '
+           + 'loop sits still and the hits lose their edges.',
+      },
+      {
+        label: 'Why the level is matched',
+        value: 'the release sets how much it takes off',
+        how: 'The amount is solved to six decibels for every release and put '
+           + 'back as makeup. Without that the drill would be a level test: '
+           + 'on this bed the threshold has to climb from -15.5 to -11.0 dB '
+           + 'across the five to keep the work the same, because how long a '
+           + 'compressor holds on is most of how much it takes off.',
+      },
+    ],
+  };
+}
+
 export const COMP_WORK = {
   tool: 'compression',
   opening: 'Play the loop, work the compressor, then lock it in.',
@@ -471,6 +660,15 @@ export const COMP_WORK = {
    * question, and asks with chips.
    */
   slots(tier, settings) {
+    if (settings?.exercise === 'release') {
+      const spec = RELEASE_DRILL[tier] ?? RELEASE_DRILL.medium;
+      return [{
+        id: 'release',
+        kind: 'choice',
+        label: 'How long the release',
+        options: RELEASES.filter((r) => spec.releases.includes(r.id)),
+      }];
+    }
     if (settings?.exercise !== 'drill') return [];
 
     const spec = REDUCTION_DRILL[tier] ?? REDUCTION_DRILL.medium;
@@ -491,6 +689,14 @@ export const COMP_WORK = {
       // The settings that produce it are not here: they depend on the loop,
       // which does not exist yet. `startOf` works them out once it does.
       return { answer: { reduction: amount.id } };
+    }
+
+    if (settings.exercise === 'release') {
+      const drill = RELEASE_DRILL[tier] ?? RELEASE_DRILL.medium;
+      const release = pick(rng, RELEASES.filter((r) => drill.releases.includes(r.id)));
+      // As with the other drill, the settings wait for the loop: the
+      // threshold that takes six decibels off is a property of the material.
+      return { answer: { release: release.id } };
     }
 
     if (settings.exercise === 'fix') {
@@ -536,6 +742,7 @@ export const COMP_WORK = {
     const guess = state;
     const exercise = puzzle?.settings?.exercise ?? 'match';
     if (exercise === 'drill') return scoreReduction(guess, puzzle);
+    if (exercise === 'release') return scoreRelease(guess, puzzle);
 
     const material = materialOf(puzzle);
     const settings = settle(guess);
@@ -847,7 +1054,12 @@ export const COMP_WORK = {
 
   /** What a guess says it heard, in `weak`'s own words. */
   heard(guess, puzzle) {
-    if ((puzzle?.settings?.exercise ?? 'match') !== 'drill') return null;
+    const exercise = puzzle?.settings?.exercise ?? 'match';
+    if (exercise === 'release') {
+      const release = RELEASES[releaseAt(guess.release)];
+      return release ? { key: `release-${release.id}`, label: `${release.ms} ms (${release.name})` } : null;
+    }
+    if (exercise !== 'drill') return null;
     const amount = REDUCTIONS[reductionAt(guess.reduction)];
     if (!amount) return null;
     return { key: `reduction-${amount.id}`, label: `${amount.db} dB (${amount.name})` };
@@ -860,6 +1072,10 @@ export const COMP_WORK = {
     if (exercise === 'drill') {
       const amount = REDUCTIONS[reductionAt(answer.reduction)];
       return { key: `reduction-${amount.id}`, label: `${amount.db} dB (${amount.name})` };
+    }
+    if (exercise === 'release') {
+      const release = RELEASES[releaseAt(answer.release)];
+      return { key: `release-${release.id}`, label: `${release.ms} ms (${release.name})` };
     }
     if (exercise === 'fix') return { key: 'levelling', label: 'levelling a loop' };
     if (exercise === 'duck') return { key: 'sidechain', label: 'sidechain ducking' };
