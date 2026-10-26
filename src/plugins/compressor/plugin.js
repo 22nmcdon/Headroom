@@ -61,6 +61,11 @@ const COMP_KNOBS = [
 const COMP_SIDECHAIN = [
   { id: 'scHigh', name: 'Key high-pass', ...span(COMP_LIMITS.scHigh), log: true, write: writeHertz },
   { id: 'scLow', name: 'Key low-pass', ...span(COMP_LIMITS.scLow), log: true, write: writeHertz },
+  // Here rather than with the attack and release, because it belongs to the
+  // detector and not to the gain: it is how long the detector averages over
+  // before it has an opinion, which is the thing that separates RMS from
+  // peak. Dark in peak mode, where there is no window to set.
+  { id: 'rmsTime', name: 'RMS window', ...span(COMP_LIMITS.rmsTime), log: true, write: writeTime },
 ];
 
 /** The colours, read off the page so the plugin follows whatever light it is in. */
@@ -257,7 +262,25 @@ export class CompPlugin {
 
     this.el.querySelector('#compKnobs').innerHTML = write(COMP_KNOBS);
     this.el.querySelector('#compKeyKnobs').innerHTML = write(COMP_SIDECHAIN);
+    this.showWindow();
     this.syncKnobs();
+  }
+
+  /**
+   * The RMS window only means something in RMS mode.
+   *
+   * A peak detector has no window - it is the sample itself - so the knob
+   * stands there dimmed and out of reach rather than being taken away. The
+   * deck would otherwise change width when somebody flipped the detector,
+   * which is the fault the EQ's three-slot deck exists to avoid.
+   */
+  showWindow() {
+    const knob = this.el.querySelector('[data-knob="rmsTime"]');
+    if (!knob) return;
+    const on = this.settings.detector === 'rms';
+    knob.classList.toggle('is-idle', !on);
+    const dial = knob.querySelector('.knob-dial');
+    if (dial) dial.disabled = !on;
   }
 
   /* ---------- working it ---------- */
@@ -299,6 +322,7 @@ export class CompPlugin {
       const detector = e.target.closest('[data-detector]');
       if (detector && this.interactive) {
         this.settings.detector = detector.dataset.detector;
+        this.showWindow();
         for (const button of this.el.querySelectorAll('[data-detector]')) {
           button.classList.toggle('is-on', button === detector);
         }

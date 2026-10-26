@@ -1455,10 +1455,15 @@ input.knob-value:focus {
   align-items: center;
   gap: 10px 16px;
 }
+/* Auto-fit rather than a fixed two, which is what it was when there were two
+   of them. Adding the RMS window made it three and the pinned count made that
+   2+1 at every width from 360 to 1440 - a stranded knob at 1440, where there
+   was room for six. The count belongs to `spreadKnobs`, which reads how many
+   the grid managed and spreads the knobs evenly over the rows they need. */
 .chain-row .comp-key-knobs {
-  grid-template-columns: repeat(2, minmax(86px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(86px, 1fr));
   gap: 0 10px;
-  flex: 0 1 auto;
+  flex: 1 1 260px;
 }
 .chain-row .listen-btn { margin-left: auto; }
 

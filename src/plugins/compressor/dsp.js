@@ -54,6 +54,7 @@ export const COMP_DEFAULTS = {
   mix: 1,           // 1 is all compressor, 0 is none - parallel lives between
   lookahead: 0,     // ms
   detector: 'peak', // or 'rms'
+  rmsTime: 12,      // ms the mean square averages over; RMS mode only
   sidechain: false, // listen to the key input instead of the signal
   scHigh: 20,       // detector high-pass corner
   scLow: 20000,     // detector low-pass corner
@@ -83,7 +84,40 @@ export const COMP_LIMITS = {
   lookahead: [0, MOST_LOOKAHEAD * 1000],
   scHigh: [20, 1000],
   scLow: [200, 20000],
+  rmsTime: [0.5, 50],
 };
+
+/**
+ * What an RMS window costs, and why it is a knob rather than a constant.
+ *
+ * It was twelve milliseconds, fixed and invisible, and that is not a bug in
+ * the value - an averaging window is what RMS detection is - but it was the
+ * one time constant on this compressor nobody could see or set. With the peak
+ * path honest, it was also the only dishonest thing left: at ratio 4 a 0.1 ms
+ * attack measured 2.46 ms and a 1 ms release measured 41, where the peak path
+ * reads 0.17 and 6.1. The two detector modes answered the same knob
+ * differently by up to thirty-five milliseconds and the face said nothing.
+ *
+ * Measured across the window, at ratio 4:
+ *
+ *     window    attack 0.1   attack 10   release 20   release 200   50 Hz ripple
+ *      0.5 ms        0.29       10.23         26.8         206.1       1.32 dB
+ *        1 ms        0.35       10.42         28.0         207.3       1.05
+ *        2 ms        0.50       10.83         30.4         209.7       0.71
+ *        5 ms        1.17       12.13         38.3         216.8       0.34
+ *       12 ms        2.46       14.63         58.9         233.6       0.15
+ *       20 ms        4.19       16.96         83.0         253.4       0.09
+ *       50 ms       10.23       23.90        171.0         333.0       0.04
+ *
+ * which is a real trade and the reason it earns a control: short reads the
+ * knobs truthfully and lets the waveform through, long rides over the
+ * waveform and makes both knobs slower than they say. Neither end is wrong -
+ * that is the whole of what choosing an averaging time is.
+ *
+ * It still rests at twelve. The fault was that the number could not be seen
+ * or moved, not that it was the wrong number, so nothing anybody has saved
+ * changes its sound.
+ */
 
 /**
  * How long the release stage holds a peak before it starts letting go.
@@ -130,6 +164,7 @@ export function compressorCore(rate) {
     threshold: -18, ratio: 4, attack: 10, release: 120, knee: 6,
     makeup: 0, mix: 1, lookahead: 0,
     detector: 'peak', sidechain: false, scHigh: 20, scLow: 20000, listen: false,
+    rmsTime: 12,
   };
 
   const hp = makeBiquad();
@@ -155,7 +190,7 @@ export function compressorCore(rate) {
     // was vague about which it meant would be teaching a number, not an ear.
     attackCoef = Math.exp(-1 / Math.max(1, state.attack * 0.001 * rate));
     releaseCoef = Math.exp(-1 / Math.max(1, state.release * 0.001 * rate));
-    meanCoef = Math.exp(-1 / (0.012 * rate));
+    meanCoef = Math.exp(-1 / Math.max(1, state.rmsTime * 0.001 * rate));
     delayed = Math.min(delay.length - 1, Math.round(state.lookahead * 0.001 * rate));
     setBiquad(hp, 'highpass', state.scHigh, rate);
     setBiquad(lp, 'lowpass', state.scLow, rate);

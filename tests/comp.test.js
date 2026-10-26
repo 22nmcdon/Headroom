@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { signalRms, makeBiquad, setBiquad, runBiquad } from '../src/lib/dsp.js';
-import { staticGain, compressorCore, runCompressor, analyse, autoGain, COMP_DEFAULTS } from '../src/plugins/compressor/dsp.js';
+import { staticGain, compressorCore, runCompressor, analyse, autoGain, COMP_DEFAULTS, COMP_LIMITS } from '../src/plugins/compressor/dsp.js';
 import { workletSource } from '../src/plugins/compressor/node.js';
 import { COMP_WORK as compression } from '../src/learn/work/compression.js';
 import { engraveNote } from '../src/lib/engrave.js';
@@ -336,4 +336,73 @@ test('the shelves and the bell land on the gains they were asked for', () => {
   const bell = setBiquad(makeBiquad(), 'peaking', 60, RATE, 3);
   assert.ok(Math.abs(gainAt(bell, 60) - 3) < 0.2, 'the bell should hit its gain at its frequency');
   assert.ok(Math.abs(gainAt(bell, 16000)) < 0.1, 'and nothing far from it');
+});
+
+/* --- the detector's averaging time ----------------------------------------- */
+
+test('every setting the plugin has is a setting the core keeps', () => {
+  // The core holds its own copy of the settings and `set` only takes keys it
+  // already has, so a setting in COMP_DEFAULTS and not in the core is not a
+  // default - it is silently ignored on the way in and undefined on the way
+  // out. Adding rmsTime cost exactly that: the mean-square coefficient came
+  // out exp(-1/NaN), so RMS mode returned NaN for every sample, and the two
+  // tests that caught it both said "NaN" rather than anything about settings.
+  const core = compressorCore(RATE);
+  for (const key of Object.keys(COMP_DEFAULTS)) {
+    assert.ok(key in core.settings, `the core has no ${key}, so setting it does nothing`);
+  }
+
+  // And the other way: anything the core keeps has to be something the face
+  // and the sketchpad know how to put back.
+  for (const key of Object.keys(core.settings)) {
+    assert.ok(key in COMP_DEFAULTS, `the core keeps ${key} and nothing hands it one`);
+  }
+});
+
+test('the RMS window is the detector\'s own time constant, and it is settable', () => {
+  // It was twelve milliseconds, fixed and invisible: the one time constant on
+  // this compressor nobody could see or set, and - once the peak path was
+  // honest - the only dishonest thing left. An averaging window is what RMS
+  // detection is, so the fault was that it could not be moved.
+  assert.equal(COMP_DEFAULTS.rmsTime, 12, 'it rests where it has always been');
+  assert.deepEqual(COMP_LIMITS.rmsTime, [0.5, 50]);
+
+  const onset = (over) => {
+    const core = compressorCore(RATE);
+    core.set({ ...COMP_DEFAULTS, threshold: -24, ratio: 4, attack: 0.1, release: 200,
+      detector: 'rms', ...over });
+    const run = Math.round(RATE * 0.5);
+    const trace = new Float64Array(run);
+    for (let i = 0; i < run; i += 1) {
+      core.step(Math.sin((2 * Math.PI * 1000 * i) / RATE) * 0.9, 0);
+      trace[i] = core.reduction;
+    }
+    const want = trace[run - 1] * 0.6321;
+    for (let i = 0; i < run; i += 1) if (trace[i] <= want) return (i / RATE) * 1000;
+    return Infinity;
+  };
+
+  // A short window hands the gain computer something close to the sample, so
+  // a tenth of a millisecond of attack nearly lands; a long one averages over
+  // it and the same knob takes ten milliseconds. Measured: 0.29 ms at a
+  // half-millisecond window against 10.23 at fifty.
+  const quick = onset({ rmsTime: 0.5 });
+  const slow = onset({ rmsTime: 50 });
+  assert.ok(quick < 0.5, `a 0.5 ms window reads an 0.1 ms attack as ${quick.toFixed(2)} ms`);
+  assert.ok(slow > 8, `a 50 ms window reads it as ${slow.toFixed(2)} ms`);
+  assert.ok(slow > quick * 10, 'and the window is what made the difference');
+
+  // The peak detector has no window, so moving it changes nothing there.
+  const peak = (rmsTime) => {
+    const core = compressorCore(RATE);
+    core.set({ ...COMP_DEFAULTS, threshold: -24, ratio: 4, attack: 5, release: 200, rmsTime });
+    let last = 0;
+    for (let i = 0; i < Math.round(RATE * 0.2); i += 1) {
+      core.step(Math.sin((2 * Math.PI * 1000 * i) / RATE) * 0.9, 0);
+      last = core.reduction;
+    }
+    return last;
+  };
+  assert.equal(peak(0.5).toFixed(9), peak(50).toFixed(9),
+    'a peak detector has no averaging time for this to be');
 });
