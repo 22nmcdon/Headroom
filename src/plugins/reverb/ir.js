@@ -328,6 +328,51 @@ export const mixingTime = (size) => size ** 1.5 / 1000;
  * test that says a big room's walls are further off than a small room's read
  * 30.8 ms against 115.3, and the 30.8 was not a wall, it was the loudest
  * sample of the noise.
+ *
+ * It is also, within a few per cent, where the wash stops needing to be sparse
+ * - which is worth writing down because the obvious next job turns out not to
+ * be a job.
+ *
+ * The wash is dense from its first sample: every sample of it is nonzero,
+ * where a real room is still delivering countable reflections. The obvious fix
+ * is velvet noise, a sparse impulse train whose density climbs, and the
+ * question is how sparse it would have to be to matter. The Aalto listening
+ * work puts numbers on it: broadband velvet noise stops sounding grainy at
+ * about 1554 pulses a second, but a filtered band needs far less - 668 for a
+ * 125 Hz lowpass, 290 for an octave band at 125 Hz, 600 for a 1.5 kHz lowpass.
+ * Since the rate a room reaches is 4*pi*c^3*t^2/V, a band needing N pulses a
+ * second is smooth after sqrt(N/1000) * 1.4043 mixing times, whatever the
+ * room. So:
+ *
+ *     band              needs       smooth at      against 1.404
+ *     low, under 400      ~700     1.20 mixing      -0.21
+ *     mid, 400 - 1500     ~600     1.09 mixing      -0.32
+ *     high, over 1500     ~1554    1.75 mixing      +0.35
+ *
+ * Two of the three bands are already covered: the reflections above are still
+ * arriving one at a time past the point where those bands would be heard as
+ * grainy, because this window was set at a thousand reflections a second and
+ * every published figure for a filtered band is under that. The conclusion
+ * turns on nothing but whether a band needs more than a thousand.
+ *
+ * What is left is the high band, for 0.35 mixing times, and it is worth
+ * little: 3 ms at four metres, 26 ms at eighteen, 161 at sixty - and the
+ * longer it gets the further down it is, from -0.4 dB at four metres to -22 dB
+ * at sixty. Turn the damping down and it goes: -17 dB at eighteen metres,
+ * -103 at sixty. So the whole of the available improvement is one band, around
+ * eighteen to twenty-five metres, with the damping near open, for a couple of
+ * dozen milliseconds, four decibels down.
+ *
+ * It could be had by running the high band's reflections out to 1.75 mixing
+ * times while the other two stop at 1.404 - the per-band gains below would
+ * carry it. It costs nearly twice the reflections, since the count goes as the
+ * cube of the time. It has not been done.
+ *
+ * The soft part of this is the mapping: those thresholds were measured on
+ * lowpass and octave bands at 125 Hz and 1.5 kHz, not on this file's bands at
+ * 400 and 1500, and they come from two different listening criteria. The
+ * margin is wide enough that the low and mid conclusion survives any threshold
+ * under a thousand, which is well above every filtered figure published.
  */
 const ECHO_LIMIT = 1.4043;
 
