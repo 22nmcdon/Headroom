@@ -55,6 +55,7 @@ export const COMP_DEFAULTS = {
   lookahead: 0,     // ms
   detector: 'peak', // or 'rms'
   rmsTime: 12,      // ms the mean square averages over; RMS mode only
+  auto: false,      // a slow gain platform under the release
   sidechain: false, // listen to the key input instead of the signal
   scHigh: 20,       // detector high-pass corner
   scLow: 20000,     // detector low-pass corner
@@ -86,6 +87,56 @@ export const COMP_LIMITS = {
   scLow: [200, 20000],
   rmsTime: [0.5, 50],
 };
+
+/**
+ * The slow half of a program-dependent release, in seconds.
+ *
+ * A compressor with one release time treats a snare hit and a loud chorus the
+ * same way, and no desk compressor does. The 2254 and the 33609 and the SSL
+ * bus all have an auto mode, and the AMS Neve manual describes what it is:
+ * "both the attack and recovery times are composite and self-adjusting... the
+ * programme rides on a slowly moving gain platform". Isolated peaks come back
+ * at the fast rate; a passage that stays loud builds something underneath
+ * that comes back over seconds.
+ *
+ * So: a second release path that only charges while reduction is being held,
+ * and drains slowly when it is not. The gain takes whichever of the two is
+ * deeper, so the platform can only ever hold reduction on for longer - it
+ * cannot deepen it.
+ *
+ * `CHARGE` is how long the platform takes to build and `PLATFORM` how long it
+ * takes to drain. Measured against auto off, at a 120 ms release, as the time
+ * to recover 63% and 90% of the reduction after a passage of a given length:
+ *
+ *     loud for     63% off / on        90% off / on
+ *       30 ms      125 / 125 ms        282 / 282 ms
+ *      200 ms      125 / 125           281 / 281
+ *      500 ms      125 / 125           281 / 2307
+ *     1200 ms      125 / 399           281 / 4306
+ *     3000 ms      125 / 1735          281 / 5643
+ *     6000 ms      125 / 2068          281 / 5976
+ *
+ * which is the behaviour as described: nothing at all on isolated hits - the
+ * same number to the millisecond - and a tail that stretches by eight to
+ * twenty-one times once a passage has stayed loud for half a second or more.
+ * Half a second in, only the tail has moved; by a second the whole recovery
+ * has. It stops getting slower around six seconds, where the platform is
+ * fully charged.
+ *
+ * Fixed rather than derived from the release knob, because that is what the
+ * desks do - the 33609's two auto modes are fixed pairs, 100 ms with 2 s and
+ * 50 ms with 5 s - and because a slow platform that got slower as you slowed
+ * the fast path would be two controls pretending to be one.
+ *
+ * Where this departs from the hardware: on a desk, Auto is a position on the
+ * release control and replaces it. Here the release knob stays live as the
+ * fast path and auto adds the platform under it. A knob that still shows a
+ * number while doing nothing is the fault two commits back; and it makes the
+ * two interact, which is worth hearing - auto over a fast release is a very
+ * different thing from auto over a slow one.
+ */
+export const CHARGE = 1.5;
+export const PLATFORM = 3;
 
 /**
  * What an RMS window costs, and why it is a knob rather than a constant.
@@ -164,7 +215,7 @@ export function compressorCore(rate) {
     threshold: -18, ratio: 4, attack: 10, release: 120, knee: 6,
     makeup: 0, mix: 1, lookahead: 0,
     detector: 'peak', sidechain: false, scHigh: 20, scLow: 20000, listen: false,
-    rmsTime: 12,
+    rmsTime: 12, auto: false,
   };
 
   const hp = makeBiquad();
@@ -173,9 +224,12 @@ export function compressorCore(rate) {
   let attackCoef = 0;
   let releaseCoef = 0;
   let meanCoef = 0;
-  let held = 0;   // the reduction currently applied, in dB
-  let mean = 0;   // running mean square, for the RMS detector
-  let letGo = 0;  // the release stage, which is also what holds the peak
+  let chargeCoef = 0;
+  let platformCoef = 0;
+  let held = 0;     // the reduction currently applied, in dB
+  let mean = 0;     // running mean square, for the RMS detector
+  let letGo = 0;    // the release stage, which is also what holds the peak
+  let platform = 0; // the slow release underneath it, when auto is on
 
   // The audio is delayed against the detector, so that a compressor with
   // lookahead is already pulling down by the time the transient arrives.
@@ -191,6 +245,8 @@ export function compressorCore(rate) {
     attackCoef = Math.exp(-1 / Math.max(1, state.attack * 0.001 * rate));
     releaseCoef = Math.exp(-1 / Math.max(1, state.release * 0.001 * rate));
     meanCoef = Math.exp(-1 / Math.max(1, state.rmsTime * 0.001 * rate));
+    chargeCoef = Math.exp(-1 / Math.max(1, CHARGE * rate));
+    platformCoef = Math.exp(-1 / Math.max(1, PLATFORM * rate));
     delayed = Math.min(delay.length - 1, Math.round(state.lookahead * 0.001 * rate));
     setBiquad(hp, 'highpass', state.scHigh, rate);
     setBiquad(lp, 'lowpass', state.scLow, rate);
@@ -246,6 +302,21 @@ export function compressorCore(rate) {
       // the way back up. That is the known cost of this form and it is a
       // better one than a hidden sixteen milliseconds.
       letGo = Math.max(wanted, releaseCoef * letGo + (1 - releaseCoef) * wanted);
+
+      // The gain platform: a second release that charges only while reduction
+      // is being held and drains over seconds when it is not. It charges
+      // toward whichever of the two is smaller, so a single peak - which the
+      // fast path has already let go of - cannot build one.
+      if (state.auto) {
+        const toward = Math.min(wanted, letGo);
+        platform = toward > platform
+          ? chargeCoef * platform + (1 - chargeCoef) * toward
+          : platformCoef * platform;
+        if (platform > letGo) letGo = platform;
+      } else {
+        platform = 0;
+      }
+
       held = attackCoef * held + (1 - attackCoef) * letGo;
       this.reduction = -held;
 

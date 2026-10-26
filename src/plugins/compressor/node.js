@@ -1,5 +1,6 @@
 import { makeBiquad, setBiquad, runBiquad } from '../../lib/dsp.js';
-import { compressorCore, staticGain, MOST_LOOKAHEAD, PEAK_HOLD } from './dsp.js';
+import * as dsp from './dsp.js';
+import { compressorCore, staticGain } from './dsp.js';
 import { workletModule, installWorklet } from '../../lib/worklet.js';
 
 /**
@@ -21,15 +22,28 @@ import { workletModule, installWorklet } from '../../lib/worklet.js';
 const COMPRESSOR_PARTS = [staticGain, makeBiquad, setBiquad, runBiquad, compressorCore];
 
 /**
- * The module-level values those functions read.
+ * The module-level values those functions read, taken from the module rather
+ * than listed here.
  *
- * Written out as a table rather than spelled into the template below, for two
- * reasons. The value is taken from the real constant, so the audio thread
- * cannot drift from the module. And the declarations never appear as source in
- * this file, which keeps the bundler's duplicate-name check from reading a
- * string as a second declaration of something `dsp.js` already owns.
+ * It was a list of two, and adding a third constant to `dsp.js` did not fail
+ * at the module or in the browser - it failed in the worklet, where what you
+ * get is a compressor whose audio thread is running different arithmetic from
+ * the one being drawn and marked. A test caught it, which is the only reason
+ * it is not still true. The EQ paid for this first and solved it this way;
+ * the compressor was still keeping its list by hand.
+ *
+ * Every non-function export goes over, including the settings tables, which
+ * the worklet does not read. Three or four unused declarations in a prelude
+ * are cheaper than a list that has to be remembered.
+ *
+ * Still a table rather than source spelled into the template below, so the
+ * declarations never appear as text in this file - which keeps the bundler's
+ * duplicate-name check from reading a string as a second declaration of
+ * something `dsp.js` already owns.
  */
-const CONSTANTS = { MOST_LOOKAHEAD, PEAK_HOLD };
+const CONSTANTS = Object.fromEntries(
+  Object.entries(dsp).filter(([, value]) => typeof value !== 'function'),
+);
 
 /** How often the audio thread reports what it is doing, in samples. */
 const REPORT = 512;

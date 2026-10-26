@@ -406,3 +406,102 @@ test('the RMS window is the detector\'s own time constant, and it is settable', 
   assert.equal(peak(0.5).toFixed(9), peak(50).toFixed(9),
     'a peak detector has no averaging time for this to be');
 });
+
+/* --- the gain platform ----------------------------------------------------- */
+
+/** 63% or 90% recovery after a passage of a given length, in ms. */
+function recoverAfter(over, loudMs, share = 0.6321) {
+  const core = compressorCore(RATE);
+  core.set({ ...COMP_DEFAULTS, threshold: -24, ratio: 4, knee: 6,
+    attack: 5, release: 120, ...over });
+
+  let gr = 0;
+  const loud = Math.round((loudMs * RATE) / 1000);
+  for (let i = 0; i < loud; i += 1) {
+    core.step(Math.sin((2 * Math.PI * 300 * i) / RATE) * 0.9, 0);
+    gr = core.reduction;
+  }
+
+  const want = gr * (1 - share);
+  for (let i = 0; i < Math.round(RATE * 20); i += 1) {
+    core.step(0, 0);
+    if (core.reduction >= want) return (i / RATE) * 1000;
+  }
+  return Infinity;
+}
+
+test('auto release leaves an isolated hit exactly alone', () => {
+  // The whole point of the platform is that it does not charge on one peak.
+  // The AMS Neve manual: "the programme rides on a slowly moving gain
+  // platform" - a platform is what a passage builds, not what a snare does.
+  // Measured identical to the millisecond at 30, 80 and 200 ms of loud.
+  for (const loud of [30, 80, 200]) {
+    for (const share of [0.6321, 0.9]) {
+      const off = recoverAfter({ auto: false }, loud, share);
+      const on = recoverAfter({ auto: true }, loud, share);
+      assert.ok(Math.abs(on - off) < 0.1,
+        `after ${loud} ms loud, auto recovers ${share === 0.9 ? '90%' : '63%'} in `
+        + `${on.toFixed(1)} ms against ${off.toFixed(1)} off`);
+    }
+  }
+});
+
+test('auto release holds on after a passage that stayed loud', () => {
+  // Measured at a 120 ms release, against auto off:
+  //
+  //     loud for     63% off / on        90% off / on
+  //      500 ms      125 / 125 ms        281 / 2307 ms
+  //     1200 ms      125 / 399           281 / 4306
+  //     3000 ms      125 / 1735          281 / 5643
+  //
+  // Half a second in only the tail has moved, which is what a platform under
+  // a release is; by a second the whole recovery has.
+  const tail = (loud) => recoverAfter({ auto: true }, loud, 0.9)
+    / recoverAfter({ auto: false }, loud, 0.9);
+
+  assert.ok(tail(500) > 4, `half a second of loud stretches the tail ${tail(500).toFixed(1)}x`);
+  assert.ok(tail(3000) > 15, `three seconds stretches it ${tail(3000).toFixed(1)}x`);
+  assert.ok(tail(3000) > tail(500), 'and the longer the passage the longer the tail');
+
+  // The early part only moves once the passage is long enough to build a
+  // platform deeper than the point being measured.
+  const early = (loud) => recoverAfter({ auto: true }, loud, 0.6321)
+    / recoverAfter({ auto: false }, loud, 0.6321);
+  assert.ok(early(500) < 1.1, 'at half a second the first 63% is untouched');
+  assert.ok(early(3000) > 8, `at three seconds it is ${early(3000).toFixed(1)}x`);
+});
+
+test('the platform can hold reduction on but never deepen it', () => {
+  // It charges toward whichever of the target and the fast path is smaller
+  // and the gain takes the deeper of the two, so it can only ever be the
+  // thing still holding when the fast path has let go.
+  const deepest = (auto) => {
+    const core = compressorCore(RATE);
+    core.set({ ...COMP_DEFAULTS, threshold: -24, ratio: 4, knee: 6, attack: 5, release: 120, auto });
+    let worst = 0;
+    for (let i = 0; i < Math.round(RATE * 4); i += 1) {
+      core.step(Math.sin((2 * Math.PI * 300 * i) / RATE) * 0.9, 0);
+      worst = Math.min(worst, core.reduction);
+    }
+    return worst;
+  };
+  assert.ok(deepest(true) >= deepest(false) - 1e-9,
+    `auto reaches ${deepest(true).toFixed(3)} dB where fixed reaches ${deepest(false).toFixed(3)}`);
+});
+
+test('auto release off is the compressor that was there before it', () => {
+  // A new mode that changes the old one is a new mode nobody can trust.
+  const run = (auto) => {
+    const core = compressorCore(RATE);
+    core.set({ ...COMP_DEFAULTS, threshold: -24, ratio: 4, knee: 6, attack: 5, release: 120, auto });
+    const out = [];
+    for (let i = 0; i < Math.round(RATE * 0.5); i += 1) {
+      out.push(core.step(Math.sin((2 * Math.PI * 300 * i) / RATE) * 0.9, 0));
+    }
+    return out;
+  };
+  const fixed = run(false);
+  const alsoFixed = run(false);
+  assert.deepEqual(fixed, alsoFixed, 'and it is the same compressor twice');
+  assert.equal(COMP_DEFAULTS.auto, false, 'and it is off unless somebody asks');
+});

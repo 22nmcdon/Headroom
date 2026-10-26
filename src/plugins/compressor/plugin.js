@@ -224,8 +224,24 @@ export class CompPlugin {
           <label class="toggle">
             <input type="checkbox" id="compAuto" checked> Auto gain
           </label>
+          <!-- Here rather than as a position on the release control, which is
+               where a desk puts it. The release knob stays live as the fast
+               path and this adds a slow platform under it, so the two are
+               heard together rather than one replacing the other. -->
+          <label class="toggle">
+            <input type="checkbox" id="compAutoRelease"> Auto release
+          </label>
+          <span class="eq-hint">isolated hits come back at the knob; a passage that stays loud rides a platform</span>
         </div>
       </div>`;
+
+    // The switches, from the settings rather than from the markup's defaults -
+    // an insert opens on a track's saved settings, and a box that says off
+    // over a compressor that is doing it is worse than no box. The sidechain
+    // one had the same gap and gets the same line.
+    this.el.querySelector('#compAutoRelease').checked = Boolean(this.settings.auto);
+    const key = this.el.querySelector('#compSidechain');
+    if (key) key.checked = Boolean(this.settings.sidechain);
 
     this.curve = this.el.querySelector('#compCurve');
     this.trace = this.el.querySelector('#compTrace');
@@ -345,6 +361,12 @@ export class CompPlugin {
       this.player.setAuto(e.target.checked);
       this.el.querySelector('[data-knob="makeup"]').classList.toggle('is-auto', e.target.checked);
       this.writeReadout();
+    });
+
+    this.el.querySelector('#compAutoRelease').addEventListener('change', (e) => {
+      if (!this.interactive) { e.target.checked = this.settings.auto; return; }
+      this.settings.auto = e.target.checked;
+      this.changed();
     });
 
     const sidechain = this.el.querySelector('#compSidechain');
