@@ -147,19 +147,132 @@ export const verbDeckFor = (space) => (SPACES[space] ?? SPACES.room).knobs;
 const BAND_EDGES = [RESPONSE_BANDS[0].high, 1500];
 const CROSSOVER_POLES = 2;
 
-/**
- * Early reflections, as fractions of the time it takes sound to cross the
- * room and come back.
- *
- * A fixed pattern rather than a random one, so that a room of a given size is
- * the same room every time it is built - on every machine, for everybody's
- * daily. The spacing is uneven because a rectangular room's first reflections
- * are uneven; an even comb sounds like a comb.
- */
-const TAPS = [0.21, 0.34, 0.41, 0.58, 0.63, 0.79, 0.87, 1.0, 1.19, 1.31];
-
 /** How fast sound travels, in metres a second. */
 const SPEED = 343;
+
+/**
+ * The shape of the room, as the ratio between its three sides.
+ *
+ * Each side is the next one times the cube root of two, which is the ratio a
+ * studio is built to and for the reason this needs it: no two dimensions are
+ * a simple multiple of each other, so no two reflection paths come back at
+ * the same moment. Measured against a cube, which is what the obvious reading
+ * of a single size knob gives you: a cube eighteen metres on a side has seven
+ * reflections arriving by its mixing time at six distinct times, because the
+ * walls come in equidistant pairs. This box has every one of its arrivals at
+ * a time of its own - ten of ten at eighteen metres, seventy-seven of
+ * seventy-seven at sixty.
+ *
+ * The three multiply to one, so the box holds exactly `size` cubed of air
+ * whatever its proportions, which is what keeps `mixingTime` - derived from
+ * the volume - exactly the number it already was.
+ */
+const BOX = [2 ** (1 / 3), 1, 2 ** (-1 / 3)];
+
+/**
+ * Where the sound comes from and where it is heard, as fractions of the room.
+ *
+ * Both off-centre, and off each other, because a source in the middle of a
+ * room is the one place where the symmetry it was shaped to avoid comes back:
+ * equidistant walls again, on all three axes at once.
+ *
+ * Two ears rather than one point, a head apart across the width. This is what
+ * the stereo of a room actually is - the far wall is further from one ear
+ * than the other, by an amount that depends on which wall it is - and it
+ * replaces a flat six per cent of arrival time added to one side and taken
+ * off the other, which gave every reflection the same displacement whichever
+ * direction it came from.
+ */
+const SOURCE_AT = [0.42, 0.37, 0.55];
+const EARS_AT = [[0.63, 0.68, 0.47], [0.63, 0.68, 0.47]];
+
+/** How far apart the ears are, in metres. A head. */
+const EAR_GAP = 0.18;
+
+/**
+ * Every reflection that reaches each ear within `seconds`, by images.
+ *
+ * A reflection off a wall arrives from exactly where a copy of the source
+ * mirrored through that wall would be, so a rectangular room's reflections
+ * are a lattice of mirrored sources and the whole early pattern is a distance
+ * sum. That is the textbook method and it is here instead of a list of ten
+ * hand-picked fractions of the time it takes sound to cross the room.
+ *
+ * What the list could not do is change shape. Its taps were fractions of one
+ * number, so a four-metre room was a sixty-metre room played fifteen times
+ * faster - the same ten reflections in the same order at the same relative
+ * levels. A real room's pattern does not scale: the count of reflections
+ * arriving by time t grows as t cubed over the volume, so a big room has a
+ * long gap and then a thickening, and a small room has almost none of either.
+ * Measured on this box, counting to each time against a t-cubed law fitted at
+ * 80 ms: 12 images by 80 ms, then 50 by 120 against 41 predicted, 116 by 160
+ * against 96, 784 by 300 against 633. The law holds; the fifth or so it runs
+ * above is the usual overshoot of an asymptotic count at low order.
+ *
+ * Levels are one over the distance, which is what spreading does to a
+ * spherical wave, and nothing else. The absorption is not here because the
+ * room already has one: the caller puts every tap on the same decay the wash
+ * is on, so a reflection at 100 ms is as far down as the tail is at 100 ms,
+ * which is what a reflection off an absorbing wall is.
+ *
+ * Deterministic, as the list it replaces was deliberately deterministic: a
+ * room of a given size is the same room every time it is built, on every
+ * machine, for everybody's daily.
+ *
+ * Costs about a millisecond at every size, measured, against the sixth of a
+ * second the file once spent filtering noise per room.
+ */
+export function imageSources(size, seconds) {
+  const sides = BOX.map((ratio) => size * ratio);
+  const reach = seconds * SPEED;
+  if (!(reach > 0)) return [[], []];
+
+  const source = sides.map((side, i) => side * SOURCE_AT[i]);
+  const ears = EARS_AT.map((at, e) => sides.map((side, i) => {
+    const middle = side * at[i];
+    // Apart across the width, which is the axis a pair of ears is apart on.
+    return i === 1 ? middle + (e === 0 ? -EAR_GAP / 2 : EAR_GAP / 2) : middle;
+  }));
+
+  // Far enough out that nothing inside the window is missed: one more cell
+  // than the window can reach across the shortest side.
+  const order = Math.ceil(reach / (2 * Math.min(...sides))) + 1;
+  const found = [[], []];
+
+  for (let a = -order; a <= order; a += 1) {
+    for (let b = -order; b <= order; b += 1) {
+      for (let c = -order; c <= order; c += 1) {
+        for (let p = 0; p < 2; p += 1) {
+          for (let q = 0; q < 2; q += 1) {
+            for (let r = 0; r < 2; r += 1) {
+              // The image of the source in this cell, with each coordinate
+              // either the source itself or its mirror in the near wall.
+              const walls = Math.abs(2 * a + p) + Math.abs(2 * b + q) + Math.abs(2 * c + r);
+              if (walls === 0) continue;  // the direct sound is not a reflection
+              const image = [
+                (p ? -source[0] : source[0]) + 2 * a * sides[0],
+                (q ? -source[1] : source[1]) + 2 * b * sides[1],
+                (r ? -source[2] : source[2]) + 2 * c * sides[2],
+              ];
+              for (let e = 0; e < 2; e += 1) {
+                const d = Math.hypot(image[0] - ears[e][0], image[1] - ears[e][1],
+                  image[2] - ears[e][2]);
+                if (d > reach || d <= 0) continue;
+                // An odd number of walls is a mirrored copy, so it arrives
+                // the other way up - which is what the alternating sign in
+                // the list this replaces was imitating.
+                found[e].push({ at: d / SPEED, level: (walls % 2 ? -1 : 1) / d });
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  for (const ear of found) ear.sort((x, y) => x.at - y.at);
+  return found;
+}
 
 /**
  * How long a room of a given size takes to become a wash, in seconds.
@@ -192,6 +305,31 @@ const SPEED = 343;
  * 465 for a cathedral of sixty.
  */
 export const mixingTime = (size) => size ** 1.5 / 1000;
+
+/**
+ * How far past that the reflections are still worth placing one at a time.
+ *
+ * `mixingTime` is when the wash is fully arrived. It is not when reflections
+ * stop: they keep coming forever, and what changes is whether the ear can
+ * still tell one from the next. The reflection rate is 4*pi*c^3*t^2/V, so the
+ * moment it passes one reflection per millisecond - past which a wash is a
+ * fair model of what is arriving - is
+ *
+ *     t = sqrt(1000 V / 4 pi c^3) = 1.404 sqrt(V) ms
+ *
+ * which is 1.404 mixing times, whatever the room.
+ *
+ * It is not a tidier number by accident: stopping at the mixing time itself
+ * cut a six-metre room's reflections off before the first one arrived. A
+ * small room's first reflection is late compared with its statistical mixing
+ * time - at six metres the nearest wall is 5.44 m away round the trip and the
+ * mixing time only reaches 5.04 m - so a window that stops there finds
+ * nothing at all and the room has no walls. Which is how this was caught: the
+ * test that says a big room's walls are further off than a small room's read
+ * 30.8 ms against 115.3, and the 30.8 was not a wall, it was the loudest
+ * sample of the noise.
+ */
+const ECHO_LIMIT = 1.4043;
 
 /** The longest room on offer, plus room for it to finish. */
 export const MOST_DECAY = LONGEST_TAIL;
@@ -242,6 +380,69 @@ const CACHE_SECONDS = MOST_DECAY * 1.1 + 0.5;
  * band. See BAND_EDGES for the slope, which is the other half of this.
  */
 const splits = new Map();
+
+/**
+ * One reflection, split into the same three bands the wash is split into.
+ *
+ * A reflection is a copy of the sound, so as a response it is an impulse -
+ * and an impulse has every frequency in it at once, which is the problem.
+ * Added to the room broadband, a reflection puts energy into all three bands
+ * at a level set by the mid band's decay, and then every band's decay reads
+ * wrong: measured at an early share of 0.8, a room asked for 1.8 seconds read
+ * 1.46 in the low band and 1.49 in the mid, because the Schroeder integration
+ * was fitting a line to a tail with a broadband spike sitting on the front of
+ * it. That fault is older than the image sources; it is in here because
+ * placing the reflections properly means there are more of them, and the
+ * spike got bigger.
+ *
+ * It is also wrong as physics, which is the better reason. A wall absorbs the
+ * top before it absorbs the bottom - that is what the damping knob is - so a
+ * reflection off one comes back darker than it went out, and the second
+ * reflection darker again. Broadband taps cannot do that at all.
+ *
+ * So each reflection is added as these three kernels, each at its own band's
+ * level, and the same crossovers that split the noise split this - the same
+ * `stack`, the same edges, the same pole count - so a reflection and the wash
+ * are made of the same three bands and not of two different ideas about where
+ * the bands are.
+ *
+ * The kernels are a unit impulse through each crossover, kept until they have
+ * run down to a millionth of their peak. The long one is the low band, whose
+ * crossover is the lowest and therefore the slowest to settle.
+ */
+const kernels = new Map();
+
+function bandKernels(rate) {
+  const held = kernels.get(rate);
+  if (held) return held;
+
+  const stack = (kind, hz) => Array.from({ length: CROSSOVER_POLES },
+    () => setBiquad(makeBiquad(), kind, hz, rate));
+  const chains = {
+    low: [stack('lowpass', BAND_EDGES[0])],
+    mid: [stack('highpass', BAND_EDGES[0]), stack('lowpass', BAND_EDGES[1])],
+    high: [stack('highpass', BAND_EDGES[1])],
+  };
+
+  const most = Math.ceil(rate * 0.05);
+  const built = {};
+  for (const [band, stages] of Object.entries(chains)) {
+    const run = new Float64Array(most);
+    for (let i = 0; i < most; i += 1) {
+      let x = i === 0 ? 1 : 0;
+      for (const chain of stages) for (const stage of chain) x = runBiquad(stage, x);
+      run[i] = x;
+    }
+    let peak = 0;
+    for (const v of run) peak = Math.max(peak, Math.abs(v));
+    let until = most;
+    while (until > 1 && Math.abs(run[until - 1]) < peak * 1e-6) until -= 1;
+    built[band] = run.slice(0, until);
+  }
+
+  kernels.set(rate, built);
+  return built;
+}
 
 function noiseBands(rate) {
   const held = splits.get(rate);
@@ -566,25 +767,59 @@ function roomBody(rate, settings, seconds, { tailFor }) {
   // room's energy that arrives as walls, and the taps are scaled to it.
   const tailEnergy = energyOf(channels, length);
 
-  const walls = [];
-  for (let c = 0; c < channels.length; c += 1) {
-    TAPS.forEach((tap, k) => {
-      // A little apart in the two ears, or the reflections arrive as one
-      // click in the middle of your head.
-      const skew = 1 + (c === 0 ? -1 : 1) * 0.06 * ((k % 3) - 1);
-      const at = pre + Math.round(across * tap * skew * rate);
-      if (at >= length) return;
+  // Out to where reflections stop being separable, which is past where the
+  // wash is fully arrived rather than at it - they overlap the end of the
+  // ramp, because in a room they do.
+  const seen = imageSources(size, mixingTime(size) * ECHO_LIMIT);
 
-      const level = (10 ** (fall * ((at - pre) / rate))) * (0.85 ** k);
-      walls.push({ c, at, level: (k % 2 ? -1 : 1) * level });
-    });
+  // Each band on its own decay, which is what makes the walls absorb the way
+  // the room does: at a damping of 0.2 the top band is down to a third of a
+  // second where the bottom is still on nearly two, so the fourth reflection
+  // is a good deal darker than the first. The decay knob sets the walls'
+  // absorption and there is no second number for it to disagree with.
+  const kernel = bandKernels(rate);
+  const walls = [];
+  for (let c = 0; c < channels.length && c < seen.length; c += 1) {
+    for (const image of seen[c]) {
+      const at = pre + Math.round(image.at * rate);
+      if (at >= length) continue;
+      walls.push({
+        c,
+        at,
+        gains: {
+          low: image.level * 10 ** ((-3 * image.at) / seconds.low),
+          mid: image.level * 10 ** ((-3 * image.at) / seconds.mid),
+          high: image.level * 10 ** ((-3 * image.at) / seconds.high),
+        },
+      });
+    }
   }
 
-  const wallEnergy = walls.reduce((sum, wall) => sum + wall.level * wall.level, 0);
+  // The energy a reflection carries is the energy of its three kernels, not
+  // the square of one number, because that is what is actually being added.
+  const kernelEnergy = {};
+  for (const [band, run] of Object.entries(kernel)) {
+    let sum = 0;
+    for (const v of run) sum += v * v;
+    kernelEnergy[band] = sum;
+  }
+
+  const wallEnergy = walls.reduce((sum, wall) => sum
+    + wall.gains.low * wall.gains.low * kernelEnergy.low
+    + wall.gains.mid * wall.gains.mid * kernelEnergy.mid
+    + wall.gains.high * wall.gains.high * kernelEnergy.high, 0);
+
   const share = Math.min(0.85, Math.max(0, early));
   if (wallEnergy > 0 && tailEnergy > 0 && share > 0) {
     const scale = Math.sqrt(((share / (1 - share)) * tailEnergy) / wallEnergy);
-    for (const wall of walls) channels[wall.c][wall.at] += wall.level * scale;
+    for (const wall of walls) {
+      const out = channels[wall.c];
+      for (const [band, run] of Object.entries(kernel)) {
+        const gain = wall.gains[band] * scale;
+        const until = Math.min(run.length, length - wall.at);
+        for (let i = 0; i < until; i += 1) out[wall.at + i] += run[i] * gain;
+      }
+    }
   }
 
   return { channels, length, pre };

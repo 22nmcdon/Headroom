@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   VERB_DEFAULTS, VERB_LIMITS, MOST_DECAY, makeImpulse, roomProfile,
-  SPACES, SPACE_ORDER, verbDeckFor, mixingTime,
+  SPACES, SPACE_ORDER, verbDeckFor, mixingTime, imageSources,
 } from '../src/plugins/reverb/ir.js';
 import {
   RESPONSE_BANDS, monoOf, bandOf, rt60, decayTimes, profileDistance, wetDryImpulse,
@@ -89,6 +89,84 @@ test('size is the only thing that moves the walls', () => {
   // the wait.
   assert.ok(big / small > 5 && big / small < 10,
     `a 45 m room's walls should be far further off than a 6 m room's: ${small.toFixed(1)} vs ${big.toFixed(1)} ms`);
+});
+
+/* --- the walls, by images ------------------------------------------------- */
+
+// The window the room places reflections in: where the reflection rate passes
+// one per millisecond, which is 1.404 mixing times. See ECHO_LIMIT.
+const ECHO_WINDOW = (size) => mixingTime(size) * 1.4043;
+
+test('no two reflections come back at the same moment', () => {
+  // The reason the room is a 2^(1/3) box and not a cube. A cube's walls come
+  // in equidistant pairs, so its reflections land on top of one another:
+  // measured, a cube eighteen metres on a side has seven arrivals by its
+  // mixing time at six distinct times. Coincident arrivals are a comb, and a
+  // comb is the one thing a room does not sound like.
+  for (const size of [4, 8, 18, 35, 60]) {
+    for (const ear of imageSources(size, ECHO_WINDOW(size))) {
+      const times = ear.map((r) => r.at.toFixed(7));
+      assert.equal(new Set(times).size, times.length,
+        `a ${size} m room has two reflections arriving together`);
+    }
+  }
+});
+
+test('the early pattern changes shape with the room, not just speed', () => {
+  // What the list of ten fixed fractions could not do. Its taps were
+  // fractions of one number, so every room was the same ten reflections in
+  // the same order and a four-metre room was a sixty-metre room played
+  // fifteen times faster.
+  //
+  // Measured now, reflections per ear inside the window:
+  //
+  //    4 m   2      18 m  37      45 m  136
+  //    8 m  10      25 m  59      60 m  215
+  //
+  // Fifteen times the room is a hundred times the reflections, because the
+  // count goes as the cube of the time and the window goes as the room.
+  const count = (size) => imageSources(size, ECHO_WINDOW(size))[0].length;
+
+  let last = -1;
+  for (const size of [4, 6, 8, 12, 18, 25, 35, 45, 60]) {
+    const got = count(size);
+    assert.ok(got >= last, `a ${size} m room has fewer reflections than a smaller one`);
+    last = got;
+  }
+
+  assert.ok(count(60) > count(4) * 10,
+    `a sixty-metre room has ${count(60)} reflections against a four-metre room's ${count(4)}`);
+  assert.ok(count(4) >= 1 && count(4) <= 5,
+    `a four-metre room has ${count(4)} reflections - it should have barely any`);
+
+  // And the first one still arrives when sound takes that long to reach a
+  // wall and come back, which is linear in the room: 10.2 ms at four metres
+  // and 153.5 at sixty, a ratio of 15.05 for a size ratio of 15.
+  const first = (size) => imageSources(size, ECHO_WINDOW(size))[0][0].at;
+  assert.ok(Math.abs(first(60) / first(4) - 15) < 0.5,
+    `the first wall is at ${(first(4) * 1000).toFixed(1)} ms and ${(first(60) * 1000).toFixed(1)} ms`);
+});
+
+test('the two ears hear different reflections, a head apart', () => {
+  // A room is stereo because the far wall is further from one ear than the
+  // other by an amount that depends on which wall it is. What this replaced
+  // gave every reflection the same six per cent of displacement whichever
+  // direction it came from, which is not a direction at all.
+  const [left, right] = imageSources(18, ECHO_WINDOW(18));
+  assert.equal(left.length, right.length, 'both ears hear the same walls');
+
+  const together = left.filter((l) => right.some((r) => r.at === l.at));
+  assert.equal(together.length, 0,
+    `${together.length} reflections arrive at both ears at exactly the same moment`);
+
+  // But never further apart than sound takes to cross a head, because that is
+  // the whole of what is between them.
+  const head = 0.18 / 343;
+  for (const l of left) {
+    const nearest = right.reduce((best, r) => (Math.abs(r.at - l.at) < Math.abs(best - l.at) ? r.at : best), Infinity);
+    assert.ok(Math.abs(nearest - l.at) < head * 1.2,
+      `a reflection at ${(l.at * 1000).toFixed(2)} ms has no partner within a head's width`);
+  }
 });
 
 test('a room is normalised, so a long one is not simply a loud one', () => {
