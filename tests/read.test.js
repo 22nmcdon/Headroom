@@ -5,7 +5,7 @@ import { stampOf, readingOf, notReady, isCurrent, comparable, gapOf } from '../s
 import { distance, KINDS } from '../src/gap.js';
 import { curveReading, curveGap, JUDGED_HZ } from '../src/plugins/eq/filters.js';
 import {
-  reductionReading, reductionGap, FRAME_MS, materialStamp, NOTHING_TO_SAY,
+  reductionReading, reductionGap, FRAME_MS, materialStamp, NOTHING_TO_SAY, leanUnit,
 } from '../src/plugins/compressor/reading.js';
 import { decayReading, decayTimes, decayProfile, monoOf } from '../src/lib/response.js';
 import { stereoReading } from '../src/plugins/stereo/field.js';
@@ -345,10 +345,9 @@ test('the compressor gap says whether it is amount or timing that is out', () =>
     const base = { ...COMP_DEFAULTS, threshold: -22, ratio: 4, attack: 10, release: 200 };
     const read = (over) => reductionReading(material, rate, { ...base, ...over });
 
-    // The rule is never-wrong rather than always-sure. Between the two
-    // boundaries this says nothing, because between them a miss genuinely is
-    // both: a fast release delivers less total reduction as well as moving
-    // when it arrives. What must never happen is a confident wrong answer.
+    // Named, and named right. The lean is read in the answer's own units -
+    // its mean reduction over its own deviation - which is the unit a ratio
+    // error lands on exactly, so one boundary does the whole job.
     for (const [label, over, against] of [
       ['a lower threshold', { threshold: -30 }, {}],
       ['a higher threshold', { threshold: -16 }, {}],
@@ -356,29 +355,36 @@ test('the compressor gap says whether it is amount or timing that is out', () =>
       ['a harder ratio', { ratio: 10 }, {}],
     ]) {
       const gap = distance(read(over), read(against));
-      assert.notEqual(gap.where, 'timing',
-        `on ${name}, ${label} is called timing (lean ${gap.detail.lean.toFixed(2)})`);
+      assert.equal(gap.where, 'amount',
+        `on ${name}, ${label} reads as ${gap.where} (lean ${gap.detail.lean.toFixed(3)})`);
     }
 
     for (const [label, over, against] of [
       ['a slower release', { release: 500 }, {}],
-      ['a faster release', { release: 60 }, {}],
       ['a release one drill step away', { release: 260 }, {}],
       ['a slower attack', { attack: 50 }, {}],
       ['a faster attack', { attack: 1 }, {}],
     ]) {
       const gap = distance(read(over), read(against));
-      assert.notEqual(gap.where, 'amount',
-        `on ${name}, ${label} is called amount (lean ${gap.detail.lean.toFixed(2)})`);
+      assert.equal(gap.where, 'timing',
+        `on ${name}, ${label} reads as ${gap.where} (lean ${gap.detail.lean.toFixed(3)})`);
     }
 
-    // And it has to say something useful often enough to be worth having. A
-    // big threshold error and a big attack error are the two clearest cases
-    // either side, and both get named on every kind of material.
-    assert.equal(distance(read({ threshold: -34 }), read({})).where, 'amount',
-      `on ${name}, a 12 dB threshold error went unnamed`);
-    assert.equal(distance(read({ attack: 1 }), read({})).where, 'timing',
-      `on ${name}, a tenfold attack error went unnamed`);
+    // A ratio error leans exactly one, because the ratio cancels: the
+    // difference is (k-1) times the answer's own reduction, so its average
+    // and its deviation are both (k-1) times the answer's. This identity is
+    // the whole reason there is one boundary and it sits just under one.
+    //
+    // To a hundredth of a millionth, not exactly - it is an identity in the
+    // arithmetic and a sum over four hundred frames in the floating point, so
+    // it lands at 1.000000007. Which is the hazard AMOUNT_FROM is set at 0.97
+    // to avoid: a boundary on 1 would have left those nine decimal places
+    // deciding which side of it every ratio error fell on.
+    for (const ratio of [1.5, 2, 3, 6, 10, 16]) {
+      const gap = distance(read({ ratio }), read({}));
+      assert.ok(Math.abs(gap.detail.lean - 1) < 1e-6,
+        `on ${name}, a ratio of ${ratio} leans ${gap.detail.lean} rather than 1`);
+    }
   }
 
   // And the direction is still readable: working harder than the answer shows
@@ -406,6 +412,38 @@ test('the compressor gap says nothing when there is nothing to say', () => {
   const real = distance(read({ threshold: -16 }), read({}));
   assert.ok(real.off > NOTHING_TO_SAY);
   assert.equal(real.where, 'amount');
+});
+
+test('the one release error the compressor gap calls amount, and why', () => {
+  // The fastest release on the most sustained material: 40 ms against the
+  // answer's 200 on a held chord leans 1.06 and is named amount. It is the
+  // only miss in ninety-nine measured cases and the one where the label is
+  // least wrong - a chord with few gaps gives a fast release little to come
+  // back between, so most of what changes really is how much reduction there
+  // is. Written down rather than left to be rediscovered, and pinned, so that
+  // a change which fixes it has to come here and say so.
+  const [, chord] = materials()[2];
+  const base = { ...COMP_DEFAULTS, threshold: -22, ratio: 4, attack: 10, release: 200 };
+  const read = (over) => reductionReading(chord, rate, { ...base, ...over });
+
+  const fastest = distance(read({ release: 40 }), read({}));
+  assert.equal(fastest.where, 'amount', 'the documented miss has moved');
+  assert.ok(fastest.detail.lean > 1 && fastest.detail.lean < 1.15,
+    `it leans ${fastest.detail.lean.toFixed(3)}`);
+
+  // And the next release down is on the right side of the line.
+  const nextDown = distance(read({ release: 60 }), read({}));
+  assert.equal(nextDown.where, 'timing');
+});
+
+test('an answer with no reduction to speak of gets no diagnosis', () => {
+  // The lean is measured in the answer's own units, so an answer that barely
+  // compresses has no unit to offer and inventing one would be worse than
+  // saying nothing.
+  assert.equal(leanUnit([]), null, 'nothing at all');
+  assert.equal(leanUnit(new Array(64).fill(0)), null, 'no reduction');
+  assert.equal(leanUnit(new Array(64).fill(-6)), null, 'a dead flat reduction has no spread');
+  assert.ok(leanUnit([-1, -5, -2, -8, -3, -6]) > 0, 'and a real trace does');
 });
 
 /* --- what the gaps address ------------------------------------------------ */

@@ -102,57 +102,88 @@ export const reductionReading = (samples, rate, settings, key = null) =>
  * objects and ran both passes itself.
  */
 /**
- * When the average offset is enough bigger than what is left of it to call a
- * miss "amount", and when it is enough smaller to call it "timing".
+ * Where "amount" starts, once the lean is measured against this material.
  *
- * There used to be one boundary at 1: whichever of the two was larger won.
- * That did not separate them, because a timing error moves the average too -
- * a slower release holds more reduction across the whole loop, so getting the
- * release wrong shows up partly as "you reduced more than I did". Everything
- * from a release 40 ms out to an attack 45 ms out was reported as an amount
- * problem, which sends somebody to the threshold knob to fix a release.
+ * The lean - how much bigger the average offset is than what is left of it -
+ * does not mean the same thing on every loop, and that is why two boundaries
+ * with a silent band between them were needed before. The fix is to measure
+ * it against something, and there is an exact thing to measure it against.
  *
- * Measured as the ratio of |depth| to shape, over drum hits, a held chord,
- * syllables and modulated noise, at the sizes of error the drill sets:
+ * A ratio error scales the whole reduction by a constant: if the answer
+ * reduces by g[n] and yours reduces by k*g[n], the difference is (k-1)*g[n],
+ * so its average is (k-1)*mean(g) and what is left of it is (k-1)*sd(g), and
+ * the k cancels. A ratio error therefore leans exactly mean(g)/sd(g) of the
+ * answer's own trace, whatever the ratio and whatever the material. Measured,
+ * against ratios of 1.5, 3, 10 and 16:
  *
- *     timing errors, attack or release      0.01 to 2.92
- *     amount errors, threshold or ratio     3.13 to 28.73
+ *     material        mean/sd     every ratio error leans
+ *     modulated noise    5.35     5.35
+ *     drum hits          3.97     3.97
+ *     a held chord       3.20     3.20
+ *     syllables          3.45     3.45
  *
- * So there are two boundaries rather than one, and a band between them where
- * this says nothing. That band is not timidity - it is the honest shape of
- * the question. A fast release really does deliver less total reduction, so
- * at the overlap a miss genuinely is both, and the ratio that would name one
- * of them has a seven per cent margin. The version of this calibrated against
- * the old engine had a clean gap from 1.90 to 3.63, and that gap was an
- * artefact: the sixteen milliseconds the peak detector added to every release
- * were suppressing how much a release error moved the average. Fixing the
- * ballistics took the gap away, which is the right trade and worth saying out
- * loud rather than papering over with a tighter constant.
+ * Exact to every digit shown, because it is an identity rather than a fit. So
+ * mean/sd is the unit this question should be asked in, and dividing by it
+ * puts a ratio error at 1 on every loop there is. Measured in those units:
  *
- * Two other statistics were tried and are worse. The share of the squared
- * difference carried by the calmer half of the frames separates 0.009-0.276
- * against 0.287-0.489, a four per cent margin. Splitting the frames by
- * whether the answer's own reduction is moving - which is the physically
- * motivated one, since an amount error offsets the steady passages too -
- * overlaps outright, 0.219-0.602 against 0.445-0.573.
+ *     attack errors      0.01 to 0.10
+ *     release errors     0.18 to 1.06
+ *     ratio errors       exactly 1
+ *     threshold errors   1.26 to 6.14
  *
- * Nothing in the measured set is named wrongly at 2 and 4. About a quarter of
- * it is named as neither, which is a better answer than a confident one that
- * is wrong a quarter of the time.
+ * which is one boundary rather than two, and no silent band.
+ *
+ * It is 0.97 and not 1 because a ratio error lands on 1 exactly. Putting the
+ * boundary there would leave floating point to decide which side of itself
+ * each ratio error fell on, which is not a thing to leave to floating point.
+ * Just under it is clear of that and still above every attack error and all
+ * but one release error.
+ *
+ * That one: the fastest release on the most sustained material - 40 ms
+ * against the answer's 200 on a held chord - leans 1.06 and is called amount.
+ * It is the only miss in ninety-nine measured cases, and it is the case where
+ * the label is least wrong: a chord with few gaps in it gives a fast release
+ * little to come back between, so most of what changes really is how much
+ * reduction there is. The next release down, 60 ms, reads 0.93 and is called
+ * timing.
  */
-export const TIMING_UNDER = 2;
-export const AMOUNT_OVER = 4;
+export const AMOUNT_FROM = 0.97;
 
 /**
  * And below this the question has no answer worth giving at all.
  *
  * At a fifteenth of a decibel the depth and what is left of it are both
  * rounding: measured, knee changes that moved the trace by 0.01 to 0.07 dB
- * reported ratios of 0.67 with no more meaning than a coin has. `null` is
- * what every other gap in the app returns when it has nothing to point at,
- * and every caller already handles it.
+ * reported leans of 0.67 with no more meaning than a coin has. `null` is what
+ * every other gap in the app returns when it has nothing to point at, and
+ * every caller already handles it.
  */
 export const NOTHING_TO_SAY = 0.15;
+
+/**
+ * The unit the lean is read in: the answer's own mean reduction over its own
+ * deviation.
+ *
+ * Null when there is no unit to be had - an answer that barely compresses, or
+ * one that holds a dead flat reduction, has no spread to measure anything
+ * against, and inventing one would be worse than saying nothing.
+ */
+export function leanUnit(gr) {
+  if (!gr?.length) return null;
+
+  let sum = 0;
+  for (let i = 0; i < gr.length; i += 1) sum += Math.abs(gr[i]);
+  const mean = sum / gr.length;
+  if (!(mean > 0.05)) return null;
+
+  let spread = 0;
+  for (let i = 0; i < gr.length; i += 1) {
+    const off = Math.abs(gr[i]) - mean;
+    spread += off * off;
+  }
+  const sd = Math.sqrt(spread / gr.length);
+  return sd > 1e-6 ? mean / sd : null;
+}
 
 export function reductionGap(mine, theirs) {
   const a = mine.values.gr;
@@ -171,11 +202,13 @@ export function reductionGap(mine, theirs) {
   const depth = bias / Math.max(1, n);
   const shape = Math.sqrt(Math.max(0, off * off - depth * depth));
 
-  const lean = Math.abs(depth) / Math.max(1e-12, shape);
+  // In the answer's own units, not in decibels: see AMOUNT_FROM.
+  const unit = leanUnit(b);
+  const lean = unit === null ? null : Math.abs(depth) / Math.max(1e-12, shape) / unit;
+
   let where = null;
-  if (off >= NOTHING_TO_SAY) {
-    if (lean > AMOUNT_OVER) where = 'amount';
-    else if (lean < TIMING_UNDER) where = 'timing';
+  if (off >= NOTHING_TO_SAY && lean !== null) {
+    where = lean >= AMOUNT_FROM ? 'amount' : 'timing';
   }
 
   return {
