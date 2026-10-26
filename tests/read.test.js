@@ -345,6 +345,10 @@ test('the compressor gap says whether it is amount or timing that is out', () =>
     const base = { ...COMP_DEFAULTS, threshold: -22, ratio: 4, attack: 10, release: 200 };
     const read = (over) => reductionReading(material, rate, { ...base, ...over });
 
+    // The rule is never-wrong rather than always-sure. Between the two
+    // boundaries this says nothing, because between them a miss genuinely is
+    // both: a fast release delivers less total reduction as well as moving
+    // when it arrives. What must never happen is a confident wrong answer.
     for (const [label, over, against] of [
       ['a lower threshold', { threshold: -30 }, {}],
       ['a higher threshold', { threshold: -16 }, {}],
@@ -352,9 +356,8 @@ test('the compressor gap says whether it is amount or timing that is out', () =>
       ['a harder ratio', { ratio: 10 }, {}],
     ]) {
       const gap = distance(read(over), read(against));
-      assert.equal(gap.where, 'amount',
-        `on ${name}, ${label} reads as ${gap.where} (depth ${gap.detail.depth.toFixed(2)}, `
-        + `shape ${gap.detail.shape.toFixed(2)})`);
+      assert.notEqual(gap.where, 'timing',
+        `on ${name}, ${label} is called timing (lean ${gap.detail.lean.toFixed(2)})`);
     }
 
     for (const [label, over, against] of [
@@ -365,10 +368,17 @@ test('the compressor gap says whether it is amount or timing that is out', () =>
       ['a faster attack', { attack: 1 }, {}],
     ]) {
       const gap = distance(read(over), read(against));
-      assert.equal(gap.where, 'timing',
-        `on ${name}, ${label} reads as ${gap.where} (depth ${gap.detail.depth.toFixed(2)}, `
-        + `shape ${gap.detail.shape.toFixed(2)})`);
+      assert.notEqual(gap.where, 'amount',
+        `on ${name}, ${label} is called amount (lean ${gap.detail.lean.toFixed(2)})`);
     }
+
+    // And it has to say something useful often enough to be worth having. A
+    // big threshold error and a big attack error are the two clearest cases
+    // either side, and both get named on every kind of material.
+    assert.equal(distance(read({ threshold: -34 }), read({})).where, 'amount',
+      `on ${name}, a 12 dB threshold error went unnamed`);
+    assert.equal(distance(read({ attack: 1 }), read({})).where, 'timing',
+      `on ${name}, a tenfold attack error went unnamed`);
   }
 
   // And the direction is still readable: working harder than the answer shows

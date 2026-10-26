@@ -102,35 +102,49 @@ export const reductionReading = (samples, rate, settings, key = null) =>
  * objects and ran both passes itself.
  */
 /**
- * How much bigger the average offset has to be than what is left of it before
- * this calls a miss "amount" rather than "timing".
+ * When the average offset is enough bigger than what is left of it to call a
+ * miss "amount", and when it is enough smaller to call it "timing".
  *
- * It was 1: whichever of the two was larger won. That does not separate them,
- * because a timing error moves the average too - a slower release holds more
- * reduction over the whole loop, so getting the release wrong shows up partly
- * as "you reduced more than I did". Measured across four kinds of material
- * (drum hits, a sustained chord, syllables, and the modulated noise the test
- * below used to use), as the ratio of |depth| to shape:
- *
- *     timing errors, attack or release      0.68 to 1.90
- *     amount errors, threshold or ratio     3.63 to 28.33
- *
- * So the two are cleanly separable and the boundary was in the wrong place -
- * inside the timing band rather than between them. Everything from a release
- * being 40 ms out to an attack being 75 ms out was reported as an amount
+ * There used to be one boundary at 1: whichever of the two was larger won.
+ * That did not separate them, because a timing error moves the average too -
+ * a slower release holds more reduction across the whole loop, so getting the
+ * release wrong shows up partly as "you reduced more than I did". Everything
+ * from a release 40 ms out to an attack 45 ms out was reported as an amount
  * problem, which sends somebody to the threshold knob to fix a release.
  *
- * 2.5 sits in the gap, nearer the timing side, because timing is the half
- * people find hard and the half worth naming when it is in doubt.
+ * Measured as the ratio of |depth| to shape, over drum hits, a held chord,
+ * syllables and modulated noise, at the sizes of error the drill sets:
  *
- * A knee error straddles the two - 1.48 to 3.76 where it moves anything at
- * all - and that is fair rather than a problem: a wider knee changes both how
- * much reduction there is and when it arrives.
+ *     timing errors, attack or release      0.01 to 2.92
+ *     amount errors, threshold or ratio     3.13 to 28.73
+ *
+ * So there are two boundaries rather than one, and a band between them where
+ * this says nothing. That band is not timidity - it is the honest shape of
+ * the question. A fast release really does deliver less total reduction, so
+ * at the overlap a miss genuinely is both, and the ratio that would name one
+ * of them has a seven per cent margin. The version of this calibrated against
+ * the old engine had a clean gap from 1.90 to 3.63, and that gap was an
+ * artefact: the sixteen milliseconds the peak detector added to every release
+ * were suppressing how much a release error moved the average. Fixing the
+ * ballistics took the gap away, which is the right trade and worth saying out
+ * loud rather than papering over with a tighter constant.
+ *
+ * Two other statistics were tried and are worse. The share of the squared
+ * difference carried by the calmer half of the frames separates 0.009-0.276
+ * against 0.287-0.489, a four per cent margin. Splitting the frames by
+ * whether the answer's own reduction is moving - which is the physically
+ * motivated one, since an amount error offsets the steady passages too -
+ * overlaps outright, 0.219-0.602 against 0.445-0.573.
+ *
+ * Nothing in the measured set is named wrongly at 2 and 4. About a quarter of
+ * it is named as neither, which is a better answer than a confident one that
+ * is wrong a quarter of the time.
  */
-export const AMOUNT_OVER_SHAPE = 2.5;
+export const TIMING_UNDER = 2;
+export const AMOUNT_OVER = 4;
 
 /**
- * And below this the question has no answer worth giving.
+ * And below this the question has no answer worth giving at all.
  *
  * At a fifteenth of a decibel the depth and what is left of it are both
  * rounding: measured, knee changes that moved the trace by 0.01 to 0.07 dB
@@ -157,10 +171,16 @@ export function reductionGap(mine, theirs) {
   const depth = bias / Math.max(1, n);
   const shape = Math.sqrt(Math.max(0, off * off - depth * depth));
 
+  const lean = Math.abs(depth) / Math.max(1e-12, shape);
+  let where = null;
+  if (off >= NOTHING_TO_SAY) {
+    if (lean > AMOUNT_OVER) where = 'amount';
+    else if (lean < TIMING_UNDER) where = 'timing';
+  }
+
   return {
     off,
-    where: off < NOTHING_TO_SAY ? null
-      : (Math.abs(depth) > AMOUNT_OVER_SHAPE * shape ? 'amount' : 'timing'),
-    detail: { depth, shape, deepest: mine.values.deepest - theirs.values.deepest },
+    where,
+    detail: { depth, shape, lean, deepest: mine.values.deepest - theirs.values.deepest },
   };
 }

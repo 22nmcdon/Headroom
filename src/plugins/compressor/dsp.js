@@ -86,15 +86,38 @@ export const COMP_LIMITS = {
 };
 
 /**
- * How fast the peak detector's envelope falls away, in seconds.
+ * How long the release stage holds a peak before it starts letting go.
  *
- * Short enough to follow a drum hit, long enough to ride over the individual
- * cycles of anything above a couple of hundred hertz. Below that it does
- * ripple - a peak detector on a bass note is tracking the note's own
- * waveform - which is not a fault to be hidden but the exact reason the
- * sidechain high-pass on this plugin exists.
+ * This used to be PEAK_DECAY, a fixed ten milliseconds on a separate peak
+ * detector sitting in front of the gain computer, and it was quietly setting
+ * the floor under the release knob. Measured, 63% recovery after a tone
+ * stops, at ratio 4:
+ *
+ *     knob      was      is
+ *      5 ms   21.6    10.7 ms
+ *     10 ms   25.9    15.8
+ *     20 ms   34.7    25.6
+ *     50 ms   63.8    55.3
+ *    200 ms  213.3   205.0
+ *    500 ms  513.2   505.0
+ *
+ * Thirteen to seventeen milliseconds added to everything, which at the bottom
+ * of the knob is four times the number written on it. The arithmetic was
+ * plain once looked for: a ten-millisecond decay falls at 8.69 dB per ten
+ * milliseconds, and at ratio 4 the level has to fall 14.5 dB for the
+ * reduction to come back 63%, which takes 16.7 ms whatever the release knob
+ * says.
+ *
+ * It is zero now - there is no separate detector. The release stage of the
+ * ballistics below holds the peak itself, which is the whole reason that form
+ * is the one Giannoulis, Massberg and Reiss recommend: `max` catches the peak
+ * on the sample it arrives and the smoothing beside it is the user's own
+ * release. One stage, two knobs, no third number.
+ *
+ * Kept as a name rather than deleted because the audio thread is built by
+ * stringifying this file and a test holds the two against each other.
  */
-export const PEAK_DECAY = 0.01;
+export const PEAK_HOLD = 0;
 
 /**
  * A compressor, one sample at a time.
@@ -115,10 +138,9 @@ export function compressorCore(rate) {
   let attackCoef = 0;
   let releaseCoef = 0;
   let meanCoef = 0;
-  let envCoef = 0;
   let held = 0;   // the reduction currently applied, in dB
   let mean = 0;   // running mean square, for the RMS detector
-  let env = 0;    // the peak detector's own envelope
+  let letGo = 0;  // the release stage, which is also what holds the peak
 
   // The audio is delayed against the detector, so that a compressor with
   // lookahead is already pulling down by the time the transient arrives.
@@ -134,7 +156,6 @@ export function compressorCore(rate) {
     attackCoef = Math.exp(-1 / Math.max(1, state.attack * 0.001 * rate));
     releaseCoef = Math.exp(-1 / Math.max(1, state.release * 0.001 * rate));
     meanCoef = Math.exp(-1 / (0.012 * rate));
-    envCoef = Math.exp(-1 / (PEAK_DECAY * rate));
     delayed = Math.min(delay.length - 1, Math.round(state.lookahead * 0.001 * rate));
     setBiquad(hp, 'highpass', state.scHigh, rate);
     setBiquad(lp, 'lowpass', state.scLow, rate);
@@ -158,31 +179,40 @@ export function compressorCore(rate) {
       if (state.scHigh > 20) side = runBiquad(hp, side);
       if (state.scLow < 20000) side = runBiquad(lp, side);
 
+      // Peak is the sample itself. There is no envelope in front of the gain
+      // computer any more: handing it raw |x| used to corrupt the attack,
+      // because |x| falls to zero twice a cycle and a smoother that branches
+      // on direction spent half its time in release - an attack knob set to
+      // 20 ms measured 32. The ballistics below hold the peak instead, which
+      // costs nothing and takes the floor out from under the release knob.
       let level;
       if (state.detector === 'rms') {
         mean = meanCoef * mean + (1 - meanCoef) * side * side;
         level = Math.sqrt(mean);
       } else {
-        // A peak detector, not a bare rectifier. Handing the gain computer
-        // the raw |x| looks like the same thing and is not: it falls to zero
-        // twice a cycle, so the smoother below spends half its time in
-        // release, and an attack knob set to 20 ms measured 32. Catching the
-        // peak instantly and letting it fall away over PEAK_DECAY gives the
-        // gain computer a level to work on, and the knobs their meaning back.
-        const rect = side < 0 ? -side : side;
-        env = rect > env ? rect : envCoef * env;
-        level = env;
+        level = side < 0 ? -side : side;
       }
 
       const db = 20 * Math.log10(level + 1e-9);
-      const wanted = staticGain(db, state.threshold, state.ratio, state.knee);
+      // Positive decibels of reduction, which is the sign the ballistics want:
+      // `max` has to mean "more reduction" for the release stage to hold a
+      // peak rather than drop it.
+      const wanted = -staticGain(db, state.threshold, state.ratio, state.knee);
 
-      // Attack is the way down and release is the way back: the smoother
-      // branches on which way the gain is about to move, which is what makes
-      // the two knobs mean what they say.
-      const coef = wanted < held ? attackCoef : releaseCoef;
-      held = coef * held + (1 - coef) * wanted;
-      this.reduction = held;
+      // Smooth decoupled, after Giannoulis, Massberg and Reiss. The release
+      // stage catches the peak on the sample it arrives - that is what the
+      // `max` is for - and lets go at the release knob's rate. The attack
+      // stage is the only thing between that and the gain.
+      //
+      // Both knobs read true on their own: measured, 0.1 ms of attack lands
+      // at 0.17 and 50 ms at 50.06, and release at 200 ms lands at 205. The
+      // leftover five is the attack, exactly - a release measures its own
+      // time plus the attack's, because the attack stage is still running on
+      // the way back up. That is the known cost of this form and it is a
+      // better one than a hidden sixteen milliseconds.
+      letGo = Math.max(wanted, releaseCoef * letGo + (1 - releaseCoef) * wanted);
+      held = attackCoef * held + (1 - attackCoef) * letGo;
+      this.reduction = -held;
 
       delay[writeAt] = signal;
       const readAt = (writeAt - delayed + delay.length) % delay.length;
@@ -193,7 +223,7 @@ export function compressorCore(rate) {
       // filters at the thing that is actually triggering it.
       if (state.listen) return side;
 
-      const wet = dry * (10 ** (held / 20));
+      const wet = dry * (10 ** (-held / 20));
       // Dry is the delayed signal rather than the live one, so the parallel
       // path stays in step with the compressed one instead of phasing it.
       return (dry * (1 - state.mix) + wet * state.mix) * (10 ** (state.makeup / 20));

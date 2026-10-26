@@ -1,5 +1,5 @@
 import { makeBiquad, setBiquad, runBiquad } from '../../lib/dsp.js';
-import { compressorCore, staticGain, MOST_LOOKAHEAD, PEAK_DECAY } from './dsp.js';
+import { compressorCore, staticGain, MOST_LOOKAHEAD, PEAK_HOLD } from './dsp.js';
 import { workletModule, installWorklet } from '../../lib/worklet.js';
 
 /**
@@ -29,7 +29,7 @@ const COMPRESSOR_PARTS = [staticGain, makeBiquad, setBiquad, runBiquad, compress
  * this file, which keeps the bundler's duplicate-name check from reading a
  * string as a second declaration of something `dsp.js` already owns.
  */
-const CONSTANTS = { MOST_LOOKAHEAD, PEAK_DECAY };
+const CONSTANTS = { MOST_LOOKAHEAD, PEAK_HOLD };
 
 /** How often the audio thread reports what it is doing, in samples. */
 const REPORT = 512;

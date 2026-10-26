@@ -188,7 +188,7 @@ test('auto gain never pays you for compressing harder', () => {
 test('the worklet is built from the compressor, not a copy of it', () => {
   const source = workletSource();
 
-  for (const name of ['staticGain', 'compressorCore', 'PEAK_DECAY', 'MOST_LOOKAHEAD']) {
+  for (const name of ['staticGain', 'compressorCore', 'PEAK_HOLD', 'MOST_LOOKAHEAD']) {
     assert.ok(source.includes(name), `the audio thread needs ${name}`);
   }
 
