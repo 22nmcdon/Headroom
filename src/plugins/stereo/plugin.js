@@ -107,17 +107,20 @@ export class StereoPlugin {
     this.el.innerHTML = `
       <div class="plugin stereo${this.role === 'insert' ? ' is-insert' : ''}">
         <div class="plugin-head">
+          <span class="plugin-lamp"></span>
           <span class="plugin-name">Stereo image</span>
           <span class="plugin-trim" id="stereoTrim"></span>
           <span class="plugin-read" id="stereoRead"></span>
         </div>
 
         <div class="stereo-display">
-          <div class="plugin-panel stereo-panel-scope">
-            <canvas id="stereoScope"></canvas>
+          <div class="plugin-bay">
+            <span class="panel-name">Field</span>
+            <div class="plugin-panel"><canvas id="stereoScope"></canvas></div>
           </div>
-          <div class="plugin-panel stereo-panel-bands">
-            <canvas id="stereoBands"></canvas>
+          <div class="plugin-bay">
+            <span class="panel-name">Width</span>
+            <div class="plugin-panel"><canvas id="stereoBands"></canvas></div>
           </div>
         </div>
 

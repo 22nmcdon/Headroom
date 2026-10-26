@@ -1113,6 +1113,25 @@ input.knob-value:focus {
   box-shadow: 0 1px 0 var(--lift);
 }
 
+/* A named bay: an engraved rule, then the panel it names.
+ *
+ * The compressor, the saturator and the EQ all had this and the other three
+ * did not - their panels sat bare in the display with only the caption drawn
+ * inside the glass, so a face read as three pictures where the rebuilt ones
+ * read as a device with its sections marked. The caption inside stays: a rule
+ * says what a panel is and the caption says what it is currently showing,
+ * which is the saturator's arrangement and the one worth copying.
+ *
+ * Rows rather than flow, so the panel takes whatever height is left after the
+ * rule - the three displays that use this are a fixed height with the panel
+ * filling it, and min-height zero is what lets it shrink to make room. */
+.plugin-bay {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  min-width: 0;
+  min-height: 0;
+}
+
 .plugin-head {
   display: flex;
   align-items: center;

@@ -157,17 +157,20 @@ export class VerbPlugin {
     this.el.innerHTML = `
       <div class="plugin verb${this.role === 'insert' ? ' is-insert' : ''}">
         <div class="plugin-head">
+          <span class="plugin-lamp"></span>
           <span class="plugin-name">Reverb</span>
           <span class="plugin-trim" id="verbTrim"></span>
           <span class="plugin-read" id="verbRead"></span>
         </div>
 
         <div class="verb-display">
-          <div class="plugin-panel verb-panel-room">
-            <canvas id="verbRoom"></canvas>
+          <div class="plugin-bay">
+            <span class="panel-name">Room</span>
+            <div class="plugin-panel"><canvas id="verbRoom"></canvas></div>
           </div>
-          <div class="plugin-panel verb-panel-decay">
-            <canvas id="verbDecay"></canvas>
+          <div class="plugin-bay">
+            <span class="panel-name">Decay</span>
+            <div class="plugin-panel"><canvas id="verbDecay"></canvas></div>
           </div>
         </div>
 

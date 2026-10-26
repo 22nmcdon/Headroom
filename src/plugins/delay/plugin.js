@@ -97,17 +97,20 @@ export class EchoPlugin {
     this.el.innerHTML = `
       <div class="plugin echo${this.role === 'insert' ? ' is-insert' : ''}">
         <div class="plugin-head">
+          <span class="plugin-lamp"></span>
           <span class="plugin-name">Delay</span>
           <span class="plugin-trim" id="echoTrim"></span>
           <span class="plugin-read" id="echoRead"></span>
         </div>
 
         <div class="echo-display">
-          <div class="plugin-panel echo-panel-taps">
-            <canvas id="echoTaps"></canvas>
+          <div class="plugin-bay">
+            <span class="panel-name">Repeats</span>
+            <div class="plugin-panel"><canvas id="echoTaps"></canvas></div>
           </div>
-          <div class="plugin-panel echo-panel-decay">
-            <canvas id="echoDecay"></canvas>
+          <div class="plugin-bay">
+            <span class="panel-name">Decay</span>
+            <div class="plugin-panel"><canvas id="echoDecay"></canvas></div>
           </div>
         </div>
 
