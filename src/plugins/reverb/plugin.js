@@ -154,7 +154,41 @@ export class VerbPlugin {
   /* ---------- the furniture ---------- */
 
   build() {
-    this.el.innerHTML = `
+    // Everything a host does, outside the chassis. Choosing the material,
+    // starting it, comparing against a target: none of that is this
+    // processor's, and a unit with a Sample menu screwed to its face is not
+    // one anybody would recognise. The sketchpad is its own host and has
+    // these already, so an insert gets none of it - and gets none of it by
+    // not being built, rather than by being built and hidden with CSS. A
+    // hidden control is still a control somebody has to explain.
+    //
+    // Reset went out with them rather than away, for the reason the EQ's
+    // Flatten did: most plugins have no reset at all - they have presets, and
+    // you reset by recalling one - so a button that silently undoes a face
+    // full of work belongs with the furniture that is about running an
+    // exercise, not on the face.
+    const host = this.role === 'insert' ? '' : `
+      <div class="eq-transport host-row verb-transport">
+        <button class="play-btn" type="button" data-verb="play">Play</button>
+        <div class="eq-ab" role="group" aria-label="What you are hearing">
+          <button class="ab-btn is-on" type="button" data-hear="mine">Yours</button>
+          <button class="ab-btn" type="button" data-hear="theirs" id="verbOther">Target</button>
+        </div>
+        <label class="field">
+          <span class="field-label">Sample</span>
+          <select id="verbSource">
+            <option value="instrument">Keys</option>
+            <option value="drums">Drums</option>
+            <option value="mix">Full mix</option>
+            <option value="bass">Bass</option>
+            <option value="yours" id="verbYours" hidden>Your own</option>
+          </select>
+        </label>
+        <label class="file-btn">Open a file<input type="file" id="verbFile" accept="audio/*"></label>
+        <button class="link-btn" type="button" data-verb="reset">Reset</button>
+      </div>`;
+
+    this.el.innerHTML = `${host}
       <div class="plugin verb${this.role === 'insert' ? ' is-insert' : ''}">
         <div class="plugin-head">
           <span class="plugin-lamp"></span>
@@ -184,31 +218,14 @@ export class VerbPlugin {
           </div>
           <div class="plugin-controls" id="verbKnobs"></div>
         </div>
-
-        <div class="eq-transport verb-transport">
-          <button class="play-btn" type="button" data-verb="play">Play</button>
-          <div class="eq-ab" role="group" aria-label="What you are hearing">
-            <button class="ab-btn is-on" type="button" data-hear="mine">Yours</button>
-            <button class="ab-btn" type="button" data-hear="theirs" id="verbOther">Target</button>
-          </div>
-          <label class="field">
-            <span class="field-label">Sample</span>
-            <select id="verbSource">
-              <option value="instrument">Keys</option>
-              <option value="drums">Drums</option>
-              <option value="mix">Full mix</option>
-              <option value="bass">Bass</option>
-              <option value="yours" id="verbYours" hidden>Your own</option>
-            </select>
-          </label>
-          <label class="file-btn">Open a file<input type="file" id="verbFile" accept="audio/*"></label>
-          <button class="link-btn" type="button" data-verb="reset">Reset</button>
-        </div>
       </div>`;
 
     this.room = this.el.querySelector('#verbRoom');
     this.decay = this.el.querySelector('#verbDecay');
-    this.el.querySelector('#verbSource').value = this.player.source;
+    // Null for an insert, which has no host row: a track's own signal is
+    // the material, so there is nothing to pick.
+    const sample = this.el.querySelector('#verbSource');
+    if (sample) sample.value = this.player.source;
 
     this.buildKnobs();
     this.wire();
@@ -282,9 +299,9 @@ export class VerbPlugin {
     });
 
     this.el.querySelector('#verbSource')
-      .addEventListener('change', (e) => this.setSource(e.target.value));
+      ?.addEventListener('change', (e) => this.setSource(e.target.value));
     this.el.querySelector('#verbFile')
-      .addEventListener('change', (e) => this.loadFile(e.target.files?.[0]));
+      ?.addEventListener('change', (e) => this.loadFile(e.target.files?.[0]));
 
     this.resize = () => { this.restage(); this.draw(); };
     this.unwatch = watchSize(this.el, this.resize);
@@ -365,7 +382,8 @@ export class VerbPlugin {
   }
 
   playing(on) {
-    this.el.querySelector('[data-verb="play"]').textContent = on ? 'Stop' : 'Play';
+    const button = this.el.querySelector('[data-verb="play"]');
+    if (button) button.textContent = on ? 'Stop' : 'Play';
     cancelAnimationFrame(this.frame);
     this.frame = null;
     if (!on) { this.writeReadout(); return; }

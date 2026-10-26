@@ -104,7 +104,40 @@ export class StereoPlugin {
   /* ---------- the furniture ---------- */
 
   build() {
-    this.el.innerHTML = `
+    // Everything a host does, outside the chassis. Choosing the material,
+    // starting it, comparing against a target: none of that is this
+    // processor's, and a unit with a Sample menu screwed to its face is not
+    // one anybody would recognise. The sketchpad is its own host and has
+    // these already, so an insert gets none of it - and gets none of it by
+    // not being built, rather than by being built and hidden with CSS. A
+    // hidden control is still a control somebody has to explain.
+    //
+    // Reset went out with them rather than away, for the reason the EQ's
+    // Flatten did: most plugins have no reset at all - they have presets, and
+    // you reset by recalling one - so a button that silently undoes a face
+    // full of work belongs with the furniture that is about running an
+    // exercise, not on the face.
+    const host = this.role === 'insert' ? '' : `
+      <div class="eq-transport host-row image-transport">
+        <button class="play-btn" type="button" data-stereo="play">Play</button>
+        <div class="eq-ab" role="group" aria-label="What you are hearing">
+          <button class="ab-btn is-on" type="button" data-hear="mine">Yours</button>
+          <button class="ab-btn" type="button" data-hear="theirs" id="stereoOther">Target</button>
+        </div>
+        <label class="field">
+          <span class="field-label">Sample</span>
+          <select id="stereoSource">
+            <option value="mix">Full mix</option>
+            <option value="instrument">Keys</option>
+            <option value="drums">Drums</option>
+            <option value="yours" id="stereoYours" hidden>Your own</option>
+          </select>
+        </label>
+        <label class="file-btn">Open a file<input type="file" id="stereoFile" accept="audio/*"></label>
+        <button class="link-btn" type="button" data-stereo="reset">Reset</button>
+      </div>`;
+
+    this.el.innerHTML = `${host}
       <div class="plugin stereo${this.role === 'insert' ? ' is-insert' : ''}">
         <div class="plugin-head">
           <span class="plugin-lamp"></span>
@@ -133,30 +166,14 @@ export class StereoPlugin {
           </div>
           <span class="eq-hint">mono is the check that matters — what survives it is what everybody hears</span>
         </div>
-
-        <div class="eq-transport image-transport">
-          <button class="play-btn" type="button" data-stereo="play">Play</button>
-          <div class="eq-ab" role="group" aria-label="What you are hearing">
-            <button class="ab-btn is-on" type="button" data-hear="mine">Yours</button>
-            <button class="ab-btn" type="button" data-hear="theirs" id="stereoOther">Target</button>
-          </div>
-          <label class="field">
-            <span class="field-label">Sample</span>
-            <select id="stereoSource">
-              <option value="mix">Full mix</option>
-              <option value="instrument">Keys</option>
-              <option value="drums">Drums</option>
-              <option value="yours" id="stereoYours" hidden>Your own</option>
-            </select>
-          </label>
-          <label class="file-btn">Open a file<input type="file" id="stereoFile" accept="audio/*"></label>
-          <button class="link-btn" type="button" data-stereo="reset">Reset</button>
-        </div>
       </div>`;
 
     this.scope = this.el.querySelector('#stereoScope');
     this.bands = this.el.querySelector('#stereoBands');
-    this.el.querySelector('#stereoSource').value = this.player.source;
+    // Null for an insert, which has no host row: a track's own signal is
+    // the material, so there is nothing to pick.
+    const sample = this.el.querySelector('#stereoSource');
+    if (sample) sample.value = this.player.source;
 
     this.buildKnobs();
     this.wire();
@@ -223,9 +240,9 @@ export class StereoPlugin {
     });
 
     this.el.querySelector('#stereoSource')
-      .addEventListener('change', (e) => this.setSource(e.target.value));
+      ?.addEventListener('change', (e) => this.setSource(e.target.value));
     this.el.querySelector('#stereoFile')
-      .addEventListener('change', (e) => this.loadFile(e.target.files?.[0]));
+      ?.addEventListener('change', (e) => this.loadFile(e.target.files?.[0]));
 
     this.resize = () => this.draw();
     this.unwatch = watchSize(this.el, this.resize);
@@ -416,7 +433,8 @@ export class StereoPlugin {
   }
 
   playing(on) {
-    this.el.querySelector('[data-stereo="play"]').textContent = on ? 'Stop' : 'Play';
+    const button = this.el.querySelector('[data-stereo="play"]');
+    if (button) button.textContent = on ? 'Stop' : 'Play';
     cancelAnimationFrame(this.frame);
     this.frame = null;
     if (!on) { this.draw(); return; }

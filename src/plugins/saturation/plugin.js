@@ -198,7 +198,7 @@ export class HeatPlugin {
     // its face is not one anybody would recognise. The sketchpad is its own
     // host and has these already, so an insert gets none of it.
     const host = this.role === 'insert' ? '' : `
-      <div class="eq-transport heat-host">
+      <div class="eq-transport host-row">
         <button class="play-btn" type="button" data-heat="play">Play</button>
         <div class="eq-ab" role="group" aria-label="What you are hearing">
           <button class="ab-btn is-on" type="button" data-hear="mine">Yours</button>
@@ -256,7 +256,7 @@ export class HeatPlugin {
           <div class="plugin-controls" id="heatKnobs"></div>
         </div>
 
-        <div class="heat-set">
+        <div class="plugin-set">
           <label class="toggle">
             <input type="checkbox" id="heatAuto" checked>
             Auto gain

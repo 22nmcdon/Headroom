@@ -156,7 +156,7 @@ export class EQPlugin {
     // exercise. An insert has neither, because a track's EQ is undone with
     // the sketchpad's own undo.
     const host = this.role === 'insert' ? '' : `
-      <div class="eq-transport eq-host">
+      <div class="eq-transport host-row">
         <button class="play-btn" type="button" data-eq="play">Play</button>
         <div class="eq-ab" role="group" aria-label="What you are hearing">
           <button class="ab-btn is-on" type="button" data-hear="mine">Yours</button>

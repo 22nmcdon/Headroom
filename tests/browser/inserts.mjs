@@ -55,6 +55,12 @@ export async function check({ browser, at, say }) {
         canvases: canvases.length,
         stale: canvases.filter((c) => c.stale).length,
         transport: Boolean(face.querySelector('.eq-transport')?.offsetParent),
+        // And none of it beside the chassis either. This used to be a
+        // question about what was hidden inside the face; it is now a
+        // question about what was built at all, because every face keeps its
+        // host row outside the chassis and an insert renders none of it.
+        // Looking only inside would pass a host row that had escaped.
+        hostRow: Boolean(document.querySelector('.sketch-editor .host-row')),
         knobs: face.querySelectorAll('.knob').length,
         name: face.querySelector('.plugin-name')?.textContent.trim(),
       };
@@ -63,6 +69,7 @@ export async function check({ browser, at, say }) {
     if (!m) { problems.push(`${id}: nothing opened`); continue; }
     if (!m.insert) problems.push(`${id}: not marked as an insert`);
     if (m.transport) problems.push(`${id}: the exercise transport is on screen`);
+    if (m.hostRow) problems.push(`${id}: the host row was built beside the chassis`);
     if (m.stale) problems.push(`${id}: ${m.stale} canvas(es) at the wrong size`);
     if (!m.knobs) problems.push(`${id}: no controls`);
     await shot(page, `six-${id}.png`);

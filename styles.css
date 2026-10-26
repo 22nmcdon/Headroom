@@ -1562,13 +1562,26 @@ input.knob-value:focus {
    on has to be the plugin they later open somewhere else. */
 /* The host, on the paper. The base .eq-transport rules were written for a
    cream card before there was a chassis, so taking this out of .plugin puts
-   it back on the styling it was drawn for. */
-.heat-host { margin-bottom: 10px; }
+   it back on the styling it was drawn for.
+   Shared now rather than the saturator's own: all six faces keep their host
+   row outside the chassis, and the EQ's was the one of them with no gap under
+   it, because its class never had a rule.
+   Not called `.plugin-host`, though that is the obvious name and was the
+   first one tried: that class is already the sketchpad's insert panel - the
+   thing a plugin is hosted IN - and it carries `container-type: inline-size`,
+   so naming a transport row that would have made each one a container-query
+   root with min-width zero. */
+.host-row { margin-bottom: 10px; }
 
 /* And what is left inside is the strip of things you set once rather than
    move while listening - the auto gain today, the stereo handling and the
    oversampling when they arrive. */
-.heat-set {
+/* Shared with the compressor, whose auto gain was sitting in the transport
+   row and so would have gone out of the chassis with it - and auto gain is
+   not the host's, it is the plugin's. `.eq-set` is deliberately not folded in
+   here: it has no rule above it and no padding, which is a real difference
+   and not a duplicate. */
+.plugin-set {
   display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
   padding: 4px 2px 0; border-top: 1px solid var(--cut); box-shadow: 0 1px 0 var(--lift) inset;
 }
@@ -3087,8 +3100,11 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
 /* An insert is a view onto a track's own signal, so the half of a plugin
    that belongs to an exercise is not there to be used: there is no loop to
    play, no answer to A/B against and no file to open. Those controls go, and
-   the transport at the top of the sketchpad is the one that matters. */
-.plugin.is-insert > .eq-transport { display: none; }
+   the transport at the top of the sketchpad is the one that matters.
+   There is no rule here any more because there is nothing left to hide: the
+   host row is outside the chassis on all six faces and an insert does not
+   render it at all. A hidden control is still a control somebody has to
+   explain; one that was never built is not. */
 
 /* And the monitoring that needs a player with two sides to it. What an
    insert hears is what the track hears - the Listen switches would be
