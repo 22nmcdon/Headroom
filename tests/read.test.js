@@ -4,7 +4,9 @@ import assert from 'node:assert/strict';
 import { stampOf, readingOf, notReady, isCurrent, comparable, gapOf } from '../src/lib/read.js';
 import { distance, KINDS } from '../src/gap.js';
 import { curveReading, curveGap, JUDGED_HZ } from '../src/plugins/eq/filters.js';
-import { reductionReading, reductionGap, FRAME_MS, materialStamp } from '../src/plugins/compressor/reading.js';
+import {
+  reductionReading, reductionGap, FRAME_MS, materialStamp, NOTHING_TO_SAY,
+} from '../src/plugins/compressor/reading.js';
 import { decayReading, decayTimes, decayProfile, monoOf } from '../src/lib/response.js';
 import { stereoReading } from '../src/plugins/stereo/field.js';
 import { harmonicsReading, HEAT_DEFAULTS } from '../src/plugins/saturation/shape.js';
@@ -278,26 +280,122 @@ test('the compressor reading is the framed one, and the scorer agrees with it', 
   }
 });
 
-test('the compressor gap says whether it is amount or timing that is out', () => {
-  const rng = mulberry32(0xbeef);
-  const material = new Float32Array(rate);
-  for (let i = 0; i < material.length; i += 1) {
-    material[i] = (rng() * 2 - 1) * 0.45 * (1 + Math.sin((2 * Math.PI * 4 * i) / rate));
+/**
+ * Material to ask the amount-or-timing question over.
+ *
+ * Four kinds, because the answer turned out to depend on which: the version
+ * of this test that passed for months asked it on modulated noise alone, and
+ * on that one material a release error lands at a |depth|/shape of 0.90 to
+ * 0.98 against a boundary of 1.00. It passed on a two per cent margin, and an
+ * attack error on the same material reads 1.16 and came out as "amount",
+ * which nothing checked.
+ */
+function materials() {
+  const noise = (seed) => {
+    const rng = mulberry32(seed);
+    return () => rng();
+  };
+
+  const modulated = new Float32Array(rate);
+  const mod = noise(0xbeef);
+  for (let i = 0; i < modulated.length; i += 1) {
+    modulated[i] = (mod() * 2 - 1) * 0.45 * (1 + Math.sin((2 * Math.PI * 4 * i) / rate));
   }
 
+  const hits = new Float32Array(rate * 2);
+  const grit = noise(22222);
+  for (let hit = 0; hit < 8; hit += 1) {
+    const at = Math.round(hit * 0.25 * rate);
+    for (let i = 0; i < Math.round(rate * 0.18) && at + i < hits.length; i += 1) {
+      const t = i / rate;
+      hits[at + i] += Math.exp(-t * 26) * (grit() * 2 - 1) * 0.9
+        + Math.exp(-t * 9) * Math.sin(2 * Math.PI * 70 * t) * 0.5;
+    }
+  }
+
+  const held = new Float32Array(rate * 2);
+  for (let i = 0; i < held.length; i += 1) {
+    const t = i / rate;
+    const swell = 0.55 + 0.35 * Math.sin(2 * Math.PI * 0.7 * t);
+    held[i] = (swell * 0.8 * (Math.sin(2 * Math.PI * 220 * t)
+      + 0.7 * Math.sin(2 * Math.PI * 277 * t) + 0.5 * Math.sin(2 * Math.PI * 330 * t))) / 2.2;
+  }
+
+  const syllables = new Float32Array(rate * 2);
+  const breath = noise(7777);
+  for (let syl = 0; syl < 6; syl += 1) {
+    const at = Math.round((syl * 0.33 + 0.04) * rate);
+    for (let i = 0; i < Math.round(rate * 0.22) && at + i < syllables.length; i += 1) {
+      const t = i / rate;
+      const env = Math.min(1, t / 0.02) * Math.exp(-t * 5);
+      syllables[at + i] += env * 0.85 * (Math.sin(2 * Math.PI * 180 * t) * 0.7
+        + Math.sin(2 * Math.PI * 540 * t) * 0.3 + (breath() * 2 - 1) * 0.12);
+    }
+  }
+
+  return [['modulated noise', modulated], ['drum hits', hits],
+    ['a held chord', held], ['syllables', syllables]];
+}
+
+test('the compressor gap says whether it is amount or timing that is out', () => {
+  // Asked on every kind of material and for both knobs of each half, at the
+  // sizes of error the drill actually sets - its release answers come from 40
+  // to 600 ms - rather than at one enormous one on one loop.
+  for (const [name, material] of materials()) {
+    const base = { ...COMP_DEFAULTS, threshold: -22, ratio: 4, attack: 10, release: 200 };
+    const read = (over) => reductionReading(material, rate, { ...base, ...over });
+
+    for (const [label, over, against] of [
+      ['a lower threshold', { threshold: -30 }, {}],
+      ['a higher threshold', { threshold: -16 }, {}],
+      ['a gentler ratio', { ratio: 2 }, {}],
+      ['a harder ratio', { ratio: 10 }, {}],
+    ]) {
+      const gap = distance(read(over), read(against));
+      assert.equal(gap.where, 'amount',
+        `on ${name}, ${label} reads as ${gap.where} (depth ${gap.detail.depth.toFixed(2)}, `
+        + `shape ${gap.detail.shape.toFixed(2)})`);
+    }
+
+    for (const [label, over, against] of [
+      ['a slower release', { release: 500 }, {}],
+      ['a faster release', { release: 60 }, {}],
+      ['a release one drill step away', { release: 260 }, {}],
+      ['a slower attack', { attack: 50 }, {}],
+      ['a faster attack', { attack: 1 }, {}],
+    ]) {
+      const gap = distance(read(over), read(against));
+      assert.equal(gap.where, 'timing',
+        `on ${name}, ${label} reads as ${gap.where} (depth ${gap.detail.depth.toFixed(2)}, `
+        + `shape ${gap.detail.shape.toFixed(2)})`);
+    }
+  }
+
+  // And the direction is still readable: working harder than the answer shows
+  // up as a negative depth.
+  const [, hits] = materials()[1];
   const base = { ...COMP_DEFAULTS, threshold: -22, ratio: 4, attack: 10, release: 200 };
-  const read = (over) => reductionReading(material, rate, { ...base, ...over });
+  const harder = distance(reductionReading(hits, rate, { ...base, threshold: -38 }),
+    reductionReading(hits, rate, base));
+  assert.ok(harder.detail.depth < 0, 'yours works harder, so the depth is negative');
+});
 
-  // A much lower threshold does more reduction everywhere: that is amount.
-  const harder = distance(read({ threshold: -38 }), read({}));
-  assert.equal(harder.where, 'amount');
-  assert.ok(harder.detail.depth < 0, 'and yours works harder, so the depth is negative');
+test('the compressor gap says nothing when there is nothing to say', () => {
+  // A knee that moves the trace by a hundredth of a decibel is not an amount
+  // problem or a timing one, and the ratio between two roundings is a coin
+  // toss. Measured: knee changes worth 0.01 to 0.07 dB all reported 0.67.
+  const [, hits] = materials()[1];
+  const base = { ...COMP_DEFAULTS, threshold: -26, ratio: 8, attack: 5, release: 150, knee: 2 };
+  const read = (over) => reductionReading(hits, rate, { ...base, ...over });
 
-  // The same threshold and ratio with a very different release moves when the
-  // reduction arrives and leaves, not how much of it there is.
-  const slower = distance(read({ release: 900 }), read({ release: 45 }));
-  assert.equal(slower.where, 'timing');
-  assert.ok(slower.detail.shape > Math.abs(slower.detail.depth));
+  const nothing = distance(read({ knee: 10 }), read({}));
+  assert.ok(nothing.off < NOTHING_TO_SAY, `a knee nobody can hear moved it ${nothing.off} dB`);
+  assert.equal(nothing.where, null, 'and it is not reported as either half');
+
+  // The same comparison once it is worth something does get an answer.
+  const real = distance(read({ threshold: -16 }), read({}));
+  assert.ok(real.off > NOTHING_TO_SAY);
+  assert.equal(real.where, 'amount');
 });
 
 /* --- what the gaps address ------------------------------------------------ */

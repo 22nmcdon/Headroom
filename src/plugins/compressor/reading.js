@@ -101,6 +101,45 @@ export const reductionReading = (samples, rate, settings, key = null) =>
  * Lifted out of the compression exercise's `score`, which took two settings
  * objects and ran both passes itself.
  */
+/**
+ * How much bigger the average offset has to be than what is left of it before
+ * this calls a miss "amount" rather than "timing".
+ *
+ * It was 1: whichever of the two was larger won. That does not separate them,
+ * because a timing error moves the average too - a slower release holds more
+ * reduction over the whole loop, so getting the release wrong shows up partly
+ * as "you reduced more than I did". Measured across four kinds of material
+ * (drum hits, a sustained chord, syllables, and the modulated noise the test
+ * below used to use), as the ratio of |depth| to shape:
+ *
+ *     timing errors, attack or release      0.68 to 1.90
+ *     amount errors, threshold or ratio     3.63 to 28.33
+ *
+ * So the two are cleanly separable and the boundary was in the wrong place -
+ * inside the timing band rather than between them. Everything from a release
+ * being 40 ms out to an attack being 75 ms out was reported as an amount
+ * problem, which sends somebody to the threshold knob to fix a release.
+ *
+ * 2.5 sits in the gap, nearer the timing side, because timing is the half
+ * people find hard and the half worth naming when it is in doubt.
+ *
+ * A knee error straddles the two - 1.48 to 3.76 where it moves anything at
+ * all - and that is fair rather than a problem: a wider knee changes both how
+ * much reduction there is and when it arrives.
+ */
+export const AMOUNT_OVER_SHAPE = 2.5;
+
+/**
+ * And below this the question has no answer worth giving.
+ *
+ * At a fifteenth of a decibel the depth and what is left of it are both
+ * rounding: measured, knee changes that moved the trace by 0.01 to 0.07 dB
+ * reported ratios of 0.67 with no more meaning than a coin has. `null` is
+ * what every other gap in the app returns when it has nothing to point at,
+ * and every caller already handles it.
+ */
+export const NOTHING_TO_SAY = 0.15;
+
 export function reductionGap(mine, theirs) {
   const a = mine.values.gr;
   const b = theirs.values.gr;
@@ -120,7 +159,8 @@ export function reductionGap(mine, theirs) {
 
   return {
     off,
-    where: Math.abs(depth) > shape ? 'amount' : 'timing',
+    where: off < NOTHING_TO_SAY ? null
+      : (Math.abs(depth) > AMOUNT_OVER_SHAPE * shape ? 'amount' : 'timing'),
     detail: { depth, shape, deepest: mine.values.deepest - theirs.values.deepest },
   };
 }
