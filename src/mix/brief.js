@@ -14,9 +14,10 @@
 import { mulberry32 } from '../lib/random.js';
 import { toStep } from '../learn/work/scoring.js';
 import { STEM_FLAT, STEMS, STEM_IDS, PIECE_IDS } from './piece.js';
+import { EQ_REST } from '../sketch/knobs.js';
 
-/** What a fader, a pan and a send move in. The target sits on these too. */
-export const STEPS = { gain: 0.5, pan: 0.05, send: 0.05 };
+/** What a fader, a pan, a send and a tone control move in. Targets sit on these too. */
+export const STEPS = { gain: 0.5, pan: 0.05, send: 0.05, tone: 0.5 };
 
 /** How far a fader goes, in decibels against where the stem arrives. */
 export const TRIM = { low: -12, high: 9 };
@@ -57,6 +58,24 @@ export const MIX_TIERS = {
     gain: [-8, 8],
     pan: [0.15, 0.7],
     send: [0.15, 0.6],
+  },
+  // A different job rather than a harder one, which is what the three above
+  // are to each other as well. The levels, the placement and the room are
+  // given right and two parts are the wrong colour.
+  //
+  // Nothing else moves, and that is the point rather than a simplification:
+  // the reading this is marked on is `balance`, which is also where a level
+  // error lands, so a round that asked for both would leave the advice unable
+  // to say which of the two you had got wrong.
+  tone: {
+    label: 'Tone',
+    blurb: 'The levels are right. Two parts are the wrong colour.',
+    moves: 0,
+    pans: 0,
+    sends: 0,
+    tones: 2,
+    gain: [0, 0],
+    tone: [3, 8],
   },
 };
 
@@ -112,6 +131,70 @@ export const ANCHOR = 'kit';
 export const MOVABLE = STEM_IDS.filter((id) => id !== ANCHOR);
 
 /**
+ * Which band each stem is moved in, and why it is only one.
+ *
+ * An EQ insert is markable where a compressor insert is not, and this is the
+ * table that says where. Measured on both pieces, a single band moved on one
+ * stem, read as the gap it opens on the master's `balance` reading against
+ * the same mix flat:
+ *
+ *     piece         stem    band     +2     +3     +4     +5     +6
+ *     short-night   bass    low    1.14   1.67   2.17   2.64   3.07
+ *     short-night   bass    mid    0.29   0.46   0.65   0.86   1.09
+ *     short-night   bass    high   0.29   0.47   0.67   0.91   1.17
+ *     short-night   keys    low    0.38   0.61   0.87   1.16   1.48
+ *     short-night   keys    mid    0.75   1.13   1.51   1.88   2.24
+ *     short-night   keys    high   0.30   0.49   0.70   0.94   1.21
+ *     short-night   pad     low    0.35   0.56   0.80   1.06   1.36
+ *     short-night   pad     mid    1.38   2.06   2.74   3.40   4.05
+ *     short-night   pad     high   0.28   0.45   0.64   0.86   1.10
+ *     late-room     bass    low    0.50   0.76   1.03   1.29   1.54
+ *     late-room     bass    mid    0.14   0.22   0.30   0.40   0.51
+ *     late-room     bass    high   0.15   0.24   0.35   0.46   0.59
+ *     late-room     keys    low    0.27   0.44   0.63   0.84   1.08
+ *     late-room     keys    mid    0.36   0.57   0.81   1.06   1.33
+ *     late-room     keys    high   0.21   0.34   0.48   0.64   0.82
+ *     late-room     pad     low    0.35   0.57   0.81   1.08   1.39
+ *     late-room     pad     mid    1.13   1.68   2.20   2.70   3.17
+ *     late-room     pad     high   0.29   0.46   0.66   0.89   1.14
+ *
+ * Every row rises with the move, which is the first thing a control has to
+ * do and the thing a compressor insert could not: measured the same way, a
+ * loudness-matched compressor's effect on the master's `crest` reading was
+ * not monotonic in its own threshold, and sixteen decibels of reduction on
+ * the bass moved it 0.49 dB against a tolerance of 0.45.
+ *
+ * What the table decides is the band. A high-shelf move never reaches 1.21 on
+ * any stem of either piece, and a low-shelf move only does on the bass -
+ * because that is where the energy is, and a band with nothing in it cannot
+ * be heard to change. So each stem is moved in the one band it lives in, and
+ * the round is never asked to hear something that is not there.
+ */
+export const TONE_BANDS = { bass: 'low', keys: 'mid', pad: 'mid' };
+
+/**
+ * The smallest tone move a round is allowed to ask for.
+ *
+ * Three decibels, for the reason the level floor is three decibels: anything
+ * less arrives already solved. The quietest of the six pairs above is
+ * late-room's keys at the mid, which reads 0.36 at two decibels and 0.57 at
+ * three - and the tone tier's balance tolerance is 0.5, so two is inside it
+ * and three is not. The floor is the measurement rather than a taste.
+ */
+export const TONE_LEAST = 3;
+
+/** How far off flat a stem's tone is, in decibels, or zero. */
+export function toneIn(set) {
+  const eq = set?.settings?.eq;
+  if (!eq) return 0;
+  for (const band of ['low', 'mid', 'high']) if (eq[band]) return eq[band];
+  return 0;
+}
+
+/** Which stems a tone round is allowed to colour. */
+export const TONED = STEM_IDS.filter((id) => id in TONE_BANDS);
+
+/**
  * How far each stem is allowed off centre, and into the room.
  *
  * A level is a level and any stem can be at any of them. Where a thing sits
@@ -143,6 +226,26 @@ export function mixBrief(tier, seed) {
     target[id].send = toStep(between(rng, spec.send) * ROOM_FOR[id], STEPS.send);
   }
 
+  // Tone, when the tier asks for it. The insert goes on every stem and not
+  // only the moved ones: a track's graph is its instrument and its inserts,
+  // so a change of inserts is a new graph under a running loop, and the
+  // resting EQ is a wire - measured, the whole desk with one on each stem
+  // came back within 6.33e-8 a sample of the same desk with none, which is
+  // float32 rounding.
+  if (spec.tones) {
+    for (const id of STEM_IDS) {
+      target[id].inserts = ['eq'];
+      target[id].settings = { eq: { ...EQ_REST } };
+    }
+
+    for (const id of some(rng, TONED, spec.tones)) {
+      const side = rng() < 0.5 ? -1 : 1;
+      target[id].settings.eq[TONE_BANDS[id]] = worthIt(
+        rng, [side * spec.tone[0], side * spec.tone[1]], TONE_LEAST, STEPS.tone,
+      );
+    }
+  }
+
   return { tier, piece, target, spec };
 }
 
@@ -151,10 +254,17 @@ export const flatMix = () => Object.fromEntries(STEM_IDS.map((id) => [id, { ...S
 
 /** What the answer actually moved, for the reveal. */
 export const movesIn = (mix) => STEMS
-  .map((stem) => ({
-    id: stem.id,
-    name: stem.name,
-    db: toStep(dbOf(mix[stem.id]?.gain ?? STEM_FLAT.gain), 0.1),
-    pan: mix[stem.id]?.pan ?? 0,
-    send: mix[stem.id]?.send ?? 0,
-  }));
+  .map((stem) => {
+    const db = toneIn(mix[stem.id]);
+    return {
+      id: stem.id,
+      name: stem.name,
+      db: toStep(dbOf(mix[stem.id]?.gain ?? STEM_FLAT.gain), 0.1),
+      pan: mix[stem.id]?.pan ?? 0,
+      send: mix[stem.id]?.send ?? 0,
+      // `null` rather than a zero, so a reveal can tell a stem that was left
+      // alone from one whose tone move happened to be nothing - which cannot
+      // happen, because of the floor, and would be worth seeing if it did.
+      tone: db === 0 ? null : { band: TONE_BANDS[stem.id], db },
+    };
+  });

@@ -49,6 +49,18 @@ export const MIX_TOLERANCE = {
   easy: { loudness: 1.2, balance: 1.8, placement: 1.0, width: 5.5, crest: 1.4 },
   medium: { loudness: 0.7, balance: 1.0, placement: 0.6, width: 2.8, crest: 0.8 },
   hard: { loudness: 0.35, balance: 0.55, placement: 0.3, width: 1.4, crest: 0.45 },
+  // Tone is marked on `balance` and on nothing else, because nothing else is
+  // being asked for: the levels, the placement and the room are given right.
+  // So balance is tight and the other four sit where the easy tier has them,
+  // which is loose enough not to fail somebody for a control they were not
+  // asked to touch and tight enough to catch one they broke.
+  //
+  // 0.5 is a measurement, not a taste. The faintest pair a tone round can
+  // ask for is late-room's keys at the mid, which reads 0.36 at two decibels
+  // and 0.57 at three; the floor on a tone move is three, so the tolerance
+  // has to sit between those two or a round at the floor arrives solved. See
+  // TONE_BANDS in brief.js for the whole table.
+  tone: { loudness: 1.2, balance: 0.5, placement: 1.0, width: 5.5, crest: 1.4 },
 };
 
 /** Close is twice the tolerance, as everywhere else in this app. */

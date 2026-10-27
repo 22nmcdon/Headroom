@@ -19,8 +19,9 @@
 import { pieceOf, dress, STEMS, STEM_IDS } from './piece.js';
 import {
   mixBrief, flatMix, movesIn, gainFor, dbOf, STEPS, TRIM,
-  MIX_TIERS, MIX_TIER_IDS, ANCHOR,
+  MIX_TIERS, MIX_TIER_IDS, ANCHOR, TONE_BANDS, TONED,
 } from './brief.js';
+import { EQ_REST } from '../sketch/knobs.js';
 import { renderMix, readMaster } from './render.js';
 import { markMix, mixAdvice, READING_NAMES } from './score.js';
 import { makeStage } from '../sketch/stage.js';
@@ -39,6 +40,31 @@ const writeSide = (pan) => {
 };
 
 const writeApart = (off) => `${off.toFixed(2)} dB`;
+
+/**
+ * What was done to one stem, for the reveal.
+ *
+ * A level of nothing is left out rather than printed as "0.0", which a tone
+ * round made necessary: every stem on one sits at its flat level, so the old
+ * line read "Bass 0.0; Keys 0.0" and said nothing about the only thing that
+ * had moved.
+ */
+const tellMove = (stem) => [
+  stem.name,
+  stem.db ? writeTrim(stem.db) : null,
+  stem.pan ? writeSide(stem.pan) : null,
+  stem.tone ? `${BAND_NAMES[stem.tone.band].toLowerCase()} ${writeTrim(stem.tone.db)}` : null,
+  stem.send ? `${Math.round(stem.send * 100)} in the room` : null,
+].filter(Boolean).join(' ');
+
+/** What a tone control reads. Zero is flat and says so rather than "0.0". */
+const writeTone = (db) => (db === 0 ? 'flat' : writeTrim(db));
+
+/** What each band is called where somebody has to read it. */
+const BAND_NAMES = { low: 'Low', mid: 'Mid', high: 'High' };
+
+/** And what it is, for the label a screen reader gets. */
+const BAND_AT = { low: '120 hertz', mid: '800 hertz', high: '6 kilohertz' };
 
 export class MixPage {
   constructor(el, { engine }) {
@@ -97,6 +123,20 @@ export class MixPage {
 
         <div class="strips" data-strips></div>
 
+        <!-- Its own section rather than three more dials on every strip.
+             Four columns like the desk above it, so at phone width it becomes
+             the next thing down instead of making each strip tall enough to
+             push its own knobs out of the chassis. Hidden on the tiers that
+             do not ask for it, because a control that does nothing is worse
+             than no control. -->
+        <div class="tone-desk" data-tone hidden>
+          <div class="tone-head">
+            <span class="tone-cap">Tone</span>
+            <span class="fine">120 Hz · 800 Hz · 6 kHz, fixed</span>
+          </div>
+          <div class="tone-strips" data-tone-strips></div>
+        </div>
+
         <div class="mix-result" data-result hidden></div>
         <p class="advice" data-advice hidden></p>
 
@@ -119,6 +159,8 @@ export class MixPage {
       play: $('[data-play]'),
       pos: $('[data-pos]'),
       strips: $('[data-strips]'),
+      tone: $('[data-tone]'),
+      toneStrips: $('[data-tone-strips]'),
       result: $('[data-result]'),
       advice: $('[data-advice]'),
       submit: $('[data-submit]'),
@@ -131,7 +173,7 @@ export class MixPage {
     on('[data-tier]', 'change', (e) => { this.tier = e.target.value; this.deal(); });
     on('[data-play]', 'click', () => this.toggle());
     on('[data-again]', 'click', () => this.deal());
-    on('[data-flat]', 'click', () => { this.mine = flatMix(); this.push(); this.drawStrips(); });
+    on('[data-flat]', 'click', () => { this.mine = this.start(); this.push(); this.drawDesk(); });
     on('[data-show]', 'click', () => this.reveal());
     on('[data-submit]', 'click', () => this.submit());
 
@@ -142,6 +184,7 @@ export class MixPage {
     // One listener for the desk, because the strips are redrawn whole.
     this.parts.strips.addEventListener('input', (e) => this.moved(e));
     this.parts.strips.addEventListener('click', (e) => this.pressed(e));
+    this.parts.toneStrips.addEventListener('input', (e) => this.toned(e));
   }
 
   /* --- a round ------------------------------------------------------------- */
@@ -150,7 +193,7 @@ export class MixPage {
     const brief = mixBrief(this.tier, roundSeed('mix', this.tier, Math.random()));
 
     this.round = { brief, piece: pieceOf(brief.piece), answer: null, stamp: null };
-    this.mine = flatMix();
+    this.mine = this.start();
     this.monitor = {};
     this.listening = 'mine';
     this.attempts = 0;
@@ -166,10 +209,28 @@ export class MixPage {
     this.parts.submit.disabled = false;
     this.parts.submit.textContent = 'Submit the mix';
 
-    this.drawStrips();
+    this.drawDesk();
     this.drawRecord();
     this.push();
     this.hear('mine');
+  }
+
+  /**
+   * The mix a round opens on.
+   *
+   * Flat, and on a tone round that includes a resting EQ on every stem - the
+   * same insert the answer has, so the two renders differ in what the EQ is
+   * set to and in nothing else. Measured, a resting one is a wire to within
+   * 6.33e-8 of a sample, so this costs the other tiers nothing it could be
+   * blamed for and it keeps the graph from being rebuilt under a moving
+   * slider.
+   */
+  start() {
+    const mix = flatMix();
+    if (!MIX_TIERS[this.tier]?.tones) return mix;
+    return Object.fromEntries(STEM_IDS.map((id) => [id, {
+      ...mix[id], inserts: ['eq'], settings: { eq: { ...EQ_REST } },
+    }]));
   }
 
   /** What the faders say, as a mix. */
@@ -190,6 +251,46 @@ export class MixPage {
   }
 
   /* --- the desk ------------------------------------------------------------ */
+
+  /** The whole desk: the strips, and the tone of them when a round asks. */
+  drawDesk() {
+    this.drawStrips();
+
+    const wanted = !!MIX_TIERS[this.tier]?.tones;
+    this.parts.tone.hidden = !wanted;
+    this.parts.toneStrips.innerHTML = wanted ? this.toneStrips() : '';
+  }
+
+  /**
+   * One column a stem, three bands each - except the drums.
+   *
+   * The kit is the reference here for the reason its fader is: something has
+   * to be the thing the others are heard against, and a round where every
+   * part can be any colour is a round with no reference tone in it. Said on
+   * the column rather than left as three disabled sliders nobody can explain.
+   */
+  toneStrips() {
+    return STEMS.map((stem) => {
+      const eq = this.mine[stem.id]?.settings?.eq ?? EQ_REST;
+      const toned = TONED.includes(stem.id);
+
+      const band = (id) => `
+        <label class="tone-band">
+          <span class="tone-band-name">${BAND_NAMES[id]}</span>
+          <input type="range" data-tone-band="${id}" data-stem="${stem.id}"
+                 min="-12" max="12" step="${STEPS.tone}" value="${eq[id] ?? 0}"
+                 aria-label="${stem.name}, ${BAND_NAMES[id].toLowerCase()} at ${BAND_AT[id]}"
+                 ${toned && TONE_BANDS[stem.id] === id ? '' : 'disabled'}>
+          <span class="tone-read" data-tone-read="${id}">${writeTone(eq[id] ?? 0)}</span>
+        </label>`;
+
+      return `
+        <div class="tone-strip" data-tone-stem="${stem.id}">
+          <span class="tone-name">${stem.name}${toned ? '' : ' <span class="fine">· reference</span>'}</span>
+          ${['low', 'mid', 'high'].map(band).join('')}
+        </div>`;
+    }).join('');
+  }
 
   drawStrips() {
     this.parts.strips.innerHTML = STEMS.map((stem) => {
@@ -262,6 +363,45 @@ export class MixPage {
 
     // Moving a fader while listening to the answer means you meant to move
     // yours. Anything else is a control that silently does nothing.
+    if (this.listening !== 'mine') this.hear('mine');
+    else this.push();
+  }
+
+  /**
+   * A tone control moved.
+   *
+   * Its own handler rather than a branch inside `moved`, because what it
+   * writes is a different shape: a band inside an insert's settings rather
+   * than one of the three numbers a strip holds.
+   */
+  toned(event) {
+    // The attribute is `data-tone-band`, not the obvious short name, which
+    // the EQ plugin's own six band buttons already use. Nothing broke -
+    // this listener is on the tone section and those buttons are in another
+    // view - but a selector that means two things in one document is a bug
+    // with a date on it. The browser check that found it was counting
+    // eighteen sliders where there are twelve.
+    const input = event.target.closest('[data-tone-band]');
+    if (!input) return;
+
+    const { toneBand: band, stem } = input.dataset;
+    const value = Number(input.value);
+    const was = this.mine[stem]?.settings?.eq ?? EQ_REST;
+
+    this.mine = {
+      ...this.mine,
+      [stem]: {
+        ...this.mine[stem],
+        inserts: ['eq'],
+        settings: { ...this.mine[stem]?.settings, eq: { ...was, [band]: value } },
+      },
+    };
+
+    const read = input.closest('.tone-strip')?.querySelector(`[data-tone-read="${band}"]`);
+    if (read) read.textContent = writeTone(value);
+
+    // Same rule as a fader: moving one while listening to the answer means
+    // you meant to move yours.
     if (this.listening !== 'mine') this.hear('mine');
     else this.push();
   }
@@ -424,15 +564,15 @@ export class MixPage {
   reveal() {
     this.mine = Object.fromEntries(STEM_IDS.map((id) => [id, { ...this.round.brief.target[id] }]));
     this.over = true;
-    this.drawStrips();
+    this.drawDesk();
     this.push();
 
     this.parts.submit.disabled = true;
     this.parts.submit.textContent = 'Shown';
     this.parts.advice.hidden = false;
     this.parts.advice.textContent = `That is where it was: ${movesIn(this.round.brief.target)
-      .filter((stem) => stem.db || stem.pan || stem.send)
-      .map((stem) => `${stem.name} ${writeTrim(stem.db)}${stem.pan ? ` ${writeSide(stem.pan)}` : ''}${stem.send ? `, ${Math.round(stem.send * 100)} in the room` : ''}`)
+      .filter((stem) => stem.db || stem.pan || stem.send || stem.tone)
+      .map((stem) => tellMove(stem))
       .join('; ')}.`;
 
     if (this.attempts) {

@@ -107,7 +107,16 @@ export function readMaster(buffer, source) {
   };
 }
 
-/** What makes a render a different render: the material and the mix on it. */
+/**
+ * What makes a render a different render: the material and the mix on it.
+ *
+ * `settings` as well as `inserts`, which is the difference between a stamp
+ * and a bug. An insert's id says it is there and nothing about what it is
+ * doing, so a desk with a +3 dB shelf on the bass and the same desk with a
+ * -3 dB one stamped identically - and the second would have come back from
+ * the cache as the first, which on a tone round is the answer being marked
+ * against a render of something else.
+ */
 export const mixStamp = (project) => stampOf({
   bpm: project.bpm,
   tracks: project.tracks.map((track) => ({
@@ -116,6 +125,7 @@ export const mixStamp = (project) => stampOf({
     send: track.send,
     muted: track.muted,
     inserts: track.inserts,
+    settings: track.settings,
     notes: track.slots[0]?.notes.length ?? 0,
   })),
 });

@@ -2950,6 +2950,73 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
   color: var(--cream);
 }
 
+/* Tone: its own section of the desk rather than three more dials on every
+   strip. Six dials a strip was twenty-four on the desk, and at 430px it made
+   each strip tall enough to push its own controls out through the bottom -
+   which is the fault tests/browser/faces.mjs exists to catch. Here the strips
+   are untouched and a phone gets this as the next thing down. */
+/* A rule and a caption rather than a bordered box. A box wants horizontal
+   padding, and padding insets its own grid - which put the tone columns 13px
+   left of the strips above them and made the section read as a separate
+   widget rather than as more of the same desk. Flush, they line up exactly,
+   and tests/browser/tone.mjs holds them to it at 1280. */
+.tone-desk {
+  border-top: 1px solid var(--gold);
+  padding: 12px 0 0;
+  margin: 0 0 18px;
+}
+.tone-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 10px;
+}
+.tone-cap {
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--gold);
+}
+
+/* The same four columns as .strips, at the same breakpoint, so the two read
+   as one desk rather than as a desk and a thing underneath it. */
+.tone-strips {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+@media (min-width: 720px) {
+  .tone-strips { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+}
+.tone-strip { min-width: 0; }
+.tone-name {
+  display: block;
+  font-family: var(--serif);
+  font-size: 14px;
+  color: var(--charcoal);
+  margin-bottom: 6px;
+}
+
+.tone-band {
+  display: grid;
+  grid-template-columns: 34px 1fr 38px;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 5px;
+}
+.tone-band-name { font-size: 11px; color: var(--text-soft); }
+.tone-band input[type="range"] { width: 100%; accent-color: var(--gold); }
+.tone-band input[type="range"]:disabled { accent-color: var(--line); }
+.tone-read {
+  font-size: 11px;
+  color: var(--text-soft);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
 /* The marking. Five readings, each with its own colour and its own address. */
 .mix-result { margin: 18px 0 8px; }
 .marks {

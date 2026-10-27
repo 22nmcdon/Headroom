@@ -18,8 +18,16 @@
 import { newProject, setTrack, setNotes, barTicks } from '../sketch/project.js';
 import { PPQ } from '../sketch/midi.js';
 
-/** Where each part sits before anybody mixes it: flat, centred, no inserts. */
-export const STEM_FLAT = { gain: 0.8, pan: 0, send: 0, inserts: [], muted: false };
+/**
+ * Where each part sits before anybody mixes it: flat, centred, no inserts.
+ *
+ * `settings` is here rather than left off because a tone round puts an EQ on
+ * every stem, and a stem spread over this without a settings object of its
+ * own would share the one on the template.
+ */
+export const STEM_FLAT = {
+  gain: 0.8, pan: 0, send: 0, inserts: [], settings: {}, muted: false,
+};
 
 const E = PPQ / 2;   // an eighth
 const Q = PPQ;       // a quarter

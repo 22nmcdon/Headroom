@@ -12,8 +12,9 @@ import {
 } from '../src/mix/piece.js';
 import {
   mixBrief, flatMix, movesIn, gainFor, dbOf, STEPS, MOVABLE, ANCHOR,
-  MIX_TIERS, MIX_TIER_IDS, ROOM_FOR, LEAST,
+  MIX_TIERS, MIX_TIER_IDS, ROOM_FOR, LEAST, TONE_BANDS, TONE_LEAST, toneIn,
 } from '../src/mix/brief.js';
+import { EQ_REST } from '../src/sketch/knobs.js';
 import {
   markMix, markReading, mixAdvice, howClose, MIX_TOLERANCE, toleranceFor,
   READING_NAMES, HIT, NEAR, MISS,
@@ -343,4 +344,109 @@ test('closeness runs from nothing to one and never leaves it', () => {
 
   const middling = howClose(markMix(master({ balance: 3.6 }), answer, 'easy'));
   assert.ok(middling > 0 && middling < 1, `read ${middling}`);
+});
+
+/* --- tone ----------------------------------------------------------------- */
+
+// The fourth tier. Levels, placement and the room are given right; two parts
+// are the wrong colour. Marked on the master's balance reading, which is
+// already one of the five and already band-wise - the measurements that say
+// this is markable where a compressor insert is not are in brief.js, beside
+// the table they set.
+
+test('the tone tier moves tone, and tone is all it moves', () => {
+  for (let seed = 0; seed < 60; seed += 1) {
+    const { target } = mixBrief('tone', seed * 211);
+    let moved = 0;
+
+    for (const id of STEM_IDS) {
+      assert.equal(target[id].gain, STEM_FLAT.gain, `${id} had its level moved`);
+      assert.equal(target[id].pan, 0, `${id} was panned`);
+      assert.equal(target[id].send, 0, `${id} was sent to the room`);
+      if (toneIn(target[id])) moved += 1;
+    }
+
+    assert.equal(moved, MIX_TIERS.tone.tones,
+      `${moved} stems were given a tone move and the tier asks for ${MIX_TIERS.tone.tones}`);
+  }
+});
+
+test('every stem carries the insert, so moving a tone slider does not rebuild the graph', () => {
+  // A track's graph is its instrument and its inserts, and a change of
+  // inserts is a new graph under a running loop - which clicks. The resting
+  // EQ is a wire, measured: the whole desk with one on every stem rendered
+  // against the same desk with no inserts at all came back within 6.33e-8 a
+  // sample, which is float32 rounding. So it stays on.
+  for (let seed = 0; seed < 20; seed += 1) {
+    const { target } = mixBrief('tone', seed * 977);
+    for (const id of STEM_IDS) {
+      assert.deepEqual(target[id].inserts, ['eq'], `${id} is missing its insert`);
+      assert.ok(target[id].settings?.eq, `${id} has no EQ settings`);
+    }
+  }
+});
+
+test('a tone move lands on the band the stem lives in', () => {
+  // Measured: a high-shelf move on any of these stems never reaches the
+  // easy tier's tolerance, even at six decibels - there is nothing up there
+  // to move. A round asking for one would arrive already solved.
+  for (let seed = 0; seed < 60; seed += 1) {
+    const { target } = mixBrief('tone', seed * 613);
+    for (const id of STEM_IDS) {
+      const eq = target[id].settings.eq;
+      for (const band of ['low', 'mid', 'high']) {
+        if (eq[band] === 0) continue;
+        assert.equal(band, TONE_BANDS[id],
+          `${id} was moved at ${band} and the band it lives in is ${TONE_BANDS[id]}`);
+      }
+    }
+  }
+});
+
+test('a tone move is never too small to be a move, and sits on the control', () => {
+  for (let seed = 0; seed < 60; seed += 1) {
+    const { target } = mixBrief('tone', seed * 83);
+    for (const id of STEM_IDS) {
+      const db = toneIn(target[id]);
+      if (db === 0) continue;
+      assert.ok(Math.abs(db) >= TONE_LEAST, `${id} was moved by ${db} dB`);
+      assert.ok(Math.abs(db) <= MIX_TIERS.tone.tone[1] + 1e-9, `${id} was moved by ${db} dB`);
+      assert.equal(db, toStep(db, STEPS.tone), `${id} at ${db} is off the control's step`);
+    }
+  }
+});
+
+test('the mid frequency never moves, because the target space is the amount', () => {
+  // The band is fixed at 800 Hz on every round. Every measurement behind this
+  // tier was taken there, and a movable corner would be a second variable in
+  // a round that is meant to have one.
+  for (let seed = 0; seed < 40; seed += 1) {
+    const { target } = mixBrief('tone', seed * 41);
+    for (const id of STEM_IDS) {
+      assert.equal(target[id].settings.eq.midHz, EQ_REST.midHz, `${id} moved the corner`);
+    }
+  }
+});
+
+test('the reveal says what the tone move was', () => {
+  for (let seed = 0; seed < 20; seed += 1) {
+    const { target } = mixBrief('tone', seed * 29);
+    const moved = movesIn(target).filter((stem) => stem.tone);
+    assert.equal(moved.length, MIX_TIERS.tone.tones, 'the reveal lost a move');
+    for (const stem of moved) {
+      assert.ok(stem.tone.band, `${stem.name} has no band to name`);
+      assert.ok(Math.abs(stem.tone.db) >= TONE_LEAST, `${stem.name} at ${stem.tone.db}`);
+    }
+  }
+});
+
+test('the other tiers have no tone in them at all', () => {
+  for (const tier of ['easy', 'medium', 'hard']) {
+    for (let seed = 0; seed < 30; seed += 1) {
+      const { target } = mixBrief(tier, seed * 53);
+      for (const id of STEM_IDS) {
+        assert.equal(toneIn(target[id]), 0, `${tier} gave ${id} a tone move`);
+      }
+    }
+  }
 });
