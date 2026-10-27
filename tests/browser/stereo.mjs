@@ -30,6 +30,33 @@ export const name = 'stereo';
 /** Near enough for a render: a tenth of a decibel. */
 const CLOSE = 0.1;
 
+/**
+ * How far off centre a hard-panned source has to read, in decibels.
+ *
+ * The placement reading clamps at MOST_OFF_CENTRE, which is 24, and all six
+ * inserts measured exactly that on a source with nothing on the other side.
+ * Twenty is the bar rather than twenty-four so that an insert which legally
+ * pulls a little toward the middle - a room does - is not a failure, while
+ * one that has collapsed to mono, which reads zero, is.
+ */
+const SIDED = 20;
+
+/**
+ * And how far off centre a centred source is allowed to come out.
+ *
+ * Half a decibel for five of the six. The reverb is the exception and it is
+ * geometry rather than a fault: `imageSources` puts the source at 0.37 across
+ * the room and the listener's two ears either side of 0.68, so the source is
+ * off the median plane by nearly a third of the width and the left ear really
+ * is nearer. Measured at 1.11 dB, which is what a room does and what a plate
+ * would not - so it is allowed two and held to it, rather than waved through.
+ */
+const CENTRED = { reverb: 2 };
+const CENTRED_ELSE = 0.5;
+
+/** Below this an out-of-phase pair has been summed away rather than passed. */
+const SURVIVED = 0.1;
+
 export async function check({ browser, at, say }) {
   const problems = [];
   const page = await browser.newPage();
@@ -195,6 +222,120 @@ export async function check({ browser, at, say }) {
   if (bite.drift > 0.05) {
     problems.push(`compressing hard moved the image: the sides drifted ${bite.drift.toFixed(3)} `
       + 'away from the 18:1 they went in at');
+  }
+
+  // Then every insert, not only this one.
+  //
+  // The fault above was the compressor's, and its two siblings that are built
+  // the same way declare themselves two in and two out - but four of the six
+  // are not worklets at all. The EQ is a chain of biquads, the reverb is a
+  // ConvolverNode fed an impulse, the delay is a line of its own, and the
+  // panner is the imager. None of them had ever been asked.
+  //
+  // What is asked is not "is it a wire", because a reverb is not and should
+  // not be. It is whether the channels survive at all, and the test that
+  // works for every effect regardless of what it does is this: a source hard
+  // left and the same source hard right have to come out as different
+  // pictures. An insert that has collapsed to mono gives the same answer to
+  // both, and that is true whatever processing sits in front of the collapse.
+  //
+  // Measured, at each insert's own default settings:
+  //
+  //     insert        hard left   hard right   centred   out of phase, peak
+  //     eq               24.00       -24.00      0.00   4.97e-1
+  //     compression      24.00       -24.00      0.00   4.72e-1
+  //     panning          24.00       -24.00      0.00   5.01e-1
+  //     reverb           24.00       -24.00      1.11   4.85e-1
+  //     delay            24.00       -24.00      0.00   4.85e-1
+  //     saturation       24.00       -24.00      0.00   4.47e-1
+  //
+  // All six clean, which is the result this was written to get rather than
+  // the one it was expecting. It stays because the contract it holds is one
+  // the compressor already broke once, and nothing else was watching.
+  const every = await page.evaluate(async () => {
+    const { makeEffect, EFFECT_IDS } = await import('./src/core/effects.js');
+    const { optionsFor } = await import('./src/sketch/knobs.js');
+    const { placementOf } = await import('./src/mix/placement.js');
+
+    const RATE = 48000;
+    const N = Math.round(RATE * 0.8);
+
+    // A burst rather than a steady tone, so the two inserts that work in time
+    // - the reverb and the delay - have an edge to act on.
+    const make = (ctx, gl, gr) => {
+      const buf = ctx.createBuffer(2, N, RATE);
+      for (let i = 0; i < N; i += 1) {
+        const t = i / RATE;
+        const env = t < 0.25 ? Math.exp(-t * 8) : 0;
+        const s = Math.sin((2 * Math.PI * 300 * i) / RATE) * env;
+        buf.getChannelData(0)[i] = s * gl;
+        buf.getChannelData(1)[i] = s * gr;
+      }
+      return buf;
+    };
+
+    const through = async (id, gl, gr) => {
+      const ctx = new OfflineAudioContext(2, N, RATE);
+      const src = ctx.createBufferSource();
+      src.buffer = make(ctx, gl, gr);
+      const fx = await makeEffect(ctx, id, optionsFor(id, {}));
+      src.connect(fx.in);
+      fx.out.connect(ctx.destination);
+      src.start();
+      const done = await ctx.startRendering();
+      const L = done.getChannelData(0);
+      const R = done.getChannelData(1);
+      let peak = 0;
+      for (let i = 0; i < N; i += 1) peak = Math.max(peak, Math.abs(L[i]), Math.abs(R[i]));
+      return { side: placementOf(L, R, RATE).whole, peak };
+    };
+
+    const out = [];
+    for (const id of EFFECT_IDS) {
+      out.push({
+        id,
+        left: (await through(id, 0.6, 0)).side,
+        right: (await through(id, 0, 0.6)).side,
+        centred: (await through(id, 0.45, 0.45)).side,
+        flipped: (await through(id, 0.5, -0.5)).peak,
+      });
+    }
+    return out;
+  });
+
+  say('');
+  say('  every insert at its defaults, fed four stereo pictures');
+  say('');
+  say('  insert        hard left   hard right   centred   out of phase, peak');
+  for (const r of every) {
+    say(`  ${r.id.padEnd(12)} ${r.left.toFixed(2).padStart(9)} `
+      + `${r.right.toFixed(2).padStart(12)} ${r.centred.toFixed(2).padStart(9)}   `
+      + `${r.flipped.toExponential(2)}`);
+  }
+
+  for (const r of every) {
+    if (r.left < SIDED) {
+      problems.push(`${r.id}: a source hard left came out ${r.left.toFixed(2)} dB off centre, `
+        + `and anything under ${SIDED} is an insert that has lost a channel`);
+    }
+    if (r.right > -SIDED) {
+      problems.push(`${r.id}: a source hard right came out ${r.right.toFixed(2)} dB off centre`);
+    }
+    // Mirrored, or the insert has a side it prefers - which the reverb is
+    // allowed to have and the other five are not.
+    const allowed = CENTRED[r.id] ?? CENTRED_ELSE;
+    if (Math.abs(r.left + r.right) > allowed * 2) {
+      problems.push(`${r.id}: hard left reads ${r.left.toFixed(2)} and hard right `
+        + `${r.right.toFixed(2)}, which are not the same picture either way round`);
+    }
+    if (Math.abs(r.centred) > allowed) {
+      problems.push(`${r.id}: a centred source came out ${r.centred.toFixed(2)} dB off centre, `
+        + `and it is allowed ${allowed}`);
+    }
+    if (r.flipped < SURVIVED) {
+      problems.push(`${r.id}: an out-of-phase pair came out at ${r.flipped.toExponential(2)}, `
+        + 'which is the two sides having been summed rather than passed');
+    }
   }
 
   await page.close();

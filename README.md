@@ -334,9 +334,15 @@ that doing it right is audible rather than merely scored:
 - **A sample player**, behind the instrument interface the synthesised ones
   already sit behind. Recordings play as clips; nothing yet plays one back
   at a pitch.
-- **Insert settings on a mix-exercise strip.** A sketchpad track's inserts
-  have three or four controls each; the mix desk's four stems are still
-  level, pan and send only.
+- **The rest of the inserts on a mix-exercise strip.** The desk has a tone
+  tier now - an EQ on every stem, three bands at fixed frequencies, marked on
+  the master's balance reading. The other five inserts are not there, and the
+  measurements say why: a compressor insert cannot be marked on a four-part
+  sum, because sixteen decibels of reduction on one stem moves the master's
+  crest reading by half a decibel, and the imager and its relatives have
+  nothing to act on, since the stems are mono parts and the pan is applied
+  after the inserts. Any of them arriving needs a reading that can see it
+  first.
 - **Reordering a track's inserts.** A chain is in series, so the order is
   audible, and the only way to change it is to take them all off.
 - Any server, account or automatic sync. Progress lives in `localStorage`, and
