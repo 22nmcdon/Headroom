@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   ECHO_DEFAULTS, DIVISIONS, SYNC_DIVISIONS, MOST_FEEDBACK, LONGEST_TIME,
-  SHORTEST_TIME, MOST_OFFSET, PING_FROM,
+  SHORTEST_TIME, MOST_OFFSET, PING_FROM, HEAD_PATTERNS,
   makeEcho, repeatsOf, echoProfile, timeOf, nearestDivision,
 } from '../src/plugins/delay/line.js';
 import {
@@ -438,9 +438,15 @@ test('the repeats a two-sided setting predicts are the repeats it makes', () => 
     // another at 760. Those two are one spike to the helper and, at ten
     // milliseconds, very nearly one sound to anybody - which is the whole
     // reason an offset this small is a width control rather than an echo.
-    const FLOOR = 0.02;
-    const said = repeatsOf(settings).filter((r) => r.level > FLOOR);
-    const found = spikes(monoOf(makeEcho(rate, settings)), FLOOR);
+    // The predicted list is not filtered by level, and that is deliberate. A
+    // floor on it would be a floor per repeat, where `spikes` puts one on the
+    // summed waveform - and repeats coincide: two sides and four heads put a
+    // left repeat at 0.0078 and a right one at 0.0156 both at 3000 ms, which
+    // sum past a floor that either of them alone sits under. `repeatsOf`
+    // stops a thousandth of the way down, far below the half-per-cent
+    // `spikes` works at, so the unfiltered list is a safe superset.
+    const said = repeatsOf(settings);
+    const found = spikes(monoOf(makeEcho(rate, settings)), 0.02);
 
     assert.ok(found.length >= 3, `${JSON.stringify(params)}: only ${found.length} repeats made`);
     for (const spike of found) {
@@ -466,4 +472,138 @@ test('every routing says which side each repeat is on', () => {
   const offset = repeatsOf({ ...ECHO_DEFAULTS, time: 250, offset: 90, feedback: 0.5 });
   assert.ok(offset.some((r) => r.side === 'left'), 'an offset delay has a left of its own');
   assert.ok(offset.some((r) => r.side === 'right'), 'and a right');
+});
+
+/* --- heads ------------------------------------------------------------------ */
+
+test('every head pattern ends on the time the knob says', () => {
+  // The taps are fractions of the time rather than multiples of it, so the
+  // knob always means the longest repeat. Multiples would have put the last
+  // head of a four-head pattern four times further out than the number on
+  // the control, and off the end of the range at anything over a third of it.
+  for (const pattern of HEAD_PATTERNS) {
+    assert.equal(pattern.taps[pattern.taps.length - 1], 1,
+      `${pattern.id} does not end on the time`);
+    for (const tap of pattern.taps) {
+      assert.ok(tap > 0 && tap <= 1, `${pattern.id} has a tap at ${tap}`);
+    }
+    for (let i = 1; i < pattern.taps.length; i += 1) {
+      assert.ok(pattern.taps[i] > pattern.taps[i - 1], `${pattern.id} is not in order`);
+    }
+  }
+});
+
+test('one head is the delay that was here before heads existed', () => {
+  const was = echo({ time: 375, feedback: 0.5 });
+  const now = echo({ time: 375, feedback: 0.5, heads: 'single' });
+  let worst = 0;
+  for (let i = 0; i < Math.min(was.length, now.length); i += 1) {
+    worst = Math.max(worst, Math.abs(was.channels[0][i] - now.channels[0][i]));
+  }
+  assert.equal(worst, 0, 'a single head should be exactly the old single tap');
+});
+
+test('four equal heads are a rhythm, not a wash', () => {
+  // Binson's drum: four heads equally spaced round it, so with the longest on
+  // a quarter note the others land on a sixteenth, an eighth and a dotted
+  // eighth. That is where the dotted-eighth guitar idiom comes from.
+  const ir = echo({
+    time: 400, feedback: 0.4, heads: 'heads4', tone: 20000, lowCut: 20,
+  });
+  const at = spikes(ir.channels[0], 0.05).map((s) => Math.round(s.ms));
+  assert.deepEqual(at.slice(0, 4), [100, 200, 300, 400], `they landed at ${at.join(', ')}`);
+});
+
+test('three heads land where the hardware they come from puts them', () => {
+  // UA's model of the RE-201 gives head ranges of 69-177, 131-337 and
+  // 189-489 ms, which is 1 : 1.90 : 2.75 at either end of the sweep. Taken as
+  // fractions of the longest, that is what these taps are. The folklore
+  // ratio is 1 : 2 : 3, and this is not that.
+  const ir = echo({
+    time: 489, feedback: 0.4, heads: 'heads3', tone: 20000, lowCut: 20,
+  });
+  const at = spikes(ir.channels[0], 0.05).map((s) => Math.round(s.ms));
+  assert.deepEqual(at.slice(0, 3), [178, 338, 489], `they landed at ${at.join(', ')}`);
+});
+
+test('a head pattern repeats as a whole', () => {
+  // The feedback is taken from the longest head, so what goes round is the
+  // pattern rather than one tap of it - which is what a tape loop with three
+  // heads on it does.
+  const ir = echo({
+    time: 400, feedback: 0.5, heads: 'heads4', tone: 20000, lowCut: 20,
+  });
+  const at = spikes(ir.channels[0], 0.02).map((s) => Math.round(s.ms));
+  assert.deepEqual(at.slice(0, 8), [100, 200, 300, 400, 500, 600, 700, 800],
+    `they landed at ${at.join(', ')}`);
+});
+
+test('more heads is more sound, and each head arrives at full level', () => {
+  // Every head is its own read of the same line, so each one comes back at
+  // the level that went in - the same contract one head is held to. Nothing
+  // is divided by the number of heads, because four heads on a Binson is
+  // four heads of sound.
+  const one = echo({ time: 400, feedback: 0.4, heads: 'single', tone: 20000, lowCut: 20 });
+  const four = echo({ time: 400, feedback: 0.4, heads: 'heads4', tone: 20000, lowCut: 20 });
+
+  const energyOf = (ir) => {
+    let energy = 0;
+    for (const channel of ir.channels) {
+      for (let i = 0; i < ir.length; i += 1) energy += channel[i] ** 2;
+    }
+    return energy;
+  };
+  assert.ok(energyOf(four) > energyOf(one) * 2,
+    'four heads should hold a good deal more sound than one');
+
+  for (const ir of [one, four]) {
+    const tallest = spikes(ir.channels[0], 0.05)[0];
+    assert.ok(Math.abs(tallest.level - 1) < 1e-6,
+      `the first head came back at ${tallest.level.toFixed(6)} rather than unity`);
+  }
+});
+
+test('the repeats a head pattern predicts are the repeats it makes', () => {
+  for (const params of [
+    { heads: 'heads3' },
+    { heads: 'heads4' },
+    { heads: 'heads4', offset: 80 },
+    { heads: 'heads3', pingPong: true },
+    { heads: 'heads4', pingPong: true, pingPongFrom: 'right' },
+  ]) {
+    const settings = {
+      ...ECHO_DEFAULTS, time: 400, feedback: 0.5, tone: 20000, lowCut: 20, ...params,
+    };
+    // The predicted list is not filtered by level, and that is deliberate. A
+    // floor on it would be a floor per repeat, where `spikes` puts one on the
+    // summed waveform - and repeats coincide: two sides and four heads put a
+    // left repeat at 0.0078 and a right one at 0.0156 both at 3000 ms, which
+    // sum past a floor that either of them alone sits under. `repeatsOf`
+    // stops a thousandth of the way down, far below the half-per-cent
+    // `spikes` works at, so the unfiltered list is a safe superset.
+    const said = repeatsOf(settings);
+    const found = spikes(monoOf(makeEcho(rate, settings)), 0.02);
+
+    assert.ok(found.length >= 4, `${JSON.stringify(params)}: only ${found.length} repeats made`);
+    for (const spike of found) {
+      const near = said.reduce(
+        (best, r) => (Math.abs(r.at * 1000 - spike.ms) < Math.abs(best.at * 1000 - spike.ms)
+          ? r : best),
+        said[0],
+      );
+      assert.ok(Math.abs(near.at * 1000 - spike.ms) < 2,
+        `${JSON.stringify(params)}: a repeat landed at ${spike.ms.toFixed(0)} ms and the `
+        + `nearest predicted was ${(near.at * 1000).toFixed(0)}`);
+    }
+  }
+});
+
+test('an unknown head pattern is one head rather than nothing', () => {
+  const ir = echo({ time: 375, feedback: 0.4, heads: 'binson-mk-9' });
+  const single = echo({ time: 375, feedback: 0.4, heads: 'single' });
+  let worst = 0;
+  for (let i = 0; i < ir.length; i += 1) {
+    worst = Math.max(worst, Math.abs(ir.channels[0][i] - single.channels[0][i]));
+  }
+  assert.equal(worst, 0, 'a pattern nobody has heard of should fall back to one head');
 });

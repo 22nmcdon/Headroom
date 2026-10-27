@@ -1,6 +1,6 @@
 import {
   ECHO_DEFAULTS, SYNC_DIVISIONS, makeEcho, timeOf, nearestDivision,
-  ECHO_LIMITS, PING_FROM,
+  ECHO_LIMITS, PING_FROM, HEAD_PATTERNS,
 } from './line.js';
 import {
   RESPONSE_BANDS, DECAY_FLOOR, decayProfile, decayTimes, wetDryImpulse, decayReading, decayAxis
@@ -171,6 +171,12 @@ export class EchoPlugin {
               ${SYNC_DIVISIONS.map((d) => `<option value="${d.id}">${d.label}</option>`).join('')}
             </select>
           </label>
+          <label class="field">
+            <span class="field-label">Heads</span>
+            <select id="echoHeads">
+              ${HEAD_PATTERNS.map((p) => `<option value="${p.id}">${p.label}</option>`).join('')}
+            </select>
+          </label>
           <label class="toggle">
             <input type="checkbox" id="echoPingPong"> Ping-pong
           </label>
@@ -238,6 +244,13 @@ export class EchoPlugin {
       if (!this.interactive) return;
       this.settings.pingPong = e.target.checked;
       this.showFrom();
+      this.changed();
+    });
+
+    this.el.querySelector('#echoHeads').addEventListener('change', (e) => {
+      if (!this.interactive) return;
+      this.settings.heads = HEAD_PATTERNS.some((p) => p.id === e.target.value)
+        ? e.target.value : 'single';
       this.changed();
     });
 
@@ -344,6 +357,8 @@ export class EchoPlugin {
     if (field) field.hidden = !this.settings.pingPong;
     const pick = this.el.querySelector('#echoFrom');
     if (pick) pick.value = this.settings.pingPongFrom ?? 'left';
+    const heads = this.el.querySelector('#echoHeads');
+    if (heads) heads.value = this.settings.heads ?? 'single';
   }
 
   syncKnobs() {

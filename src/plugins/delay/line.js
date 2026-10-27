@@ -21,11 +21,69 @@ export const ECHO_DEFAULTS = {
   pingPong: false,   // repeats alternating ears
   pingPongFrom: 'left', // which ear they start in
   offset: 0,         // ms the right side is behind the left, or in front of it
+  heads: 'single',   // how many places the line is read from
   mix: 0.3,
 };
 
 /** Which side a ping-pong may be started from. */
 export const PING_FROM = ['left', 'right'];
+
+/**
+ * The heads a delay can be read with, as fractions of the time on the knob.
+ *
+ * Fractions and not multiples, so the knob always means the longest repeat.
+ * Multiples would put the last head of a four-head pattern four times further
+ * out than the number on the control, and off the end of the range at
+ * anything past a third of it.
+ *
+ * The feedback is taken from the longest head, so what goes round is the
+ * whole pattern rather than one tap of it - which is what a tape loop with
+ * three heads on it does.
+ *
+ * `heads3` is the RE-201's three playback heads. UA's model of the unit gives
+ * head ranges of 69-177 ms, 131-337 and 189-489, which is 1 : 1.90 : 2.75 at
+ * either end of the sweep; as fractions of the longest that is what these are.
+ * The ratio repeated in guides is 1 : 2 : 3, and the hardware is not that -
+ * so the measured figures win and the folklore is noted rather than used.
+ *
+ * `heads4` is Binson's drum: four heads equally spaced around it. With the
+ * longest on a quarter note the others land on a sixteenth, an eighth and a
+ * dotted eighth, which is where the dotted-eighth guitar idiom came from.
+ *
+ * What these cannot be is marked, and that is worth saying here rather than
+ * discovering while writing an exercise. Read the way a delay guess is read -
+ * as an energy decay curve - the patterns are almost the same thing:
+ *
+ *                 single    heads3    heads4
+ *     single        0.00      1.16      1.32
+ *     heads3        1.16      0.00      0.45
+ *     heads4        1.32      0.45      0.00
+ *
+ * The tolerances that decide a pass are 2.6, 1.9 and 1.2 dB, so three heads
+ * against four is a hit at every tier and one head against four is a hit at
+ * two of the three. A decay curve says how the energy falls away and adding
+ * earlier heads barely changes that - they fill in between the repeats while
+ * the slope stays the feedback's. The positions are in the response and the
+ * reading is not looking at them.
+ *
+ * Worse for an exercise, a time error swamps a pattern error: one head at
+ * 300 ms against four at 400 reads 3.76 dB, so somebody could use the wrong
+ * pattern and pass by getting the time right.
+ *
+ * So these are a sound to use and not yet a question to be asked. "Which
+ * pattern?" wants a reading that looks at where the repeats are rather than
+ * at how the energy goes - which is what `repeatsOf` below already describes,
+ * and what diffusion would need too.
+ */
+export const HEAD_PATTERNS = [
+  { id: 'single', label: 'One head', taps: [1] },
+  { id: 'heads3', label: 'Three heads', taps: [1 / 2.75, 1.9 / 2.75, 1] },
+  { id: 'heads4', label: 'Four heads', taps: [0.25, 0.5, 0.75, 1] },
+];
+
+/** One pattern, by id, and one head for anything that is not a pattern. */
+export const headsOf = (id) =>
+  HEAD_PATTERNS.find((pattern) => pattern.id === id) ?? HEAD_PATTERNS[0];
 
 /** As long as a repeat may be, and as much of it as may go round again. */
 export const LONGEST_TIME = 1500;
@@ -155,6 +213,14 @@ export function makeEcho(rate, params = {}) {
   const lines = steps.map((n) => new Float32Array(n));
   const ats = [0, 0];
   const from = startsAt(settings);
+
+  // Where each head reads, in samples back from the write head. The longest
+  // is the line itself, which is the one the feedback is taken from, so it is
+  // read as the sample about to be overwritten rather than as an offset.
+  const taps = steps.map((n) => headsOf(settings.heads).taps
+    .slice(0, -1)
+    .map((tap) => Math.max(1, Math.round(n * tap)))
+    .filter((d) => d < n));
   const tone = channels.map(() => setBiquad(makeBiquad(), 'lowpass', settings.tone, rate));
   const cut = channels.map(() => setBiquad(makeBiquad(), 'highpass', settings.lowCut, rate));
 
@@ -162,9 +228,19 @@ export function makeEcho(rate, params = {}) {
     // An impulse in, once.
     const input = i === 0 ? 1 : 0;
 
+    // The longest head: the sample written a whole line ago, which is both an
+    // output and the only thing that goes round again.
     const taken = [lines[0][ats[0]], lines[1][ats[1]]];
     channels[0][i] = taken[0];
     channels[1][i] = taken[1];
+
+    // And the shorter heads, which are heard and not fed back - so a pattern
+    // repeats as a pattern instead of each head breeding its own train.
+    for (let c = 0; c < 2; c += 1) {
+      for (const d of taps[c]) {
+        channels[c][i] += lines[c][(ats[c] - d + steps[c]) % steps[c]];
+      }
+    }
 
     // Each side is filtered once a sample, and then routed. Filtering it
     // again on the way past the other channel would be running one filter's
@@ -275,22 +351,31 @@ export function repeatsOf(settings) {
     if (seconds <= LONGEST_TAIL && !dies(level)) found.push({ at: seconds, level, side });
   };
 
+  // The heads, as fractions of each side's own time. Every pass of the loop
+  // sounds all of them, because the feedback is taken from the longest.
+  const { taps } = headsOf(settings.heads);
+
   if (settings.pingPong) {
     // One leg at a time, alternating: the side it starts on for one time, the
-    // other for the other, so the n-th repeat is however many of each it has
+    // other for the other, so the n-th pass is however many of each it has
     // been through. Even on the same time this is the series that makes a
     // ping-pong - the round trip is the two legs together.
     const from = settings.pingPongFrom === 'right' ? 'right' : 'left';
+    const other = from === 'left' ? 'right' : 'left';
     const legs = from === 'right' ? [right, left] : [left, right];
     let when = 0;
     let level = 1;
     for (let n = 0; when <= LONGEST_TAIL && !dies(level); n += 1) {
-      when += legs[n % 2];
-      add(when, level, n % 2 === 0 ? from : (from === 'left' ? 'right' : 'left'));
+      const leg = legs[n % 2];
+      const side = n % 2 === 0 ? from : other;
+      // The heads of this pass land inside the leg it is on, and the last of
+      // them is the leg itself.
+      for (const tap of taps) add(when + leg * tap, level, side);
+      when += leg;
       level *= feedback;
       if (feedback <= 0.001) break;
     }
-    return found;
+    return found.sort((a, b) => a.at - b.at);
   }
 
   // Both sides fed, so each has its own train - and when the two times are
@@ -299,8 +384,8 @@ export function repeatsOf(settings) {
   const together = left === right;
   for (const [side, time] of [['left', left], ['right', right]]) {
     let level = 1;
-    for (let n = 1; n * time <= LONGEST_TAIL && !dies(level); n += 1) {
-      add(n * time, level, together ? 'both' : side);
+    for (let n = 0; n * time <= LONGEST_TAIL && !dies(level); n += 1) {
+      for (const tap of taps) add((n + tap) * time, level, together ? 'both' : side);
       level *= feedback;
       if (feedback <= 0.001) break;
     }
