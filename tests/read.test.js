@@ -599,3 +599,84 @@ test('a gap is normalised however its comparator phrased it', () => {
   assert.deepEqual(gapOf({ off: 2, where: '3rd harmonic', detail: { louder: -2 } }),
     { off: 2, where: '3rd harmonic', detail: { louder: -2 } });
 });
+
+/* --- a reading over two channels ------------------------------------------ */
+
+test('a stereo pair is not the same material as its left channel', () => {
+  // The stamp is what stops two readings over different loops being compared,
+  // and a pair against one side of itself is exactly that case: the trace is
+  // driven by the louder of the two in one and by the left alone in the
+  // other. If the stamps matched, the comparison would hand back a number
+  // rather than an error, which this file already calls the worst way to be
+  // wrong.
+  const rng = mulberry32(0x5712);
+  const L = new Float32Array(rate);
+  const R = new Float32Array(rate);
+  for (let i = 0; i < rate; i += 1) {
+    L[i] = (rng() * 2 - 1) * 0.2;
+    R[i] = (rng() * 2 - 1) * 0.9;
+  }
+
+  assert.notEqual(materialStamp([L, R]), materialStamp(L));
+  assert.notEqual(materialStamp([L, R]), materialStamp([R, L]));
+
+  const wide = reductionReading([L, R], rate, COMP_DEFAULTS);
+  const narrow = reductionReading(L, rate, COMP_DEFAULTS);
+  assert.match(comparable(wide, narrow), /different axes/);
+});
+
+test('one channel is one channel, in an array or not', () => {
+  // So that a mono file does not become a different measurement for having
+  // arrived in an array, and stays comparable with every reading taken
+  // before a reading could hold two channels at all.
+  const signal = new Float32Array(rate);
+  for (let i = 0; i < rate; i += 1) signal[i] = Math.sin((2 * Math.PI * 180 * i) / rate) * 0.6;
+
+  assert.equal(materialStamp([signal]), materialStamp(signal));
+
+  const asArray = reductionReading([signal], rate, COMP_DEFAULTS);
+  const asOne = reductionReading(signal, rate, COMP_DEFAULTS);
+  assert.equal(comparable(asArray, asOne), null);
+  assert.equal(distance(asArray, asOne).off, 0);
+});
+
+test('a pair of the same signal measures as that signal', () => {
+  // The stamp says what the measurement was taken over, so a pair is stamped
+  // as the pair it is - a dual-mono file is not pretended to be a mono one.
+  // What has to agree is the answer, and it agrees exactly: the detector
+  // takes the louder of two equal levels and both delay lines carry the same
+  // samples, so there is nothing for it to differ by.
+  const signal = new Float32Array(rate);
+  for (let i = 0; i < rate; i += 1) signal[i] = Math.sin((2 * Math.PI * 180 * i) / rate) * 0.6;
+  const settings = { ...COMP_DEFAULTS, threshold: -26, ratio: 6 };
+
+  const pair = reductionReading([signal, signal], rate, settings);
+  const one = reductionReading(signal, rate, settings);
+
+  assert.equal(pair.values.deepest, one.values.deepest);
+  assert.equal(pair.values.average, one.values.average);
+  assert.equal(pair.values.makeup, one.values.makeup);
+  for (let f = 0; f < one.values.gr.length; f += 1) {
+    assert.equal(pair.values.gr[f], one.values.gr[f], `frame ${f} differs`);
+  }
+});
+
+test('a stereo reading is the reduction both sides got', () => {
+  // The fault in one assertion: a lopsided pair read as a pair has to differ
+  // from the same pair read as its left channel, and it has to be the deeper
+  // of the two, because the detector takes the louder side.
+  const L = new Float32Array(rate);
+  const R = new Float32Array(rate);
+  for (let i = 0; i < rate; i += 1) {
+    const s = Math.sin((2 * Math.PI * 180 * i) / rate);
+    L[i] = s * 0.15;
+    R[i] = s * 0.9;
+  }
+  const settings = { ...COMP_DEFAULTS, threshold: -30, ratio: 8 };
+
+  const wide = reductionReading([L, R], rate, settings);
+  const left = reductionReading(L, rate, settings);
+  assert.ok(wide.values.deepest < left.values.deepest - 1,
+    `both sides ${wide.values.deepest.toFixed(2)} dB against the left alone `
+    + `${left.values.deepest.toFixed(2)} dB`);
+});

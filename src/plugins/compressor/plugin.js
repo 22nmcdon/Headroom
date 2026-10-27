@@ -992,6 +992,7 @@ export class CompPlugin {
   async setSource(id, { key, uneven } = {}) {
     this.player.source = id;
     this.player.samples = null;
+    this.player.channels = null;
     // The key and the fault travel with the source because they are part of
     // what the material is: ducking needs a kick to duck to, and levelling
     // needs a bed that is actually uneven. They were constructor arguments,
@@ -1067,7 +1068,11 @@ export class CompPlugin {
       state: stampOf(this.state()),
       source: this.player.source ?? null,
       axis: { kind: 'frames', ms: FRAME_MS, rate: this.engine?.ctx?.sampleRate ?? 48000,
-              over: materialStamp(this.player.samples) },
+              // The channels, not the first of them: a reading over a
+              // stereo pair is stamped as the pair, and an axis built from
+              // one side of it would be refused as different material - by
+              // the very guard that exists to refuse exactly that.
+              over: materialStamp(this.player.channels) },
     };
 
     if (!this.player.samples) return notReady({ tool: 'compression', kind: 'reduction', of });

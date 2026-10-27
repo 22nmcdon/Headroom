@@ -19,11 +19,26 @@
 // composing a chain report out of these would inherit a 240,000-element array
 // and a shape nothing else in the app has.
 
-import { analyse, meanFrames } from './dsp.js';
+import { analyse, analyseStereo, meanFrames } from './dsp.js';
 import { readingOf, stampOf } from '../../lib/read.js';
 
 /** How long a frame is. The number the scoring was already calibrated on. */
 export const FRAME_MS = 5;
+
+/**
+ * The channels of whatever was handed over, as an array.
+ *
+ * One buffer or a list of them, because a reading is taken over mono material
+ * everywhere except the one path where somebody loads their own stereo file.
+ * A list of one is the mono case and is stamped and measured as such, so
+ * nothing had to change at the callers that were already right.
+ *
+ * Not `channelsOf`, which the analysis page owns, and not `channelsIn`, which
+ * the mix render owns - the bundler flattens every module into one scope and
+ * refuses a duplicate, which is how both of those were found rather than by
+ * remembering them.
+ */
+const overChannels = (material) => (Array.isArray(material) ? material : [material]);
 
 /**
  * Which audio this is a reading over, cheaply.
@@ -35,14 +50,29 @@ export const FRAME_MS = 5;
  *
  * Length and a strided checksum rather than a real hash: this runs on every
  * measurement and it only has to tell two loops apart, not resist anybody.
+ *
+ * Each channel is weighted by its own position, so a pair is told apart from
+ * either side of itself and from the same pair the other way round - which
+ * matters, because a stereo reading and a reading of its left channel are
+ * genuinely different measurements: one is driven by the louder of the two
+ * and the other by the left alone. A pair of identical channels is stamped as
+ * the pair it is rather than as the mono signal it contains; what a stamp
+ * describes is the material the measurement was taken over, and guessing at
+ * equivalence is how the false comparisons this exists to refuse get back in.
  */
-export function materialStamp(samples) {
-  if (!samples?.length) return 'none';
+export function materialStamp(material) {
+  const channels = overChannels(material);
+  const first = channels[0];
+  if (!first?.length) return 'none';
 
-  const stride = Math.max(1, Math.floor(samples.length / 64));
+  const stride = Math.max(1, Math.floor(first.length / 64));
   let sum = 0;
-  for (let i = 0; i < samples.length; i += stride) sum += samples[i] * (i + 1);
-  return `${samples.length}:${sum.toFixed(3)}`;
+  for (let c = 0; c < channels.length; c += 1) {
+    const samples = channels[c];
+    if (!samples?.length) continue;
+    for (let i = 0; i < samples.length; i += stride) sum += samples[i] * (i + 1) * (c + 1);
+  }
+  return `${first.length}:${sum.toFixed(3)}`;
 }
 
 /**
@@ -56,9 +86,18 @@ export function materialStamp(samples) {
  * The trace is handed back separately rather than put on the reading, because
  * it is not part of what the reading means: it is the same measurement at a
  * resolution nothing compares at.
+ *
+ * `material` is one buffer or a list of channels. Two of them are read as a
+ * stereo pair - one trace, because the compressor's gain is one gain - which
+ * is the trace the audio path applies rather than the one the left channel
+ * would have got on its own. See `analyseStereo` for what that was costing.
  */
-export function reductionPass(samples, rate, settings, key = null, into = null) {
-  const pass = analyse(samples, rate, settings, key, into);
+export function reductionPass(material, rate, settings, key = null, into = null) {
+  const channels = overChannels(material);
+  const pass = channels.length > 1
+    ? analyseStereo(channels[0], channels[1], rate, { ...settings, makeup: 0, listen: false },
+      key, into)
+    : analyse(channels[0], rate, settings, key, into);
 
   return {
     trace: pass.gr,
@@ -68,7 +107,7 @@ export function reductionPass(samples, rate, settings, key = null, into = null) 
       of: {
         state: stampOf(settings),
         source: null,
-        axis: { kind: 'frames', ms: FRAME_MS, rate, over: materialStamp(samples) },
+        axis: { kind: 'frames', ms: FRAME_MS, rate, over: materialStamp(material) },
       },
       values: {
         gr: meanFrames(pass.gr, rate, FRAME_MS),
@@ -81,8 +120,8 @@ export function reductionPass(samples, rate, settings, key = null, into = null) 
 }
 
 /** The reading alone, for whoever is not drawing anything. */
-export const reductionReading = (samples, rate, settings, key = null) =>
-  reductionPass(samples, rate, settings, key).reading;
+export const reductionReading = (material, rate, settings, key = null) =>
+  reductionPass(material, rate, settings, key).reading;
 
 /**
  * How far apart two compressors are, in what they did.

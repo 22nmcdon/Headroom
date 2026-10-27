@@ -32,6 +32,10 @@ export class CompPlayer {
     this.auto = true;
     this.ready = false;
     this.samples = null;
+    // The material as channels, which is what a reading is taken over. One
+    // entry for a bed, two for a stereo file somebody loaded - see
+    // `analyseStereo` for why the second one matters.
+    this.channels = null;
     this.keySamples = null;
     this.trace = null;      // reused between passes
     this.reading = null;    // what the last pass found
@@ -80,7 +84,16 @@ export class CompPlayer {
     if (!signal) return false;
 
     this.buffer = signal;
-    this.samples = signal.getChannelData(0);
+    // Two at most: the compressor's gain is one gain across the channels, so
+    // a pair is all the detector can be told apart by, and nothing upstream
+    // of here has ever been more than stereo.
+    this.channels = [];
+    for (let c = 0; c < Math.min(2, signal.numberOfChannels); c += 1) {
+      this.channels.push(signal.getChannelData(c));
+    }
+    // Still here, and still one array, for everything that wants a length or
+    // a picture rather than a measurement.
+    this.samples = this.channels[0];
 
     if (this.key) {
       const key = await this.engine.renderLoop(this.key);
@@ -134,13 +147,14 @@ export class CompPlayer {
     // reading" until the contract made it necessary to say which was which:
     // the display draws a quarter of a million points, the scoring compares
     // frames of five milliseconds, and they are not the same type.
-    const mine = reductionPass(this.samples, rate, this.settings, this.keySamples, this.trace);
+    const mine = reductionPass(
+      this.channels, rate, this.settings, this.keySamples, this.trace);
     this.reading = mine.reading;
     this.trace = mine.trace;
 
     if (this.target) {
       const theirs = reductionPass(
-        this.samples, rate, this.target, this.keySamples, this.targetTrace);
+        this.channels, rate, this.target, this.keySamples, this.targetTrace);
       this.targetReading = theirs.reading;
       this.targetTrace = theirs.trace;
     }

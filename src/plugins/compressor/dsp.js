@@ -716,6 +716,73 @@ export function analyse(input, rate, params, key = null, into = null) {
   };
 }
 
+/**
+ * The same pass over a stereo pair, and the same reading off it.
+ *
+ * One trace, not two, because the gain is one gain - the louder side decides
+ * and both sides get what it decided, so there is a single reduction to
+ * report and it is the one the ear is getting.
+ *
+ * It exists because the tool was drawing the wrong one. A stereo file loaded
+ * into the compressor went through the audio path as a pair and was measured
+ * on `getChannelData(0)`, so the scope drew a trace from the left channel
+ * while the detector was on the louder of the two. The deepest reduction
+ * agreed closely - which is why it went unseen - but the five-millisecond
+ * frames that the scoring compares at did not. Measured on the app's own
+ * spread beds, across three renders of each:
+ *
+ *     bed      setting   mean frame gap        worst frame gap
+ *     chords   gentle    0.42 / 0.43 / 0.43    1.86 / 1.92 / 1.80 dB
+ *     chords   hard      0.60 / 0.60 / 0.60    2.91 / 3.01 / 2.83
+ *     drums    gentle    0.21 / 0.21 / 0.21    1.74 / 1.73 / 1.74
+ *     drums    hard      0.18 / 0.18 / 0.18    2.74 / 2.73 / 2.73
+ *
+ * Three renders because the beds are not the same recording twice - the
+ * deepest reduction on a hard setting moved as much as 0.7 dB between them,
+ * so a single pass would have been a number with no error bar on it. The
+ * means are solid to a hundredth; the worst frame is about 1.8 dB on a gentle
+ * setting and about 3 dB on a hard one.
+ *
+ * It is zero now, on every row, because both sides are the same arithmetic.
+ *
+ * No mark was ever affected: every drill names its own generated bed and all
+ * of those are mono. It was the scope and the reading beside it, on the one
+ * path where somebody brings their own audio.
+ */
+export function analyseStereo(left, right, rate, params, key = null, into = null) {
+  const core = compressorCore(rate);
+  core.set({ ...params, makeup: 0, listen: false });
+
+  const gr = into && into.length === left.length ? into : new Float32Array(left.length);
+  let sumIn = 0;
+  let sumOut = 0;
+  let sumGr = 0;
+  let deepest = 0;
+
+  for (let i = 0; i < left.length; i += 1) {
+    core.stereo(left[i], right[i], key ? key[i] : 0);
+    gr[i] = core.reduction;
+    if (core.reduction < deepest) deepest = core.reduction;
+    sumGr += core.reduction;
+    // Both channels, because loudness is both channels: a makeup gain read
+    // off one side of a lopsided pair matches neither what was heard nor
+    // what was wanted.
+    sumIn += left[i] * left[i] + right[i] * right[i];
+    sumOut += core.left * core.left + core.right * core.right;
+  }
+
+  const count = Math.max(1, left.length * 2);
+  const before = Math.sqrt(sumIn / count);
+  const after = Math.sqrt(sumOut / count);
+
+  return {
+    gr,
+    deepest,
+    average: sumGr / Math.max(1, left.length),
+    makeup: before < 1e-9 || after < 1e-9 ? 0 : 20 * Math.log10(before / after),
+  };
+}
+
 /** Just the makeup gain, for when that is all anybody wanted. */
 export function autoGain(input, rate, params, key = null) {
   return analyse(input, rate, params, key).makeup;

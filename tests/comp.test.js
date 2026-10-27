@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import { signalRms, makeBiquad, setBiquad, runBiquad } from '../src/lib/dsp.js';
 import {
-  staticGain, compressorCore, runCompressor, runStereo, analyse, autoGain,
+  staticGain, compressorCore, runCompressor, runStereo, analyse, analyseStereo, autoGain,
   COMP_DEFAULTS, COMP_LIMITS, optoCell, MOST_OPTO,
 } from '../src/plugins/compressor/dsp.js';
 import { workletSource } from '../src/plugins/compressor/node.js';
@@ -915,4 +915,70 @@ test('the key is still the key when the signal has two channels', () => {
     ...COMP_DEFAULTS, threshold: -30, ratio: 8, sidechain: true,
   }, new Float32Array(key.length));
   assert.equal(quiet.deepest, 0, 'and a silent key should duck nothing');
+});
+
+test('a stereo pass is the mono one when both sides are the same, to the bit', () => {
+  // The same contract `step` is held to, one level up. The reading is what
+  // every mark is made on, so a stereo-capable reading that drifted from the
+  // mono one would move every tolerance in the compressor's drills.
+  const signal = burst(220, 0.9, 20, 200, 400);
+  const key = burst(60, 0.8, 0, 400, 400);
+
+  for (const params of [
+    {},
+    { detector: 'rms', rmsTime: 30 },
+    { threshold: -34, ratio: 10, attack: 1, release: 60 },
+    { sidechain: true, scHigh: 200 },
+    { family: 'opto', peakReduction: 0.7 },
+  ]) {
+    const settings = { ...COMP_DEFAULTS, ...params };
+    const mono = analyse(signal, RATE, settings, key);
+    const wide = analyseStereo(signal, signal, RATE, settings, key);
+
+    assert.equal(wide.deepest, mono.deepest, 'the deepest reduction differs');
+    assert.equal(wide.average, mono.average, 'the average reduction differs');
+    assert.equal(wide.makeup, mono.makeup, 'the makeup gain differs');
+    for (let i = 0; i < signal.length; i += 1) {
+      assert.equal(wide.gr[i], mono.gr[i], `the trace differs at sample ${i}`);
+    }
+  }
+});
+
+test('a stereo pass reads the reduction the audio path applies, not one side of it', () => {
+  // The fault this was built for. A stereo file loaded into the tool was
+  // heard through a detector on the louder of the two channels and drawn from
+  // the left one alone; measured on the app's spread beds, five-millisecond
+  // frames - the resolution the scoring compares at - were out by about
+  // 0.2 to 0.6 dB on average and by roughly 3 dB at worst. The trace a
+  // reading hands back has to be the trace the ear is getting.
+  const [L, R] = panned(0.2, 0.9);
+  const settings = { ...COMP_DEFAULTS, threshold: -30, ratio: 8, attack: 1, release: 60 };
+
+  const heard = runStereo(L, R, RATE, settings);
+  const read = analyseStereo(L, R, RATE, settings);
+  for (let i = 0; i < L.length; i += 1) {
+    assert.equal(read.gr[i], heard.gr[i], `the reading and the audio differ at ${i}`);
+  }
+
+  // And it is a different answer from the left channel alone, or there would
+  // have been nothing wrong in the first place.
+  const leftOnly = analyse(L, RATE, settings);
+  assert.ok(read.deepest < leftOnly.deepest - 1,
+    `the louder side should drive it deeper: both sides ${read.deepest.toFixed(2)} dB `
+    + `against the left alone ${leftOnly.deepest.toFixed(2)} dB`);
+});
+
+test('the makeup gain a stereo pass reports is over both sides', () => {
+  // Makeup is what takes loudness out of an A/B, and loudness is both
+  // channels. Reading it off one side of a lopsided pair would hand back a
+  // number that matched neither what was heard nor what was wanted.
+  const [L, R] = panned(0.1, 0.9);
+  const settings = { ...COMP_DEFAULTS, threshold: -26, ratio: 6 };
+  const both = analyseStereo(L, R, RATE, settings);
+  const leftOnly = analyse(L, RATE, settings);
+
+  assert.ok(both.makeup > 0, 'compressing should want some makeup back');
+  assert.ok(Math.abs(both.makeup - leftOnly.makeup) > 0.5,
+    `a quiet left channel should not set the makeup for the pair: ${both.makeup.toFixed(2)} `
+    + `against ${leftOnly.makeup.toFixed(2)}`);
 });
