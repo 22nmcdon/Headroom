@@ -19,13 +19,31 @@ export const ECHO_DEFAULTS = {
   tone: 6000,        // the low-pass inside the loop: repeats get darker
   lowCut: 120,       // the high-pass inside it: repeats get thinner
   pingPong: false,   // repeats alternating ears
+  pingPongFrom: 'left', // which ear they start in
+  offset: 0,         // ms the right side is behind the left, or in front of it
   mix: 0.3,
 };
+
+/** Which side a ping-pong may be started from. */
+export const PING_FROM = ['left', 'right'];
 
 /** As long as a repeat may be, and as much of it as may go round again. */
 export const LONGEST_TIME = 1500;
 export const SHORTEST_TIME = 20;
 export const MOST_FEEDBACK = 0.8;
+
+/**
+ * How far the two sides may be pulled apart, in milliseconds.
+ *
+ * A hundred and fifty covers both things an offset is for. Under about thirty
+ * the two sides fuse and what you hear is width rather than two echoes - the
+ * precedence effect, whose threshold is five to ten milliseconds on clicks
+ * and nearer fifty on music, which is why this tool's beds are music. Above
+ * that they come apart into two echoes on two sides, and a hundred and fifty
+ * against the shortest delay on offer is as far apart as they need to go to
+ * be plainly two.
+ */
+export const MOST_OFFSET = 150;
 
 /**
  * How far each of those may be moved, which is where a plugin's knob ends.
@@ -41,6 +59,7 @@ export const ECHO_LIMITS = {
   feedback: [0, MOST_FEEDBACK],
   tone: [500, 20000],
   lowCut: [20, 800],
+  offset: [-MOST_OFFSET, MOST_OFFSET],
   mix: [0, 1],
 };
 
@@ -95,11 +114,32 @@ export function nearestDivision(ms, among = SYNC_DIVISIONS) {
  * scaled copy of the first. Running the loop for real is both shorter to
  * write and exactly right.
  */
+/**
+ * The two sides' times, in milliseconds, from one setting.
+ *
+ * The left is the time on the knob and the right is that plus the offset,
+ * clamped back into the range a delay is allowed to be - otherwise a 1500 ms
+ * delay with a positive offset would ask for a line longer than anything
+ * else in this app renders.
+ */
+export function sidesOf(settings) {
+  const left = Math.min(LONGEST_TIME, Math.max(SHORTEST_TIME, settings.time));
+  const offset = Math.min(MOST_OFFSET, Math.max(-MOST_OFFSET, settings.offset ?? 0));
+  const right = Math.min(LONGEST_TIME, Math.max(SHORTEST_TIME, left + offset));
+  return [left, right];
+}
+
+/** Which ear a ping-pong starts in, as a channel index. */
+const startsAt = (settings) => (settings.pingPongFrom === 'right' ? 1 : 0);
+
 export function makeEcho(rate, params = {}) {
   const settings = { ...ECHO_DEFAULTS, ...params };
-  const time = Math.min(LONGEST_TIME, Math.max(SHORTEST_TIME, settings.time));
+  const times = sidesOf(settings);
   const feedback = Math.min(MOST_FEEDBACK, Math.max(0, settings.feedback));
-  const step = Math.max(1, Math.round((time / 1000) * rate));
+  // One line a side, because the two sides can be on two times. They shared
+  // a length and an index when they could only ever be the same.
+  const steps = times.map((ms) => Math.max(1, Math.round((ms / 1000) * rate)));
+  const step = Math.max(...steps);
 
   // Long enough for the repeats to die, and never longer than anything else
   // in this app measures. At the most feedback on offer that is a truncation
@@ -112,16 +152,17 @@ export function makeEcho(rate, params = {}) {
   const length = Math.ceil(seconds * rate);
 
   const channels = [new Float32Array(length), new Float32Array(length)];
-  const lines = channels.map(() => new Float32Array(step));
+  const lines = steps.map((n) => new Float32Array(n));
+  const ats = [0, 0];
+  const from = startsAt(settings);
   const tone = channels.map(() => setBiquad(makeBiquad(), 'lowpass', settings.tone, rate));
   const cut = channels.map(() => setBiquad(makeBiquad(), 'highpass', settings.lowCut, rate));
 
-  let at = 0;
   for (let i = 0; i < length; i += 1) {
     // An impulse in, once.
     const input = i === 0 ? 1 : 0;
 
-    const taken = [lines[0][at], lines[1][at]];
+    const taken = [lines[0][ats[0]], lines[1][ats[1]]];
     channels[0][i] = taken[0];
     channels[1][i] = taken[1];
 
@@ -139,14 +180,32 @@ export function makeEcho(rate, params = {}) {
     for (let c = 0; c < 2; c += 1) {
       // Ping-pong sends what came out of one ear into the other, so the
       // repeats walk across rather than sitting on top of each other - and
-      // the input lands in the left line alone, because that is what starts
-      // them alternating.
-      const from = settings.pingPong ? 1 - c : c;
-      const feed = settings.pingPong ? (c === 0 ? input : 0) : input;
-      lines[c][at] = feed + rounded[from] * feedback;
+      // the input lands in one line alone, because that is what starts them
+      // alternating. Which one is now a setting.
+      //
+      // The crossing is in the response and not in the graph, and that is a
+      // limit worth knowing: a two-channel convolver pairs channel with
+      // channel, so a source already hard on one side has nothing on the
+      // other for the crossed half of the response to act on. Measured, a
+      // 375 ms ping-pong at half feedback, repeats only:
+      //
+      //     source       plain delay L / R        ping-pong L / R
+      //     centred      -5.33 / -5.33 dB         -5.33 / -11.36 dB
+      //     hard left    -2.23 / silent           -2.23 / silent
+      //     hard right    silent / -2.23 dB        silent / -8.26 dB
+      //
+      // So a hard-panned source does not ping-pong at all. Everything in this
+      // app that reaches a delay is mono - the beds are, and a track's pan is
+      // applied after its inserts - so it is right where it is used and wrong
+      // where it is not. Crossing properly wants a four-channel response and
+      // true-stereo convolution, which is its own job.
+      const feeds = settings.pingPong ? 1 - c : c;
+      const feed = settings.pingPong ? (c === from ? input : 0) : input;
+      lines[c][ats[c]] = feed + rounded[feeds] * feedback;
     }
 
-    at = (at + 1) % step;
+    ats[0] = (ats[0] + 1) % steps[0];
+    ats[1] = (ats[1] + 1) % steps[1];
   }
 
   // Not normalised, and that is the whole of what is left to say about the
@@ -196,19 +255,59 @@ export function makeEcho(rate, params = {}) {
   return { channels, rate, length, seconds: length / rate, step: step / rate };
 }
 
-/** Where the repeats land, in seconds, while they are still worth hearing. */
+/**
+ * Where the repeats land, in seconds, while they are still worth hearing.
+ *
+ * Each one carries the side it is on, because with two times there are two
+ * answers and "both" is only one of three. A plain delay puts every repeat on
+ * both sides at once; an offset gives each side its own train; a ping-pong
+ * alternates, and with an offset as well it alternates on two different legs.
+ *
+ * Sorted by when they arrive, which is what anything drawing them wants.
+ */
 export function repeatsOf(settings) {
-  const time = Math.min(LONGEST_TIME, Math.max(SHORTEST_TIME, settings.time)) / 1000;
+  const [left, right] = sidesOf(settings).map((ms) => ms / 1000);
   const feedback = Math.min(MOST_FEEDBACK, Math.max(0, settings.feedback));
+  const dies = (level) => level <= 1e-3;
 
-  const at = [];
-  let level = 1;
-  for (let n = 1; n * time <= LONGEST_TAIL && level > 1e-3; n += 1) {
-    at.push({ at: n * time, level });
-    level *= feedback;
-    if (feedback <= 0.001) break;
+  const found = [];
+  const add = (seconds, level, side) => {
+    if (seconds <= LONGEST_TAIL && !dies(level)) found.push({ at: seconds, level, side });
+  };
+
+  if (settings.pingPong) {
+    // One leg at a time, alternating: the side it starts on for one time, the
+    // other for the other, so the n-th repeat is however many of each it has
+    // been through. Even on the same time this is the series that makes a
+    // ping-pong - the round trip is the two legs together.
+    const from = settings.pingPongFrom === 'right' ? 'right' : 'left';
+    const legs = from === 'right' ? [right, left] : [left, right];
+    let when = 0;
+    let level = 1;
+    for (let n = 0; when <= LONGEST_TAIL && !dies(level); n += 1) {
+      when += legs[n % 2];
+      add(when, level, n % 2 === 0 ? from : (from === 'left' ? 'right' : 'left'));
+      level *= feedback;
+      if (feedback <= 0.001) break;
+    }
+    return found;
   }
-  return at;
+
+  // Both sides fed, so each has its own train - and when the two times are
+  // the same those trains coincide, which is one repeat on both sides rather
+  // than two repeats that happen to agree.
+  const together = left === right;
+  for (const [side, time] of [['left', left], ['right', right]]) {
+    let level = 1;
+    for (let n = 1; n * time <= LONGEST_TAIL && !dies(level); n += 1) {
+      add(n * time, level, together ? 'both' : side);
+      level *= feedback;
+      if (feedback <= 0.001) break;
+    }
+    if (together) break;
+  }
+
+  return found.sort((a, b) => a.at - b.at);
 }
 
 /** A delay, built and read in the terms a guess is marked in. */

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   ECHO_DEFAULTS, DIVISIONS, SYNC_DIVISIONS, MOST_FEEDBACK, LONGEST_TIME,
+  SHORTEST_TIME, MOST_OFFSET, PING_FROM,
   makeEcho, repeatsOf, echoProfile, timeOf, nearestDivision,
 } from '../src/plugins/delay/line.js';
 import {
@@ -344,4 +345,125 @@ test('the targets are never the delay the plugin opens on', () => {
         `${tier} drew a target the opening settings already match`);
     }
   }
+});
+
+/* --- the two sides ---------------------------------------------------------- */
+
+test('an offset puts the right side on its own time', () => {
+  const ir = echo({ time: 300, offset: 90, feedback: 0.45, tone: 20000, lowCut: 20 });
+  const left = spikes(ir.channels[0], 0.02).map((s) => Math.round(s.ms));
+  const right = spikes(ir.channels[1], 0.02).map((s) => Math.round(s.ms));
+
+  assert.deepEqual(left.slice(0, 3), [300, 600, 900], `left landed at ${left.join(', ')}`);
+  assert.deepEqual(right.slice(0, 3), [390, 780, 1170], `right landed at ${right.join(', ')}`);
+});
+
+test('a negative offset is the right side arriving first', () => {
+  const ir = echo({ time: 300, offset: -80, feedback: 0.4, tone: 20000, lowCut: 20 });
+  const right = spikes(ir.channels[1], 0.02).map((s) => Math.round(s.ms));
+  assert.deepEqual(right.slice(0, 2), [220, 440], `right landed at ${right.join(', ')}`);
+});
+
+test('no offset is the two sides on the same time, to the sample', () => {
+  const ir = echo({ time: 375, offset: 0, feedback: 0.5 });
+  let worst = 0;
+  for (let i = 0; i < ir.length; i += 1) {
+    worst = Math.max(worst, Math.abs(ir.channels[0][i] - ir.channels[1][i]));
+  }
+  assert.equal(worst, 0, 'the two sides should be identical with no offset and no ping-pong');
+});
+
+test('an offset never asks for a time the knob could not reach', () => {
+  // The right side is the time plus the offset, and both ends of that have to
+  // stay inside the range a delay is allowed to be - a 1500 ms delay with a
+  // positive offset would otherwise want a line longer than anything else in
+  // this app will render.
+  for (const [time, offset] of [[LONGEST_TIME, 150], [SHORTEST_TIME, -150], [30, -150]]) {
+    const ir = echo({ time, offset, feedback: 0.3, tone: 20000, lowCut: 20 });
+    const right = spikes(ir.channels[1], 0.02);
+    assert.ok(right.length > 0, `time ${time} with offset ${offset} made no repeats at all`);
+    const first = right[0].ms;
+    assert.ok(first >= SHORTEST_TIME - 1 && first <= LONGEST_TIME + 1,
+      `time ${time} with offset ${offset} put the first right repeat at ${first.toFixed(1)} ms`);
+  }
+});
+
+test('ping-pong can be started from either side', () => {
+  for (const [from, first, second] of [['left', 0, 1], ['right', 1, 0]]) {
+    const ir = echo({
+      time: 250, feedback: 0.5, pingPong: true, pingPongFrom: from, tone: 20000, lowCut: 20,
+    });
+    const starts = spikes(ir.channels[first], 0.02).map((s) => Math.round(s.ms));
+    const answers = spikes(ir.channels[second], 0.02).map((s) => Math.round(s.ms));
+
+    assert.equal(starts[0], 250, `from the ${from}, the first repeat should be on that side`);
+    assert.equal(answers[0], 500, `from the ${from}, the second should be on the other`);
+  }
+});
+
+test('an uneven ping-pong walks on two different legs', () => {
+  // Ping-pong with an offset: the signal goes left for one time and right for
+  // the other, so the repeats are not evenly spaced - which is what a dotted
+  // ping-pong is, and the reason the two are allowed together.
+  const ir = echo({
+    time: 200, offset: 100, feedback: 0.5, pingPong: true, tone: 20000, lowCut: 20,
+  });
+  const left = spikes(ir.channels[0], 0.02).map((s) => Math.round(s.ms));
+  const right = spikes(ir.channels[1], 0.02).map((s) => Math.round(s.ms));
+
+  // 200 left, then 200+300 right, then 400+300 left, then 400+600 right.
+  assert.deepEqual(left.slice(0, 2), [200, 700], `left landed at ${left.join(', ')}`);
+  assert.deepEqual(right.slice(0, 2), [500, 1000], `right landed at ${right.join(', ')}`);
+});
+
+test('the repeats a two-sided setting predicts are the repeats it makes', () => {
+  // The same contract the single-sided version is held to, across the four
+  // routings - because `repeatsOf` is what anything drawing a delay reads,
+  // and a drawing that disagreed with the sound would be worse than none.
+  for (const params of [
+    { offset: 0 },
+    { offset: 90 },
+    { offset: -60 },
+    { pingPong: true },
+    { pingPong: true, offset: 100 },
+    { pingPong: true, pingPongFrom: 'right' },
+  ]) {
+    const settings = {
+      ...ECHO_DEFAULTS, time: 250, feedback: 0.5, tone: 20000, lowCut: 20, ...params,
+    };
+    // Every spike that arrived has to be one this predicted, which is the
+    // claim. Not that the two lists are the same length: `spikes` ignores
+    // anything within ten milliseconds of the last thing it found, and two
+    // sides sixty milliseconds apart really do put a repeat at 750 and
+    // another at 760. Those two are one spike to the helper and, at ten
+    // milliseconds, very nearly one sound to anybody - which is the whole
+    // reason an offset this small is a width control rather than an echo.
+    const FLOOR = 0.02;
+    const said = repeatsOf(settings).filter((r) => r.level > FLOOR);
+    const found = spikes(monoOf(makeEcho(rate, settings)), FLOOR);
+
+    assert.ok(found.length >= 3, `${JSON.stringify(params)}: only ${found.length} repeats made`);
+    for (const spike of found) {
+      const near = said.reduce(
+        (best, r) => (Math.abs(r.at * 1000 - spike.ms) < Math.abs(best.at * 1000 - spike.ms)
+          ? r : best),
+        said[0],
+      );
+      assert.ok(Math.abs(near.at * 1000 - spike.ms) < 2,
+        `${JSON.stringify(params)}: a repeat landed at ${spike.ms.toFixed(0)} ms and the `
+        + `nearest one predicted was ${(near.at * 1000).toFixed(0)}`);
+    }
+  }
+});
+
+test('every routing says which side each repeat is on', () => {
+  const plain = repeatsOf({ ...ECHO_DEFAULTS, time: 250, feedback: 0.5 });
+  assert.ok(plain.every((r) => r.side === 'both'), 'a plain delay is on both sides at once');
+
+  const ping = repeatsOf({ ...ECHO_DEFAULTS, time: 250, feedback: 0.5, pingPong: true });
+  assert.deepEqual(ping.slice(0, 4).map((r) => r.side), ['left', 'right', 'left', 'right']);
+
+  const offset = repeatsOf({ ...ECHO_DEFAULTS, time: 250, offset: 90, feedback: 0.5 });
+  assert.ok(offset.some((r) => r.side === 'left'), 'an offset delay has a left of its own');
+  assert.ok(offset.some((r) => r.side === 'right'), 'and a right');
 });

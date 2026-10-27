@@ -1,6 +1,6 @@
 import {
   ECHO_DEFAULTS, SYNC_DIVISIONS, makeEcho, timeOf, nearestDivision,
-  ECHO_LIMITS,
+  ECHO_LIMITS, PING_FROM,
 } from './line.js';
 import {
   RESPONSE_BANDS, DECAY_FLOOR, decayProfile, decayTimes, wetDryImpulse, decayReading, decayAxis
@@ -35,6 +35,19 @@ const ECHO_KNOBS = [
   { id: 'feedback', name: 'Feedback', ...span(ECHO_LIMITS.feedback), step: 0.01, write: (v) => `${Math.round(v * 100)} %` },
   { id: 'tone', name: 'Tone', ...span(ECHO_LIMITS.tone), log: true, write: writeHertz },
   { id: 'lowCut', name: 'Low cut', ...span(ECHO_LIMITS.lowCut), log: true, write: writeHertz },
+  {
+    id: 'offset',
+    name: 'Offset',
+    ...span(ECHO_LIMITS.offset),
+    step: 1,
+    // Signed and named by the side, because "-40" on its own does not say
+    // which ear arrives first and that is the only thing this knob is for.
+    write: (v) => {
+      const ms = Math.round(v);
+      if (ms === 0) return 'together';
+      return `${Math.abs(ms)} ms ${ms > 0 ? 'L first' : 'R first'}`;
+    },
+  },
   { id: 'mix', name: 'Mix', ...span(ECHO_LIMITS.mix), step: 0.01, write: (v) => `${Math.round(v * 100)} %` },
 ];
 
@@ -161,6 +174,12 @@ export class EchoPlugin {
           <label class="toggle">
             <input type="checkbox" id="echoPingPong"> Ping-pong
           </label>
+          <label class="field" id="echoFromField" hidden>
+            <span class="field-label">Starts</span>
+            <select id="echoFrom">
+              ${PING_FROM.map((side) => `<option value="${side}">${side}</option>`).join('')}
+            </select>
+          </label>
           <span class="eq-hint" ${this.tempo ? '' : 'hidden'}>repeats land on the beats when the note is right</span>
         </div>
       </div>`;
@@ -218,6 +237,13 @@ export class EchoPlugin {
     this.el.querySelector('#echoPingPong').addEventListener('change', (e) => {
       if (!this.interactive) return;
       this.settings.pingPong = e.target.checked;
+      this.showFrom();
+      this.changed();
+    });
+
+    this.el.querySelector('#echoFrom').addEventListener('change', (e) => {
+      if (!this.interactive) return;
+      this.settings.pingPongFrom = PING_FROM.includes(e.target.value) ? e.target.value : 'left';
       this.changed();
     });
 
@@ -238,6 +264,7 @@ export class EchoPlugin {
         Object.assign(this.settings, ECHO_DEFAULTS);
         this.buildKnobs();
         this.el.querySelector('#echoPingPong').checked = false;
+        this.showFrom();
         this.setSync('free');
         this.changed();
       }
@@ -278,6 +305,7 @@ export class EchoPlugin {
 
   changed() {
     this.syncKnobs();
+    this.showFrom();
     this.restage();
     this.draw();
     this.queue();
@@ -303,6 +331,19 @@ export class EchoPlugin {
       this.rendering = false;
       this.writeReadout();
     })();
+  }
+
+  /**
+   * Which ear a ping-pong starts in, shown only while there is one.
+   *
+   * A select that does nothing is worse than no select: with ping-pong off
+   * the repeats are on both sides at once and there is no side to start from.
+   */
+  showFrom() {
+    const field = this.el.querySelector('#echoFromField');
+    if (field) field.hidden = !this.settings.pingPong;
+    const pick = this.el.querySelector('#echoFrom');
+    if (pick) pick.value = this.settings.pingPongFrom ?? 'left';
   }
 
   syncKnobs() {
