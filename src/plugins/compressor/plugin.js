@@ -55,6 +55,13 @@ const COMP_KNOBS = [
   { id: 'makeup', name: 'Makeup', ...span(COMP_LIMITS.makeup), step: 0.5, write: writeDbValue },
   { id: 'mix', name: 'Mix', ...span(COMP_LIMITS.mix), step: 0.01, write: (v) => `${Math.round(v * 100)} %` },
   { id: 'lookahead', name: 'Lookahead', ...span(COMP_LIMITS.lookahead), step: 0.5, write: writeTime },
+  // The one control here that says when to stop rather than how hard to work.
+  // At the top of its travel it is out of the signal path - the deepest this
+  // compressor can be asked for is 57 dB - so it reads "off" there rather
+  // than "60 dB", which is a number that would invite somebody to look for a
+  // difference between it and 59.
+  { id: 'range', name: 'Range', ...span(COMP_LIMITS.range), step: 1,
+    write: (v) => (v >= COMP_LIMITS.range[1] ? 'off' : `${v.toFixed(0)} dB`) },
 ];
 
 /**

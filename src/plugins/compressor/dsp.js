@@ -56,6 +56,7 @@ export const COMP_DEFAULTS = {
   detector: 'peak', // or 'rms'
   rmsTime: 12,      // ms the mean square averages over; RMS mode only
   auto: false,      // a slow gain platform under the release
+  range: 60,        // the most reduction it is allowed to do, in dB
   family: 'modern', // or 'opto', which has its own two controls and no knobs
   peakReduction: 0.5, // opto only: how hard the cell is driven
   optoMode: 'compress', // opto only: or 'limit'
@@ -90,6 +91,7 @@ export const COMP_LIMITS = {
   scLow: [200, 20000],
   rmsTime: [0.5, 50],
   peakReduction: [0, 1],
+  range: [0, 60],
 };
 
 /**
@@ -182,6 +184,33 @@ export const OPTO_KNEE = 12;
  * limit.
  */
 export const OPTO_RATIOS = { compress: 4, limit: 20 };
+
+/**
+ * How much reduction this compressor is allowed to do at all.
+ *
+ * Every knob here says how hard to work on what is over the threshold, and
+ * none of them says when to stop. A desk bus compressor has that control -
+ * Cytomic's Glue calls it Range and gives it 0 to -82 dB - and it turns a
+ * compressor into something that catches the loud parts and then gets out of
+ * the way rather than riding everything.
+ *
+ * The range runs to 60 dB because that is past anything this compressor can
+ * be asked for. Measured on a full-scale tone at the corners of its own knob
+ * ranges, the deepest it reaches is 57.0 dB - the threshold on its -60 floor
+ * at 20:1 - so at 60 the control is not in the signal path at all, and a test
+ * holds that the top of the knob is the compressor that was there before this
+ * existed.
+ *
+ *     threshold   ratio 4   ratio 8   ratio 20
+ *       -10 dB        7.5       8.7        9.5
+ *       -30 dB       22.5      26.2       28.5
+ *       -60 dB       45.0      52.5       57.0
+ *
+ * It is on the modern family only. An opto already has a ceiling and it is
+ * the cell's rather than a control: a photoresistor runs out at MOST_OPTO,
+ * which is the whole reason that loop is safe, and a knob in front of it
+ * would be two limits arguing.
+ */
 
 /**
  * The slow half of a program-dependent release, in seconds.
@@ -343,7 +372,7 @@ export function compressorCore(rate) {
     threshold: -18, ratio: 4, attack: 10, release: 120, knee: 6,
     makeup: 0, mix: 1, lookahead: 0,
     detector: 'peak', sidechain: false, scHigh: 20, scLow: 20000, listen: false,
-    rmsTime: 12, auto: false,
+    rmsTime: 12, auto: false, range: 60,
     family: 'modern', peakReduction: 0.5, optoMode: 'compress',
   };
 
@@ -452,7 +481,12 @@ export function compressorCore(rate) {
       // Positive decibels of reduction, which is the sign the ballistics want:
       // `max` has to mean "more reduction" for the release stage to hold a
       // peak rather than drop it.
-      const wanted = -staticGain(db, state.threshold, state.ratio, state.knee);
+      // Capped at the range, which is the only control here that says when to
+      // stop rather than how hard to work. The target is clamped rather than
+      // the gain, so the ballistics arrive at the limit at the attack's own
+      // rate instead of hitting a wall.
+      const wanted = Math.min(state.range,
+        -staticGain(db, state.threshold, state.ratio, state.knee));
 
       // Smooth decoupled, after Giannoulis, Massberg and Reiss. The release
       // stage catches the peak on the sample it arrives - that is what the

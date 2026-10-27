@@ -708,3 +708,72 @@ test('peak reduction is the only thing driving it', () => {
   assert.equal(a.toFixed(6), b.toFixed(6),
     'the modern knobs still reach the optical path');
 });
+
+/* --- range ----------------------------------------------------------------- */
+
+test('range caps the reduction at what it says', () => {
+  // Every other knob says how hard to work on what is over the threshold.
+  // This is the only one that says when to stop.
+  const deepest = (over) => {
+    const core = compressorCore(RATE);
+    core.set({ ...COMP_DEFAULTS, threshold: -40, ratio: 20, attack: 1, release: 150,
+      knee: 0, makeup: 0, mix: 1, ...over });
+    let worst = 0;
+    for (let i = 0; i < Math.round(RATE * 1.2); i += 1) {
+      core.step(Math.sin((2 * Math.PI * 300 * i) / RATE) * 0.999, 0);
+      worst = Math.min(worst, core.reduction);
+    }
+    return -worst;
+  };
+
+  // Uncapped, those settings reach a long way down.
+  const loose = deepest({});
+  assert.ok(loose > 30, `the test needs settings that go deep, not ${loose.toFixed(1)} dB`);
+
+  for (const range of [3, 6, 12, 24]) {
+    const got = deepest({ range });
+    assert.ok(got <= range + 0.05, `a range of ${range} let it reach ${got.toFixed(2)} dB`);
+    assert.ok(got > range - 0.5, `a range of ${range} only reached ${got.toFixed(2)} dB`);
+  }
+});
+
+test('range at the top of its travel is not in the signal path', () => {
+  // A new control that changes the old compressor is a new control nobody can
+  // trust. The deepest this compressor can be asked for is 57.0 dB - measured
+  // on a full-scale tone with the threshold on its floor at 20:1 - so the
+  // range tops out past that and the knob reads "off" there.
+  assert.equal(COMP_DEFAULTS.range, 60);
+  assert.ok(COMP_LIMITS.range[1] >= 57, 'the range has to clear what the compressor can reach');
+
+  const run = (over) => {
+    const core = compressorCore(RATE);
+    core.set({ ...COMP_DEFAULTS, threshold: -40, ratio: 20, attack: 1, release: 150,
+      knee: 6, makeup: 0, mix: 1, ...over });
+    const out = [];
+    for (let i = 0; i < Math.round(RATE * 0.4); i += 1) {
+      out.push(core.step(Math.sin((2 * Math.PI * 300 * i) / RATE) * 0.999, 0));
+    }
+    return out;
+  };
+  assert.deepEqual(run({ range: 60 }), run({ range: COMP_LIMITS.range[1] }),
+    'the default and the top of the knob are the same compressor');
+});
+
+test('auto gain follows the range down', () => {
+  // The makeup is the measured reduction put back, so capping the reduction
+  // has to cap what gets put back - otherwise turning the range down would
+  // quietly turn the output up.
+  const bed = new Float32Array(Math.round(RATE * 1.5));
+  for (let i = 0; i < bed.length; i += 1) {
+    const t = i / RATE;
+    bed[i] = Math.sin(2 * Math.PI * 220 * t) * (t % 0.4 < 0.12 ? 0.9 : 0.12);
+  }
+
+  const put = (range) => analyse(bed, RATE, { ...COMP_DEFAULTS, threshold: -34, ratio: 12,
+    attack: 2, release: 160, knee: 6, makeup: 0, mix: 1, range }).makeup;
+
+  const wide = put(60);
+  const tight = put(4);
+  assert.ok(wide > tight, `a tighter range should put back less: ${wide.toFixed(2)} against ${tight.toFixed(2)}`);
+  assert.ok(tight > 0, 'but it should still put something back');
+});
