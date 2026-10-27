@@ -331,9 +331,13 @@ that doing it right is audible rather than merely scored:
   starts together and is the same length, so it all drops onto bar one.
 
 ## Not built yet
-- **A sample player**, behind the instrument interface the synthesised ones
-  already sit behind. Recordings play as clips; nothing yet plays one back
-  at a pitch.
+- **Pitch that holds its length.** The sampler resamples, so a recording an
+  octave up is half as long — the classic behaviour, and the honest one.
+  Holding the length while moving the pitch wants a phase vocoder or a
+  granular engine, which is a different instrument.
+- **Detecting a recording's root note.** The sampler is told what note a
+  recording already sounds at, and the default is middle C. The analysis view
+  already has the FFT it would take to work it out.
 - **The rest of the inserts on a mix-exercise strip.** The desk has a tone
   tier now - an EQ on every stem, three bands at fixed frequencies, marked on
   the master's balance reading. The other five inserts are not there, and the

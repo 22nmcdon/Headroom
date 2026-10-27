@@ -156,6 +156,12 @@ function base(ctx, id) {
   };
 }
 
+/** The note a recording is taken to already sound at: middle C. */
+export const SAMPLE_ROOT = 60;
+
+/** How long a sample takes to get out of the way when a note ends early. */
+export const SAMPLE_FADE = 0.008;
+
 /** A note's loudness from its velocity, which is not a straight line. */
 const loudness = (velocity) => (Math.max(1, Math.min(127, velocity)) / 127) ** 1.6;
 
@@ -461,12 +467,114 @@ export function makeSilence(ctx) {
   };
 }
 
+/**
+ * A sampler: one recording, played back at whatever pitch it is handed.
+ *
+ * Pitch by resampling, which is what a sampler is. The rate the buffer is
+ * read at moves with the note - a semitone up is the twelfth root of two
+ * faster - so the pitch and the length move together, and a sample played an
+ * octave up is half as long. That is the classic behaviour and the honest
+ * one: holding the length while moving the pitch means a phase vocoder or a
+ * granular engine, which is a different instrument and a much larger one.
+ * Said here rather than discovered by somebody wondering why their loop got
+ * shorter.
+ *
+ * Measured, a 440 Hz sine recorded at middle C and played across two octaves
+ * - the frequency and the length that came out, read off the rendered audio:
+ *
+ *     note    asked       got      out by      came out as
+ *       48   220.00    220.00     0.000 %      1.010 s
+ *       56   349.23    349.23    -0.000 %      0.640 s
+ *       60   440.00    440.00     0.000 %      0.510 s
+ *       62   493.88    493.88    -0.000 %      0.455 s
+ *       72   880.00    880.00    -0.000 %      0.260 s
+ *
+ * Exact on the pitch, and the last column is the trade: half a second of
+ * recording is a second at an octave down and a quarter at an octave up.
+ *
+ * `buffer` is an AudioBuffer or nothing. Nothing is silent and still a real
+ * node, for the reason `makeSilence` is: a track set to this before a
+ * recording has been chosen is a normal state, not a crash, and everything
+ * downstream - the chain, the fader, the send, the stem - wants an
+ * instrument rather than a branch.
+ *
+ * `root` is the note the recording already sounds at, so middle C on the grid
+ * plays it back untouched when the root is middle C.
+ */
+export function makeSampler(ctx, { buffer = null, root = SAMPLE_ROOT } = {}) {
+  const kit = base(ctx, 'sampler');
+
+  return {
+    id: 'sampler',
+    out: kit.out,
+    get voices() { return kit.voices; },
+
+    /** What this is playing, for whoever has to draw or name it. */
+    get buffer() { return buffer; },
+    get root() { return root; },
+
+    noteOn(pitch, velocity = 96, when = ctx.currentTime, seconds = null) {
+      if (!buffer || kit.gone || kit.voices >= MOST_VOICES) return null;
+
+      const node = ctx.createBufferSource();
+      node.buffer = buffer;
+      // Clamped, because the control that sets the root is a note number and
+      // a sample asked for forty octaves up is a buffer read at a rate no
+      // browser will take. Ten octaves either way is more than any sample is
+      // musically good for and well inside what the node allows.
+      const steps = Math.max(-120, Math.min(120, pitch - root));
+      node.playbackRate.value = 2 ** (steps / 12);
+
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(Math.max(loudness(velocity), 1e-4), when);
+      node.connect(gain).connect(kit.out);
+
+      // The whole sample unless the note is shorter than it. A note length
+      // that did nothing would be a step grid whose lengths are decoration;
+      // a note longer than the sample is not looped, because a loop needs a
+      // loop point and a recording of a hummed line has none.
+      const whole = buffer.duration / node.playbackRate.value;
+      // A length that is not a number is the whole sample rather than a
+      // throw. This is the first instrument that reads the note length at
+      // all - the other four take it and ignore it - so it is the first one
+      // a bad length can reach, and `stop` on a non-finite time throws on
+      // the audio thread and takes the render with it. Found exactly that
+      // way: a check handed it a NaN length and the whole stage died.
+      const asked = Number(seconds);
+      const held = Number.isFinite(asked) ? Math.min(whole, Math.max(0.01, asked)) : whole;
+
+      // A short fade rather than a cut: stopping a buffer mid-cycle is a step
+      // in the waveform, which is a click, and on a sampler it would be on
+      // every note that ended early.
+      if (held < whole) {
+        gain.gain.setValueAtTime(Math.max(loudness(velocity), 1e-4), when + held);
+        gain.gain.exponentialRampToValueAtTime(1e-4, when + held + SAMPLE_FADE);
+      }
+
+      node.start(when);
+      node.stop(when + held + SAMPLE_FADE);
+      return [kit.hold(pitch, { node, gain, until: when + held + SAMPLE_FADE }, when)];
+    },
+
+    // A sample plays for as long as it was told to and not until a key comes
+    // up, which is the same bargain a struck instrument makes. Said rather
+    // than left out, so a sequencer sending one is not a surprise.
+    noteOff() {},
+    play(pitch, velocity, when, seconds = null) {
+      this.noteOn(pitch, velocity, when, seconds);
+    },
+    allOff: (when = ctx.currentTime) => kit.silence(when),
+    destroy: () => kit.destroy(),
+  };
+}
+
 /** The starter set, by the names a track will use. */
 export const INSTRUMENTS = {
   piano: makePiano,
   bass: makeBass,
   kit: makeKit,
   synth: makeSynth,
+  sampler: makeSampler,
   voice: makeSilence,
 };
 
@@ -482,6 +590,11 @@ export const INSTRUMENT_IDS = Object.keys(INSTRUMENTS);
  */
 export const GM_PROGRAM = {
   piano: 0, bass: 33, synth: 81, kit: null, voice: null,
+  // A sample can be anything, so there is no nearest program for it - but it
+  // does play notes, and a part exported with no program at all is a part the
+  // receiving instrument chooses for you. Piano is the General MIDI default
+  // anyway, so this says out loud what would otherwise happen quietly.
+  sampler: 0,
 };
 
 /** The ones a step grid or a chord line means anything on. */

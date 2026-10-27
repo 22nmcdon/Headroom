@@ -37,7 +37,7 @@ import {
 } from './project.js';
 import {
   STEP_DIVISIONS, divisionOf, SCALES, SCALE_IDS, ROOT_NAMES,
-  rowsFor, columnsOf, filled, toggleCell, clearRow, columnOf,
+  rowsFor, columnsOf, filled, toggleCell, clearRow, columnOf, pitchName,
 } from './steps.js';
 import { loadSketch, saveSketch, sketchFile, readSketchFile } from './store.js';
 import { knobsFor, writeKnob, tidy, optionsFor, fromTone } from './knobs.js';
@@ -53,6 +53,16 @@ import { Recorder, canRecord, barsFor, fitTo, loudestIn, SILENCE } from './recor
 import {
   takeId, putTake, loadTake, dropTake, sweepTakes,
 } from './takes.js';
+
+/**
+ * The notes a recording may be said to sound at.
+ *
+ * Five octaves either side of middle C rather than all 128: the root is what
+ * a hummed line or a plucked string already sounds at, and nothing anybody
+ * records is at the very bottom or top of a MIDI keyboard. A shorter list is
+ * a select somebody can actually find their note in.
+ */
+const SAMPLE_NOTES = Array.from({ length: 61 }, (_, i) => i + 30);
 import { KIT_ROWS } from './steps.js';
 import { makeStage } from './stage.js';
 import { zipStems } from './stems.js';
@@ -588,6 +598,20 @@ export class SketchPage {
     const pick = event.target.closest('[data-instrument]');
     if (pick) {
       this.change(setTrack(this.project, track, { instrument: pick.value }));
+      return;
+    }
+
+    const take = event.target.closest('[data-sample-take]');
+    if (take) {
+      const sample = { ...this.project.tracks[track].sample, take: take.value || null };
+      this.change(setTrack(this.project, track, { sample }));
+      return;
+    }
+
+    const plays = event.target.closest('[data-sample-root]');
+    if (plays) {
+      const sample = { ...this.project.tracks[track].sample, root: Number(plays.value) };
+      this.change(setTrack(this.project, track, { sample }));
       return;
     }
 
@@ -1249,6 +1273,31 @@ export class SketchPage {
           </label>
         </div>
 
+        <!-- Only the sampler has anything to say here, and only the sampler
+             shows it: two selects that do nothing on a piano track would be
+             two controls to explain. -->
+        ${track.instrument !== 'sampler' ? '' : `
+        <div class="editor-row editor-fields">
+          <label class="field">
+            <span class="field-label">Recording</span>
+            <select data-sample-take>
+              ${options([{ value: '', label: this.takes.size ? 'Choose one' : 'Record one first' },
+                ...this.takeChoices()], track.sample.take ?? '')}
+            </select>
+          </label>
+          <label class="field">
+            <!-- The attribute is data-sample-root and not the obvious short
+                 name, which is already the key the sketch is in. Nothing
+                 broke on it, but one attribute meaning two things in one
+                 panel is a bug with a date on it. -->
+            <span class="field-label">Plays at</span>
+            <select data-sample-root>
+              ${options(SAMPLE_NOTES.map((pitch) => ({ value: pitch, label: pitchName(pitch) })),
+                track.sample.root)}
+            </select>
+          </label>
+        </div>`}
+
         <div class="editor-row">
           <span class="editor-label">Inserts</span>
           <span class="chips">
@@ -1316,6 +1365,39 @@ export class SketchPage {
             </label>`).join('')}
         </div>
       </div>`;
+  }
+
+  /**
+   * The recordings a sampler track can be pointed at, named by where they are.
+   *
+   * By their place in the grid rather than by their id, because an id is
+   * `take-m8x2k1-9f3a` and a place is "Voice, scene 2" - and the place is the
+   * only thing anybody remembers about a recording they made four minutes
+   * ago. A take that no clip holds any more gets its id, shortened: it can
+   * only have arrived that way by being chosen before the clip was cleared,
+   * and a row that disappeared would be worse than an ugly one.
+   */
+  takeChoices() {
+    const where = new Map();
+    this.project.tracks.forEach((track, index) => {
+      track.slots.forEach((clip, scene) => {
+        if (clip?.take && !where.has(clip.take)) {
+          where.set(clip.take, `${track.name}, ${this.sceneName(scene)}`);
+        }
+      });
+    });
+
+    return [...this.takes.keys()].map((id) => ({
+      value: id,
+      label: where.get(id) ?? id.replace(/^take-/, ''),
+    }));
+  }
+
+  /** What a scene is called, for anywhere that has to name one. */
+  sceneName(scene) {
+    return this.project.scenes[scene]?.name
+      ? `scene ${this.project.scenes[scene].name}`
+      : `scene ${scene + 1}`;
   }
 
   /** Whatever the grid was offering to take out, it is not any more. */

@@ -29,8 +29,35 @@ import { makeLimiterNode } from '../lib/limiter-node.js';
 /** The shared room. Short and bright: a sketch wants space, not a cathedral. */
 export const SEND_VERB = { decay: 1.4, size: 14, damping: 0.5, preDelay: 12, mix: 1 };
 
-/** What makes a track's audio graph, rather than its mix settings. */
-const graphStamp = (track) => `${track.instrument}|${track.inserts.join(',')}`;
+/**
+ * What makes a track's audio graph, rather than its mix settings.
+ *
+ * The sample is in here because a sampler is built around its buffer - the
+ * instrument holds it, not a parameter on it - so choosing a different
+ * recording is a new instrument and therefore a new graph, exactly as
+ * changing from a piano to a bass is. Without it, picking another take
+ * redrew the panel and went on playing the old recording.
+ */
+const graphStamp = (track) => `${track.instrument}|${track.inserts.join(',')}`
+  + `|${track.sample?.take ?? ''}:${track.sample?.root ?? ''}`;
+
+/**
+ * What to hand each of a track's makers.
+ *
+ * The inserts' options came from here already. The instrument's did not, and
+ * nothing noticed because the four synthesised ones take none - a sampler is
+ * the first instrument that needs to be told anything, and what it needs is
+ * the audio itself, which cannot live in a project file. So the project keeps
+ * the take's id and this is where that id becomes a buffer.
+ */
+const optionsOf = (track, takes) => ({
+  ...Object.fromEntries(track.inserts
+    .map((effect) => [effect, optionsFor(effect, track.settings?.[effect] ?? {})])),
+  [track.instrument]: {
+    buffer: track.sample?.take ? takes.get(track.sample.take) ?? null : null,
+    root: track.sample?.root,
+  },
+});
 
 /**
  * The whole sketch, live.
@@ -133,8 +160,7 @@ export async function makeStage(ctx, project, {
       gain: spec.gain,
       pan: spec.pan,
       send: spec.send,
-      options: Object.fromEntries(spec.inserts
-        .map((effect) => [effect, optionsFor(effect, spec.settings?.[effect] ?? {})])),
+      options: optionsOf(spec, takes),
     });
     track.out.connect(bus);
     track.send.connect(verb.in);

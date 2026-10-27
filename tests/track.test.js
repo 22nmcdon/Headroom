@@ -180,5 +180,7 @@ test('the voice is an instrument that plays nothing', () => {
   assert.ok(isVoice('voice'));
   assert.ok(!isVoice('piano'));
   assert.ok(!NOTED.includes('voice'), 'a step grid on a voice track means nothing');
-  assert.deepEqual(NOTED, ['piano', 'bass', 'kit', 'synth']);
+  // The sampler is noted: a recording played back at a pitch is a part with
+  // notes in it, which is the whole of what it is for.
+  assert.deepEqual(NOTED, ['piano', 'bass', 'kit', 'synth', 'sampler']);
 });

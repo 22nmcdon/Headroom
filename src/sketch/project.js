@@ -16,7 +16,7 @@
 
 import { PPQ, writeMidi } from './midi.js';
 import { ticksPerBar } from './transport.js';
-import { INSTRUMENT_IDS, GM_PROGRAM } from '../core/instrument.js';
+import { INSTRUMENT_IDS, GM_PROGRAM, SAMPLE_ROOT } from '../core/instrument.js';
 import { EFFECT_IDS } from '../core/effects.js';
 import { DIVISION_IDS, SCALE_IDS, fit } from './steps.js';
 import { tidyAll } from './knobs.js';
@@ -120,6 +120,27 @@ export const clipOf = ({
     .sort((a, b) => a.start - b.start || a.pitch - b.pitch),
 });
 
+/**
+ * Which recording a sampler track plays, and what note it already sounds at.
+ *
+ * Always a shape, never absent, because setting the instrument comes before
+ * choosing a recording every single time - so the half-set state is the
+ * normal one and has to be a thing rather than a hole. `take` is null until
+ * one is chosen, which the instrument reads as silence rather than as an
+ * error.
+ *
+ * The root is clamped onto the keyboard and rounded, because it is a note
+ * number: a sampler asked to treat a recording as note 999 is a buffer read
+ * at a rate no browser will take, and the instrument clamps again for its
+ * own safety rather than trusting this.
+ */
+export const sampleOf = ({ take = null, root = SAMPLE_ROOT } = {}) => ({
+  take: take ? String(take) : null,
+  root: Number.isFinite(Number(root))
+    ? Math.max(0, Math.min(127, Math.round(Number(root))))
+    : SAMPLE_ROOT,
+});
+
 /** A track, with its slots. One slot per scene, empty to begin with. */
 export const trackOf = ({
   id,
@@ -127,6 +148,7 @@ export const trackOf = ({
   instrument = 'synth',
   inserts = [],
   settings = {},
+  sample = {},
   gain = 0.8,
   pan = 0,
   send = 0,
@@ -141,6 +163,9 @@ export const trackOf = ({
   // a delay off to hear the part dry, put it back, and it is the delay you
   // dialled rather than a new one.
   settings: tidyAll(settings),
+  // Kept the same way and for the same reason: switch a track to a synth to
+  // hear the part played, switch it back, and it is the recording you chose.
+  sample: sampleOf(sample),
   gain,
   pan,
   send,

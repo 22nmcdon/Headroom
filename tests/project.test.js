@@ -18,6 +18,7 @@ import {
   addScene, dropScene, MOST_SCENES, STARTER, setFollow, followOf, MOST_PASSES, keyRoutes,
   moveInsert,
 } from '../src/sketch/project.js';
+import { SAMPLE_ROOT } from '../src/core/instrument.js';
 import { readMidi, PPQ, DRUM_CHANNEL } from '../src/sketch/midi.js';
 import { INSTRUMENT_IDS } from '../src/core/instrument.js';
 
@@ -545,4 +546,73 @@ test('the order a chain was saved in is the order it comes back in', () => {
 
   const back = parse(serialise(project));
   assert.deepEqual(back.tracks[0].inserts, ['saturation', 'eq', 'compression']);
+});
+
+/* --- a track that plays a recording ---------------------------------------- */
+
+// The sampler is an instrument like the other four, so almost nothing about
+// it is new here: what is new is that a track has to remember which recording
+// it plays and what note that recording already sounds at. The audio itself
+// is measured in src/core/instrument.js, beside the code.
+
+test('a track remembers which take it plays and at what note', () => {
+  let project = newProject();
+  project = setTrack(project, 0, {
+    instrument: 'sampler', sample: { take: 'take-abc', root: 62 },
+  });
+
+  assert.equal(project.tracks[0].instrument, 'sampler');
+  assert.deepEqual(project.tracks[0].sample, { take: 'take-abc', root: 62 });
+});
+
+test('a track with no sample chosen is a normal state, not a missing one', () => {
+  // Setting the instrument comes before choosing a recording, every time, so
+  // the half-set state has to be a shape rather than an absence - which is
+  // also what lets the instrument be silent instead of a crash.
+  const project = setTrack(newProject(), 0, { instrument: 'sampler' });
+  assert.deepEqual(project.tracks[0].sample, { take: null, root: SAMPLE_ROOT });
+});
+
+test('a root note outside the keyboard is brought back onto it', () => {
+  for (const [asked, want] of [[-5, 0], [999, 127], [60.7, 61], ['x', SAMPLE_ROOT]]) {
+    const project = setTrack(newProject(), 0, {
+      instrument: 'sampler', sample: { take: 't', root: asked },
+    });
+    assert.equal(project.tracks[0].sample.root, want, `a root of ${asked}`);
+  }
+});
+
+test('the sample survives being saved and loaded', () => {
+  let project = newProject();
+  project = setTrack(project, 0, {
+    instrument: 'sampler', sample: { take: 'take-xyz', root: 55 },
+  });
+
+  const back = parse(serialise(project));
+  assert.equal(back.tracks[0].instrument, 'sampler');
+  assert.deepEqual(back.tracks[0].sample, { take: 'take-xyz', root: 55 });
+});
+
+test('every instrument a track can be set to is one the app can make', () => {
+  // Including the new one, and the point is the pair: a name in the list that
+  // nothing makes is a track that throws when it is built, and an instrument
+  // nothing can be set to is one nobody can reach.
+  for (const id of INSTRUMENT_IDS) {
+    const project = setTrack(newProject(), 0, { instrument: id });
+    assert.equal(project.tracks[0].instrument, id, `${id} did not stick`);
+  }
+});
+
+test('a sampler track exports its notes rather than being skipped', () => {
+  // The kit and the voice have no program for their own reasons. A sampler
+  // has notes like any other part, so a scene with one in it has to carry
+  // them out - whatever the receiving instrument makes of the sound.
+  let project = newProject();
+  project = setTrack(project, 0, { instrument: 'sampler', sample: { take: 't', root: 60 } });
+  project = setNotes(project, 0, 0, [{ pitch: 64, start: 0 }, { pitch: 67, start: 24 }]);
+
+  const midi = readMidi(sceneToMidi(project, 0));
+  const track = midi.tracks.find((t) => t.name === project.tracks[0].name);
+  assert.ok(track, 'the sampler track is missing from the export');
+  assert.equal(track.notes.filter((n) => n.pitch === 64).length > 0, true);
 });
