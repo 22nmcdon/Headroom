@@ -5,7 +5,9 @@ import {
   ECHO_DEFAULTS, DIVISIONS, SYNC_DIVISIONS, MOST_FEEDBACK, LONGEST_TIME,
   makeEcho, repeatsOf, echoProfile, timeOf, nearestDivision,
 } from '../src/plugins/delay/line.js';
-import { monoOf, bandOf, profileDistance, RESPONSE_BANDS } from '../src/lib/response.js';
+import {
+  monoOf, bandOf, profileDistance, RESPONSE_BANDS, decayProfile, wetDryImpulse,
+} from '../src/lib/response.js';
 import { LOOP_BEAT } from '../src/core/audio.js';
 import { ECHO_WORK as delay } from '../src/learn/work/delay.js';
 
@@ -99,14 +101,130 @@ test('ping-pong walks the repeats from one ear to the other', () => {
   assert.ok(walked[2] > 20, 'and the third back on the left');
 });
 
-test('a delay is normalised, so more feedback is more repeats and not more level', () => {
-  for (const params of [{ feedback: 0 }, { feedback: 0.4 }, { feedback: MOST_FEEDBACK },
-    { time: 40 }, { time: LONGEST_TIME }, { pingPong: true }]) {
-    const ir = echo(params);
-    let energy = 0;
-    for (const channel of ir.channels) for (let i = 0; i < ir.length; i += 1) energy += channel[i] ** 2;
-    assert.ok(Math.abs(energy - 1) < 1e-4, `${JSON.stringify(params)} came out at ${energy.toFixed(4)}`);
+/** The tallest sample anywhere near where the first repeat should land. */
+function firstRepeat(ir, time) {
+  const at = Math.round((time / 1000) * rate);
+  let peak = 0;
+  for (const channel of ir.channels) {
+    for (let i = Math.max(0, at - 4); i <= at + 4 && i < ir.length; i += 1) {
+      peak = Math.max(peak, Math.abs(channel[i]));
+    }
   }
+  return peak;
+}
+
+test('one repeat comes back at the level it went in, whatever the feedback', () => {
+  // This was normalised to total energy, and that put the feedback knob on
+  // the first repeat's level: measured at 375 ms, the first repeat went from
+  // -3.01 dB at no feedback to -7.45 dB at the most on offer. Subtract the
+  // constant 3.01 that summing two channels costs and the feedback-dependent
+  // part is 4.44 dB, which is exactly the sqrt(1 - g^2) that normalising a
+  // comb to its energy predicts.
+  //
+  // Backwards, in other words: turning the feedback up made the first repeat
+  // quieter, so somebody learning to hear how much feedback was on had a
+  // level cue pointing the wrong way bundled with the repeat count. Hardware
+  // does not do this - a Space Echo's Echo Level and its Intensity are two
+  // separate controls - and neither does this any more.
+  for (const feedback of [0, 0.2, 0.35, 0.5, 0.65, MOST_FEEDBACK]) {
+    const ir = echo({ feedback, time: 375 });
+    const peak = firstRepeat(ir, 375);
+    assert.ok(Math.abs(peak - 1) < 1e-6,
+      `at feedback ${feedback} the first repeat came back at ${peak.toFixed(6)}`);
+  }
+});
+
+test('and whatever the loop is filtered with', () => {
+  // Because the filters are in the feedback path and the output tap is not
+  // behind them: the first repeat is the sound that went in, and the second
+  // is the first one filtered once. A delay whose first repeat got darker as
+  // the tone came down would be a low-pass on the whole wet path wearing a
+  // feedback knob.
+  for (const tone of [500, 2000, 6000, 20000]) {
+    for (const lowCut of [20, 200, 800]) {
+      const ir = echo({ tone, lowCut, time: 375, feedback: 0.5 });
+      const peak = firstRepeat(ir, 375);
+      assert.ok(Math.abs(peak - 1) < 1e-6,
+        `tone ${tone}, low cut ${lowCut}: the first repeat came back at ${peak.toFixed(6)}`);
+    }
+  }
+});
+
+test('more feedback is more sound, which is what more feedback is', () => {
+  const energyOf = (ir) => {
+    let energy = 0;
+    for (const channel of ir.channels) {
+      for (let i = 0; i < ir.length; i += 1) energy += channel[i] ** 2;
+    }
+    return energy;
+  };
+
+  let last = 0;
+  for (const feedback of [0, 0.2, 0.4, 0.6, MOST_FEEDBACK]) {
+    const energy = energyOf(echo({ feedback, time: 375 }));
+    assert.ok(energy > last, `feedback ${feedback} held no more sound than the step below it`);
+    last = energy;
+  }
+});
+
+test('the decay reading is blind to level, and the wet-dry mix is not', () => {
+  // Two halves, and getting them the wrong way round is the mistake this
+  // test was written to make. `decayProfile` divides every band by the whole
+  // response's energy, so the wet response at any level reads identically -
+  // which is why removing the normalisation looked free.
+  //
+  // It is not quite free, because `wetDryImpulse` puts the dry path in as one
+  // unity sample at the front and does not scale it. So the wet's absolute
+  // level survives as the wet-dry balance, and the reading does move.
+  // Measured, how far apart two settings read before the change and after:
+  //
+  //     a quarter against a dotted eighth    4.476 -> 4.525
+  //     a quarter against an eighth          8.561 -> 8.769
+  //     feedback 0.2 against 0.6            10.379 -> 10.733
+  //     feedback 0.5 against 0.55            1.619 -> 1.680
+  //     tone 2k against 8k                   5.050 -> 5.164
+  //     the same setting twice               0.000 -> 0.000
+  //
+  // Everything moved outward, by about four per cent of itself. Against
+  // tolerances of 2.6, 1.9 and 1.2 dB that is a boundary moving by some
+  // hundredths where it matters - the 0.354 is on a pair ten decibels apart,
+  // which misses either way - and an exact answer still reads exactly zero.
+  const settings = { ...ECHO_DEFAULTS, time: 375, feedback: 0.5 };
+  const wet = makeEcho(rate, settings);
+  const plain = decayProfile(monoOf(wet), rate);
+
+  for (const scale of [0.1, 0.5, 2, 10]) {
+    const loud = makeEcho(rate, settings);
+    for (const channel of loud.channels) {
+      for (let i = 0; i < loud.length; i += 1) channel[i] *= scale;
+    }
+
+    const read = decayProfile(monoOf(loud), rate);
+    for (const band of RESPONSE_BANDS) {
+      for (let i = 0; i < plain[band.id].length; i += 1) {
+        assert.ok(Math.abs(plain[band.id][i] - read[band.id][i]) < 1e-6,
+          `at ${scale} times the level, ${band.id} read differently`);
+      }
+    }
+  }
+
+  // And the other half, said out loud so nobody concludes from the first one
+  // that the wet level is free: with the dry mixed in, it is not.
+  const quiet = makeEcho(rate, settings);
+  for (const channel of quiet.channels) {
+    for (let i = 0; i < quiet.length; i += 1) channel[i] *= 0.1;
+  }
+  const withDry = decayProfile(wetDryImpulse(quiet, settings.mix), rate);
+  const asIs = echoProfile(rate, settings);
+  let moved = 0;
+  for (const band of RESPONSE_BANDS) {
+    for (let i = 0; i < asIs[band.id].length; i += 1) {
+      moved = Math.max(moved, Math.abs(asIs[band.id][i] - withDry[band.id][i]));
+    }
+  }
+  assert.ok(moved > 0.1,
+    'a tenth of the wet level against a fixed dry should read differently, and it moved '
+    + `by ${moved.toFixed(4)} dB`);
 });
 
 test('the repeats a setting predicts are the repeats it makes', () => {

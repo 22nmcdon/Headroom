@@ -149,14 +149,50 @@ export function makeEcho(rate, params = {}) {
     at = (at + 1) % step;
   }
 
-  // Normalised, so that more feedback is more repeats rather than more level
-  // - the same decision the rooms are built with, and the same false positive
-  // it exists to kill.
-  let energy = 0;
-  for (const out of channels) for (let i = 0; i < length; i += 1) energy += out[i] * out[i];
-  const scale = energy > 0 ? 1 / Math.sqrt(energy) : 0;
-  for (const out of channels) for (let i = 0; i < length; i += 1) out[i] *= scale;
-
+  // Not normalised, and that is the whole of what is left to say about the
+  // level: one repeat comes back at the level it went in.
+  //
+  // This used to divide the whole response by its own energy, the way the
+  // rooms do, to stop "more feedback" reading as "louder". It worked, and it
+  // put the feedback knob on the first repeat's level while it was at it.
+  // Measured at 375 ms, before:
+  //
+  //     feedback   first repeat   repeats over -60 dB   tail used
+  //     0              -3.01 dB                     1      0.75 s
+  //     0.35           -3.58 dB                     7      2.84 s
+  //     0.5            -4.26 dB                    10      4.11 s
+  //     0.8            -7.45 dB                    21      8.00 s
+  //
+  // Three of those decibels are the constant cost of summing two channels;
+  // the other 4.44 at the bottom is exactly the sqrt(1 - g^2) that
+  // normalising a comb to its energy predicts. So turning the feedback up
+  // made the first repeat quieter - a level cue pointing the wrong way,
+  // bundled with the repeat count that the exercise is actually about.
+  // Hardware keeps the two apart: a Space Echo has an Echo Level and an
+  // Intensity, and they are two knobs.
+  //
+  // Nothing had to be added to get the first repeat to unity, which is the
+  // part worth knowing. The output tap reads the delay line before the loop
+  // filters rather than after, so the first repeat is the input itself - it
+  // was already exactly 1 and the normalisation was what moved it.
+  //
+  // The wet path is louder for it, and checked: the app's drum bed through an
+  // insert at every mix, with the feedback at its limit and the loop opened
+  // right up, peaks at -4.76 dB against a dry of -6.23 - because the repeats
+  // land between the hits rather than on top of them. Nothing clips.
+  //
+  // The marks move a little, and the first version of this comment said they
+  // could not. `decayProfile` divides every band by the whole response's
+  // energy, so the reading is blind to the wet level - but `wetDryImpulse`
+  // puts the dry in as one unity sample and does not scale it, so the wet's
+  // absolute level survives as the wet-dry balance and reaches the reading
+  // that way. A test caught the claim; the measurement is beside it.
+  //
+  // What it comes to: every distance moved outward by about four per cent of
+  // itself, which against tolerances of 2.6, 1.9 and 1.2 dB is a boundary
+  // shifting by hundredths. An exact answer still reads exactly zero, and
+  // every exercise test that asks whether a right answer passes and its
+  // neighbour fails still passes.
   return { channels, rate, length, seconds: length / rate, step: step / rate };
 }
 
