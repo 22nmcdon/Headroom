@@ -36,6 +36,13 @@ const ECHO_KNOBS = [
   { id: 'tone', name: 'Tone', ...span(ECHO_LIMITS.tone), log: true, write: writeHertz },
   { id: 'lowCut', name: 'Low cut', ...span(ECHO_LIMITS.lowCut), log: true, write: writeHertz },
   {
+    id: 'diffusion',
+    name: 'Diffusion',
+    ...span(ECHO_LIMITS.diffusion),
+    step: 0.01,
+    write: (v) => (v <= 0 ? 'clean' : `${Math.round(v * 100)} %`),
+  },
+  {
     id: 'offset',
     name: 'Offset',
     ...span(ECHO_LIMITS.offset),

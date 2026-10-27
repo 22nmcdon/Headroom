@@ -25,8 +25,52 @@ export const ECHO_DEFAULTS = {
   pingPongFrom: 'left', // which ear they start in
   offset: 0,         // ms the right side is behind the left, or in front of it
   heads: 'single',   // how many places the line is read from
+  diffusion: 0,      // how smeared each pass is, 0 to 1
   mix: 0.3,
 };
+
+/**
+ * The all-passes diffusion is made of, as fractions of the loop.
+ *
+ * Three Schroeder all-passes, `y[n] = -a*x[n] + x[n-M] + a*y[n-M]`, in the
+ * feedback path. Each one passes everything and delays it by frequency, so a
+ * sharp repeat comes back as a short burst of itself - and because they are
+ * in the loop, every pass is smeared once more than the one before. That
+ * progression is the whole point: it is the road from an echo to a room, and
+ * it is the only control here that crosses it.
+ *
+ * Fractions of the loop rather than fixed milliseconds, for two reasons. The
+ * shortest delay on offer is twenty milliseconds and a fixed three-stage
+ * chain in the range this wants - three to fifteen milliseconds a stage - is
+ * longer than the whole loop. And measuring in fractions is what the loop
+ * reading does, so diffusion looks the same to it at every time.
+ *
+ * Not round numbers, and not multiples of each other: all-passes at related
+ * delays ring together and what should be a smear comes out as a pitch.
+ *
+ * Measured at 400 ms and 0.6 feedback, the middle ninety per cent of each
+ * pass's energy, and where its centre of gravity sits:
+ *
+ *     diffusion   pass 1   pass 2   pass 3     centres
+ *     0             0 ms     0 ms     0 ms     400 / 800 / 1200 ms
+ *     0.5           0 ms    30 ms    68 ms     400 / 800 / 1200
+ *     1             0 ms    80 ms   156 ms     400 / 800 / 1200
+ *
+ * Each pass wider than the last and every centre exactly on its slot. The
+ * centres staying put is what shortening the line buys: without it the
+ * repeats would drag later with every pass and a diffusion knob would be a
+ * time knob wearing the wrong label.
+ *
+ * And the loop reading sees it, which is what makes it markable - 5.65 dB for
+ * a tenth of diffusion against none, 15.86 for all of it, and about 5 dB
+ * between adjacent quarters. Against the 6 dB the hard tier allows, that
+ * resolves diffusion to roughly a third of its travel, which is about what
+ * anybody can hear of it.
+ */
+const DIFFUSE_AT = [0.0371, 0.0241, 0.0167];
+
+/** The coefficient at the top of the knob. */
+const MOST_DIFFUSE = 0.7;
 
 /** Which side a ping-pong may be started from. */
 export const PING_FROM = ['left', 'right'];
@@ -121,6 +165,7 @@ export const ECHO_LIMITS = {
   tone: [500, 20000],
   lowCut: [20, 800],
   offset: [-MOST_OFFSET, MOST_OFFSET],
+  diffusion: [0, 1],
   mix: [0, 1],
 };
 
@@ -213,17 +258,53 @@ export function makeEcho(rate, params = {}) {
   const length = Math.ceil(seconds * rate);
 
   const channels = [new Float32Array(length), new Float32Array(length)];
-  const lines = steps.map((n) => new Float32Array(n));
+  // Diffusion's all-passes sit in the feedback path, and they add their own
+  // delay to the loop - so the line is shortened by exactly as much, and the
+  // loop comes out at the time on the knob whatever the diffusion is. In
+  // integer samples on both sides of that subtraction, or the compensation
+  // would be a sample or two out and the repeats would drift.
+  const smear = Math.min(1, Math.max(0, settings.diffusion ?? 0)) * MOST_DIFFUSE;
+  const spread = steps.map((n) => DIFFUSE_AT.map((f) => Math.max(1, Math.round(n * f))));
+  const held = spread.map((list) => list.reduce((sum, d) => sum + d, 0));
+
+  const lines = steps.map((n, c) => new Float32Array(Math.max(1, n - held[c])));
+  const spans = lines.map((line) => line.length);
+  // The output is taken in front of the all-passes, so that the first repeat
+  // is still the unfiltered sound that went in - and it is delayed by what
+  // they hold, so it still lands on the time rather than early.
+  const lag = held.map((n) => new Float32Array(Math.max(1, n)));
+  const lagAt = [0, 0];
+  // One buffer and one output per all-pass stage.
+  const apBuf = spread.map((list) => list.map((d) => new Float32Array(d)));
+  const apAt = spread.map((list) => list.map(() => 0));
+
   const ats = [0, 0];
   const from = startsAt(settings);
+
+  /** One all-pass stage, in place. */
+  const allpass = (c, k, x) => {
+    const buf = apBuf[c][k];
+    const at = apAt[c][k];
+    const was = buf[at];
+    const out = was - smear * x;
+    buf[at] = x + smear * out;
+    apAt[c][k] = (at + 1) % buf.length;
+    return out;
+  };
 
   // Where each head reads, in samples back from the write head. The longest
   // is the line itself, which is the one the feedback is taken from, so it is
   // read as the sample about to be overwritten rather than as an offset.
-  const taps = steps.map((n) => headsOf(settings.heads).taps
+  // A head at a fraction of the loop has to come out at that fraction of the
+  // time, and everything read here goes out through the lag - so the offset
+  // into the line is the fraction of the whole loop less what the all-passes
+  // hold. Measured against the full step and not the shortened line, which is
+  // the mistake that put four heads at 76, 152, 228 ms instead of 100, 200,
+  // 300 and was caught by the test that names those numbers.
+  const taps = steps.map((n, c) => headsOf(settings.heads).taps
     .slice(0, -1)
-    .map((tap) => Math.max(1, Math.round(n * tap)))
-    .filter((d) => d < n));
+    .map((tap) => Math.round(n * tap) - held[c])
+    .filter((d) => d >= 1 && d < spans[c]));
   const tone = channels.map(() => setBiquad(makeBiquad(), 'lowpass', settings.tone, rate));
   const cut = channels.map(() => setBiquad(makeBiquad(), 'highpass', settings.lowCut, rate));
 
@@ -234,16 +315,22 @@ export function makeEcho(rate, params = {}) {
     // The longest head: the sample written a whole line ago, which is both an
     // output and the only thing that goes round again.
     const taken = [lines[0][ats[0]], lines[1][ats[1]]];
-    channels[0][i] = taken[0];
-    channels[1][i] = taken[1];
 
-    // And the shorter heads, which are heard and not fed back - so a pattern
-    // repeats as a pattern instead of each head breeding its own train.
+    // Out through the lag, so the first repeat lands on the time even though
+    // it is read in front of the all-passes.
+    const heard = [0, 0];
     for (let c = 0; c < 2; c += 1) {
+      heard[c] = lag[c][lagAt[c]];
+      lag[c][lagAt[c]] = taken[c];
+      // And the shorter heads, which are heard and not fed back - so a
+      // pattern repeats as a pattern instead of each head breeding its own
+      // train. Read against the line's own length, which diffusion shortens.
       for (const d of taps[c]) {
-        channels[c][i] += lines[c][(ats[c] - d + steps[c]) % steps[c]];
+        lag[c][lagAt[c]] += lines[c][(ats[c] - d + spans[c]) % spans[c]];
       }
     }
+    channels[0][i] = heard[0];
+    channels[1][i] = heard[1];
 
     // Each side is filtered once a sample, and then routed. Filtering it
     // again on the way past the other channel would be running one filter's
@@ -253,6 +340,12 @@ export function makeEcho(rate, params = {}) {
       let value = taken[c];
       if (settings.tone < 20000) value = runBiquad(tone[c], value);
       if (settings.lowCut > 20) value = runBiquad(cut[c], value);
+      // The all-passes last, so what gets smeared is what is going round
+      // again rather than what is coming out. At a coefficient of nothing
+      // each one is `x[n-M]` exactly, with no arithmetic left in it, so the
+      // whole chain is a pure delay and no diffusion is bit-identical to a
+      // delay that never had any.
+      for (let k = 0; k < apBuf[c].length; k += 1) value = allpass(c, k, value);
       rounded[c] = value;
     }
 
@@ -283,8 +376,10 @@ export function makeEcho(rate, params = {}) {
       lines[c][ats[c]] = feed + rounded[feeds] * feedback;
     }
 
-    ats[0] = (ats[0] + 1) % steps[0];
-    ats[1] = (ats[1] + 1) % steps[1];
+    lagAt[0] = (lagAt[0] + 1) % lag[0].length;
+    lagAt[1] = (lagAt[1] + 1) % lag[1].length;
+    ats[0] = (ats[0] + 1) % spans[0];
+    ats[1] = (ats[1] + 1) % spans[1];
   }
 
   // Not normalised, and that is the whole of what is left to say about the

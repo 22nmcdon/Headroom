@@ -731,3 +731,172 @@ test('a tier that asks for no pattern is marked as it always was', () => {
   const near = delay.score({ ...puzzle.answer, feedback: 0.52 }, puzzle);
   assert.equal(near.correct, true, 'a small feedback slip should still pass the easy tier');
 });
+
+/* --- diffusion -------------------------------------------------------------- */
+
+test('no diffusion is the delay that was here before diffusion', () => {
+  // Bit-identical, not nearly. The all-passes are in the loop at every
+  // setting and their coefficient is what the knob moves, so at nothing they
+  // are pure delays and the line is shortened by exactly as much as they add.
+  // An all-pass at a coefficient of zero is `y = x[n-M]` with no arithmetic
+  // left in it, so there is not even a rounding error to allow for.
+  for (const over of [{}, { heads: 'heads4' }, { pingPong: true }, { offset: 60 }]) {
+    const was = echo({ time: 375, feedback: 0.5, ...over });
+    const now = echo({ time: 375, feedback: 0.5, diffusion: 0, ...over });
+    let worst = 0;
+    for (let i = 0; i < Math.min(was.length, now.length); i += 1) {
+      worst = Math.max(worst, Math.abs(was.channels[0][i] - now.channels[0][i]));
+    }
+    assert.equal(worst, 0, `${JSON.stringify(over)}: diffusion at nothing changed the delay`);
+  }
+});
+
+test('diffusion leaves the repeats where the time says', () => {
+  // The whole reason the line is shortened: all-passes in a loop add their
+  // own delay to it, and a diffusion knob that dragged the repeats late would
+  // be a time knob wearing the wrong label.
+  for (const diffusion of [0, 0.4, 1]) {
+    const ir = echo({ time: 400, feedback: 0.45, diffusion, tone: 20000, lowCut: 20 });
+    const at = spikes(ir.channels[0], 0.3).map((s) => Math.round(s.ms));
+    assert.equal(at[0], 400, `at diffusion ${diffusion} the first repeat landed at ${at[0]}`);
+  }
+});
+
+test('the first repeat is still the sound that went in', () => {
+  // Unfiltered and at unity, which is what the output tap being in front of
+  // the loop costs an extra buffer to keep. Diffusion smears what goes round
+  // again, so the first repeat is clean and each one after it is smeared once
+  // more - progressive, which is what moves an echo toward a room.
+  for (const diffusion of [0, 0.5, 1]) {
+    const ir = echo({ time: 400, feedback: 0.45, diffusion, tone: 2000, lowCut: 200 });
+    const first = spikes(ir.channels[0], 0.3)[0];
+    assert.ok(Math.abs(first.level - 1) < 1e-6,
+      `at diffusion ${diffusion} the first repeat came back at ${first.level.toFixed(6)}`);
+  }
+});
+
+test('more diffusion is more smear, and the loop reading sees it', () => {
+  // The reading built for the head patterns, doing the other job it was built
+  // for. A decay curve cannot see this either: diffusion moves energy about
+  // inside the loop without changing how fast the loop dies away.
+  const base = { ...ECHO_DEFAULTS, time: 400, feedback: 0.5, tone: 20000, lowCut: 20 };
+  const shape = (diffusion) => repeatsReading(rate, { ...base, diffusion });
+
+  let last = 0;
+  for (const diffusion of [0.2, 0.4, 0.7, 1]) {
+    const off = distance(shape(diffusion), shape(0)).off;
+    assert.ok(off > last, `diffusion ${diffusion} smeared no more than the step below it`);
+    last = off;
+  }
+  assert.ok(last > 3, `full diffusion only moved the loop reading ${last.toFixed(2)} dB`);
+});
+
+/** Where a pass's energy sits and how wide it is, around its nominal slot. */
+function passOf(ir, ms, pass) {
+  const from = Math.round(rate * ((pass * ms) / 1000 - 0.2));
+  const to = Math.round(rate * ((pass * ms) / 1000 + 0.3));
+  let energy = 0;
+  let moment = 0;
+  for (let i = from; i < to && i < ir.length; i += 1) {
+    const v = ir.channels[0][i] ** 2;
+    energy += v;
+    moment += v * i;
+  }
+  if (energy < 1e-14) return null;
+
+  let run = 0;
+  let lo = from;
+  let hi = to;
+  for (let i = from; i < to && i < ir.length; i += 1) {
+    run += ir.channels[0][i] ** 2;
+    if (run > energy * 0.05) { lo = i; break; }
+  }
+  run = 0;
+  for (let i = from; i < to && i < ir.length; i += 1) {
+    run += ir.channels[0][i] ** 2;
+    if (run > energy * 0.95) { hi = i; break; }
+  }
+  return { at: ((moment / energy) / rate) * 1000, width: ((hi - lo) / rate) * 1000 };
+}
+
+test('diffusion widens each pass without moving it', () => {
+  // What smearing is, measured as what it does: the energy of a pass spreads
+  // either side of its slot and its centre of gravity stays exactly on it.
+  // That is the line being shortened by what the all-passes hold - without
+  // it the repeats would drag later with every pass, and a diffusion knob
+  // that slowed the delay down would be a time knob wearing the wrong label.
+  //
+  // Measured at 400 ms and 0.6 feedback, the middle ninety per cent of each
+  // pass's energy:
+  //
+  //     diffusion   pass 1   pass 2   pass 3
+  //     0             0 ms     0 ms     0 ms
+  //     0.5           0 ms    30 ms    68 ms
+  //     1             0 ms    80 ms   156 ms
+  //
+  // Pass one is clean at every setting, because the all-passes are in the
+  // feedback path and it has not been through them. After that each pass is
+  // smeared once more than the one before, which is the progression that
+  // takes an echo toward a room.
+  //
+  // My first version of this test looked for energy halfway between the first
+  // two repeats and found silence at every diffusion, which is correct: the
+  // smear broadens each repeat by tens of milliseconds, it does not fill a
+  // four-hundred millisecond gap.
+  const widths = [];
+  for (const diffusion of [0, 0.5, 1]) {
+    const ir = echo({ time: 400, feedback: 0.6, diffusion, tone: 20000, lowCut: 20 });
+    const row = [];
+    for (const pass of [1, 2, 3]) {
+      const found = passOf(ir, 400, pass);
+      assert.ok(found, `at diffusion ${diffusion} pass ${pass} was silent`);
+      assert.ok(Math.abs(found.at - pass * 400) < 2,
+        `at diffusion ${diffusion} pass ${pass} sat at ${found.at.toFixed(0)} ms `
+        + `rather than ${pass * 400}`);
+      row.push(found.width);
+    }
+    assert.ok(row[0] < 1, `at diffusion ${diffusion} the first pass was ${row[0].toFixed(0)} ms wide`);
+    widths.push(row);
+  }
+
+  // Clean stays clean, and every other pass widens with the knob and with
+  // how many times it has been round.
+  assert.deepEqual(widths[0].map((w) => Math.round(w)), [0, 0, 0]);
+  for (const pass of [1, 2]) {
+    assert.ok(widths[1][pass] > widths[1][pass - 1],
+      'half diffusion should widen each pass more than the last');
+    assert.ok(widths[2][pass] > widths[1][pass],
+      'full diffusion should be wider than half at the same pass');
+  }
+});
+
+test('a diffused loop at the most feedback still dies away', () => {
+  // All-passes are unity gain, so they cannot make a stable loop unstable -
+  // but a cascade of them with a coefficient near one is exactly where that
+  // claim gets tested in practice, and the tail is truncated rather than
+  // faded, so a loop that grew would show as a response that ends loud.
+  const ir = echo({
+    time: 120, feedback: MOST_FEEDBACK, diffusion: 1, tone: 20000, lowCut: 20,
+  });
+  let first = 0;
+  let last = 0;
+  const edge = Math.round(rate * 0.25);
+  for (let i = 0; i < edge; i += 1) first = Math.max(first, Math.abs(ir.channels[0][i]));
+  for (let i = ir.length - edge; i < ir.length; i += 1) {
+    last = Math.max(last, Math.abs(ir.channels[0][i]));
+  }
+  assert.ok(last < first, `it ended at ${last.toFixed(4)} having started at ${first.toFixed(4)}`);
+  assert.ok(Number.isFinite(last) && last < 2, 'and it did not run away');
+});
+
+test('the shortest delay can be diffused too', () => {
+  // The all-passes are fractions of the loop, so a twenty millisecond delay
+  // gets twenty millisecond-sized ones rather than a line of negative length.
+  for (const time of [SHORTEST_TIME, 40, LONGEST_TIME]) {
+    const ir = echo({ time, feedback: 0.4, diffusion: 1, tone: 20000, lowCut: 20 });
+    let peak = 0;
+    for (let i = 0; i < ir.length; i += 1) peak = Math.max(peak, Math.abs(ir.channels[0][i]));
+    assert.ok(peak > 0.5, `a ${time} ms delay diffused came out at ${peak.toFixed(3)}`);
+    assert.ok(Number.isFinite(peak), `a ${time} ms delay diffused came out ${peak}`);
+  }
+});

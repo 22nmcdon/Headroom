@@ -154,6 +154,7 @@ export async function check({ browser, at, say }) {
 
     const face = await view.page.evaluate(() => {
       const offset = document.querySelector('[data-dial="offset"]');
+      const diffuse = document.querySelector('[data-dial="diffusion"]');
       const heads = document.querySelector('#echoHeads');
       const field = document.querySelector('#echoFromField');
       const chassis = document.querySelector('.plugin');
@@ -167,6 +168,7 @@ export async function check({ browser, at, say }) {
         .slice(0, 4);
       return {
         offset: !!offset,
+        diffuse: !!diffuse,
         heads: heads ? heads.options.length : 0,
         // Hidden until there is a ping-pong to start, which is the point of it.
         fromHidden: field ? field.hidden : null,
@@ -175,11 +177,12 @@ export async function check({ browser, at, say }) {
     });
 
     say('');
-    say(`  ${label}: an offset knob is ${face.offset ? 'there' : 'missing'}, `
-      + `${face.heads} head patterns, and the side picker is `
-      + `${face.fromHidden ? 'put away until ping-pong is on' : 'showing'}`);
+    say(`  ${label}: offset ${face.offset ? 'there' : 'missing'}, diffusion `
+      + `${face.diffuse ? 'there' : 'missing'}, ${face.heads} head patterns, and the side `
+      + `picker is ${face.fromHidden ? 'put away until ping-pong is on' : 'showing'}`);
 
     if (!face.offset) problems.push(`${label}: the delay face has no offset knob`);
+    if (!face.diffuse) problems.push(`${label}: the delay face has no diffusion knob`);
     if (face.heads < 3) {
       problems.push(`${label}: the heads picker offers ${face.heads} patterns rather than three`);
     }
