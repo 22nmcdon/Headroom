@@ -24,27 +24,10 @@ import { makeEffect } from '../core/effects.js';
 import { booking, following, queue, resting } from './launch.js';
 import { clipAt, isTake, keyRoutes } from './project.js';
 import { optionsFor, paramsFor } from './knobs.js';
+import { makeLimiterNode } from '../lib/limiter-node.js';
 
 /** The shared room. Short and bright: a sketch wants space, not a cathedral. */
 export const SEND_VERB = { decay: 1.4, size: 14, damping: 0.5, preDelay: 12, mix: 1 };
-
-/**
- * A safety limiter, as a compressor at the end of its range.
- *
- * Not a mastering limiter and not pretending to be one. It is there so that
- * launching a fourth clip cannot make the output louder than the converter
- * can hold, and it sits a decibel under full scale because a sketch that
- * reads exactly 0 dBFS is a sketch somebody will export and wonder about.
- */
-function safety(ctx) {
-  const limiter = ctx.createDynamicsCompressor();
-  limiter.threshold.value = -1;
-  limiter.knee.value = 0;
-  limiter.ratio.value = 20;
-  limiter.attack.value = 0.003;
-  limiter.release.value = 0.1;
-  return limiter;
-}
 
 /** What makes a track's audio graph, rather than its mix settings. */
 const graphStamp = (track) => `${track.instrument}|${track.inserts.join(',')}`;
@@ -59,9 +42,24 @@ const graphStamp = (track) => `${track.instrument}|${track.inserts.join(',')}`;
 export async function makeStage(ctx, project, {
   out = ctx.destination, transport, takes = new Map(),
 } = {}) {
+  // A safety limiter, so that launching a fourth clip cannot make the output
+  // louder than the converter can hold, sitting a decibel under full scale
+  // because a sketch that reads exactly 0 dBFS is a sketch somebody will
+  // export and wonder about.
+  //
+  // It was a DynamicsCompressorNode at threshold -1 with a ratio of twenty and
+  // three milliseconds of attack, and it did not do that job. Measured in an
+  // offline context with those exact settings, transient material pushed
+  // twenty decibels over came out at +2.92 dBFS - 3.92 dB above the ceiling it
+  // was set to - and even six decibels over got +1.50. Three milliseconds of
+  // attack means anything faster than three milliseconds is past before the
+  // gain has moved, and a ratio of twenty is not infinity. Neither is a
+  // setting to tune: a compressor with a knee is the wrong shape for a
+  // ceiling. See lib/limiter.js.
   const bus = ctx.createGain();
-  const limiter = safety(ctx);
-  bus.connect(limiter).connect(out);
+  const limiter = await makeLimiterNode(ctx);
+  bus.connect(limiter.in);
+  limiter.out.connect(out);
 
   const verb = await makeEffect(ctx, 'reverb', { settings: SEND_VERB });
   const returns = ctx.createGain();

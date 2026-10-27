@@ -91,6 +91,7 @@ test('the DSP a plugin is built on knows nothing about a browser', async () => {
     'plugins/reverb/ir.js',
     'lib/fft.js',
     'lib/dsp.js',
+    'lib/limiter.js',
   ];
   const BROWSER = /\b(AudioContext|OfflineAudioContext|AudioNode|AudioParam|AudioBuffer|AudioWorklet|createGain|document|window|navigator)\b/;
 
