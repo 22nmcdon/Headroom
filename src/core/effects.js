@@ -113,11 +113,12 @@ async function eqEffect(ctx, { bands = newStrip(), slots = null } = {}) {
 /**
  * The compressor.
  *
- * Its worklet takes two channels - the signal and the sidechain key - so the
- * input is a merger rather than the node itself. An insert with nothing
- * keyed to it leaves the second channel silent, which the detector reads as
- * "no key" and falls back to the signal, exactly as the plugin does with the
- * key input unplugged.
+ * Its worklet takes three channels - the signal's two and the sidechain key -
+ * so the input is a small front end rather than the node itself, and the key
+ * goes somewhere else from the signal. An insert with nothing keyed to it
+ * leaves the key channel silent, which the detector reads as "no key" and
+ * falls back to the signal, exactly as the plugin does with the key input
+ * unplugged.
  */
 async function compEffect(ctx, { settings = COMP_DEFAULTS } = {}) {
   const live = new LiveCompressor(ctx);
@@ -133,23 +134,24 @@ async function compEffect(ctx, { settings = COMP_DEFAULTS } = {}) {
     in: live.input,
     out: live.out,
     /** Where a sidechain goes, for whoever has one to send. */
-    key: live.input,
+    key: live.keyIn,
 
     /**
      * What the detector listens to, when it is not listening to the signal.
      *
-     * The merger's second input, which is the only difference between the
-     * two: channel one is what is being compressed and channel two is what
-     * is deciding. `null` lets go of whatever was there, which matters -
+     * The merger's third input, which is the only difference between the
+     * two: channels one and two are what is being compressed and channel
+     * three is what is deciding. `null` lets go of whatever was there,
+     * which matters -
      * a track left connected to a detector it is no longer keying is a
      * graph that gets one edge heavier every time somebody changes their
      * mind.
      */
     keyFrom(node) {
       if (node === keyed) return this;
-      if (keyed) { try { keyed.disconnect(live.input); } catch { /* already gone */ } }
+      if (keyed) { try { keyed.disconnect(live.keyIn); } catch { /* already gone */ } }
       keyed = node ?? null;
-      if (keyed) keyed.connect(live.input, 0, 1);
+      if (keyed) keyed.connect(live.keyIn, 0, live.keyAt);
       return this;
     },
     params: () => ({ ...live.settings }),
@@ -170,9 +172,8 @@ async function compEffect(ctx, { settings = COMP_DEFAULTS } = {}) {
      */
     readReduction: () => live.readReduction(),
     destroy() {
-      if (keyed) { try { keyed.disconnect(live.input); } catch { /* gone */ } }
-      try { live.out.disconnect(); } catch { /* gone */ }
-      try { live.node?.disconnect(); } catch { /* gone */ }
+      if (keyed) { try { keyed.disconnect(live.keyIn); } catch { /* gone */ } }
+      live.destroy();
     },
   };
 }

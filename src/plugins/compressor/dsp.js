@@ -333,6 +333,9 @@ export const PEAK_HOLD = 0;
  *
  * `step(signal, key)` returns the processed sample and leaves the gain
  * reduction it just applied on `reduction`, in decibels, at or below zero.
+ * `stereo(left, right, key)` is the same thing with two channels, leaving
+ * what came out on `left` and `right`; one of the two is the other's body, so
+ * there is no second copy of any of this to keep in step.
  */
 /**
  * One photocell, one sample at a time.
@@ -376,8 +379,15 @@ export function compressorCore(rate) {
     family: 'modern', peakReduction: 0.5, optoMode: 'compress',
   };
 
-  const hp = makeBiquad();
-  const lp = makeBiquad();
+  // One channel's worth of detector: its own sidechain filters and its own
+  // running mean square. Per channel because a sidechain filter wants a
+  // waveform and not a rectified one - handing it the larger of two
+  // magnitudes would be filtering a shape no microphone ever made, and the
+  // peak detector downstream would be reading the result of it. So each side
+  // is filtered as itself and the levels are compared afterwards.
+  const senseUnit = () => ({ hp: makeBiquad(), lp: makeBiquad(), mean: 0, side: 0 });
+  const senseL = senseUnit();
+  const senseR = senseUnit();
 
   let attackCoef = 0;
   let releaseCoef = 0;
@@ -385,15 +395,17 @@ export function compressorCore(rate) {
   let chargeCoef = 0;
   let platformCoef = 0;
   let held = 0;     // the reduction currently applied, in dB
-  let mean = 0;     // running mean square, for the RMS detector
   let letGo = 0;    // the release stage, which is also what holds the peak
   let platform = 0; // the slow release underneath it, when auto is on
   const cell = optoCell(rate);
-  let lastOut = 0;  // what the cell is looking at, one sample back
+  let lastOut = 0;  // the loudest the output was one sample back, unsigned
 
   // The audio is delayed against the detector, so that a compressor with
   // lookahead is already pulling down by the time the transient arrives.
-  const delay = new Float32Array(Math.ceil(rate * MOST_LOOKAHEAD) + 2);
+  // One line a channel: the gain is shared but the audio is not.
+  const span = Math.ceil(rate * MOST_LOOKAHEAD) + 2;
+  const delayL = new Float32Array(span);
+  const delayR = new Float32Array(span);
   let writeAt = 0;
   let delayed = 0;
 
@@ -407,9 +419,38 @@ export function compressorCore(rate) {
     meanCoef = Math.exp(-1 / Math.max(1, state.rmsTime * 0.001 * rate));
     chargeCoef = Math.exp(-1 / Math.max(1, CHARGE * rate));
     platformCoef = Math.exp(-1 / Math.max(1, PLATFORM * rate));
-    delayed = Math.min(delay.length - 1, Math.round(state.lookahead * 0.001 * rate));
-    setBiquad(hp, 'highpass', state.scHigh, rate);
-    setBiquad(lp, 'lowpass', state.scLow, rate);
+    delayed = Math.min(span - 1, Math.round(state.lookahead * 0.001 * rate));
+    for (const unit of [senseL, senseR]) {
+      setBiquad(unit.hp, 'highpass', state.scHigh, rate);
+      setBiquad(unit.lp, 'lowpass', state.scLow, rate);
+    }
+  }
+
+  /**
+   * One channel's detector, from its sample to the level the curve is given.
+   *
+   * Leaves the filtered waveform on the unit as `side`, because two things
+   * downstream want it and neither wants it recomputed: key listen, which
+   * monitors what the detector hears, and the optical cell, which looks at an
+   * instantaneous value rather than at an averaged one.
+   */
+  function sense(unit, sample) {
+    let side = sample;
+    if (state.scHigh > 20) side = runBiquad(unit.hp, side);
+    if (state.scLow < 20000) side = runBiquad(unit.lp, side);
+    unit.side = side;
+
+    // Peak is the sample itself. There is no envelope in front of the gain
+    // computer any more: handing it raw |x| used to corrupt the attack,
+    // because |x| falls to zero twice a cycle and a smoother that branches
+    // on direction spent half its time in release - an attack knob set to
+    // 20 ms measured 32. The ballistics below hold the peak instead, which
+    // costs nothing and takes the floor out from under the release knob.
+    if (state.detector === 'rms') {
+      unit.mean = meanCoef * unit.mean + (1 - meanCoef) * side * side;
+      return Math.sqrt(unit.mean);
+    }
+    return side < 0 ? -side : side;
   }
 
   retime();
@@ -417,32 +458,41 @@ export function compressorCore(rate) {
   return {
     settings: state,
     reduction: 0,
+    left: 0,
+    right: 0,
 
     set(next) {
       for (const key in next) if (key in state) state[key] = next[key];
       retime();
     },
 
-    step(signal, key) {
+    /**
+     * One sample, both channels.
+     *
+     * Leaves the two outputs on `left` and `right` rather than returning a
+     * pair, because an audio thread that allocated an array a sample would
+     * spend its time in the garbage collector. `step` below is this with the
+     * same sample on both sides.
+     *
+     * The gain is one gain. Two detectors read the two channels, the louder
+     * of them decides, and what it decides is applied to both - so the ratio
+     * between the sides leaves exactly as it arrived and the image does not
+     * move when the compressor bites. The cost is that the quiet side is
+     * pulled down by the loud side's gain, which is not a side effect of
+     * linking but the whole of what linking is.
+     */
+    stereo(left, right, key) {
       // What the detector is looking at, which is not necessarily what comes
-      // out: a sidechained compressor is listening to something else entirely.
-      let side = state.sidechain ? key : signal;
-      if (state.scHigh > 20) side = runBiquad(hp, side);
-      if (state.scLow < 20000) side = runBiquad(lp, side);
+      // out: a sidechained compressor is listening to something else entirely,
+      // and one key feeds the one gain, so there is nothing to compare.
+      const keyed = state.sidechain;
+      const levelL = sense(senseL, keyed ? key : left);
+      const levelR = keyed ? levelL : sense(senseR, right);
 
-      // Peak is the sample itself. There is no envelope in front of the gain
-      // computer any more: handing it raw |x| used to corrupt the attack,
-      // because |x| falls to zero twice a cycle and a smoother that branches
-      // on direction spent half its time in release - an attack knob set to
-      // 20 ms measured 32. The ballistics below hold the peak instead, which
-      // costs nothing and takes the floor out from under the release knob.
-      let level;
-      if (state.detector === 'rms') {
-        mean = meanCoef * mean + (1 - meanCoef) * side * side;
-        level = Math.sqrt(mean);
-      } else {
-        level = side < 0 ? -side : side;
-      }
+      // The louder side, not the sum and not the average. A sum would cancel
+      // an out-of-phase pair to nothing, and an average would read a
+      // hard-panned transient 6 dB quieter than it is and let it through.
+      const level = levelL > levelR ? levelL : levelR;
 
       // The optical path, which is a different instrument rather than a
       // different setting: no threshold, no ratio, no attack and no release,
@@ -458,23 +508,40 @@ export function compressorCore(rate) {
       if (state.family === 'opto') {
         const ratio = OPTO_RATIOS[state.optoMode] ?? OPTO_RATIOS.compress;
         const onset = -4 - Math.min(1, Math.max(0, state.peakReduction)) * 40;
-        const seen = state.sidechain ? side : lastOut;
-        const heard = 20 * Math.log10(Math.abs(seen) + 1e-9);
+        const seen = keyed ? Math.abs(senseL.side) : lastOut;
+        const heard = 20 * Math.log10(seen + 1e-9);
         const want = Math.min(MOST_OPTO,
           -staticGain(heard, onset, ratio, OPTO_KNEE) * ratio);
 
         held = MOST_OPTO * cell.step(want / MOST_OPTO);
         this.reduction = -held;
 
-        delay[writeAt] = signal;
-        const read = (writeAt - delayed + delay.length) % delay.length;
-        const was = delay[read];
-        writeAt = (writeAt + 1) % delay.length;
+        delayL[writeAt] = left;
+        delayR[writeAt] = right;
+        const read = (writeAt - delayed + span) % span;
+        const wasL = delayL[read];
+        const wasR = delayR[read];
+        writeAt = (writeAt + 1) % span;
 
-        const squashed = was * (10 ** (-held / 20));
-        lastOut = squashed;
-        if (state.listen) return side;
-        return (was * (1 - state.mix) + squashed * state.mix) * (10 ** (state.makeup / 20));
+        const fall = 10 ** (-held / 20);
+        const dim = 10 ** (state.makeup / 20);
+        const squashedL = wasL * fall;
+        const squashedR = wasR * fall;
+        // The light the cell sees is the light after the reduction, and with
+        // two channels there are two. The louder of them, to match the
+        // detector: the loop has to be closed on the same thing that opened
+        // it or the ratio comes out as neither of the two.
+        const loudL = squashedL < 0 ? -squashedL : squashedL;
+        const loudR = squashedR < 0 ? -squashedR : squashedR;
+        lastOut = loudL > loudR ? loudL : loudR;
+        if (state.listen) {
+          this.left = senseL.side;
+          this.right = keyed ? senseL.side : senseR.side;
+          return;
+        }
+        this.left = (wasL * (1 - state.mix) + squashedL * state.mix) * dim;
+        this.right = (wasR * (1 - state.mix) + squashedR * state.mix) * dim;
+        return;
       }
 
       const db = 20 * Math.log10(level + 1e-9);
@@ -518,19 +585,42 @@ export function compressorCore(rate) {
       held = attackCoef * held + (1 - attackCoef) * letGo;
       this.reduction = -held;
 
-      delay[writeAt] = signal;
-      const readAt = (writeAt - delayed + delay.length) % delay.length;
-      const dry = delay[readAt];
-      writeAt = (writeAt + 1) % delay.length;
+      delayL[writeAt] = left;
+      delayR[writeAt] = right;
+      const readAt = (writeAt - delayed + span) % span;
+      const dryL = delayL[readAt];
+      const dryR = delayR[readAt];
+      writeAt = (writeAt + 1) % span;
 
       // Key listen: what the detector hears, so you can aim the sidechain
       // filters at the thing that is actually triggering it.
-      if (state.listen) return side;
+      if (state.listen) {
+        this.left = senseL.side;
+        this.right = keyed ? senseL.side : senseR.side;
+        return;
+      }
 
-      const wet = dry * (10 ** (-held / 20));
+      const fall = 10 ** (-held / 20);
+      const dim = 10 ** (state.makeup / 20);
       // Dry is the delayed signal rather than the live one, so the parallel
       // path stays in step with the compressed one instead of phasing it.
-      return (dry * (1 - state.mix) + wet * state.mix) * (10 ** (state.makeup / 20));
+      this.left = (dryL * (1 - state.mix) + dryL * fall * state.mix) * dim;
+      this.right = (dryR * (1 - state.mix) + dryR * fall * state.mix) * dim;
+    },
+
+    /**
+     * One sample, one channel, which is the shape everything that marks a
+     * guess uses.
+     *
+     * The same body with the signal on both sides. That is not a convenience:
+     * the detector takes the louder of two identical levels and the two delay
+     * lines carry the same samples, so the arithmetic is the mono arithmetic
+     * exactly rather than nearly - and a test holds the two bit-identical,
+     * because every mark this app gives is made through here.
+     */
+    step(signal, key) {
+      this.stereo(signal, signal, key);
+      return this.left;
     },
   };
 }
@@ -551,6 +641,35 @@ export function runCompressor(input, rate, params, key = null) {
   }
 
   return { out, gr };
+}
+
+/**
+ * A stereo pair through a compressor: both sides out, and the reduction.
+ *
+ * Here rather than only in the node because the channel arithmetic is the
+ * part worth holding without a browser - that one gain crosses both sides,
+ * that the louder side decides, that an out-of-phase pair does not cancel.
+ * What the graph in front of it does with channels is a separate question
+ * and a browser answers that one; see tests/browser/stereo.mjs.
+ */
+export function runStereo(left, right, rate, params, key = null) {
+  const core = compressorCore(rate);
+  core.set(params);
+
+  const outL = new Float32Array(left.length);
+  const outR = new Float32Array(left.length);
+  const gr = new Float32Array(left.length);
+  let deepest = 0;
+
+  for (let i = 0; i < left.length; i += 1) {
+    core.stereo(left[i], right[i], key ? key[i] : 0);
+    outL[i] = core.left;
+    outR[i] = core.right;
+    gr[i] = core.reduction;
+    if (core.reduction < deepest) deepest = core.reduction;
+  }
+
+  return { left: outL, right: outR, gr, deepest };
 }
 
 /**

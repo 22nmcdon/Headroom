@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import { signalRms, makeBiquad, setBiquad, runBiquad } from '../src/lib/dsp.js';
 import {
-  staticGain, compressorCore, runCompressor, analyse, autoGain,
+  staticGain, compressorCore, runCompressor, runStereo, analyse, autoGain,
   COMP_DEFAULTS, COMP_LIMITS, optoCell, MOST_OPTO,
 } from '../src/plugins/compressor/dsp.js';
 import { workletSource } from '../src/plugins/compressor/node.js';
@@ -776,4 +776,143 @@ test('auto gain follows the range down', () => {
   const tight = put(4);
   assert.ok(wide > tight, `a tighter range should put back less: ${wide.toFixed(2)} against ${tight.toFixed(2)}`);
   assert.ok(tight > 0, 'but it should still put something back');
+});
+
+/* --- two channels --------------------------------------------------------- */
+
+// A compressor insert used to collapse whatever it was given to mono. The
+// faults are in tests/browser/stereo.mjs, which measures them where they live;
+// these hold the arithmetic that fixes them.
+
+/** The same tone at two amplitudes, as a stereo pair. */
+function panned(left, right, hz = 220, ms = 400) {
+  const n = Math.round((RATE * ms) / 1000);
+  const L = new Float32Array(n);
+  const R = new Float32Array(n);
+  for (let i = 0; i < n; i += 1) {
+    const s = Math.sin((2 * Math.PI * hz * i) / RATE);
+    L[i] = s * left;
+    R[i] = s * right;
+  }
+  return [L, R];
+}
+
+const peakOf = (samples) => {
+  let peak = 0;
+  for (const v of samples) peak = Math.max(peak, Math.abs(v));
+  return peak;
+};
+
+test('mono is the stereo path with the same sample on both sides, to the bit', () => {
+  // The whole of the scoring runs through `step`, and `step` is now the
+  // two-channel body called with one signal twice. If those two ever differ,
+  // every mark this app has given is against arithmetic that is not what the
+  // audio thread runs - which is the fault the worklet test exists to stop,
+  // arriving by a different door. Bit-identical, not close.
+  const signal = burst(220, 0.9, 20, 200, 400);
+  const key = burst(60, 0.8, 0, 400, 400);
+
+  const SETTINGS = [
+    { what: 'plain', with: {} },
+    { what: 'fast and deep', with: { threshold: -30, ratio: 12, attack: 0.5, release: 20 } },
+    { what: 'rms', with: { detector: 'rms', rmsTime: 30 } },
+    { what: 'lookahead', with: { lookahead: 8 } },
+    { what: 'auto release', with: { auto: true } },
+    { what: 'ranged', with: { threshold: -40, ratio: 10, range: 6 } },
+    { what: 'parallel', with: { mix: 0.4, makeup: 3 } },
+    { what: 'keyed', with: { sidechain: true, scHigh: 200 } },
+    { what: 'opto', with: { family: 'opto', peakReduction: 0.8 } },
+    { what: 'opto limit', with: { family: 'opto', optoMode: 'limit' } },
+  ];
+
+  for (const { what, with: params } of SETTINGS) {
+    const settings = { ...COMP_DEFAULTS, ...params };
+    const mono = runCompressor(signal, RATE, settings, key);
+    const wide = runStereo(signal, signal, RATE, settings, key);
+
+    for (let i = 0; i < signal.length; i += 1) {
+      assert.equal(wide.left[i], mono.out[i],
+        `${what}: sample ${i} came out ${wide.left[i]} wide and ${mono.out[i]} mono`);
+      assert.equal(wide.right[i], mono.out[i], `${what}: the two sides differ at ${i}`);
+      assert.equal(wide.gr[i], mono.gr[i], `${what}: the reduction differs at ${i}`);
+    }
+  }
+});
+
+test('one gain across both sides, so the image does not move when it bites', () => {
+  // The reason to link at all. A hard-panned tone is 18:1 between the sides;
+  // compress it hard and it has to still be 18:1, because a compressor that
+  // moved the sides by different amounts would swing the image in time with
+  // the music.
+  const [L, R] = panned(0.9, 0.05);
+  const out = runStereo(L, R, RATE, {
+    ...COMP_DEFAULTS, threshold: -24, ratio: 8, attack: 1, release: 50,
+  });
+
+  assert.ok(out.deepest < -8, `it has to be working to be worth asking: ${out.deepest}`);
+
+  for (let i = RATE / 50; i < L.length; i += 97) {
+    if (Math.abs(out.right[i]) < 1e-5) continue;
+    const ratio = Math.abs(out.left[i] / out.right[i]);
+    assert.ok(Math.abs(ratio - 18) < 0.05,
+      `the sides came out ${ratio.toFixed(3)} apart rather than 18`);
+  }
+});
+
+test('the detector hears the louder side, not the average of the two', () => {
+  // Which is the difference between a stereo compressor and a mono one fed a
+  // sum. A tone hard left has to earn the reduction its own level earns; if
+  // the detector averaged the sides it would read 6 dB quieter and let a
+  // hard-panned transient through.
+  const settings = { ...COMP_DEFAULTS, threshold: -20, ratio: 6, attack: 1, release: 50 };
+  const hard = runStereo(...panned(0.8, 0), RATE, settings);
+  const both = runStereo(...panned(0.8, 0.8), RATE, settings);
+
+  assert.ok(Math.abs(hard.deepest - both.deepest) < 0.01,
+    `hard left reduced ${hard.deepest.toFixed(2)} dB and centred ${both.deepest.toFixed(2)}, `
+    + 'and the louder side is 0.8 either way');
+});
+
+test('a side that is already quiet enough is not pulled down with the other one', () => {
+  // The cost of linking, stated rather than hidden: the quiet side is reduced
+  // by the loud side's gain. That is what keeping the image means, and the
+  // check is that it is the same gain and not a second one.
+  const [L, R] = panned(0.9, 0.05);
+  const out = runStereo(L, R, RATE, {
+    ...COMP_DEFAULTS, threshold: -24, ratio: 8, attack: 1, release: 50,
+  });
+  const alone = runStereo(R, R, RATE, {
+    ...COMP_DEFAULTS, threshold: -24, ratio: 8, attack: 1, release: 50,
+  });
+
+  assert.ok(peakOf(out.right) < peakOf(alone.right) * 0.8,
+    'the quiet side should be held down by the loud one, which is what linked means');
+});
+
+test('a stereo signal out of phase comes through, rather than cancelling', () => {
+  // L and -L. Nothing here sums the sides, so there is nothing for them to
+  // cancel in - and at ratio 1 the pair has to come back exactly as it went.
+  const [L, R] = panned(0.5, -0.5);
+  const out = runStereo(L, R, RATE, { ...COMP_DEFAULTS, threshold: 0, ratio: 1, knee: 0 });
+
+  let worst = 0;
+  for (let i = 0; i < L.length; i += 1) {
+    worst = Math.max(worst, Math.abs(out.left[i] - L[i]), Math.abs(out.right[i] - R[i]));
+  }
+  assert.ok(worst < 1e-6, `an out-of-phase pair came back changed by ${worst.toExponential(2)}`);
+});
+
+test('the key is still the key when the signal has two channels', () => {
+  const [L, R] = panned(0.2, 0.2);
+  const key = burst(60, 0.9, 100, 150, 400);
+  const out = runStereo(L, R, RATE, {
+    ...COMP_DEFAULTS, threshold: -30, ratio: 8, sidechain: true,
+  }, key);
+
+  assert.ok(out.deepest < -6,
+    `a loud key should duck a quiet signal, and it reduced ${out.deepest.toFixed(2)} dB`);
+  const quiet = runStereo(L, R, RATE, {
+    ...COMP_DEFAULTS, threshold: -30, ratio: 8, sidechain: true,
+  }, new Float32Array(key.length));
+  assert.equal(quiet.deepest, 0, 'and a silent key should duck nothing');
 });

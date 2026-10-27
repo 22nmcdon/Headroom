@@ -7,9 +7,28 @@ import { workletModule, installWorklet } from '../../lib/worklet.js';
  * The compressor, made audible.
  *
  * The worklet is written out of the DSP's own source - see `fx/worklet.js`
- * for why. What is here is the part that is the compressor's own: two
- * channels in, the signal on the left and the key on the right, one out, and
- * the deepest reduction since anybody last looked.
+ * for why. What is here is the part that is the compressor's own: three
+ * channels in - the signal's two and the key - two out, and the deepest
+ * reduction since anybody last looked.
+ *
+ * It was two in and one out, the signal on channel one and the key on channel
+ * two, and that cost more than it looked. A merger's input is one channel
+ * wide, so a stereo track arriving at it was down-mixed to (L+R)/2 and the
+ * single output was then copied back to both sides. Measured, a 220 Hz tone
+ * through an insert at ratio 1 - a wire:
+ *
+ *     position        in L        in R       out L       out R
+ *     hard left     -6.02 dB     silent   -12.04 dB   -12.04 dB
+ *     half left     -6.71 dB   -14.36 dB   -9.72 dB    -9.72 dB
+ *     centre        -9.03 dB   -9.03 dB    -9.03 dB    -9.03 dB
+ *     out of phase  -6.02 dB   -6.02 dB      silent      silent
+ *
+ * So: the image collapsed to the middle whatever it was; the level depended
+ * on where it sat, a hard-panned track losing 6 dB that a centred one did
+ * not; and an out-of-phase pair cancelled to nothing. All three at ratio 1,
+ * before the compressor had done anything at all. The centre row passing is
+ * why it went unseen - a mono source panned middle is the one case that
+ * works.
  *
  * A ScriptProcessor stands behind it. AudioWorklet needs a module loaded from
  * a URL, and this page is published as a single file that may be served under
@@ -48,6 +67,15 @@ const CONSTANTS = Object.fromEntries(
 /** How often the audio thread reports what it is doing, in samples. */
 const REPORT = 512;
 
+/**
+ * Which channel the sidechain key rides on, counted from zero.
+ *
+ * A name rather than a 2 in four places: it was a 1 until the signal needed
+ * two channels of its own, and the thing that makes a move like that safe is
+ * that there is one place to change it.
+ */
+const KEY_CHANNEL = 2;
+
 /** The compressor's own process(): what its inputs mean, and what it reports. */
 const COMPRESSOR_PROCESSOR = `class HeadroomCompressor extends AudioWorkletProcessor {
   constructor(options) {
@@ -61,18 +89,25 @@ const COMPRESSOR_PROCESSOR = `class HeadroomCompressor extends AudioWorkletProce
   }
 
   process(inputs, outputs) {
-    const out = outputs[0][0];
-    const signal = inputs[0][0];
-    const key = inputs[0][1];
+    const outL = outputs[0][0];
+    const outR = outputs[0][1] ?? outL;
+    const left = inputs[0][0];
+    // A mono source up-mixed by the gain in front of the splitter arrives on
+    // both; a channel that is genuinely absent falls back to the left, which
+    // is the mono case and not a silent right.
+    const right = inputs[0][1] ?? left;
+    const key = inputs[0][2];
 
-    if (!signal) { out.fill(0); return true; }
+    if (!left) { for (const channel of outputs[0]) channel.fill(0); return true; }
 
-    for (let i = 0; i < out.length; i += 1) {
-      out[i] = this.core.step(signal[i], key ? key[i] : 0);
+    for (let i = 0; i < outL.length; i += 1) {
+      this.core.stereo(left[i], right[i], key ? key[i] : 0);
+      outL[i] = this.core.left;
+      outR[i] = this.core.right;
       if (this.core.reduction < this.deepest) this.deepest = this.core.reduction;
     }
 
-    this.since += out.length;
+    this.since += outL.length;
     if (this.since >= ${REPORT}) {
       this.port.postMessage(this.deepest);
       this.deepest = 0;
@@ -93,9 +128,18 @@ export function workletSource() {
 /**
  * One compressor in a graph, however it ended up being run.
  *
- * Two channels in - the signal on the left, the key on the right - and one
- * out. The key is a channel rather than a second input because that is the
- * one shape both the worklet and the ScriptProcessor can be given.
+ * Three channels in - the signal's two, then the key - and two out. The key
+ * is a channel rather than a second input because that is the one shape both
+ * the worklet and the ScriptProcessor can be given.
+ *
+ * The front end is a gain, a splitter and a merger, and each of the three is
+ * load-bearing. A merger's inputs are one channel wide, so the signal cannot
+ * be handed to one directly without being summed; the splitter takes the two
+ * sides apart so they can be merged as themselves. The gain in front of it is
+ * what makes a mono source work: a splitter interprets its input as discrete
+ * and would leave channel two silent, so a mono synth would come out hard
+ * left. An explicit two-channel gain on speaker interpretation up-mixes it
+ * the way everything else in the graph does first.
  */
 export class LiveCompressor {
   constructor(ctx) {
@@ -103,12 +147,33 @@ export class LiveCompressor {
     this.settings = {};
     this.pending = 0;    // the deepest reduction since anyone last looked
     this.node = null;
-    this.merge = ctx.createChannelMerger(2);
+    this.gate = ctx.createGain();
+    this.gate.channelCount = 2;
+    this.gate.channelCountMode = 'explicit';
+    this.gate.channelInterpretation = 'speakers';
+    this.split = ctx.createChannelSplitter(2);
+    this.merge = ctx.createChannelMerger(3);
+    this.gate.connect(this.split);
+    this.split.connect(this.merge, 0, 0);
+    this.split.connect(this.merge, 1, 1);
     this.out = ctx.createGain();
   }
 
-  /** Where the signal goes, and where the sidechain key goes. */
-  get input() { return this.merge; }
+  /** Where the signal goes. The key goes to the merger's third input. */
+  get input() { return this.gate; }
+
+  /**
+   * Where a sidechain key goes, and which of its inputs.
+   *
+   * The merger rather than `input`, which is now the signal's own way in.
+   * Plugging a key into the signal path would compress the track against
+   * itself plus the key, which is audible and would look like a detector
+   * fault rather than a wiring one.
+   */
+  get keyIn() { return this.merge; }
+
+  /** Which input of the merger a sidechain key is plugged into. */
+  get keyAt() { return KEY_CHANNEL; }
 
   connect(dest) { this.out.connect(dest); return dest; }
 
@@ -120,8 +185,8 @@ export class LiveCompressor {
         processorOptions: { ...this.settings },
         numberOfInputs: 1,
         numberOfOutputs: 1,
-        outputChannelCount: [1],
-        channelCount: 2,
+        outputChannelCount: [2],
+        channelCount: 3,
         channelCountMode: 'explicit',
         channelInterpretation: 'discrete',
       });
@@ -130,7 +195,7 @@ export class LiveCompressor {
       // The old way: the same arithmetic, on the main thread.
       this.core = compressorCore(this.ctx.sampleRate);
       this.core.set(this.settings);
-      this.node = this.ctx.createScriptProcessor(512, 2, 1);
+      this.node = this.ctx.createScriptProcessor(512, 3, 2);
       this.node.onaudioprocess = (event) => this.grind(event);
     }
 
@@ -140,14 +205,21 @@ export class LiveCompressor {
   }
 
   grind(event) {
-    const signal = event.inputBuffer.getChannelData(0);
-    const key = event.inputBuffer.numberOfChannels > 1
-      ? event.inputBuffer.getChannelData(1)
+    const ins = event.inputBuffer;
+    const left = ins.getChannelData(0);
+    const right = ins.numberOfChannels > 1 ? ins.getChannelData(1) : left;
+    const key = ins.numberOfChannels > KEY_CHANNEL
+      ? ins.getChannelData(KEY_CHANNEL)
       : null;
-    const out = event.outputBuffer.getChannelData(0);
+    const outL = event.outputBuffer.getChannelData(0);
+    const outR = event.outputBuffer.numberOfChannels > 1
+      ? event.outputBuffer.getChannelData(1)
+      : outL;
 
-    for (let i = 0; i < out.length; i += 1) {
-      out[i] = this.core.step(signal[i], key ? key[i] : 0);
+    for (let i = 0; i < outL.length; i += 1) {
+      this.core.stereo(left[i], right[i], key ? key[i] : 0);
+      outL[i] = this.core.left;
+      outR[i] = this.core.right;
       if (this.core.reduction < this.pending) this.pending = this.core.reduction;
     }
   }
@@ -172,7 +244,8 @@ export class LiveCompressor {
   destroy() {
     try { this.node?.disconnect(); } catch { /* already gone */ }
     if (this.node) this.node.onaudioprocess = null;
-    try { this.merge.disconnect(); } catch { /* already gone */ }
-    try { this.out.disconnect(); } catch { /* already gone */ }
+    for (const node of [this.gate, this.split, this.merge, this.out]) {
+      try { node.disconnect(); } catch { /* already gone */ }
+    }
   }
 }

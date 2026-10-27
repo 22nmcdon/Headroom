@@ -210,8 +210,8 @@ export class CompPlayer {
       this.keyNode = ctx.createBufferSource();
       this.keyNode.buffer = this.keyBuffer;
       this.keyNode.loop = true;
-      this.keyNode.connect(this.mine.input, 0, 1);
-      this.keyNode.connect(this.theirs.input, 0, 1);
+      this.keyNode.connect(this.mine.keyIn, 0, this.mine.keyAt);
+      this.keyNode.connect(this.theirs.keyIn, 0, this.theirs.keyAt);
       this.keyNode.connect(this.keyThrough);
       this.keyNode.start(at);
     }
