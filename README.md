@@ -343,8 +343,6 @@ that doing it right is audible rather than merely scored:
   nothing to act on, since the stems are mono parts and the pan is applied
   after the inserts. Any of them arriving needs a reading that can see it
   first.
-- **Reordering a track's inserts.** A chain is in series, so the order is
-  audible, and the only way to change it is to take them all off.
 - Any server, account or automatic sync. Progress lives in `localStorage`, and
   the way it moves between browsers is the exported file.
 

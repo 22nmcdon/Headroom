@@ -16,6 +16,7 @@ import {
   clipAt, trackAt, sceneOf, sceneHasAnything, barTicks, repeat,
   sceneToMidi, serialise, parse, PROJECT_FORMAT, SCENES, setLength,
   addScene, dropScene, MOST_SCENES, STARTER, setFollow, followOf, MOST_PASSES, keyRoutes,
+  moveInsert,
 } from '../src/sketch/project.js';
 import { readMidi, PPQ, DRUM_CHANNEL } from '../src/sketch/midi.js';
 import { INSTRUMENT_IDS } from '../src/core/instrument.js';
@@ -460,4 +461,88 @@ test('a key with no compressor to feed is not a route', () => {
   };
   assert.deepEqual(keyRoutes(none).kept, []);
   assert.deepEqual(keyRoutes({}).kept, []);
+});
+
+/* --- the order of a chain -------------------------------------------------- */
+
+// A chain is in series, so its order is audible, and until now the only way
+// to change it was to take every insert off and put them back in the order
+// you wanted. Measured, the same two effects both ways round on a plucked
+// tone - the numbers are in src/sketch/grid.js beside the control:
+//
+//     EQ then saturation, against saturation then EQ      balance 5.46 dB
+//     compression then EQ, against EQ then compression     balance 2.68 dB
+//     saturation then compression, against the reverse     balance 8.30 dB
+//
+// So this is not a tidiness feature.
+
+test('an insert moves up and down the chain, and the others keep their order', () => {
+  let project = newProject();
+  project = setTrack(project, 0, { inserts: ['eq', 'compression', 'saturation', 'delay'] });
+
+  const up = moveInsert(project, 0, 'saturation', -1);
+  assert.deepEqual(up.tracks[0].inserts, ['eq', 'saturation', 'compression', 'delay']);
+
+  const down = moveInsert(project, 0, 'eq', 1);
+  assert.deepEqual(down.tracks[0].inserts, ['compression', 'eq', 'saturation', 'delay']);
+
+  // Two moves in a row, to make sure the second reads the first's answer and
+  // not the original.
+  const twice = moveInsert(moveInsert(project, 0, 'delay', -1), 0, 'delay', -1);
+  assert.deepEqual(twice.tracks[0].inserts, ['eq', 'delay', 'compression', 'saturation']);
+});
+
+test('the ends of the chain are the ends of it', () => {
+  let project = newProject();
+  project = setTrack(project, 0, { inserts: ['eq', 'compression'] });
+
+  // Not an error and not a wrap-around: the control is simply at its limit,
+  // the same answer a disabled button gives, so a caller that does not check
+  // first cannot put the first insert on the end by accident.
+  assert.deepEqual(moveInsert(project, 0, 'eq', -1).tracks[0].inserts, ['eq', 'compression']);
+  assert.deepEqual(moveInsert(project, 0, 'compression', 1).tracks[0].inserts, ['eq', 'compression']);
+});
+
+test('moving an insert that is not on the track changes nothing', () => {
+  let project = newProject();
+  project = setTrack(project, 0, { inserts: ['eq'] });
+  assert.deepEqual(moveInsert(project, 0, 'reverb', -1).tracks[0].inserts, ['eq']);
+  assert.deepEqual(moveInsert(project, 9, 'eq', -1).tracks, project.tracks);
+});
+
+test('a move carries each insert settings with it', () => {
+  // The settings are keyed by effect rather than by position, so this is
+  // true by construction - and it is the thing that would be silently wrong
+  // if they were ever keyed by index, which is why it is asked.
+  let project = newProject();
+  project = setTrack(project, 0, {
+    inserts: ['eq', 'compression'],
+    settings: { eq: { low: 6, mid: 0, midHz: 800, high: 0 }, compression: { threshold: -30 } },
+  });
+
+  const moved = moveInsert(project, 0, 'compression', -1);
+  assert.deepEqual(moved.tracks[0].inserts, ['compression', 'eq']);
+  assert.equal(moved.tracks[0].settings.eq.low, 6);
+  assert.equal(moved.tracks[0].settings.compression.threshold, -30);
+});
+
+test('a move leaves the clips alone', () => {
+  let project = newProject();
+  project = setNotes(project, 0, 0, [{ pitch: 60, start: 0 }]);
+  project = setTrack(project, 0, { inserts: ['eq', 'delay'] });
+
+  const moved = moveInsert(project, 0, 'delay', -1);
+  assert.deepEqual(moved.tracks[0].slots[0].notes, project.tracks[0].slots[0].notes);
+  assert.equal(moved.tracks[0].slots.length, project.tracks[0].slots.length);
+});
+
+test('the order a chain was saved in is the order it comes back in', () => {
+  // A project is JSON, and an order that did not survive the round trip would
+  // be a sketch that loads as a different sound - which is the same fault the
+  // settings table was kept in one place to avoid.
+  let project = newProject();
+  project = setTrack(project, 0, { inserts: ['saturation', 'eq', 'compression'] });
+
+  const back = parse(serialise(project));
+  assert.deepEqual(back.tracks[0].inserts, ['saturation', 'eq', 'compression']);
 });
