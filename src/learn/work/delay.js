@@ -1,6 +1,7 @@
 import {
   ECHO_DEFAULTS, DIVISIONS, SYNC_DIVISIONS, MOST_FEEDBACK,
   echoProfile, timeOf, nearestDivision,
+  HEAD_PATTERNS, repeatsReading,
 } from '../../plugins/delay/line.js';
 import { decayReading } from '../../lib/response.js';
 import { distance } from '../../gap.js';
@@ -35,6 +36,17 @@ import { HIT, NEAR, MISS, onScale, logPick, toStep, pick } from './scoring.js';
  * wrong note.
  */
 const ECHO_CLOSE = { easy: 2.6, medium: 1.9, hard: 1.2 };
+
+/**
+ * How far the shape of the loop may be out, in decibels, where it is asked
+ * for at all.
+ *
+ * Six, from the measurements in line.js beside the reading: everything that
+ * is not the head pattern moves this by at most 2.31 dB - that is the
+ * feedback a seventh of the way out - and a wrong pattern moves it by 21 or
+ * more. So six is firmly inside the gap rather than near either side of it.
+ */
+const SHAPE_CLOSE = 6;
 
 /**
  * How far out the time may be when the time is the whole question, in octaves.
@@ -263,6 +275,7 @@ export const ECHO_WORK = {
     if (spec.detail) {
       answer.lowCut = toStep(logPick(rng, 20, 600), 5);
       answer.pingPong = rng() < 0.5;
+      answer.heads = pick(rng, HEAD_PATTERNS).id;
     }
 
     return { answer };
@@ -292,21 +305,34 @@ export const ECHO_WORK = {
     const gap = distance(mine, theirs);
     const error = gap.off;
 
+    // The shape of the loop, which the decay reading cannot see: where the
+    // repeats land inside one pass of it. Only where the tier asks for a head
+    // pattern at all, because otherwise there is one head and nothing to say.
+    const shaped = puzzle.spec?.detail ?? false;
+    const shape = shaped
+      ? distance(repeatsReading(rate, settings), repeatsReading(rate, wanted)).off
+      : 0;
+
     const close = ECHO_CLOSE[tier];
-    const mark = error <= close ? HIT : error <= close * 2.5 ? NEAR : MISS;
+    // A right-sounding decay with the wrong heads is not the delay. It can be
+    // near, because the time and the feedback may well be right, and it
+    // cannot be a hit.
+    const held = error <= close && shape <= SHAPE_CLOSE;
+    const mark = held ? HIT : (error <= close * 2.5 ? NEAR : MISS);
 
     // Which way it is out, in the terms the delay is set in.
     const timing = Math.log2(settings.time / wanted.time);
     const back = settings.feedback - wanted.feedback;
 
     return {
-      correct: error <= close,
+      correct: held,
       error,
       cells: [
         { state: mark, text: `${error.toFixed(1)} dB out` },
         {
           state: mark,
-          text: error <= close ? 'that is the delay'
+          text: held ? 'that is the delay'
+            : shape > SHAPE_CLOSE ? 'the repeats are in the wrong places'
             : Math.abs(timing) > 0.06 ? `${this.howFar(timing)} too ${timing > 0 ? 'long' : 'short'}`
             : Math.abs(back) > 0.1 ? `${Math.round(Math.abs(back) * 100)}% too much ${back > 0 ? 'feedback' : 'little feedback'}`
             : 'the right time, the wrong delay',
@@ -327,6 +353,16 @@ export const ECHO_WORK = {
           how: 'Compared as a ratio, not in milliseconds: a hundred milliseconds '
              + 'out is a different mistake at a sixteenth than it is at a quarter.',
         },
+        ...(shaped ? [{
+          label: 'The shape of the loop',
+          value: shape <= SHAPE_CLOSE
+            ? 'the repeats land where they should'
+            : `${shape.toFixed(1)} dB apart`,
+          how: 'Where the repeats land inside one pass of the loop, measured in '
+             + 'fractions of it rather than in milliseconds - so this says '
+             + 'whether the heads are right and says nothing about the time, '
+             + 'which the reading above is for.',
+        }] : []),
         {
           label: 'Feedback',
           value: `${Math.round(Math.abs(back) * 100)}% too ${back > 0 ? 'much' : 'little'}`,

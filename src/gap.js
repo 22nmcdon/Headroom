@@ -15,6 +15,7 @@
 import { curveGap } from './plugins/eq/filters.js';
 import { reductionGap } from './plugins/compressor/reading.js';
 import { decayGap } from './lib/response.js';
+import { repeatGap } from './plugins/delay/line.js';
 import { stereoGap } from './plugins/stereo/field.js';
 import { heatGap } from './plugins/saturation/shape.js';
 import { loudnessGap } from './analysis/loudness.js';
@@ -41,6 +42,11 @@ const GAPS = {
   curve: curveGap,
   reduction: reductionGap,
   decay: decayGap,
+  // The delay's own second reading: where the repeats land inside one pass of
+  // the loop, which the decay curve is blind to. Measured, a decay curve put
+  // three heads 0.45 dB from four against a tolerance of 1.2, because adding
+  // earlier heads fills in between the repeats without changing the slope.
+  arrivals: repeatGap,
   image: stereoGap,
   harmonics: heatGap,
   loudness: loudnessGap,

@@ -1,5 +1,8 @@
 import { makeBiquad, setBiquad, runBiquad } from '../../lib/dsp.js';
-import { LONGEST_TAIL, decayProfile, decayTimes, wetDryImpulse } from '../../lib/response.js';
+import {
+  LONGEST_TAIL, decayProfile, decayTimes, wetDryImpulse, monoOf,
+} from '../../lib/response.js';
+import { readingOf, stampOf } from '../../lib/read.js';
 import { LOOP_BEAT } from '../../lib/tempo.js';
 
 // A delay, as an impulse response.
@@ -393,6 +396,187 @@ export function repeatsOf(settings) {
   }
 
   return found.sort((a, b) => a.at - b.at);
+}
+
+/* ---------- the shape of a loop, as a reading ---------- */
+
+/**
+ * How many frames one pass of the loop is cut into.
+ *
+ * Sixty-four, so a four-head pattern lands sixteen frames apart and the
+ * shortest delay on offer still has three frames between its repeats.
+ */
+export const LOOP_FRAMES = 64;
+
+/** And how many passes are looked at. */
+export const LOOP_PASSES = 4;
+
+/** The whole reading, in frames. */
+export const ARRIVALS = LOOP_FRAMES * LOOP_PASSES;
+
+/** Below this a frame has nothing in it, and says so rather than -Infinity. */
+export const ARRIVAL_FLOOR = -60;
+
+/**
+ * How far a frame's energy is smeared into its neighbours, in frames.
+ *
+ * Two either side. Without it the reading is a hair trigger - a repeat that
+ * moves into the next frame swings the full sixty decibels - and with it a
+ * small shift is a small change.
+ */
+export const ARRIVAL_SMEAR = 2;
+
+/**
+ * The shape of one pass of the loop: where the energy arrives inside it.
+ *
+ * In fractions of the loop rather than in milliseconds, and that is the whole
+ * design. The first version of this framed the response in fixed ten
+ * millisecond frames, which saw the pattern and the time at once and could
+ * not tell them apart:
+ *
+ *     the arrival gap when one thing is off, pattern right
+ *       time 1 % long            6.29 dB
+ *       time 3 % long           13.08 dB
+ *       time 10 % long          15.75 dB
+ *     and when the pattern is wrong
+ *       single                  13.06 dB
+ *       heads3                  14.76 dB
+ *
+ * A one per cent time error read half a wrong pattern and a three per cent
+ * error read exactly one, so there was no tolerance that admitted a near-miss
+ * on the time and refused the wrong number of heads. Useless in a match,
+ * where the time is being matched too.
+ *
+ * Cut into fractions of the loop instead, the time falls out of it entirely:
+ *
+ *       exact                    0.00 dB
+ *       time 1 % long            0.06 dB
+ *       time 10 % long           0.40 dB
+ *       time 50 % long           0.48 dB
+ *       feedback 0.15 more       2.31 dB
+ *       tone an octave down      1.45 dB
+ *       single head             21.47 dB
+ *       three heads             26.61 dB
+ *
+ * Which is a reading worth having: the pattern at twenty decibels and
+ * everything else at two.
+ *
+ * Not quite blind to the time, and the residue is the loop filters. With the
+ * loop opened right up it is exactly time-invariant; with the filters in, a
+ * 120 Hz high-pass rings for about eight milliseconds whatever the loop is,
+ * which is two fifths of a twenty millisecond loop and a two-hundredth of a
+ * fifteen-hundred one:
+ *
+ *     pair            default loop    wide open loop
+ *     380 vs 420          0.28 dB          0.00 dB
+ *     300 vs 900          0.71 dB          0.00 dB
+ *     200 vs 900          1.17 dB          0.00 dB
+ *     20 vs 1500          5.97 dB          0.00 dB
+ *
+ * Nothing anywhere a match is played, where the two delays are on the same
+ * material and one is trying to be the other. It is the complement of the decay curve rather than
+ * a replacement - that one says how the energy falls away and is blind to
+ * where inside the loop it lands; this one says where it lands and is blind
+ * to how long the loop is. Together they cover a delay.
+ *
+ * Over the wet response alone, not the wet-dry mix: the dry is one sample at
+ * the front that would sit on the first frame and move with a control that
+ * has nothing to do with the question.
+ */
+export function loopShape(samples, rate, ms) {
+  const span = ((ms / 1000) * rate) / LOOP_FRAMES;
+  const raw = new Float64Array(ARRIVALS);
+
+  for (let f = 0; f < ARRIVALS; f += 1) {
+    const from = Math.floor(f * span);
+    const to = Math.min(samples.length, Math.floor((f + 1) * span));
+    let energy = 0;
+    for (let i = from; i < to; i += 1) energy += samples[i] * samples[i];
+    raw[f] = energy;
+  }
+
+  // Smeared in energy rather than in decibels: adding two levels is adding
+  // their energies, and a triangle over the logarithms averages the wrong
+  // thing.
+  const smeared = new Float64Array(ARRIVALS);
+  let loudest = 0;
+  for (let f = 0; f < ARRIVALS; f += 1) {
+    let sum = 0;
+    let weight = 0;
+    for (let k = -ARRIVAL_SMEAR; k <= ARRIVAL_SMEAR; k += 1) {
+      const at = f + k;
+      if (at < 0 || at >= ARRIVALS) continue;
+      const w = ARRIVAL_SMEAR + 1 - Math.abs(k);
+      sum += raw[at] * w;
+      weight += w;
+    }
+    smeared[f] = weight > 0 ? sum / weight : 0;
+    if (smeared[f] > loudest) loudest = smeared[f];
+  }
+
+  const out = new Float32Array(ARRIVALS);
+  for (let f = 0; f < ARRIVALS; f += 1) {
+    out[f] = loudest > 1e-20
+      ? Math.max(ARRIVAL_FLOOR, 10 * Math.log10(Math.max(smeared[f], 1e-20) / loudest))
+      : ARRIVAL_FLOOR;
+  }
+  return out;
+}
+
+/**
+ * The axis two of these must share.
+ *
+ * The delay time is deliberately not in it. An axis is what stops two
+ * readings being compared when they are of different things, and two delays
+ * on two different times are the same kind of thing here - that is the point
+ * of measuring in fractions of a loop rather than in milliseconds.
+ */
+export const ARRIVAL_AXIS = { kind: 'arrivals', perLoop: LOOP_FRAMES, passes: LOOP_PASSES };
+
+/** Where a delay's repeats land inside its own loop, in an envelope. */
+export function repeatsReading(rate, settings, { source = null } = {}) {
+  const whole = { ...ECHO_DEFAULTS, ...settings };
+  const [left] = sidesOf(whole);
+  return readingOf({
+    tool: 'delay',
+    kind: 'arrivals',
+    of: { state: stampOf(whole), source, axis: ARRIVAL_AXIS },
+    values: loopShape(monoOf(makeEcho(rate, whole)), rate, left),
+  });
+}
+
+/**
+ * How far apart two delays are in the shape of their loops.
+ *
+ * The root mean square across the frames, which is what the decay comparator
+ * does across its own, so a tolerance set against one is not a surprise
+ * against the other.
+ *
+ * `where` is where inside the loop they disagree about most, as a fraction -
+ * "a quarter of the way in" is a thing to go and listen for, where a frame
+ * number is not. `detail.extra` above zero is a repeat of yours arriving
+ * where theirs has none.
+ */
+export function repeatGap(mine, theirs) {
+  const a = mine.values;
+  const b = theirs.values;
+  const n = Math.min(a.length, b.length);
+
+  let sum = 0;
+  let worst = 0;
+  let at = 0;
+  for (let i = 0; i < n; i += 1) {
+    const off = a[i] - b[i];
+    sum += off * off;
+    if (Math.abs(off) > Math.abs(worst)) { worst = off; at = i; }
+  }
+
+  const through = (at % LOOP_FRAMES) / LOOP_FRAMES;
+  return {
+    off: Math.sqrt(sum / Math.max(1, n)),
+    where: `${Math.round(through * 100)} % through the loop`,
+    detail: { extra: worst, pass: Math.floor(at / LOOP_FRAMES) + 1 },
+  };
 }
 
 /** A delay, built and read in the terms a guess is marked in. */

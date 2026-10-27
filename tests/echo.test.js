@@ -4,8 +4,11 @@ import assert from 'node:assert/strict';
 import {
   ECHO_DEFAULTS, DIVISIONS, SYNC_DIVISIONS, MOST_FEEDBACK, LONGEST_TIME,
   SHORTEST_TIME, MOST_OFFSET, PING_FROM, HEAD_PATTERNS,
-  makeEcho, repeatsOf, echoProfile, timeOf, nearestDivision,
+  makeEcho, repeatsOf, echoProfile, timeOf, nearestDivision, repeatsReading,
 } from '../src/plugins/delay/line.js';
+import { distance } from '../src/gap.js';
+import { comparable } from '../src/lib/read.js';
+import { mulberry32 } from '../src/lib/random.js';
 import {
   monoOf, bandOf, profileDistance, RESPONSE_BANDS, decayProfile, wetDryImpulse,
 } from '../src/lib/response.js';
@@ -606,4 +609,125 @@ test('an unknown head pattern is one head rather than nothing', () => {
     worst = Math.max(worst, Math.abs(ir.channels[0][i] - single.channels[0][i]));
   }
   assert.equal(worst, 0, 'a pattern nobody has heard of should fall back to one head');
+});
+
+/* --- the shape of a loop ---------------------------------------------------- */
+
+const shapeOf = (over) => repeatsReading(rate, { ...ECHO_DEFAULTS, time: 400, feedback: 0.5, ...over });
+const shapeGap = (a, b) => distance(shapeOf(a), shapeOf(b)).off;
+
+test('the shape of a loop sees the heads and not the time', () => {
+  // The whole reason this reading is in fractions of the loop rather than in
+  // milliseconds. Framed in milliseconds it saw both at once and could not
+  // tell them apart - a one per cent time error read half a wrong pattern and
+  // three per cent read a whole one. The figures are in line.js.
+  const base = { heads: 'heads4' };
+
+  for (const time of [404, 440, 600]) {
+    const off = shapeGap({ ...base, time }, base);
+    assert.ok(off < 1, `a delay at ${time} ms read ${off.toFixed(2)} dB from one at 400`);
+  }
+
+  for (const heads of ['single', 'heads3']) {
+    const off = shapeGap({ ...base, heads }, base);
+    assert.ok(off > 15, `${heads} read only ${off.toFixed(2)} dB from four heads`);
+  }
+});
+
+test('two delays on two different times are comparable as shapes', () => {
+  // Which is what the axis having no time in it buys, and the thing that
+  // would quietly stop working if somebody put the time back into it: an
+  // axis is what refuses a comparison, so a time in it would refuse exactly
+  // the comparison this reading exists to make.
+  assert.equal(comparable(shapeOf({ time: 200 }), shapeOf({ time: 900 })), null);
+});
+
+test('and what time dependence is left is the loop filters ringing', () => {
+  // Not quite blind, and worth knowing exactly why. With the loop opened
+  // right up the reading is exactly time-invariant; with the filters in it
+  // drifts, because their ringing is a fixed number of milliseconds and the
+  // frames are a fraction of the loop. Eight milliseconds of a 120 Hz
+  // high-pass is two fifths of a twenty millisecond loop and a two-hundredth
+  // of a fifteen-hundred one. Measured:
+  //
+  //     pair            default loop    wide open loop
+  //     380 vs 420          0.28 dB          0.00 dB
+  //     400 vs 600          0.24 dB          0.00 dB
+  //     300 vs 900          0.71 dB          0.00 dB
+  //     200 vs 900          1.17 dB          0.00 dB
+  //     20 vs 1500          5.97 dB          0.00 dB
+  //
+  // Against a tolerance of six and pattern differences above twenty, that is
+  // nothing anywhere a match is actually played - two delays being compared
+  // are on the same material and one is trying to be the other.
+  const open = { tone: 20000, lowCut: 20 };
+  for (const [a, b] of [[20, 1500], [200, 900], [400, 600]]) {
+    assert.equal(distance(shapeOf({ time: a, ...open }), shapeOf({ time: b, ...open })).off, 0,
+      `with the loop open, ${a} ms and ${b} ms should read identically`);
+  }
+
+  // And with the filters in, still small over any ratio a match sees.
+  assert.ok(distance(shapeOf({ time: 300 }), shapeOf({ time: 900 })).off < 1.5);
+});
+
+test('the shape of a loop is blind to level, and to a ping-pong', () => {
+  // Level, because every reading here is. Ping-pong because this reads the
+  // two sides summed, and a ping-pong moves which ear a repeat is in without
+  // moving when it arrives - the image reading is what sees that, and it is
+  // better at it than this would be.
+  assert.equal(shapeGap({ pingPong: true }, {}), 0);
+  assert.equal(shapeGap({ mix: 0.9 }, { mix: 0.1 }), 0);
+});
+
+test('an offset is a change in the shape of the loop', () => {
+  // Because it is: the right side's repeats stop landing on the left's grid.
+  assert.ok(shapeGap({ offset: 40 }, {}) > 10);
+});
+
+test('the hard tier asks for a head pattern and the others do not', () => {
+  const heads = (tier) => new Set(Array.from({ length: 40 }, (_, i) =>
+    delay.makePuzzle(mulberry32(i * 7717), tier, { exercise: 'match' }).answer.heads ?? 'single'));
+
+  assert.deepEqual([...heads('easy')], ['single'], 'the easy tier moved the heads');
+  assert.deepEqual([...heads('medium')], ['single'], 'the medium tier moved the heads');
+  assert.ok(heads('hard').size > 1, 'the hard tier never asked for more than one head pattern');
+});
+
+test('the right delay with the wrong heads is not the delay', () => {
+  // The point of the second reading. The decay curve puts these 1.32 dB
+  // apart at most and the tolerance is 1.2, so without this a wrong pattern
+  // was a pass at two tiers out of three.
+  const puzzle = {
+    tier: 'hard',
+    spec: { detail: true },
+    settings: { exercise: 'match' },
+    answer: {
+      ...ECHO_DEFAULTS, time: 400, feedback: 0.5, tone: 6000, lowCut: 120, heads: 'heads4',
+    },
+  };
+
+  const right = delay.score({ ...puzzle.answer }, puzzle);
+  assert.equal(right.correct, true, 'the answer itself should be the answer');
+
+  for (const heads of ['single', 'heads3']) {
+    const wrong = delay.score({ ...puzzle.answer, heads }, puzzle);
+    assert.equal(wrong.correct, false, `${heads} should not pass for four`);
+    assert.match(wrong.cells[1].text, /wrong places/);
+  }
+});
+
+test('a tier that asks for no pattern is marked as it always was', () => {
+  // So that adding a second reading could not quietly move the easy and
+  // medium tiers, where there is one head and nothing for it to say.
+  const puzzle = {
+    tier: 'easy',
+    spec: { detail: false },
+    settings: { exercise: 'match' },
+    answer: { ...ECHO_DEFAULTS, time: 400, feedback: 0.5 },
+  };
+  assert.equal(delay.score({ ...puzzle.answer }, puzzle).correct, true);
+  // And a guess that is close on the decay still passes, pattern or not -
+  // there is only one pattern at this tier.
+  const near = delay.score({ ...puzzle.answer, feedback: 0.52 }, puzzle);
+  assert.equal(near.correct, true, 'a small feedback slip should still pass the easy tier');
 });
