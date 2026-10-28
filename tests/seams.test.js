@@ -88,6 +88,7 @@ test('the DSP a plugin is built on knows nothing about a browser', async () => {
     'plugins/eq/filters.js',
     'plugins/stereo/field.js',
     'plugins/delay/line.js',
+    'plugins/delay/dsp.js',
     'plugins/reverb/ir.js',
     'lib/fft.js',
     'lib/dsp.js',

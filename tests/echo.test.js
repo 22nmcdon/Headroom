@@ -5,7 +5,7 @@ import {
   ECHO_DEFAULTS, DIVISIONS, SYNC_DIVISIONS, MOST_FEEDBACK, LONGEST_TIME,
   SHORTEST_TIME, MOST_OFFSET, PING_FROM, HEAD_PATTERNS,
   makeEcho, repeatsOf, echoProfile, timeOf, nearestDivision, repeatsReading,
-  MACHINES, machineTone, BBD_STAGES, MACHINE_FLOOR, MACHINE_CEILING,
+  MACHINES, machineTone, BBD_STAGES, MACHINE_FLOOR, MACHINE_CEILING, echoCore,
 } from '../src/plugins/delay/line.js';
 import { distance } from '../src/gap.js';
 import { comparable } from '../src/lib/read.js';
@@ -1229,4 +1229,110 @@ test('a machine nobody has heard of is a digital one', () => {
     worst = Math.max(worst, Math.abs(ir.channels[0][i] - digital.channels[0][i]));
   }
   assert.equal(worst, 0, 'an unknown machine should fall back to clean digital');
+});
+
+/* --- the loop and the response are the same delay ------------------------- */
+
+test('the response is a run of the core over one click', () => {
+  // Not a tautology for long: the response is drawn and marked and the core is
+  // what the audio thread runs, and the whole point of there being one of them
+  // is that nobody can change one without the other. If this ever fails,
+  // somebody has given `makeEcho` arithmetic of its own again.
+  for (const over of [{}, { heads: 'heads4', diffusion: 0.4 }, { machine: 'bbd', time: 800 },
+    { pingPong: true, offset: 40 }]) {
+    const settings = { ...ECHO_DEFAULTS, ...over };
+    const made = makeEcho(rate, settings);
+    const core = echoCore(rate).set(settings);
+
+    let worst = 0;
+    for (let i = 0; i < made.length; i += 1) {
+      const input = i === 0 ? 1 : 0;
+      core.stereo(input, input);
+      // Rounded to single precision before comparing, because that is what
+      // the response is stored as. A machine with a makeup gain leaves a
+      // double on the core and a float32 in the buffer, and the two differ in
+      // the last bit for no reason anybody cares about.
+      worst = Math.max(worst,
+        Math.abs(Math.fround(core.left) - made.channels[0][i]),
+        Math.abs(Math.fround(core.right) - made.channels[1][i]));
+    }
+    assert.equal(worst, 0, `${JSON.stringify(over)} came out differently by hand`);
+  }
+});
+
+test('running a signal through the core is convolving it with the response', () => {
+  // The claim the live path rests on. The delay as it stands is linear, so a
+  // signal through the loop and the same signal convolved with the loop's
+  // response are the same sound - which is what made a ConvolverNode a fair
+  // way to run it, and what makes swapping that convolver for the loop a
+  // change of nothing. Measured here rather than asserted, because it stops
+  // being true the moment anything in the loop moves while the audio does, and
+  // the margin is what will say how much.
+  //
+  // A short line and a modest feedback, so the response is 16k samples rather
+  // than 136k and the convolution is a test rather than an afternoon.
+  const settings = { ...ECHO_DEFAULTS, time: 50, feedback: 0.3, diffusion: 0.3 };
+  const made = makeEcho(rate, settings);
+  const core = echoCore(rate).set(settings);
+
+  // Two seeded noise bursts, one a side, so a routing mistake cannot hide in a
+  // mono signal.
+  const random = mulberry32(7);
+  const n = 2000;
+  const inL = new Float32Array(n);
+  const inR = new Float32Array(n);
+  for (let i = 0; i < n; i += 1) {
+    inL[i] = random() * 2 - 1;
+    inR[i] = random() * 2 - 1;
+  }
+
+  const span = n + made.length;
+  const ran = [new Float32Array(span), new Float32Array(span)];
+  for (let i = 0; i < span; i += 1) {
+    core.stereo(i < n ? inL[i] : 0, i < n ? inR[i] : 0);
+    ran[0][i] = core.left;
+    ran[1][i] = core.right;
+  }
+
+  // The convolution, by hand, one channel against its own side of the
+  // response - which is what a two-channel ConvolverNode does.
+  const folded = [new Float32Array(span), new Float32Array(span)];
+  for (let c = 0; c < 2; c += 1) {
+    const signal = c === 0 ? inL : inR;
+    const response = made.channels[c];
+    for (let i = 0; i < n; i += 1) {
+      const x = signal[i];
+      if (x === 0) continue;
+      for (let k = 0; k < response.length; k += 1) folded[c][i + k] += x * response[k];
+    }
+  }
+
+  const level = (a) => {
+    let sum = 0;
+    for (let i = 0; i < a.length; i += 1) sum += a[i] * a[i];
+    return Math.sqrt(sum / a.length);
+  };
+
+  // Compared over the first `made.length` samples only, and that window is
+  // the point rather than a convenience. The response is truncated where the
+  // repeats fall 60 dB below the first one, so a convolution with it loses
+  // whatever would have arrived after that - while the loop, having no end,
+  // keeps going. Output before the response runs out needs no tap past its
+  // end, so inside that window the two are the same sum and the truncation is
+  // not being measured. Inside it the two agree to -144.8 dB on the left and
+  // -144.6 on the right, which is float32 and nothing else. Over the whole
+  // span it is -73.7 and -72.7, which is the size of the tail a convolver was
+  // always throwing away.
+  const window = made.length;
+  for (let c = 0; c < 2; c += 1) {
+    const off = new Float32Array(window);
+    const want = new Float32Array(window);
+    for (let i = 0; i < window; i += 1) {
+      off[i] = ran[c][i] - folded[c][i];
+      want[i] = folded[c][i];
+    }
+    const residue = 20 * Math.log10(level(off) / level(want));
+    assert.ok(residue < -100,
+      `channel ${c} differs by ${residue.toFixed(1)} dB, which is more than rounding`);
+  }
 });
