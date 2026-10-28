@@ -568,38 +568,63 @@ export const ECHO_WORK = {
     const error = gap.off;
 
     // The shape of the loop, which the decay reading cannot see: where the
-    // repeats land inside one pass of it. Only where the tier asks for a head
-    // pattern at all, because otherwise there is one head and nothing to say.
+    // repeats land inside one pass of it. At every tier, and the history of
+    // this one line is worth keeping.
     //
-    // Off the tier rather than off `puzzle.spec`, which nothing has ever set:
-    // makePuzzle returns `{ answer }` and the game spreads that into the
-    // puzzle beside the mode, the tier and the seed, so `puzzle.spec` was
-    // undefined and this whole term was switched off. It let nothing through
-    // on its own - measured, 0 of 80 wrong head patterns scored as a hit with
-    // everything else exact, because the decay curve catches them at the hard
-    // tier's 1.2 dB - but the code said it was checking and it was not.
+    // It used to read `puzzle.spec?.detail`, and nothing has ever set
+    // `puzzle.spec` - makePuzzle returns `{ answer }` and the game spreads
+    // that into the puzzle beside the mode, the tier and the seed. So the
+    // term was switched off from the day it was written. Pointed at the tier
+    // instead, it then ran at the hard tier only, because that is the tier
+    // whose answer carries a head pattern.
     //
-    // Switched on, over sixty seeds a tier: the exact answer still passes 60
-    // of 60, a wrong head pattern passes 0 of 120, and a near miss of three
-    // per cent on the time still passes 60 of 60. So it vetoes nothing it
-    // should not, which is what a term that has never run has to be shown
-    // before it is trusted.
+    // Both of those were measured with seeds that turned out to be the same
+    // seed. `makePuzzle` hashes its seed, and the numbers 1 to 60 that were
+    // handed to it hashed to one puzzle sixty times over - so "0 of 80 wrong
+    // patterns got through" described one target, repeated. With seeds that
+    // differ, the decay curve on its own lets a wrong head pattern through:
     //
-    // Only the hard tier asks for a pattern, so only the hard tier checks
-    // one. At easy and medium the target's heads stay at the default and a
-    // player who dials four of them in passes - 120 of 120, measured - and
-    // the same goes for diffusion, which is in no tier's answer at all. That
-    // is a wider question than this repair: those tiers ask about the time,
-    // the feedback and the tone, and nothing invites you to touch a head
-    // selector. Turning the shape reading on everywhere would cost them
-    // nothing they are about, since it puts a 5 per cent time error at 0.12
-    // dB and 0.15 more feedback at 0.78 against a tolerance of 6. The only
-    // reason it is not on is that widening what fails at two tiers is a
-    // change to the game rather than a repair to it.
-    const shaped = this.tiers[tier]?.detail ?? false;
-    const shape = shaped
-      ? distance(repeatsReading(rate, settings), repeatsReading(rate, wanted)).off
-      : 0;
+    //     tier      through on the decay curve alone   the loop reading says
+    //     easy                    20 of 20            13.5 to 23.2 dB apart
+    //     medium                  17 of 20            12.9 to 24.2
+    //     hard                     9 of 20            13.0 to 29.6
+    //     expert                  10 of 20            13.1 to 29.6
+    //
+    // So it was an open hole at every tier and not a latent one, and the
+    // reading that closes it puts a wrong pattern twice the tolerance away
+    // everywhere. With the term on at every tier, no wrong pattern gets
+    // through at any of them.
+    //
+    // And it vetoes nothing it should not, which is the half that has to be
+    // shown before a term that never ran is trusted. A three per cent error
+    // on the time reads 0.00 to 0.20 dB through this reading at every tier,
+    // never near the 6 it allows - the near misses that do fail are failing
+    // on the decay curve's own tolerance, exactly as they did before.
+    //
+    // It catches diffusion too, which is in no tier's answer and so is a thing
+    // you can only ever add when the target has none. Mostly: over thirty
+    // targets a tier, six tenths of diffusion added to an exact answer still
+    // passed 6 of 30 at the easy tier and 1 of 30 at hard and expert. That is
+    // the design rather than a gap in it - the output is taken in front of the
+    // all-passes, so the first pass is clean whatever the diffusion is, and a
+    // delay with barely any tail has barely anything for a smear to act on.
+    // Measured at 375 ms, no diffusion against six tenths of it:
+    //
+    //     feedback 0.12   4.84 dB      0.35    9.58
+    //              0.20   6.58         0.50   11.91
+    //              0.24   7.43         0.80   15.35
+    //
+    // The easy tier's short answers draw feedback between 0.12 and 0.24, which
+    // is exactly where it crosses the 6 this allows.
+    //
+    // What it costs: two more responses a mark, which takes a mark from about
+    // 110 ms to 226 at the easy tier. It is paid on a button press, once a
+    // guess. Not skipped when both sides have the same heads and diffusion,
+    // tempting as that is: the reading is not exactly blind to the rest, so
+    // the panel would be printing "the repeats land where they should" from
+    // an assumption - and a check that does not run is the fault this comment
+    // is about.
+    const shape = distance(repeatsReading(rate, settings), repeatsReading(rate, wanted)).off;
 
     // And how badly the transport holds time, which neither of the other two
     // can see: the decay curve reads fifty cents of wow at 0.88 dB against a
@@ -658,7 +683,7 @@ export const ECHO_WORK = {
           how: 'Compared as a ratio, not in milliseconds: a hundred milliseconds '
              + 'out is a different mistake at a sixteenth than it is at a quarter.',
         },
-        ...(shaped ? [{
+        {
           label: 'The shape of the loop',
           value: shape <= SHAPE_CLOSE
             ? 'the repeats land where they should'
@@ -667,7 +692,7 @@ export const ECHO_WORK = {
              + 'fractions of it rather than in milliseconds - so this says '
              + 'whether the heads are right and says nothing about the time, '
              + 'which the reading above is for.',
-        }] : []),
+        },
         {
           label: 'Feedback',
           value: `${Math.round(Math.abs(back) * 100)}% too ${back > 0 ? 'much' : 'little'}`,

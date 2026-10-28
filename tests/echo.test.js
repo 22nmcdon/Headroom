@@ -1810,3 +1810,48 @@ test('the other three exercises get an expert tier that is not a duplicate', () 
     }
   }
 });
+
+test('a wrong head pattern is refused at every tier', () => {
+  // The hole this closes, and the measurement that found it had to be taken
+  // twice. `makePuzzle` hashes its seed, so the numbers 1 to 60 handed to it
+  // the first time hashed to one puzzle sixty times - and one puzzle is not a
+  // measurement. With seeds that differ, the decay curve on its own lets a
+  // wrong head pattern through 20 of 20 times at the easy tier, 17 of 20 at
+  // medium, 9 of 20 at hard and 10 of 20 at expert, while the loop reading
+  // puts the same answers 12.9 to 29.6 dB apart against a tolerance of 6.
+  //
+  // Seeds are strings here for that reason. A numeric seed is not wrong, it
+  // is just not a different seed.
+  for (const tier of ['easy', 'medium', 'hard', 'expert']) {
+    for (let n = 1; n <= 4; n += 1) {
+      const puzzle = gameOf({ mode: 'delay', tier, settings: { exercise: 'match' }, seed: `round-${n}` });
+      const right = { ...ECHO_DEFAULTS, ...puzzle.answer };
+      assert.ok(delay.score(right, puzzle).correct,
+        `${tier}: its own answer should pass`);
+
+      for (const heads of HEAD_PATTERNS.map((pattern) => pattern.id)) {
+        if (heads === right.heads) continue;
+        const got = delay.score({ ...right, heads }, puzzle);
+        assert.ok(!got.correct,
+          `${tier}: ${right.heads} answered as ${heads} passed, ${got.error.toFixed(2)} dB out`);
+      }
+    }
+  }
+});
+
+test('the shape reading refuses nothing but the shape', () => {
+  // The other half. A three per cent error on the time is a near miss on the
+  // question the easy tier is actually asking, and it must not be refused by
+  // a reading that is not about the time: measured, 0.00 to 0.20 dB through
+  // this reading at every tier, against the 6 it allows.
+  for (const tier of ['easy', 'medium', 'hard', 'expert']) {
+    for (let n = 1; n <= 4; n += 1) {
+      const puzzle = gameOf({ mode: 'delay', tier, settings: { exercise: 'match' }, seed: `round-${n}` });
+      const right = { ...ECHO_DEFAULTS, ...puzzle.answer };
+      const slow = { ...right, time: right.time * 1.03 };
+      const off = distance(repeatsReading(rate, slow), repeatsReading(rate, right)).off;
+      assert.ok(off < 1,
+        `${tier}: three per cent on the time moved the loop reading ${off.toFixed(2)} dB`);
+    }
+  }
+});
