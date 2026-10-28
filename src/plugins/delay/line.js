@@ -438,6 +438,320 @@ export function repeatGap(mine, theirs) {
   };
 }
 
+/* ---------- how badly the transport holds time, as a reading ---------- */
+
+/**
+ * The tone the transport is watched with, how long for, and in how many
+ * frames.
+ *
+ * A thousand hertz, because it sits in the middle of everything and well
+ * inside every corner this delay can put in front of its line - a probe the
+ * loop filters were rolling off would be measuring the filter.
+ *
+ * Four seconds, because wow is slow. At 0.55 Hz that is a little over two
+ * cycles, which is enough to see the shape of one, and a hundred and
+ * twenty-eight frames across it samples the deviation at 32 Hz - twice over
+ * for the fastest flutter on offer.
+ */
+export const WANDER_PROBE = 1000;
+export const WANDER_SECONDS = 4;
+export const WANDER_FRAMES = 128;
+
+/**
+ * The modulation rates the deviation is sorted into, in hertz.
+ *
+ * Four bands, placed around the two rates this transport actually has rather
+ * than swept in octaves - because a hundred and twenty-eight frames over four
+ * seconds resolves a quarter of a hertz, and wow at 0.55 does not land on a
+ * bin. Octave bands from a quarter of a hertz put the edge at 0.5, a twentieth
+ * of a hertz below the wow rate, and split every wander in two: measured, 50
+ * cents of wow read 34.3 in one band and 9.8 in the one below it, and 10 cents
+ * of flutter read 4.1 and 4.8 either side of the 8 Hz edge. The bands here are
+ * wide enough that each rate and its skirts fall inside one of them.
+ *
+ * The two in the middle and at the top hold nothing that either knob makes.
+ * They are there because this is a reading of a transport and not of two
+ * controls - anything that wanders between a quarter of a hertz and sixteen
+ * has somewhere to be seen.
+ *
+ * Bands rather than the deviation curve itself, and that is the whole design.
+ * Where in its cycle the window opens depends on how far back the probe had
+ * to be read, which is the delay time - so two delays wandering identically
+ * at two different times would have the same curve shifted sideways and read
+ * as far apart as it is possible to be. That is exactly the mistake the first
+ * arrival reading made by framing itself in milliseconds, and it is caught
+ * the same way: measure the thing being asked about and nothing else. Energy
+ * in a band does not know about phase.
+ */
+export const WANDER_BANDS = [
+  { id: 'wow', from: 0.25, to: 1.5 },
+  { id: 'middle', from: 1.5, to: 4.5 },
+  { id: 'flutter', from: 4.5, to: 12 },
+  { id: 'scrape', from: 12, to: 16 },
+];
+
+/**
+ * How far the demodulator's smoothing corner sits below the probe.
+ *
+ * A tenth, three poles of it. Multiplying by the probe's own frequency leaves
+ * the wander near nothing and an image of it up at twice the probe, and three
+ * poles an octave and a bit down put that image eighty-odd decibels away
+ * while costing a fifth of a decibel at sixteen hertz.
+ */
+const WANDER_CORNER = 0.1;
+const WANDER_POLES = 3;
+
+/**
+ * The pitch the repeats come back at, frame by frame, in cents.
+ *
+ * A tone in, the wet taken out, and the instantaneous frequency of it read
+ * off a quadrature pair: multiply by the probe to bring it down to nothing,
+ * smooth, and take `(I*dQ - Q*dI) / (I*I + Q*Q)`, which is the derivative of
+ * the phase without the arctangent or the unwrapping either side of it.
+ *
+ * With the feedback shut and on one head, and both of those are decisions
+ * rather than conveniences.
+ *
+ * The feedback, because a delay that is fed back is a pile of repeats arriving
+ * at once, each read at its own moment and so each at its own pitch, and the
+ * deviation of a sum of copies is not the deviation of any of them. How long
+ * the tail is is the decay curve's question.
+ *
+ * The head, because several heads on one transport are a comb. They are all
+ * displaced by the same amount at the same moment, so their sum is a single
+ * tone at the right instantaneous pitch and a fixed amplitude - which is fine
+ * until that amplitude is near one of the comb's nulls, and then the pitch is
+ * being read off almost nothing. Measured before this line existed: a
+ * four-head pattern at 375 ms reported 6669 cents of wow where 50 was asked
+ * for, which is not a wander, it is a tracker reading noise.
+ *
+ * What one head costs is a corner: the line's limit on how deep the wander
+ * may go is held against the nearest head, so a short multi-head delay really
+ * does wander less than this reading says. Measured, asked for fifty cents -
+ * four heads at 20 ms gets 20.1 against the 27.4 one head gets, and at 40 ms
+ * 40.4 against 50.0. Above sixty milliseconds there is no difference at all,
+ * and the shortest delay any exercise asks for is a sixteenth note.
+ */
+export function wanderTrack(rate, settings) {
+  const whole = { ...ECHO_DEFAULTS, ...settings };
+  const core = echoCore(rate).set({ ...whole, feedback: 0, heads: 'single' });
+  const [left] = sidesOf(whole);
+
+  // Past the first repeat's arrival, and past the loop filters settling on it.
+  const lead = Math.ceil(((left + 60) / 1000) * rate);
+  const span = Math.ceil(WANDER_SECONDS * rate);
+  const per = span / WANDER_FRAMES;
+
+  // The probe and the pair it is demodulated against, as one rotation rather
+  // than three trigonometric calls a sample. Three of them over four seconds
+  // of audio is most of what this reading costs, and a complex multiply is
+  // four multiplies and two adds. Renormalised every so often, because a
+  // rotator's magnitude drifts with rounding and a probe that quietly fades
+  // would read as a transport doing nothing.
+  const step = (2 * Math.PI * WANDER_PROBE) / rate;
+  const turnCos = Math.cos(step);
+  const turnSin = Math.sin(step);
+  let spinCos = 1;
+  let spinSin = 0;
+  const smooth = Math.exp(-2 * Math.PI * WANDER_PROBE * WANDER_CORNER / rate);
+  const poleI = new Float64Array(WANDER_POLES);
+  const poleQ = new Float64Array(WANDER_POLES);
+
+  const frames = new Float32Array(WANDER_FRAMES);
+  const counts = new Float32Array(WANDER_FRAMES);
+  let lastI = 0;
+  let lastQ = 0;
+
+  for (let i = 0; i < lead + span; i += 1) {
+    const x = spinSin;
+    core.stereo(x, x);
+    const heard = core.left;
+
+    let valueI = heard * spinCos;
+    let valueQ = -heard * spinSin;
+    for (let k = 0; k < WANDER_POLES; k += 1) {
+      poleI[k] = poleI[k] * smooth + valueI * (1 - smooth);
+      poleQ[k] = poleQ[k] * smooth + valueQ * (1 - smooth);
+      valueI = poleI[k];
+      valueQ = poleQ[k];
+    }
+
+    if (i >= lead) {
+      const power = valueI * valueI + valueQ * valueQ;
+      // In cycles a sample, then in hertz, then in cents of the probe.
+      const turn = power > 1e-12
+        ? (valueI * (valueQ - lastQ) - valueQ * (valueI - lastI)) / power
+        : 0;
+      const hz = (turn * rate) / (2 * Math.PI);
+      const cents = 1200 * Math.log2(Math.max(0.5, 1 + hz / WANDER_PROBE));
+      const frame = Math.min(WANDER_FRAMES - 1, Math.floor((i - lead) / per));
+      frames[frame] += cents;
+      counts[frame] += 1;
+    }
+    lastI = valueI;
+    lastQ = valueQ;
+
+    const nextCos = spinCos * turnCos - spinSin * turnSin;
+    spinSin = spinCos * turnSin + spinSin * turnCos;
+    spinCos = nextCos;
+    if ((i & 8191) === 8191) {
+      const size = Math.sqrt(spinCos * spinCos + spinSin * spinSin);
+      if (size > 1e-9) { spinCos /= size; spinSin /= size; }
+    }
+  }
+
+  for (let f = 0; f < WANDER_FRAMES; f += 1) {
+    if (counts[f] > 0) frames[f] /= counts[f];
+  }
+  return frames;
+}
+
+/**
+ * That curve, as one RMS figure in cents a band.
+ *
+ * A plain Hann-windowed transform of a hundred and twenty-eight frames, and
+ * the one-sided power in each band's bins. The window's own amplitude is
+ * divided back out, so a pure wander of A cents peak reads as A over root two
+ * in the band it falls in and nothing anywhere else. Measured:
+ *
+ *     setting         wow   middle   flutter   scrape      wanted
+ *     wow 10         7.06     0.03      0.00     0.00        7.07
+ *     wow 25        17.72     0.06      0.00     0.00       17.68
+ *     wow 50        35.70     0.12      0.00     0.00       35.36
+ *     flutter 10     0.05     0.00      6.34     0.01        7.07
+ *     flutter 25     0.14     0.00     15.93     0.03       17.68
+ *     both at 25    17.71     0.06     15.93     0.06
+ *
+ * Wow to within one per cent. Flutter nine per cent light, and the nine per
+ * cent is the frames: a frame is 31.25 ms and a flutter cycle is 127, so
+ * averaging the deviation across a frame costs sinc(7.9/32) = 0.911 of it.
+ * Left uncorrected rather than scaled back up, because a per-band constant
+ * fitted to one rate would be a calibration pretending to be a measurement -
+ * and both sides of any comparison are measured the same way, so what it
+ * costs is nine per cent of the reading's sensitivity to flutter and nothing
+ * else. The bottom row is the one that matters: two wanders at once read as
+ * themselves, side by side, neither hiding the other.
+ */
+export function wanderBands(frames) {
+  const n = frames.length;
+  // `taper` rather than the obvious name for it, because a DSP file that
+  // mentions the browser's `window` is a DSP file that cannot be lifted out,
+  // and there is a test in tests/seams.test.js that says so. It caught this.
+  const taper = new Float64Array(n);
+  let taperPower = 0;
+  for (let i = 0; i < n; i += 1) {
+    taper[i] = 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / n);
+    taperPower += taper[i] * taper[i];
+  }
+  const taperRms = Math.sqrt(taperPower / n);
+
+  // The mean is the delay standing still, which is not wander.
+  let mean = 0;
+  for (let i = 0; i < n; i += 1) mean += frames[i];
+  mean /= n;
+
+  const perFrame = WANDER_FRAMES / WANDER_SECONDS;
+  const out = new Float32Array(WANDER_BANDS.length);
+  for (let b = 0; b < WANDER_BANDS.length; b += 1) {
+    const band = WANDER_BANDS[b];
+    let power = 0;
+    for (let k = 1; k < n / 2; k += 1) {
+      const hz = (k * perFrame) / n;
+      if (hz < band.from || hz >= band.to) continue;
+      let real = 0;
+      let imag = 0;
+      for (let i = 0; i < n; i += 1) {
+        const turn = (2 * Math.PI * k * i) / n;
+        const value = (frames[i] - mean) * taper[i];
+        real += value * Math.cos(turn);
+        imag -= value * Math.sin(turn);
+      }
+      power += 2 * ((real / n) ** 2 + (imag / n) ** 2);
+    }
+    out[b] = Math.sqrt(power) / taperRms;
+  }
+  return out;
+}
+
+/**
+ * The axis two of these must share.
+ *
+ * No delay time in it, for the same reason the arrival axis has none: two
+ * delays on two different times are the same kind of thing here, and saying
+ * so is what makes "does yours wander like mine" a question at all.
+ */
+export const WANDER_AXIS = {
+  kind: 'wander',
+  bands: WANDER_BANDS.map((band) => band.id).join(','),
+  probe: WANDER_PROBE,
+  seconds: WANDER_SECONDS,
+};
+
+/** How much a delay's repeats wander, and at what rates. */
+export function wanderReading(rate, settings, { source = null } = {}) {
+  const whole = { ...ECHO_DEFAULTS, ...settings };
+  return readingOf({
+    tool: 'delay',
+    kind: 'wander',
+    of: { state: stampOf(whole), source, axis: WANDER_AXIS },
+    values: wanderBands(wanderTrack(rate, whole)),
+  });
+}
+
+/**
+ * How far apart two transports are, in cents.
+ *
+ * The root mean square across the bands, which is what the other two
+ * comparators do across theirs. Cents, so a tolerance set on it is in the
+ * unit the knob is in, and `where` names the band they disagree about most -
+ * "wow" and "flutter" being two different things to go and listen for.
+ *
+ * Measured, at 375 ms and half feedback:
+ *
+ *     wow 0 vs 10          3.53 cents      the time, 375 vs 900    0.00
+ *     wow 10 vs 20         3.55            the feedback, +0.15     0.00
+ *     wow 20 vs 30         3.57            the tone, an octave     0.00
+ *     wow 30 vs 50         7.20            four heads              0.00
+ *     flutter 0 vs 10      3.17            diffusion               0.00
+ *     flutter 10 vs 25     4.79            tape                    0.00
+ *     wow 25 vs flutter 25    11.86        ping-pong               0.00
+ *                                          the mix                 0.00
+ *
+ * Linear in the depth, at about 3.5 cents for every ten on the knob, so a
+ * tolerance resolves the wander to a fixed number of cents rather than to a
+ * fraction of wherever it happens to be. Decisive between the two rates:
+ * twenty-five cents of wow against twenty-five of flutter is twelve, which is
+ * three times the gap between adjacent depths of either. And exactly zero for
+ * everything that is not the transport, which is the half of a reading that
+ * is usually the hard half - the probe runs with the feedback shut and on one
+ * head, so there is nothing else in it to see. Nine of those eleven are
+ * exactly zero; the two media read 2.11e-6 and 1.23e-4 cents, which is the
+ * makeup gain changing the amplitude and so the rounding, not the phase.
+ *
+ * The same wander at five different delay times reads the same to within an
+ * eighth of a cent, which is the phase-blindness the bands were chosen for.
+ */
+export function wanderGap(mine, theirs) {
+  const a = mine.values;
+  const b = theirs.values;
+  const n = Math.min(a.length, b.length);
+
+  let sum = 0;
+  let worst = 0;
+  let at = 0;
+  for (let i = 0; i < n; i += 1) {
+    const off = a[i] - b[i];
+    sum += off * off;
+    if (Math.abs(off) > Math.abs(worst)) { worst = off; at = i; }
+  }
+
+  return {
+    off: Math.sqrt(sum / Math.max(1, n)),
+    where: WANDER_BANDS[at]?.id ?? 'nowhere',
+    detail: { extra: worst, band: WANDER_BANDS[at]?.id ?? null },
+  };
+}
+
 /** A delay, built and read in the terms a guess is marked in. */
 export function echoProfile(rate, settings, times = decayTimes()) {
   const echo = makeEcho(rate, settings);

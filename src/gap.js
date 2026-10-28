@@ -15,7 +15,7 @@
 import { curveGap } from './plugins/eq/filters.js';
 import { reductionGap } from './plugins/compressor/reading.js';
 import { decayGap } from './lib/response.js';
-import { repeatGap } from './plugins/delay/line.js';
+import { repeatGap, wanderGap } from './plugins/delay/line.js';
 import { stereoGap } from './plugins/stereo/field.js';
 import { heatGap } from './plugins/saturation/shape.js';
 import { loudnessGap } from './analysis/loudness.js';
@@ -47,6 +47,11 @@ const GAPS = {
   // three heads 0.45 dB from four against a tolerance of 1.2, because adding
   // earlier heads fills in between the repeats without changing the slope.
   arrivals: repeatGap,
+  // And its third: how badly the transport holds time, which both of the
+  // others are deliberately blind to. Measured, fifty cents of wow moved the
+  // decay curve 0.88 dB against a tolerance of 1.2 - so without this one the
+  // wander is a control you could get wrong and still pass.
+  wander: wanderGap,
   image: stereoGap,
   harmonics: heatGap,
   loudness: loudnessGap,

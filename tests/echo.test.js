@@ -6,6 +6,7 @@ import {
   SHORTEST_TIME, MOST_OFFSET, PING_FROM, HEAD_PATTERNS,
   makeEcho, repeatsOf, echoProfile, timeOf, nearestDivision, repeatsReading,
   MACHINES, machineTone, BBD_STAGES, MACHINE_FLOOR, MACHINE_CEILING, echoCore,
+  wanderReading, WANDER_BANDS,
 } from '../src/plugins/delay/line.js';
 import { WOW_RATE, FLUTTER_RATE } from '../src/plugins/delay/dsp.js';
 import { echoSource } from '../src/plugins/delay/node.js';
@@ -1584,4 +1585,123 @@ test('the worklet is built from the delay, not a copy of it', () => {
     worst = Math.max(worst, Math.abs(mine.left - yours.left), Math.abs(mine.right - yours.right));
   }
   assert.equal(worst, 0, 'what you hear has to be what you are marked on');
+});
+
+/* --- the wander, as a reading --------------------------------------------- */
+
+test('the wander reading is in cents and says which rate it found', () => {
+  // A pure wander of A cents peak should read A over root two - which is what
+  // RMS means - in its own band and nothing in the others. Measured:
+  //
+  //     setting         wow   middle   flutter   scrape      wanted
+  //     wow 10         7.06     0.03      0.00     0.00        7.07
+  //     wow 25        17.72     0.06      0.00     0.00       17.68
+  //     flutter 10     0.05     0.00      6.34     0.01        7.07
+  //     flutter 25     0.14     0.00     15.93     0.03       17.68
+  //
+  // Wow to a per cent. Flutter nine per cent light, which is the frame
+  // averaging: sinc(7.9 / 32) is 0.911, and a frame is a tenth of a flutter
+  // cycle. Left uncorrected on purpose - see wanderBands.
+  const base = { ...ECHO_DEFAULTS, time: 375, feedback: 0.5, mix: 0.4 };
+  const bandAt = (id) => WANDER_BANDS.findIndex((band) => band.id === id);
+
+  for (const [which, band, loss] of [['wow', 'wow', 1], ['flutter', 'flutter', 0.911]]) {
+    for (const cents of [10, 25]) {
+      const values = wanderReading(rate, { ...base, [which]: cents }).values;
+      const want = (cents / Math.SQRT2) * loss;
+      assert.ok(Math.abs(values[bandAt(band)] - want) < want * 0.03,
+        `${which} ${cents} read ${values[bandAt(band)].toFixed(2)} in its band, not ${want.toFixed(2)}`);
+
+      // And nothing in the band the other one lives in.
+      const other = which === 'wow' ? 'flutter' : 'wow';
+      assert.ok(values[bandAt(other)] < 0.3,
+        `${which} ${cents} put ${values[bandAt(other)].toFixed(2)} cents in the ${other} band`);
+    }
+  }
+
+  // Two wanders at once read as themselves, side by side.
+  const both = wanderReading(rate, { ...base, wow: 25, flutter: 25 }).values;
+  const alone = wanderReading(rate, { ...base, wow: 25 }).values;
+  assert.ok(Math.abs(both[bandAt('wow')] - alone[bandAt('wow')]) < 0.05,
+    'flutter should not change what the wow band reads');
+});
+
+test('the wander reading sees nothing but the transport', () => {
+  // The half of a reading that is usually the hard half. The probe runs with
+  // the feedback shut and on one head, so there is nothing in it but the
+  // transport. Nine of these eleven read exactly zero, and the two that do
+  // not are the two media:
+  //
+  //     tape               2.11e-6 cents
+  //     bucket brigade     1.23e-4
+  //
+  // Which is rounding and not a signal. A medium puts a filter in front of
+  // the line, and a filter's phase at a steady tone is a constant, so the
+  // derivative of that phase - which is all this reading is - is unchanged.
+  // What does change is the amplitude, because the makeup gain divides the
+  // insertion loss back out, and a different amplitude rounds differently in
+  // the last bits. A ten-thousandth of a cent is twelve thousand times under
+  // the smallest step either knob can be moved by.
+  const base = { ...ECHO_DEFAULTS, time: 375, feedback: 0.5, mix: 0.4 };
+  const read = (over) => wanderReading(rate, { ...base, ...over });
+  const still = read({});
+
+  for (const over of [{ time: 900 }, { feedback: 0.65 }, { tone: 3000 }, { lowCut: 400 },
+    { heads: 'heads4' }, { diffusion: 0.7 }, { machine: 'tape' }, { machine: 'bbd' },
+    { pingPong: true }, { offset: 60 }, { mix: 0.8 }]) {
+    const off = distance(read(over), still).off;
+    assert.ok(off < 0.001,
+      `${JSON.stringify(over)} put ${off.toExponential(2)} cents into a reading not about it`);
+  }
+
+  // And the same wander at five different times reads the same, which is what
+  // the bands were chosen for: measured, within an eighth of a cent.
+  for (const time of [100, 200, 700, 1200]) {
+    const off = distance(read({ time, wow: 25 }), read({ time: 375, wow: 25 })).off;
+    assert.ok(off < 0.2,
+      `wow at ${time} ms read ${off.toFixed(3)} cents from the same wow at 375`);
+  }
+});
+
+test('the wander reading resolves the depth and tells the two rates apart', () => {
+  // Measured, at 375 ms and half feedback:
+  //
+  //     wow 0 vs 10          3.53 cents       flutter 0 vs 10     3.17
+  //     wow 10 vs 20         3.55             flutter 10 vs 25    4.79
+  //     wow 20 vs 30         3.57             wow 25 vs flutter 25   11.86
+  //     wow 30 vs 50         7.20
+  //
+  // Linear in the depth at about 3.5 cents for every ten on the knob, so a
+  // tolerance resolves the wander to a fixed number of cents rather than to a
+  // fraction of wherever it happens to be.
+  const base = { ...ECHO_DEFAULTS, time: 375, feedback: 0.5, mix: 0.4 };
+  const read = (over) => wanderReading(rate, { ...base, ...over });
+
+  let last = 0;
+  for (const [a, b] of [[0, 10], [10, 20], [20, 30]]) {
+    const off = distance(read({ wow: a }), read({ wow: b })).off;
+    assert.ok(off > 3 && off < 4, `wow ${a} against ${b} read ${off.toFixed(2)} cents`);
+    if (last) assert.ok(Math.abs(off - last) < 0.2, 'ten cents should cost the same everywhere');
+    last = off;
+  }
+
+  // Three times the gap between adjacent depths, which is what makes "which
+  // of the two is it" a question and not a coin toss.
+  const apart = distance(read({ wow: 25 }), read({ flutter: 25 })).off;
+  assert.ok(apart > 3 * last,
+    `wow against flutter at the same depth read ${apart.toFixed(2)}, only ${(apart / last).toFixed(1)} `
+    + 'times the gap between adjacent depths');
+
+  // And the comparator says which band to go and listen to.
+  assert.equal(distance(read({ wow: 25 }), read({})).where, 'wow');
+  assert.equal(distance(read({ flutter: 25 }), read({})).where, 'flutter');
+});
+
+test('a wander reading cannot be compared with anything else', () => {
+  // The envelope's job. Two readings of different kinds, or of the same kind
+  // on different axes, are refused rather than averaged into a number nothing
+  // downstream could tell was wrong.
+  const base = { ...ECHO_DEFAULTS, time: 375, feedback: 0.5, mix: 0.4 };
+  assert.throws(() => distance(wanderReading(rate, base), repeatsReading(rate, base)),
+    /compare/, 'a wander reading against an arrival reading should be refused');
 });
