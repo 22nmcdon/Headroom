@@ -76,11 +76,45 @@ export async function check({ browser, at, say }) {
       const L = done.getChannelData(0);
       const R = done.getChannelData(1);
       const image = stereoProfile(L, R, RATE).whole;
+
+      // And two things no reading above states, because every one of them is a
+      // ratio: whether anything came out at all, and whether it came out when
+      // the setting said it would.
+      //
+      // Not because the others let silence through - tried, by taking a
+      // function off the worklet's parts list so the audio thread throws and
+      // the delay produces nothing, this check already failed. A silent output
+      // reads as perfectly correlated, which the offset and ping-pong rows
+      // refuse. What it failed with was "offset 12 ms left the sides 1.000
+      // correlated", which sends whoever reads it looking at the routing. The
+      // fault was that there was no delay at all, and now that is the first
+      // thing it says.
+      //
+      // The checks that do let it through, tried the same way: inserts,
+      // chain, faces and tracks all pass with a delay that produces silence.
+      // They are about graphs and faces and none of them listens.
+      let peak = 0;
+      for (let i = 0; i < L.length; i += 1) peak = Math.max(peak, Math.abs(L[i]), Math.abs(R[i]));
+
+      // The loudest 10 ms frame after the dry burst has gone, and where it is.
+      const span = Math.round(RATE * 0.01);
+      let loudest = 0;
+      let arrival = 0;
+      for (let f = Math.ceil((RATE * 0.2) / span); (f + 1) * span < L.length; f += 1) {
+        let top = 0;
+        for (let i = f * span; i < (f + 1) * span; i += 1) {
+          top = Math.max(top, Math.abs(L[i]), Math.abs(R[i]));
+        }
+        if (top > loudest) { loudest = top; arrival = f * 10; }
+      }
+
       return {
         correlation: image.correlation,
         width: image.width,
         mono: image.mono,
         sides: placementOf(L, R, RATE).whole,
+        peak,
+        arrival,
       };
     };
 
@@ -94,14 +128,31 @@ export async function check({ browser, at, say }) {
   });
 
   say('  a centred source through a delay insert, read as an image\n');
-  say('  routing                   correlation     width    mono cost      sides');
+  say('  routing                   correlation     width    mono cost      sides     peak   first');
   for (const r of rows) {
     say(`  ${r.what.padEnd(25)} ${r.correlation.toFixed(3).padStart(11)}`
       + ` ${r.width.toFixed(2).padStart(8)} dB ${r.mono.toFixed(2).padStart(8)} dB`
-      + ` ${r.sides.toFixed(2).padStart(8)} dB`);
+      + ` ${r.sides.toFixed(2).padStart(8)} dB ${r.peak.toFixed(3).padStart(8)}`
+      + ` ${String(r.arrival).padStart(5)} ms`);
   }
 
   const by = (what) => rows.find((r) => r.what === what);
+
+  // Before anything about the image: a delay has to delay. Every routing here
+  // is set to 375 ms and all wet, so each one must put its loudest repeat
+  // there, and must put something there at all.
+  for (const r of rows) {
+    if (r.peak < 0.05) {
+      problems.push(`${r.what} came out at a peak of ${r.peak.toFixed(4)}, which is a delay `
+        + 'that is not delaying anything');
+    }
+    // Within two frames of the time on the knob, which lets the offset
+    // routings land on either side's leg without letting a wrong time pass.
+    if (Math.abs(r.arrival - 375) > 100) {
+      problems.push(`${r.what} put its loudest repeat at ${r.arrival} ms, and the delay `
+        + 'is set to 375');
+    }
+  }
 
   // Together is mono: the two sides are the same signal, so they correlate
   // and a fold-down costs nothing.
