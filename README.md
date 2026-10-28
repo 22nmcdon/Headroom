@@ -347,6 +347,16 @@ that doing it right is audible rather than merely scored:
   nothing to act on, since the stems are mono parts and the pan is applied
   after the inserts. Any of them arriving needs a reading that can see it
   first.
+- A compander on the bucket brigade, which is the most-named part of a BBD
+  delay. Built as a throwaway and measured: it works, pushing a -66 dB noise
+  floor down to -96.7, which is what a compander is for. But the noise is the
+  only reason it exists and this delay has none, so adding one in order to take
+  it back off is adding a defect to hide it. And either half on its own moves
+  the bucket brigade 17 dB on the reading that marks which machine it is,
+  against tolerances of 2.6, 1.9 and 1.2 - because a compander's gain comes
+  from the signal's envelope and an impulse has none, so the response would
+  stop describing the device. No reference level fixes that; moving it to full
+  scale makes it worse. See `src/plugins/delay/dsp.js` beside `BBD_AT`.
 - Any server, account or automatic sync. Progress lives in `localStorage`, and
   the way it moves between browsers is the exported file.
 

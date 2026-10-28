@@ -150,6 +150,56 @@ export const BBD_STAGES = 4096;
 export const BBD_AT = 0.4;
 
 /**
+ * No compander, and that is a decision with numbers behind it.
+ *
+ * A real bucket brigade pedal has one: a 2:1 compressor on the way into the
+ * chip and a 1:2 expander on the way out, because the chip's noise floor is
+ * poor. It is the most-named part of a BBD delay and it is deliberately not
+ * here.
+ *
+ * Built as a throwaway and measured three ways.
+ *
+ * It works. Companding a loop with a noise floor at -66 dB pushed that floor
+ * from -70.7 dB to -96.7 once the repeats had died - twenty-six decibels,
+ * which is exactly what a compander is for.
+ *
+ * But the noise is the only reason it exists, and this delay has none. Adding
+ * one so that a compander can take it back off is adding a defect in order to
+ * hide it, and the net of the two is roughly where the delay already is.
+ *
+ * And either half on its own wrecks what the delay is marked by. Against the
+ * plain machine, through the decay reading that marks which machine this is,
+ * with the tolerances that decide a pass being 2.6, 1.9 and 1.2 dB:
+ *
+ *     companded, no noise      17.71 dB
+ *     noise at -66 dB          17.05 dB
+ *     both                     16.75 dB
+ *
+ * The reason is structural rather than a matter of tuning. A compander's gain
+ * comes from the signal's envelope, and an impulse has no envelope - so the
+ * impulse response of a companded delay is a description of what it does to
+ * the one signal a compander cannot handle. Every response this app draws and
+ * marks is that impulse, so the drawing would stop describing the device.
+ *
+ * The tempting way out is to move the compander's reference to full scale,
+ * where an impulse sits at unity and the compander does nothing to it. Tried:
+ * the response moves 21.07 dB rather than 17.71, because the repeats decay
+ * below full scale immediately and get companded anyway - and the bed's quiet
+ * gap moves the same 3.2 dB either way. There is no reference at which the
+ * response is faithful.
+ *
+ * What it would buy, measured on four drum hits rather than on a click: the
+ * tail in a quiet gap sits about 3.1 dB higher, because each pass round the
+ * loop is compressed again, so the repeats hang on more evenly. That is a real
+ * and characteristic thing about BBD delays. It is also a dynamics effect, and
+ * a response cannot carry one.
+ *
+ * So the machine model stops at the tone, which is what a response can carry
+ * honestly: the clock sets the bandwidth, a longer delay is a slower clock, and
+ * a longer delay is darker. See MACHINES above.
+ */
+
+/**
  * Tape's corner, in hertz-seconds.
  *
  * At 375 ms this puts it at 6 kHz, which is about where a worn quarter-inch
