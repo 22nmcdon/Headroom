@@ -1,7 +1,7 @@
 import {
   ECHO_DEFAULTS, DIVISIONS, SYNC_DIVISIONS, MOST_FEEDBACK,
   echoProfile, timeOf, nearestDivision,
-  HEAD_PATTERNS, repeatsReading,
+  HEAD_PATTERNS, repeatsReading, headsOf,
 } from '../../plugins/delay/line.js';
 import { decayReading } from '../../lib/response.js';
 import { distance } from '../../gap.js';
@@ -135,7 +135,149 @@ export const ECHO_EXERCISES = {
     cleanOf: () => ({ ...ECHO_DEFAULTS, mix: 0 }),
     restores: true,
   },
+  pattern: {
+    id: 'pattern',
+    label: 'How many heads?',
+    drill: true,
+    ask: 'How many places is this delay being read from?',
+    lede: 'Nothing to dial here. A tape loop can be read by more than one head, '
+        + 'and what comes back is a little figure rather than one echo: say how '
+        + 'many heads are on.',
+    opening: 'Play it, count the repeats before the pattern starts over, then say how many.',
+    tierBlurbs: {
+      easy: 'One head or four',
+      medium: 'And three',
+      hard: 'Faster, louder and smeared',
+    },
+    // Drums with the tempo they are in, like the division drill: a pattern is
+    // a rhythm and a rhythm needs a pulse to be one against.
+    source: 'drums',
+    sourceOptions: { tempo: false },
+    other: 'Dry',
+    targetOf: () => ({ ...ECHO_DEFAULTS, mix: 0 }),
+
+    startOf: (puzzle, tier) => {
+      const spec = PATTERN_DRILL[tier] ?? PATTERN_DRILL.medium;
+      return {
+        ...ECHO_DEFAULTS,
+        ...DRILL_ECHO,
+        time: puzzle.answer.time,
+        heads: puzzle.answer.heads,
+        feedback: spec.feedback,
+        diffusion: spec.diffusion,
+      };
+    },
+    cleanOf: () => ({ ...ECHO_DEFAULTS, mix: 0 }),
+    restores: true,
+  },
 };
+
+/** The three, in the order that makes a neighbour a neighbour. */
+const PATTERN_IDS = ['single', 'heads3', 'heads4'];
+
+/**
+ * Which heads, at which tier, and on what material.
+ *
+ * Every tier offers all three, and the difficulty is in the material rather
+ * than the list: the time comes down so the repeats crowd, the feedback goes
+ * up so they overlap, and the hard tier smears them with a little diffusion.
+ *
+ * Three patterns is all there are, so a tier offering fewer would be a drill
+ * with two answers - and this app's drills are held to at least three, so
+ * that no chip is worth always picking. An earlier version of this had easy
+ * offering one head against four, and tests/drill.test.js refused it.
+ *
+ * Harder to count is not the same as closer together, which is the thing to
+ * be careful of here. Measured on the loop reading, every pair at every tier:
+ *
+ *     easy    (625 ms, fb 0.3)                 single vs heads3   15.57 dB
+ *                                              single vs heads4   19.07
+ *                                              heads3 vs heads4   23.72
+ *     medium  (469 ms, fb 0.45)                single vs heads3   17.10
+ *                                              single vs heads4   20.93
+ *                                              heads3 vs heads4   25.99
+ *     hard    (313 ms, fb 0.55, diffuse 0.35)  single vs heads3   23.05
+ *                                              single vs heads4   27.53
+ *                                              heads3 vs heads4   22.22
+ *
+ * The hard tier is further apart than the easy one. What it is is harder to
+ * count, which is a difficulty the reading cannot see and the ear can. The
+ * figures are here so that nobody tightens a tier until two of its answers
+ * are the same sound.
+ */
+const PATTERN_DRILL = {
+  easy: { ids: PATTERN_IDS, division: 'quarter', feedback: 0.3, diffusion: 0 },
+  medium: { ids: PATTERN_IDS, division: 'dotted8', feedback: 0.45, diffusion: 0 },
+  hard: { ids: PATTERN_IDS, division: 'eighth', feedback: 0.55, diffusion: 0.35 },
+};
+
+/** How many heads each one is, for the face of a chip. */
+const HEAD_COUNT = { single: '1', heads3: '3', heads4: '4' };
+
+/**
+ * Name the pattern.
+ *
+ * Ordered by how many heads, so mistaking three for four is next door and
+ * calling four heads one head is not. Hearing that there is a pattern at all
+ * and then miscounting it is a different mistake from hearing one repeat
+ * where there are four, and the marking says so.
+ */
+function scorePattern(state, puzzle) {
+  const { answer, tier } = puzzle;
+  const spec = PATTERN_DRILL[tier] ?? PATTERN_DRILL.medium;
+  const offered = PATTERN_IDS.filter((id) => spec.ids.includes(id));
+
+  const mark = onScale(
+    offered.indexOf(state.heads),
+    offered.indexOf(answer.heads),
+    { near: 1 },
+  );
+
+  const guessed = headsOf(state.heads);
+  const wanted = headsOf(answer.heads);
+  const time = answer.time;
+
+  /** Where a pattern's heads land, for saying it out loud. */
+  const landing = (pattern) => pattern.taps
+    .map((tap) => writeMs(tap * time))
+    .join(', ');
+
+  return {
+    correct: mark === HIT,
+    cells: [
+      { state: mark, text: guessed.label },
+      {
+        state: mark,
+        text: mark === HIT ? 'that is it'
+          : `${wanted.taps.length} rather than ${guessed.taps.length}`,
+        narrow: true,
+      },
+    ],
+    why: [
+      {
+        label: 'What you picked',
+        value: `${guessed.label} - ${landing(guessed)}`,
+        how: 'Every head is a fraction of the time the delay is set to, so the '
+           + 'last one lands on that time and the others arrive before it.',
+      },
+      {
+        label: 'What it was',
+        value: `${wanted.label} - ${landing(wanted)}`,
+        how: 'The feedback comes off the longest head, so the whole pattern goes '
+           + 'round again rather than each head breeding repeats of its own.',
+      },
+      {
+        label: 'What to listen for',
+        value: wanted.taps.length === 1
+          ? 'one repeat a beat, dying away'
+          : `${wanted.taps.length} repeats, then the lot again quieter`,
+        how: 'One head is a single echo repeating. More heads is a little figure '
+           + 'that repeats - so count the echoes before the pattern starts over, '
+           + 'not the echoes in total.',
+      },
+    ],
+  };
+}
 
 /**
  * Name the division.
@@ -221,6 +363,18 @@ export const ECHO_WORK = {
 
   /** Answered on the plugin, except in the drill, which asks with chips. */
   slots(tier, settings) {
+    if (settings?.exercise === 'pattern') {
+      const spec = PATTERN_DRILL[tier] ?? PATTERN_DRILL.medium;
+      return [{
+        id: 'heads',
+        kind: 'choice',
+        label: 'How many heads',
+        options: PATTERN_IDS
+          .filter((id) => spec.ids.includes(id))
+          .map((id) => ({ id, symbol: HEAD_COUNT[id], name: headsOf(id).label })),
+      }];
+    }
+
     if (settings?.exercise !== 'drill') return [];
 
     const spec = DIVISION_DRILL[tier] ?? DIVISION_DRILL.medium;
@@ -235,6 +389,13 @@ export const ECHO_WORK = {
   },
 
   makePuzzle(rng, tier, settings) {
+    if (settings.exercise === 'pattern') {
+      const spec = PATTERN_DRILL[tier] ?? PATTERN_DRILL.medium;
+      const heads = pick(rng, PATTERN_IDS.filter((id) => spec.ids.includes(id)));
+      const division = DIVISIONS.find((d) => d.id === spec.division) ?? DIVISIONS[0];
+      return { answer: { heads, time: timeOf(division.beats), division: division.id } };
+    }
+
     if (settings.exercise === 'drill') {
       const spec = DIVISION_DRILL[tier] ?? DIVISION_DRILL.medium;
       const division = pick(rng, DIVISIONS.filter((d) => spec.ids.includes(d.id)));
@@ -288,6 +449,7 @@ export const ECHO_WORK = {
     const guess = state;
     const exercise = puzzle?.settings?.exercise ?? 'match';
     if (exercise === 'drill') return scoreDivision(guess, puzzle);
+    if (exercise === 'pattern') return scorePattern(guess, puzzle);
 
     const settings = { ...ECHO_DEFAULTS, ...guess };
     // Delays are built from numbers rather than recorded, so marking needs no

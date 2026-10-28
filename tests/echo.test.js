@@ -9,6 +9,7 @@ import {
 import { distance } from '../src/gap.js';
 import { comparable } from '../src/lib/read.js';
 import { mulberry32 } from '../src/lib/random.js';
+import { NEAR, MISS } from '../src/learn/work/scoring.js';
 import {
   monoOf, bandOf, profileDistance, RESPONSE_BANDS, decayProfile, wetDryImpulse,
 } from '../src/lib/response.js';
@@ -899,4 +900,133 @@ test('the shortest delay can be diffused too', () => {
     assert.ok(peak > 0.5, `a ${time} ms delay diffused came out at ${peak.toFixed(3)}`);
     assert.ok(Number.isFinite(peak), `a ${time} ms delay diffused came out ${peak}`);
   }
+});
+
+/* --- the pattern drill ------------------------------------------------------ */
+
+const patternPuzzle = (tier, seed) =>
+  delay.makePuzzle(mulberry32(seed), tier, { exercise: 'pattern' });
+
+test('the pattern drill only ever asks about patterns its tier offers', () => {
+  for (const tier of ['easy', 'medium', 'hard']) {
+    const offered = new Set(delay.slots(tier, { exercise: 'pattern' })[0].options.map((o) => o.id));
+    assert.ok(offered.size >= 2, `the ${tier} tier offers ${offered.size} patterns`);
+
+    const asked = new Set();
+    for (let seed = 0; seed < 60; seed += 1) {
+      asked.add(patternPuzzle(tier, seed * 3121).answer.heads);
+    }
+    for (const id of asked) {
+      assert.ok(offered.has(id), `the ${tier} tier asked about ${id} without offering it`);
+    }
+    assert.equal(asked.size, offered.size,
+      `the ${tier} tier offers ${offered.size} patterns and asked about ${asked.size}`);
+  }
+});
+
+test('every tier offers all three patterns, and gets harder by the material', () => {
+  // Three patterns is all there are, so a tier offering fewer would be a
+  // drill with two answers - and this app holds its drills to at least three,
+  // so that no chip is worth always picking. An earlier version of this had
+  // easy offering one head against four and tests/drill.test.js refused it,
+  // which is the rule working.
+  for (const tier of ['easy', 'medium', 'hard']) {
+    assert.deepEqual(
+      delay.slots(tier, { exercise: 'pattern' })[0].options.map((o) => o.id),
+      ['single', 'heads3', 'heads4'],
+    );
+  }
+
+  // What changes is the material: shorter, louder and smeared as it goes up.
+  const times = ['easy', 'medium', 'hard'].map((tier) =>
+    delay.exercises.pattern.startOf(patternPuzzle(tier, 11), tier));
+  assert.ok(times[0].time > times[1].time && times[1].time > times[2].time,
+    'the repeats should crowd as the tier goes up');
+  assert.ok(times[2].diffusion > 0, 'and the hard tier should smear them');
+});
+
+test('every pattern a tier offers is plainly a different pattern', () => {
+  // The fairness check, and the reason it is a test rather than a note: a
+  // tier that crowded the repeats until two answers were the same sound
+  // would be a question with two right answers. Measured on the loop
+  // reading, every pair at every tier:
+  //
+  //     easy    (625 ms, fb 0.3)                single vs heads3   15.57 dB
+  //                                             single vs heads4   19.07
+  //                                             heads3 vs heads4   23.72
+  //     medium  (469 ms, fb 0.45)               single vs heads3   17.10
+  //                                             single vs heads4   20.93
+  //                                             heads3 vs heads4   25.99
+  //     hard    (313 ms, fb 0.55, diffuse 0.35) single vs heads3   23.05
+  //                                             single vs heads4   27.53
+  //                                             heads3 vs heads4   22.22
+  //
+  // Which also says what the tiers are doing. They are not getting closer
+  // together - the hard tier is further apart than the medium one - they are
+  // getting harder to count, because the repeats crowd and smear. That is a
+  // difficulty the reading cannot measure and the ear can.
+  for (const tier of ['easy', 'medium', 'hard']) {
+    const ids = delay.slots(tier, { exercise: 'pattern' })[0].options.map((o) => o.id);
+    const settings = delay.exercises.pattern.startOf(patternPuzzle(tier, 7), tier);
+
+    for (let i = 0; i < ids.length; i += 1) {
+      for (let j = i + 1; j < ids.length; j += 1) {
+        const off = distance(
+          repeatsReading(rate, { ...settings, heads: ids[i] }),
+          repeatsReading(rate, { ...settings, heads: ids[j] }),
+        ).off;
+        assert.ok(off > 10,
+          `at ${tier}, ${ids[i]} and ${ids[j]} read only ${off.toFixed(2)} dB apart`);
+      }
+    }
+  }
+});
+
+test('naming the pattern right is a hit, next door is gold, across is a miss', () => {
+  // Ordered one, three, four - so mistaking three heads for four is next
+  // door and calling four heads one head is not. Hearing that there is a
+  // pattern and miscounting it is a different mistake from not hearing one.
+  const puzzle = {
+    tier: 'medium',
+    settings: { exercise: 'pattern' },
+    answer: { heads: 'heads4', time: timeOf(1), division: 'quarter' },
+  };
+
+  assert.equal(delay.score({ heads: 'heads4' }, puzzle).correct, true);
+  assert.equal(delay.score({ heads: 'heads3' }, puzzle).correct, false);
+  assert.equal(delay.score({ heads: 'single' }, puzzle).correct, false);
+
+  assert.equal(delay.score({ heads: 'heads3' }, puzzle).cells[0].state, NEAR);
+  assert.equal(delay.score({ heads: 'single' }, puzzle).cells[0].state, MISS);
+});
+
+test('the pattern drill puts its answer on the delay, on the grid', () => {
+  // The repeats have to be in time with the loop or a pattern is not a
+  // rhythm, which is the only thing it could be heard as.
+  for (const tier of ['easy', 'medium', 'hard']) {
+    for (let seed = 0; seed < 12; seed += 1) {
+      const puzzle = patternPuzzle(tier, seed * 977);
+      const settings = delay.exercises.pattern.startOf(puzzle, tier);
+
+      assert.equal(settings.heads, puzzle.answer.heads, 'the delay is not set to the answer');
+      const near = nearestDivision(settings.time);
+      assert.ok(near.off < 1e-9,
+        `${tier} seed ${seed}: ${settings.time} ms is not a note value`);
+      assert.ok(settings.mix > 0.2, 'the repeats have to be audible');
+    }
+  }
+});
+
+test('a pattern puzzle is a function of its seed', () => {
+  for (const tier of ['easy', 'medium', 'hard']) {
+    assert.deepEqual(patternPuzzle(tier, 4242).answer, patternPuzzle(tier, 4242).answer);
+  }
+});
+
+test('the pattern drill asks nothing of the knobs', () => {
+  // A drill is chips, not controls: there is one slot and it is a choice.
+  const slots = delay.slots('medium', { exercise: 'pattern' });
+  assert.equal(slots.length, 1);
+  assert.equal(slots[0].kind, 'choice');
+  assert.ok(slots[0].options.every((o) => o.symbol && o.name), 'every chip needs a face and a name');
 });
