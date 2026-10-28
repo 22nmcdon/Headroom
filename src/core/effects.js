@@ -39,7 +39,8 @@ import { LiveCompressor } from '../plugins/compressor/node.js';
 import { LiveSaturator } from '../plugins/saturation/node.js';
 import { LiveImager } from '../plugins/stereo/node.js';
 import { makeImpulse, VERB_DEFAULTS } from '../plugins/reverb/ir.js';
-import { makeEcho, ECHO_DEFAULTS } from '../plugins/delay/line.js';
+import { ECHO_DEFAULTS } from '../plugins/delay/line.js';
+import { LiveEcho } from '../plugins/delay/node.js';
 import { COMP_DEFAULTS } from '../plugins/compressor/dsp.js';
 import { HEAT_DEFAULTS } from '../plugins/saturation/shape.js';
 import { STEREO_DEFAULTS } from '../plugins/stereo/field.js';
@@ -272,8 +273,45 @@ function convolverEffect(ctx, id, impulseOf, defaults, settings) {
 const verbEffect = (ctx, { settings = {} } = {}) =>
   convolverEffect(ctx, 'reverb', makeImpulse, VERB_DEFAULTS, settings);
 
-const echoEffect = (ctx, { settings = {} } = {}) =>
-  convolverEffect(ctx, 'delay', makeEcho, ECHO_DEFAULTS, settings);
+/**
+ * The delay, as the loop rather than as its response.
+ *
+ * Its sibling above still convolves, and should: a room does not move. A
+ * delay is about to, and a response cannot carry that - so this one runs the
+ * loop itself, which is also the cheaper of the two. Measured, four instances
+ * across four chains rendering four seconds, fraction of one core: 0.176 for
+ * the convolver, 0.071 for the loop, 0.104 for the loop with four heads on it.
+ *
+ * The wet/dry pair is the same pair the convolver gets, around two nodes
+ * instead of one.
+ */
+async function echoEffect(ctx, { settings = {} } = {}) {
+  let current = { ...ECHO_DEFAULTS, ...settings };
+
+  const live = new LiveEcho(ctx);
+  live.settings = { ...current };
+  await live.start();
+
+  const pair = wetDry(ctx, live.input, live.out);
+  pair.setMix(current.mix ?? 0.3);
+
+  return {
+    id: 'delay',
+    in: pair.in,
+    out: pair.out,
+    params: () => ({ ...current }),
+    set(next, at = ctx.currentTime) {
+      current = { ...current, ...next };
+      live.set(current);
+      pair.setMix(current.mix ?? 0.3, at);
+      return this;
+    },
+    destroy() {
+      live.destroy();
+      pair.destroy();
+    },
+  };
+}
 
 /* --- the six -------------------------------------------------------------- */
 

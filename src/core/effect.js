@@ -106,22 +106,28 @@ export function chainOf(ctx, effects = []) {
  * A convolver has no dry path of its own: it hands back the room and nothing
  * else, and a reverb at 30 per cent is a mix of that with the signal that
  * went in. Written once here because the reverb and the delay both want it
- * and they are the same arithmetic - the only difference is which impulse.
+ * and they are the same arithmetic - the only difference is what is in the
+ * middle.
+ *
+ * Two nodes rather than one when what is in the middle is not a single node.
+ * A convolver is both its own way in and its own way out; the delay's worklet
+ * sits behind a gain that up-mixes a mono source, so its way in and its way
+ * out are two different nodes.
  *
  * Equal-gain rather than equal-power. A room at half mix should be half the
  * room, which is what somebody reaching for the control means; equal-power
  * would make the wet 0.71 at the middle and the two sides would not add up
  * to what either of them says.
  */
-export function wetDry(ctx, wetNode) {
+export function wetDry(ctx, wetIn, wetOut = wetIn) {
   const entry = ctx.createGain();
   const dry = ctx.createGain();
   const wet = ctx.createGain();
   const exit = ctx.createGain();
 
   entry.connect(dry).connect(exit);
-  entry.connect(wetNode);
-  wetNode.connect(wet).connect(exit);
+  entry.connect(wetIn);
+  wetOut.connect(wet).connect(exit);
 
   dry.gain.value = 1;
   wet.gain.value = 0;

@@ -539,6 +539,28 @@ export function echoCore(rate) {
         // repeats walk across rather than sitting on top of each other - and
         // the input lands in one line alone, because that is what starts them
         // alternating. Which one is a setting.
+        //
+        // Summed to the middle on the way in, which is both what a ping-pong
+        // pedal does and the end of a bug this delay carried for as long as
+        // it was a response. A two-channel convolver pairs channel with
+        // channel, so a source already hard on one side had nothing on the
+        // other for the crossed half of the response to act on - it came out
+        // as a plain delay on one side and silence on the other. Measured,
+        // repeats only, 375 ms at half feedback:
+        //
+        //     source       plain delay      convolved        this
+        //     centred     -34.81/-34.81   -35.74/-41.97   -35.74/-41.97
+        //     hard left   -31.80/silent   -32.73/silent   -38.75/-44.98
+        //     hard right  silent/-31.80   silent/-38.96   -38.75/-44.98
+        //
+        // The two hard rows now agree with each other, which is the test of
+        // it: where a mono source was panned is not supposed to decide which
+        // ear its echoes start in. It cost 6 dB, which is what summing two of
+        // anything to the middle costs, and nothing at all on the material
+        // this app actually has - the beds are mono and a track's pan is
+        // applied after its inserts, so the two sides are the same signal and
+        // their mean is it. Checked that way too: a mono bed through both
+        // paths differs by -88 dB.
         const feeds = state.pingPong ? 1 - c : c;
         const feed = state.pingPong
           ? (c === from ? (inL + inR) / 2 : 0)
