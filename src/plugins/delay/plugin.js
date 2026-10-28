@@ -2,6 +2,8 @@ import {
   ECHO_DEFAULTS, SYNC_DIVISIONS, makeEcho, timeOf, nearestDivision,
   ECHO_LIMITS, PING_FROM, HEAD_PATTERNS, MACHINES, machineTone,
 } from './line.js';
+import { echoTail } from './line.js';
+import { LiveEcho } from './node.js';
 import {
   RESPONSE_BANDS, DECAY_FLOOR, decayProfile, decayTimes, wetDryImpulse, decayReading, decayAxis
 } from '../../lib/response.js';
@@ -92,9 +94,21 @@ export class EchoPlugin {
     this.profile = null;
     this.columns = null;
 
+    // The loop rather than the response, so the face plays what a track
+    // plays. A delay whose transport wanders is not a response, and
+    // convolving one would put the same displacement under every sample of
+    // the loop: the repeats would come back detuned by a fixed amount instead
+    // of wandering, and the panel would be drawing something nobody could
+    // hear. Rendered offline all the same - see renderWet for why.
     this.player = player ?? new ImpulsePlayer(engine, {
       source,
-      impulseOf: makeEcho,
+      wetOf: async (offline, settings) => {
+        const live = new LiveEcho(offline);
+        live.settings = { ...settings };
+        await live.start();
+        return { in: live.input, out: live.out };
+      },
+      tailOf: echoTail,
       defaults: ECHO_DEFAULTS,
     });
 

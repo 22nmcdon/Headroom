@@ -77,23 +77,37 @@ export function nearestDivision(ms, among = SYNC_DIVISIONS) {
  * scaled copy of the first. Running the loop for real is both shorter to
  * write and exactly right.
  */
-export function makeEcho(rate, params = {}) {
-  const settings = { ...ECHO_DEFAULTS, ...params };
-  const core = echoCore(rate).set(settings);
-
-  const feedback = Math.min(MOST_FEEDBACK, Math.max(0, settings.feedback));
-  const step = Math.max(...sidesOf(settings)
+/**
+ * How long a delay goes on for, in samples.
+ *
+ * Long enough for the repeats to die, and never longer than anything else in
+ * this app measures. At the most feedback on offer that is a truncation
+ * rather than a fade-out, which is honest: the display shows where it was cut
+ * and both sides of a comparison are cut in the same place.
+ *
+ * Its own function because two things need it now. The response is this long,
+ * and so is the stretch a player has to keep running after a loop has ended
+ * to catch what is still sounding - the two have to agree, or the tail folded
+ * back over the start of a loop is a different length from the tail drawn
+ * beside it.
+ */
+export function echoTail(rate, settings) {
+  const whole = { ...ECHO_DEFAULTS, ...settings };
+  const feedback = Math.min(MOST_FEEDBACK, Math.max(0, whole.feedback));
+  const step = Math.max(...sidesOf(whole)
     .map((ms) => Math.max(1, Math.round((ms / 1000) * rate))));
 
-  // Long enough for the repeats to die, and never longer than anything else
-  // in this app measures. At the most feedback on offer that is a truncation
-  // rather than a fade-out, which is honest: the display shows where it was
-  // cut and both sides of a comparison are cut in the same place.
   const fading = feedback > 0.001
     ? (step / rate) * (Math.log(1e-3) / Math.log(feedback))
     : step / rate;
   const seconds = Math.min(LONGEST_TAIL, Math.max(step / rate + 0.05, fading + step / rate));
-  const length = Math.ceil(seconds * rate);
+  return { length: Math.ceil(seconds * rate), step };
+}
+
+export function makeEcho(rate, params = {}) {
+  const settings = { ...ECHO_DEFAULTS, ...params };
+  const core = echoCore(rate).set(settings);
+  const { length, step } = echoTail(rate, settings);
 
   const channels = [new Float32Array(length), new Float32Array(length)];
   for (let i = 0; i < length; i += 1) {

@@ -6,9 +6,11 @@
  *             └─ theirs: dry ─┐         ├─ out
  *                       wet ─┴─ theirs ─┘
  *
- * The something is whatever `impulseOf` builds - a room, a set of repeats,
- * anything that can be written down as an impulse response. Both the reverb
- * and the delay are that, and neither of them needs a player of its own.
+ * The something is whatever `impulseOf` builds - a room, anything that can be
+ * written down as an impulse response - or, for anything that cannot, a graph
+ * handed over by `wetOf`. The reverb is the first; the delay used to be and
+ * is now the second, because a transport that wanders is not a response.
+ * Neither of them needs a player of its own.
  *
  * The wet side is rendered rather than processed live, which is the decision
  * everything else here follows from. A ConvolverNode handed a new impulse
@@ -26,10 +28,19 @@
  * a tail is where you would hear it missing.
  */
 export class ImpulsePlayer {
-  constructor(engine, { source = 'instrument', impulseOf, defaults = {} } = {}) {
+  constructor(engine, {
+    source = 'instrument', impulseOf = null, wetOf = null, tailOf = null, defaults = {},
+  } = {}) {
     this.engine = engine;
     this.source = source;
     this.impulseOf = impulseOf;
+    // The two halves of the other way of making a wet loop: how long to keep
+    // rendering after the loop has ended, and what to put in the middle. Two
+    // functions rather than one because the context has to be built before
+    // anything can be put in it, and it cannot be built without knowing how
+    // long it is.
+    this.wetOf = wetOf;
+    this.tailOf = tailOf;
     this.defaults = defaults;
     this.hearing = 'mine';
     this.settings = { ...defaults };
@@ -89,38 +100,51 @@ export class ImpulsePlayer {
   }
 
   /** An impulse response, as something Web Audio will convolve with. */
-  toBuffer(impulse) {
-    const ctx = this.engine.ctx;
-    const buffer = ctx.createBuffer(impulse.channels.length, impulse.length, impulse.rate);
+  toBuffer(impulse, into = this.engine.ctx) {
+    const buffer = into.createBuffer(impulse.channels.length, impulse.length, impulse.rate);
     impulse.channels.forEach((channel, i) => buffer.copyToChannel(channel, i));
     return buffer;
   }
 
   /**
-   * The loop with the room on it, rendered whole.
+   * The loop with the effect on it, rendered whole.
    *
-   * Native convolution in an offline context, because doing it in JavaScript
-   * would be a quarter of a million samples against a hundred thousand and
-   * there is no time in a frame for that.
+   * In an offline context either way, which is what keeps this off the frame:
+   * convolving a quarter of a million samples with a hundred thousand in
+   * JavaScript would never fit in one, and running a per-sample loop over the
+   * same quarter million would fit but would still be a tenth of a second of
+   * the main thread on every knob move. An offline render is neither.
+   *
+   * `wetOf` is how an effect that is not a response says what to put in the
+   * middle. Without one, the response is convolved as it always was.
    */
   async renderWet(settings) {
     const ctx = this.engine.ensure();
     const rate = ctx.sampleRate;
-    const impulse = this.impulseOf(rate, settings);
     const loop = this.buffer.length;
 
-    const offline = new OfflineAudioContext(2, loop + impulse.length, rate);
+    const impulse = this.wetOf ? null : this.impulseOf(rate, settings);
+    const tail = impulse ? impulse.length : this.tailOf(rate, settings).length;
+
+    const offline = new OfflineAudioContext(2, loop + tail, rate);
     const source = offline.createBufferSource();
     source.buffer = this.buffer;
 
-    const convolver = offline.createConvolver();
-    // Off, because the impulse arrives at the level it means and a second
-    // normalisation with a rule of its own would put that back out of
-    // anybody's hands.
-    convolver.normalize = false;
-    convolver.buffer = this.toBuffer(impulse);
+    let middle;
+    if (impulse) {
+      const convolver = offline.createConvolver();
+      // Off, because the impulse arrives at the level it means and a second
+      // normalisation with a rule of its own would put that back out of
+      // anybody's hands.
+      convolver.normalize = false;
+      convolver.buffer = this.toBuffer(impulse, offline);
+      middle = { in: convolver, out: convolver };
+    } else {
+      middle = await this.wetOf(offline, settings);
+    }
 
-    source.connect(convolver).connect(offline.destination);
+    source.connect(middle.in);
+    middle.out.connect(offline.destination);
     source.start(0);
 
     const rendered = await offline.startRendering();
