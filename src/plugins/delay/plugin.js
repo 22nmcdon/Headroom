@@ -1,6 +1,6 @@
 import {
   ECHO_DEFAULTS, SYNC_DIVISIONS, makeEcho, timeOf, nearestDivision,
-  ECHO_LIMITS, PING_FROM, HEAD_PATTERNS,
+  ECHO_LIMITS, PING_FROM, HEAD_PATTERNS, MACHINES, machineTone,
 } from './line.js';
 import {
   RESPONSE_BANDS, DECAY_FLOOR, decayProfile, decayTimes, wetDryImpulse, decayReading, decayAxis
@@ -179,6 +179,12 @@ export class EchoPlugin {
             </select>
           </label>
           <label class="field">
+            <span class="field-label">Machine</span>
+            <select id="echoMachine">
+              ${MACHINES.map((m) => `<option value="${m.id}">${m.label}</option>`).join('')}
+            </select>
+          </label>
+          <label class="field">
             <span class="field-label">Heads</span>
             <select id="echoHeads">
               ${HEAD_PATTERNS.map((p) => `<option value="${p.id}">${p.label}</option>`).join('')}
@@ -193,6 +199,7 @@ export class EchoPlugin {
               ${PING_FROM.map((side) => `<option value="${side}">${side}</option>`).join('')}
             </select>
           </label>
+          <span class="eq-hint" id="echoMedium" hidden></span>
           <span class="eq-hint" ${this.tempo ? '' : 'hidden'}>repeats land on the beats when the note is right</span>
         </div>
       </div>`;
@@ -251,6 +258,13 @@ export class EchoPlugin {
       if (!this.interactive) return;
       this.settings.pingPong = e.target.checked;
       this.showFrom();
+      this.changed();
+    });
+
+    this.el.querySelector('#echoMachine').addEventListener('change', (e) => {
+      if (!this.interactive) return;
+      this.settings.machine = MACHINES.some((m) => m.id === e.target.value)
+        ? e.target.value : 'digital';
       this.changed();
     });
 
@@ -366,6 +380,21 @@ export class EchoPlugin {
     if (pick) pick.value = this.settings.pingPongFrom ?? 'left';
     const heads = this.el.querySelector('#echoHeads');
     if (heads) heads.value = this.settings.heads ?? 'single';
+
+    const machine = this.el.querySelector('#echoMachine');
+    if (machine) machine.value = this.settings.machine ?? 'digital';
+
+    // What the medium is doing at this time, which is the thing that makes a
+    // machine a machine rather than a tone knob: it moves when the time does.
+    const says = this.el.querySelector('#echoMedium');
+    if (says) {
+      const medium = machineTone(this.settings.machine, this.settings.time);
+      says.textContent = medium
+        ? `the medium is holding it to ${medium.corner >= 1000
+          ? `${(medium.corner / 1000).toFixed(1)} kHz` : `${Math.round(medium.corner)} Hz`}`
+        : '';
+      says.hidden = !medium;
+    }
   }
 
   syncKnobs() {

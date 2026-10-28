@@ -26,6 +26,7 @@ export const ECHO_DEFAULTS = {
   offset: 0,         // ms the right side is behind the left, or in front of it
   heads: 'single',   // how many places the line is read from
   diffusion: 0,      // how smeared each pass is, 0 to 1
+  machine: 'digital', // what the repeats are stored on
   mix: 0.3,
 };
 
@@ -71,6 +72,135 @@ const DIFFUSE_AT = [0.0371, 0.0241, 0.0167];
 
 /** The coefficient at the top of the knob. */
 const MOST_DIFFUSE = 0.7;
+
+/**
+ * The machines a delay can be, and what each one does to the tone.
+ *
+ * The one thing that tells these apart by ear is not how dark they are but
+ * how their darkness moves with the time, so that is what is modelled and
+ * the rest is left alone. A digital delay has the same bandwidth at every
+ * setting. The other two do not, and for different reasons.
+ *
+ * A bucket brigade is a line of buckets clocked along, and the delay is the
+ * number of stages over twice the clock - Raffel and Smith, DAFx-10. So the
+ * clock is `N / 2*tau`, and a longer delay means a slower clock, which has
+ * to be band-limited further down to keep its own sampling out of the audio.
+ * A 4096-stage chip at 300 ms wants a 6,827 Hz clock and so a signal band-
+ * limited to 3,413; the anti-alias and reconstruction filters in a real pedal
+ * sit between a third and a half of the clock, which is where the corner
+ * below comes from. Longer delay, darker repeats - the exact opposite of a
+ * digital delay, and the tell.
+ *
+ * Tape with a fixed head and a variable speed is the same shape of story from
+ * different physics. Every loss term on the playback side scales with
+ * `k = 2*pi*f / v` (Chowdhury, DAFx-19), so halving the speed halves the
+ * frequency everything happens at - and with the heads a fixed distance
+ * apart, a longer delay is a slower tape. One constant in hertz-seconds
+ * carries that, rather than four parameters whose values would be invented.
+ * The head bump comes along with it: a head is a loop of wire that responds
+ * where the wavelength on the tape matches it, so that moves with the speed
+ * too, and it is what makes tape warm rather than only dark.
+ *
+ * Behavioural and not physical, on purpose. CHOW Tape solves a hysteresis ODE
+ * at sixteen times oversampling; none of that is identifiable by ear once it
+ * is inside an echo, and this runs in a browser on a phone.
+ *
+ * Marked by the reading that was already there, with no scoring change: the
+ * decay curve reads three bands over time, and a machine that takes the top
+ * off shows up in the top one. Measured, with the tolerances that decide a
+ * pass being 2.6, 1.9 and 1.2 dB:
+ *
+ *     at 200 ms   digital vs tape   2.17 dB   digital vs bbd    4.87   tape vs bbd    4.47
+ *     at 400 ms                     2.85                       12.33                 10.52
+ *     at 800 ms                     6.32                       17.11                 11.37
+ *
+ * Further apart the longer the delay, which is the whole point of the model
+ * rather than a convenience. The one weak pair is digital against tape at
+ * 200 ms, which at 2.17 dB would pass the easy tier - and that is honest,
+ * because a 200 ms tape delay is not very dark.
+ */
+export const MACHINES = [
+  { id: 'digital', label: 'Digital' },
+  { id: 'tape', label: 'Tape' },
+  { id: 'bbd', label: 'Bucket brigade' },
+];
+
+/** The stages in the chip this is modelled on, an MN3005. */
+export const BBD_STAGES = 4096;
+
+/** Where the pedal's own filters sit, as a fraction of the clock. */
+const BBD_AT = 0.4;
+
+/**
+ * Tape's corner, in hertz-seconds.
+ *
+ * At 375 ms this puts it at 6 kHz, which is about where a worn quarter-inch
+ * loop at a few inches a second gives out. Divided by the time, so half the
+ * speed is half the corner.
+ */
+const TAPE_AT = 2250;
+
+/**
+ * And its head bump: where, in hertz-seconds, how much, and how far it may go.
+ *
+ * Its own range, which is the bug this comment exists for. The corner's clamp
+ * runs from 1500 Hz up, and reusing it here pinned the bump at 1500 at every
+ * delay - a peak in the middle of the midrange wearing the name of something
+ * that lives two octaves below it. A head bump is tens of hertz, so it gets
+ * tens of hertz.
+ */
+const TAPE_BUMP_AT = 45;
+const TAPE_BUMP_DB = 2.5;
+const BUMP_FLOOR = 35;
+const BUMP_CEILING = 160;
+
+/**
+ * The tone the medium's makeup is referenced to, in hertz.
+ *
+ * Three hundred: under the 1500 Hz floor the corner has, so it is always on
+ * the flat part of the response, and well above the head bump's ceiling so
+ * the bump is not what is being levelled.
+ */
+const MEDIUM_REF = 300;
+
+/** As dark and as bright as any machine is allowed to get. */
+export const MACHINE_FLOOR = 1500;
+export const MACHINE_CEILING = 18000;
+
+const inRange = (hz) => Math.min(MACHINE_CEILING, Math.max(MACHINE_FLOOR, hz));
+
+/**
+ * What a machine does to the tone at a given delay, or null for none.
+ *
+ * `stages` is how many cascaded low-passes it takes. Two for a bucket
+ * brigade, because a pedal has an anti-alias filter going in and a
+ * reconstruction filter coming out and the pair of them is steep; one for
+ * tape, whose losses roll off gently. Cascaded rather than a designed
+ * Butterworth: `setBiquad` holds Q at root-half, so two of them put the
+ * corner 6 dB down rather than 3 - which is nearer what a cascade of
+ * Sallen-Key stages in a real pedal does than a textbook fourth-order would
+ * be, and the model is behavioural anyway.
+ */
+export function machineTone(id, ms) {
+  const seconds = Math.max(ms, 1) / 1000;
+
+  if (id === 'bbd') {
+    const clock = BBD_STAGES / (2 * seconds);
+    return { corner: inRange(clock * BBD_AT), stages: 2, bump: 0, bumpAt: 0, clock };
+  }
+
+  if (id === 'tape') {
+    return {
+      corner: inRange(TAPE_AT / seconds),
+      stages: 1,
+      bump: TAPE_BUMP_DB,
+      bumpAt: Math.min(BUMP_CEILING, Math.max(BUMP_FLOOR, TAPE_BUMP_AT / seconds)),
+      clock: 0,
+    };
+  }
+
+  return null;
+}
 
 /** Which side a ping-pong may be started from. */
 export const PING_FROM = ['left', 'right'];
@@ -308,6 +438,94 @@ export function makeEcho(rate, params = {}) {
   const tone = channels.map(() => setBiquad(makeBiquad(), 'lowpass', settings.tone, rate));
   const cut = channels.map(() => setBiquad(makeBiquad(), 'highpass', settings.lowCut, rate));
 
+  // The machine's own response, which is not a knob: its corner comes from
+  // the delay time and the medium, and it sits on the way into the line
+  // rather than in the feedback path with the user's filters. That is the
+  // difference between a medium and an EQ - a signal goes through a bucket
+  // brigade once to come back once, so the first repeat is already dark,
+  // where the tone knob leaves it alone by design.
+  const medium = machineTone(settings.machine, times[0]);
+  const mediumLp = channels.map(() => (medium
+    ? Array.from({ length: medium.stages },
+      () => setBiquad(makeBiquad(), 'lowpass', medium.corner, rate))
+    : []));
+  const mediumBump = channels.map(() => (medium && medium.bump > 0
+    ? setBiquad(makeBiquad(), 'peaking', medium.bumpAt, rate, medium.bump)
+    : null));
+
+  /**
+   * What the medium costs, taken back off it.
+   *
+   * A machine that changed the level would make choosing one a loudness test,
+   * which is the one comparison this app refuses to leave in. Measured on an
+   * impulse at 400 ms, before this:
+   *
+   *     digital   peak   0.00 dB   energy   3.77 dB
+   *     tape      peak  -9.03 dB   energy  -1.04 dB
+   *     bbd       peak -20.97 dB   energy  -7.86 dB
+   *
+   * Five decibels of energy for tape and twelve for a bucket brigade, which
+   * is a volume knob wearing a machine's name. Hardware does not do that
+   * either: a BBD pedal has a compander across the chip and 0 to 2 dB of
+   * insertion gain, and a tape machine has a record level.
+   *
+   * So the chain's gain is measured once, here, and divided out on the way to
+   * the ears - on the output and not inside the loop, which is the whole of
+   * what makes this safe. Putting it in the loop multiplies the feedback by
+   * it: at 400 ms a bucket brigade's chain wants 3.8 times gain, so a
+   * feedback of 0.4 became a loop gain of 1.52 and the thing ran away.
+   * Measured as it did, the response came out at +27.78 dB of energy against
+   * digital's +3.77.
+   *
+   * Outside the loop it corrects the first repeat and leaves the compounding
+   * alone, which is right: a pass through a bucket brigade costs top end, so
+   * each repeat really is darker and shorter-lived than the last, and a
+   * machine with fewer usable repeats than a digital delay is a machine
+   * behaving. What is taken out is the insertion loss - the 0 to 2 dB a real
+   * pedal makes up with a compander - and not the medium itself.
+   *
+   * Referenced to a tone in the body of the sound rather than to the whole
+   * impulse's energy, which was the first thing tried and is wrong in a way
+   * that reads as a feature. Matching total energy gives a dark machine all
+   * of its lost energy back across whatever bandwidth it has left, so it
+   * comes out bassier than a digital delay rather than merely duller -
+   * measured, a bucket brigade read 12.8 dB hotter than digital over 60 to
+   * 400 Hz. Matching one tone below every corner this allows leaves the body
+   * where it was and lets the top go, which is what a machine takes.
+   */
+  const mediumGain = (() => {
+    if (!medium) return 1;
+    const probe = Array.from({ length: medium.stages },
+      () => setBiquad(makeBiquad(), 'lowpass', medium.corner, rate));
+    const bump = medium.bump > 0
+      ? setBiquad(makeBiquad(), 'peaking', medium.bumpAt, rate, medium.bump)
+      : null;
+
+    // A tone at MEDIUM_REF, run until it settles, and the amplitude of what
+    // comes out. Below every corner a machine is allowed and above every
+    // head bump, so it is measuring the flat part of the response rather
+    // than any of the shape.
+    const settle = Math.ceil(rate * 0.25);
+    let loudest = 0;
+    for (let i = 0; i < settle; i += 1) {
+      let value = Math.sin((2 * Math.PI * MEDIUM_REF * i) / rate);
+      for (const lp of probe) value = runBiquad(lp, value);
+      if (bump) value = runBiquad(bump, value);
+      // The last tenth, by which time the filters have forgotten their start.
+      if (i > settle * 0.9) loudest = Math.max(loudest, Math.abs(value));
+    }
+    return loudest > 1e-6 ? 1 / loudest : 1;
+  })();
+
+  /** One pass through the medium, if there is one. No gain: see above. */
+  const through = (c, x) => {
+    if (!medium) return x;
+    let value = x;
+    for (const lp of mediumLp[c]) value = runBiquad(lp, value);
+    if (mediumBump[c]) value = runBiquad(mediumBump[c], value);
+    return value;
+  };
+
   for (let i = 0; i < length; i += 1) {
     // An impulse in, once.
     const input = i === 0 ? 1 : 0;
@@ -329,8 +547,8 @@ export function makeEcho(rate, params = {}) {
         lag[c][lagAt[c]] += lines[c][(ats[c] - d + spans[c]) % spans[c]];
       }
     }
-    channels[0][i] = heard[0];
-    channels[1][i] = heard[1];
+    channels[0][i] = heard[0] * mediumGain;
+    channels[1][i] = heard[1] * mediumGain;
 
     // Each side is filtered once a sample, and then routed. Filtering it
     // again on the way past the other channel would be running one filter's
@@ -373,7 +591,7 @@ export function makeEcho(rate, params = {}) {
       // true-stereo convolution, which is its own job.
       const feeds = settings.pingPong ? 1 - c : c;
       const feed = settings.pingPong ? (c === from ? input : 0) : input;
-      lines[c][ats[c]] = feed + rounded[feeds] * feedback;
+      lines[c][ats[c]] = through(c, feed + rounded[feeds] * feedback);
     }
 
     lagAt[0] = (lagAt[0] + 1) % lag[0].length;

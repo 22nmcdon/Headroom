@@ -5,6 +5,7 @@ import {
   ECHO_DEFAULTS, DIVISIONS, SYNC_DIVISIONS, MOST_FEEDBACK, LONGEST_TIME,
   SHORTEST_TIME, MOST_OFFSET, PING_FROM, HEAD_PATTERNS,
   makeEcho, repeatsOf, echoProfile, timeOf, nearestDivision, repeatsReading,
+  MACHINES, machineTone, BBD_STAGES, MACHINE_FLOOR, MACHINE_CEILING,
 } from '../src/plugins/delay/line.js';
 import { distance } from '../src/gap.js';
 import { comparable } from '../src/lib/read.js';
@@ -1029,4 +1030,203 @@ test('the pattern drill asks nothing of the knobs', () => {
   assert.equal(slots.length, 1);
   assert.equal(slots[0].kind, 'choice');
   assert.ok(slots[0].options.every((o) => o.symbol && o.name), 'every chip needs a face and a name');
+});
+
+/* --- the machine ------------------------------------------------------------ */
+
+/** The level of a band of the first repeat, in dB, for reading tone off it. */
+function bandAt(ir, ms, band) {
+  const from = Math.round(((ms - 5) / 1000) * rate);
+  const to = Math.round(((ms + 40) / 1000) * rate);
+  const slice = ir.channels[0].slice(Math.max(0, from), to);
+  const got = bandOf(slice, rate, band);
+  let energy = 0;
+  for (let i = 0; i < got.length; i += 1) energy += got[i] * got[i];
+  return 10 * Math.log10(Math.max(energy, 1e-20));
+}
+
+test('a digital delay is the delay that was here before machines', () => {
+  for (const over of [{}, { heads: 'heads4' }, { diffusion: 0.5 }, { offset: 60 }]) {
+    const was = echo({ time: 375, feedback: 0.5, ...over });
+    const now = echo({ time: 375, feedback: 0.5, machine: 'digital', ...over });
+    let worst = 0;
+    for (let i = 0; i < Math.min(was.length, now.length); i += 1) {
+      worst = Math.max(worst, Math.abs(was.channels[0][i] - now.channels[0][i]));
+    }
+    assert.equal(worst, 0, `${JSON.stringify(over)}: the digital machine changed the delay`);
+  }
+});
+
+test('a machine darkens the first repeat, which a tone knob does not', () => {
+  // The one place the machine deliberately parts company with the knobs. The
+  // tone and low cut are in the feedback path and the output is tapped in
+  // front of them, so the first repeat is the sound that went in. A bucket
+  // brigade is not an EQ on the feedback - it is the thing the signal travels
+  // through, once per repeat - so its filter is on the way in and the first
+  // repeat is already dark. That is the tell the whole machine is for.
+  const base = { time: 600, feedback: 0.4, tone: 20000, lowCut: 20 };
+  const high = RESPONSE_BANDS.find((b) => b.id === 'high');
+
+  const clean = bandAt(echo({ ...base, machine: 'digital' }), 600, high);
+  for (const machine of ['tape', 'bbd']) {
+    const dark = bandAt(echo({ ...base, machine }), 600, high);
+    assert.ok(dark < clean - 6,
+      `on ${machine} the first repeat's top read ${dark.toFixed(1)} against ${clean.toFixed(1)}`);
+  }
+});
+
+test('a bucket brigade gets darker the longer the delay is', () => {
+  // The signature of the thing: the clock runs at the number of stages over
+  // twice the delay, so a longer delay is a slower clock and a slower clock
+  // has to be band-limited further down. It is the opposite of a digital
+  // delay, whose bandwidth is the same at every time.
+  // Below 546 ms, where the clock's own arithmetic is still inside the range
+  // a machine is allowed. Past that the floor holds it, which the test below
+  // this one is about - a bucket brigade that long did not exist anyway.
+  const times = [60, 150, 300, 500];
+  const corners = times.map((ms) => machineTone('bbd', ms).corner);
+  for (let i = 1; i < corners.length; i += 1) {
+    assert.ok(corners[i] < corners[i - 1],
+      `a ${times[i]} ms delay cornered at ${corners[i]} Hz, no lower than the last`);
+  }
+
+  // And a digital delay does not move at all.
+  for (const ms of [60, 600, 1200]) assert.equal(machineTone('digital', ms), null);
+});
+
+test('the clock is the stages over twice the delay, as the chip says', () => {
+  // Raffel and Smith: delay = N / (2 * f_clock). A 4096-stage chip at 300 ms
+  // wants a 6,826 Hz clock, which band-limits the input to 3,413 Hz - and the
+  // filters in a real pedal sit between a third and a half of the clock, so
+  // the corner is below that again.
+  const clock = BBD_STAGES / (2 * 0.3);
+  assert.ok(Math.abs(clock - 6826.67) < 0.1, `the clock came out at ${clock.toFixed(2)} Hz`);
+  const { corner } = machineTone('bbd', 300);
+  assert.ok(corner < clock / 2, `the corner at ${corner} Hz is not under the clock's Nyquist`);
+  assert.ok(corner > clock / 4, `the corner at ${corner} Hz is further down than a third`);
+});
+
+test('a machine runs out of range rather than off the end of it', () => {
+  // The shortest delay on offer would want a corner above anything audible
+  // and the longest one would want it under the bass, so both ends are held.
+  for (const machine of ['tape', 'bbd']) {
+    const short = machineTone(machine, SHORTEST_TIME).corner;
+    const long = machineTone(machine, LONGEST_TIME).corner;
+    assert.equal(short, MACHINE_CEILING, `${machine} at the shortest time cornered at ${short}`);
+    assert.equal(long, MACHINE_FLOOR, `${machine} at the longest time cornered at ${long}`);
+  }
+});
+
+test('tape has a lift where its head bump is, and a bucket brigade has none', () => {
+  // The head bump: a real head is a loop of wire whose response rises where
+  // the wavelength on the tape matches it, and it moves with the speed the
+  // way everything else about tape does. It is what makes tape echo warm
+  // rather than only dark.
+  //
+  // Measured in a band around where the bump actually sits, which is the
+  // correction this test needed. Over the reading's own low band - sixty to
+  // four hundred - a bump at seventy-five hertz is a sliver and the average
+  // barely moves; worse, the first version of this read the whole response
+  // and found a bucket brigade lifted down low too, because the makeup was
+  // referenced to total energy and gave a dark machine its lost top back as
+  // bass. Both of those are fixed: the makeup is referenced to a tone at
+  // 300 Hz, and this looks where the bump is.
+  //
+  //     band 50-110 Hz, against digital
+  //       200 ms    tape +0.40 dB   bbd +0.00   bump at 160 Hz
+  //       600 ms    tape +2.37 dB   bbd +0.01   bump at  75 Hz
+  //      1200 ms    tape +1.33 dB   bbd +0.01   bump at  38 Hz
+  //
+  // Most at 600 ms, because that is where the bump is inside the band being
+  // looked at - at 200 ms it is above it and at 1200 below.
+  const band = { low: 50, high: 110 };
+  const base = { feedback: 0.4, tone: 20000, lowCut: 20 };
+
+  const energy = (machine, ms) => {
+    const ir = echo({ ...base, time: ms, machine });
+    const got = bandOf(ir.channels[0], rate, band);
+    let sum = 0;
+    for (let i = 0; i < got.length; i += 1) sum += got[i] * got[i];
+    return 10 * Math.log10(Math.max(sum, 1e-20));
+  };
+
+  const clean = energy('digital', 600);
+  assert.ok(energy('tape', 600) > clean + 1.5,
+    `tape read ${energy('tape', 600).toFixed(2)} against ${clean.toFixed(2)} where its bump is`);
+  assert.ok(Math.abs(energy('bbd', 600) - clean) < 0.5,
+    'a bucket brigade should have no bump to show');
+
+  // And the bump moves with the speed, which is what ties it to the time.
+  assert.ok(machineTone('tape', 300).bumpAt > machineTone('tape', 900).bumpAt);
+  assert.equal(machineTone('bbd', 600).bump, 0);
+  assert.ok(machineTone('tape', 600).bump > 0);
+});
+
+test('a machine takes the top off and leaves the body where it was', () => {
+  // What the makeup is for, and the three goes it took to say it properly.
+  //
+  // Not the peak: a machine's filter spreads the impulse, so a bucket
+  // brigade's response peaks 21 dB under a digital one's. That is the medium
+  // showing and no makeup should take it out.
+  //
+  // Not the whole response: the filter is in the loop, so each pass is darker
+  // than the last and the tail is shorter for it - measured, tape holds
+  // 6.27 dB less energy than digital over the whole thing. Also the medium,
+  // and the correct amount of it.
+  //
+  // Not the first repeat's energy across the spectrum either, which was the
+  // third wrong answer. An impulse has energy everywhere and a machine takes
+  // the top off, so of course it comes out with less. What a listener hears
+  // is music, whose energy is low and mid, and that is what the makeup is
+  // referenced to - a tone at 300 Hz.
+  //
+  // So: the body of the first repeat, which is where the level is. Measured
+  // against digital, the first repeat alone, at 400 ms:
+  //
+  //     machine      low      mid     high
+  //     tape        0.71    -0.74    -5.49 dB
+  //     bbd        -0.00    -2.76   -25.53
+  //
+  // The low band level on all three, the top progressively gone. A bucket
+  // brigade loses some midrange too, and that is right rather than a slip:
+  // at 400 ms its corner is 2048 Hz, which is inside the 400-to-3000 band
+  // being measured.
+  const firstOf = (machine) => {
+    const ir = echo({ time: 400, feedback: 0.4, machine });
+    return ir.channels[0].slice(Math.round(0.395 * rate), Math.round(0.46 * rate));
+  };
+  const energy = (slice, band) => {
+    const got = bandOf(slice, rate, band);
+    let sum = 0;
+    for (let i = 0; i < got.length; i += 1) sum += got[i] * got[i];
+    return 10 * Math.log10(Math.max(sum, 1e-20));
+  };
+
+  const low = RESPONSE_BANDS.find((b) => b.id === 'low');
+  const high = RESPONSE_BANDS.find((b) => b.id === 'high');
+  const clean = firstOf('digital');
+
+  for (const machine of ['tape', 'bbd']) {
+    const got = firstOf(machine);
+    assert.ok(Math.abs(energy(got, low) - energy(clean, low)) < 1,
+      `${machine}'s first repeat is ${(energy(got, low) - energy(clean, low)).toFixed(2)} dB `
+      + 'from digital\'s down low, which makes the machine a volume control');
+    assert.ok(energy(got, high) < energy(clean, high) - 4,
+      `${machine} only took ${(energy(clean, high) - energy(got, high)).toFixed(2)} dB off the top`);
+  }
+
+  // And more off the top for a bucket brigade than for tape, which is the
+  // order of the two as instruments.
+  assert.ok(energy(firstOf('bbd'), high) < energy(firstOf('tape'), high) - 10,
+    'a bucket brigade should be the darker of the two by a long way');
+});
+
+test('a machine nobody has heard of is a digital one', () => {
+  const ir = echo({ time: 375, feedback: 0.4, machine: 'memory-man' });
+  const digital = echo({ time: 375, feedback: 0.4, machine: 'digital' });
+  let worst = 0;
+  for (let i = 0; i < ir.length; i += 1) {
+    worst = Math.max(worst, Math.abs(ir.channels[0][i] - digital.channels[0][i]));
+  }
+  assert.equal(worst, 0, 'an unknown machine should fall back to clean digital');
 });
