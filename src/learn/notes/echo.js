@@ -28,6 +28,21 @@ export const ECHO_NOTES = {
         + 'compounding is most of the character.',
     },
     {
+      heading: 'Diffusion is the road from an echo to a room',
+      body: 'Three all-pass filters sit in the feedback path. Each one passes everything '
+        + 'and delays it by frequency, so a sharp repeat comes back as a short burst of '
+        + 'itself rather than as a copy \u2014 and because they are inside the loop, every '
+        + 'pass is smeared once more than the one before.\n\n'
+        + 'That progression is the whole point, and it is the only control here that '
+        + 'crosses from one kind of effect into another: turn it up and the repeats stop '
+        + 'being echoes and start being a room.\n\n'
+        + 'It does nothing to a slapback, and that is not a limitation. The first repeat '
+        + 'is read before the all-passes, so it is always clean, and the smearing is '
+        + 'something that accumulates over passes. A delay with two audible repeats has '
+        + 'almost nothing for it to act on \u2014 which is why you are only asked to match '
+        + 'it on a delay with a tail.',
+    },
+    {
       heading: 'Wow is a pitch, flutter is a texture',
       body: 'A tape machine does not hold speed perfectly, and the two ways it fails have '
         + 'had separate names and separate lines on a spec sheet for sixty years. Slower '

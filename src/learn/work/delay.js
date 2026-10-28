@@ -85,6 +85,51 @@ const WANDER_CLOSE = 4;
  * a target there would be asking people to hear the difference between nearly
  * nothing and nothing.
  */
+/**
+ * And how smeared an expert target's repeats are, where it asks at all.
+ *
+ * Only when the tail is a long one, which is the whole of the design here. The
+ * output is taken in front of the all-passes, so the first repeat is clean
+ * whatever the diffusion is and every pass after it is smeared once more than
+ * the last - which means a delay with two audible repeats has almost nothing
+ * for a smear to act on. Measured on the loop reading at 375 ms, between pairs
+ * of diffusion:
+ *
+ *                      a long tail (fb 0.6)    a short one (fb 0.18)
+ *     clean vs 0.15            7.4 dB                  3.0 dB
+ *     clean vs 0.30            9.7                     4.3
+ *     clean vs 0.60           13.2                     6.2
+ *     clean vs 1.00           17.5                     8.4
+ *     adjacent 0.15 steps   3.0 to 3.9              1.4 to 1.8
+ *
+ * Against the 6 dB that decides a pass, a long tail resolves diffusion to
+ * about a fifth of its travel and a short one does not resolve it at all -
+ * clean against six tenths is 6.2 dB, which is the tolerance itself. So asking
+ * on a short tail would be asking for something nobody can hear, and the
+ * reading would be right to shrug.
+ *
+ * It is not a tell worth worrying about. What somebody learns from this is
+ * that smearing a slapback does nothing, which is true of delays rather than
+ * of this app.
+ *
+ * A third of the long-tailed targets are clean, so that "is it smeared at
+ * all" stays a question - and clean is enforceable, since six tenths against
+ * none reads 13.2 dB and even a seventh of it reads 7.4.
+ *
+ * What the whole of it comes to, over twenty expert targets - twelve with a
+ * long tail, nine of those smeared, none of the short-tailed ones:
+ *
+ *     the exact answer passes          20 of 20
+ *     answering clean when it is not    0 of 9
+ *     a seventh of diffusion out        9 of 9
+ *     a third out                       5 of 9
+ *
+ * So clean is refused, a near match by ear passes, and about a fifth of the
+ * travel is the boundary - which is roughly what anybody can hear of it.
+ */
+const SMEAR_CLEAN = 1 / 3;
+const SMEAR_RANGE = [0.3, 0.9];
+
 const WANDER_KINDS = ['wow', 'flutter', 'both'];
 const WANDER_DRAW = {
   wow: { wow: [16, 45], flutter: [0, 0] },
@@ -250,6 +295,21 @@ function wanderWords(settings) {
       + 'follow, which thickens the note instead of bending it.';
   }
   return 'The transport holds time: the repeats come back at the pitch they went in at.';
+}
+
+/**
+ * How smeared the repeats are, in words, without saying how much.
+ *
+ * Named by what it does to a repeat rather than by the number on the knob,
+ * because that is what there is to listen for: a clean repeat has an edge on
+ * it and a smeared one does not.
+ */
+function smearWords(settings) {
+  const smear = settings.diffusion ?? 0;
+  if (smear <= 0) return 'The repeats keep their edge - whatever hit the line comes back as itself.';
+  return 'The repeats are smeared rather than clean, and each pass is smeared '
+    + 'further than the one before it: listen to the last repeat you can hear, '
+    + 'not the first.';
 }
 
 /** The three, in the order that makes a neighbour a neighbour. */
@@ -450,6 +510,7 @@ export const ECHO_WORK = {
       tone: true,
       detail: true,
       wander: true,
+      smear: true,
     },
   },
 
@@ -525,6 +586,11 @@ export const ECHO_WORK = {
     };
 
     if (spec.tone) answer.tone = toStep(logPick(rng, 1500, 18000), 100);
+    if (spec.smear && !short) {
+      answer.diffusion = rng() < SMEAR_CLEAN
+        ? 0
+        : toStep(SMEAR_RANGE[0] + rng() * (SMEAR_RANGE[1] - SMEAR_RANGE[0]), 0.05);
+    }
     if (spec.wander) {
       const kind = pick(rng, WANDER_KINDS);
       const draw = WANDER_DRAW[kind];
@@ -806,9 +872,12 @@ export const ECHO_WORK = {
         + `${settings.pingPong ? ', and it alternates across the stereo field' : ''}.`,
     ];
 
-    // The transport, where the tier asks about it. Which of the two it is
-    // rather than how deep: the depth is the thing being matched, and a hint
-    // that gave it away would leave nothing to do.
+    // The repeats and then the transport, where the tier asks about them.
+    // What each one is rather than how much of it: the amount is the thing
+    // being matched, and a hint that gave it away would leave nothing to do.
+    // Hints are taken one at a time by whoever wants one, so a longer ladder
+    // costs the people who do not ask nothing.
+    if (this.tiers[tier]?.smear) said.push(smearWords(settings));
     if (this.tiers[tier]?.wander) said.push(wanderWords(settings));
     return said;
   },
@@ -828,6 +897,9 @@ export const ECHO_WORK = {
     }
 
     const near = nearestDivision(settings.time);
+    const smear = settings.diffusion > 0
+      ? `, ${Math.round(settings.diffusion * 100)}% smeared`
+      : '';
     const wander = settings.wow > 0 || settings.flutter > 0
       ? `, ${[settings.wow > 0 ? `${Math.round(settings.wow)} cents of wow` : null,
         settings.flutter > 0 ? `${Math.round(settings.flutter)} of flutter` : null]
@@ -836,7 +908,7 @@ export const ECHO_WORK = {
     return {
       symbol: near && near.off < 0.02 ? near.division.label : writeMs(settings.time),
       name: `${writeMs(settings.time)}, ${Math.round(settings.feedback * 100)}% back`
-          + `${settings.pingPong ? ', ping-pong' : ''}${wander}`,
+          + `${settings.pingPong ? ', ping-pong' : ''}${smear}${wander}`,
     };
   },
 

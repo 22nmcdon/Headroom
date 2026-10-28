@@ -1773,11 +1773,20 @@ test('the expert tier says which way the transport is wrong', () => {
   assert.match(got.cells[1].text, /transport|wow|flutter/,
     `the note said "${got.cells[1].text}", which does not send anybody anywhere`);
 
-  // And the hint names which of the two it is without giving the depth away.
+  // And the ladder names what the repeats and the transport are doing without
+  // giving either amount away. Asserted by what the hints say rather than by
+  // how many there are: hints are taken one at a time by whoever wants one, so
+  // the ladder's length is free to grow, and a test that counted them failed
+  // the moment the tier gained a second thing to say.
   const hints = delay.hints(puzzle);
-  assert.equal(hints.length, 3, 'the expert tier should have a hint about the transport');
-  assert.match(hints[2], /drift|rough|both|holds time/);
-  assert.ok(!/\d/.test(hints[2]), `the hint "${hints[2]}" gives a number away`);
+  const about = (pattern) => hints.find((hint) => pattern.test(hint));
+  const transport = about(/drift|rough|both|holds time/);
+  const repeats = about(/smeared|keep their edge/);
+  assert.ok(transport, `no hint about the transport in ${JSON.stringify(hints)}`);
+  assert.ok(repeats, `no hint about the repeats in ${JSON.stringify(hints)}`);
+  for (const hint of [transport, repeats]) {
+    assert.ok(!/\d/.test(hint), `the hint "${hint}" gives a number away`);
+  }
 });
 
 test('the other three exercises get an expert tier that is not a duplicate', () => {
@@ -1854,4 +1863,55 @@ test('the shape reading refuses nothing but the shape', () => {
         `${tier}: three per cent on the time moved the loop reading ${off.toFixed(2)} dB`);
     }
   }
+});
+
+test('the expert tier asks how smeared the repeats are, where that is audible', () => {
+  // Only on a long tail, and that is the design rather than a shortcut. The
+  // output is taken in front of the all-passes, so the first repeat is clean
+  // whatever the diffusion is and every pass after it is smeared once more -
+  // which leaves a delay with two audible repeats almost nothing to smear.
+  // Measured at 375 ms on the loop reading, clean against six tenths: 13.2 dB
+  // with the feedback at 0.6, and 6.2 with it at 0.18, against the 6 that
+  // decides a pass. Asking on a short tail would be asking for something
+  // nobody can hear.
+  let longTail = 0;
+  let smeared = 0;
+  for (let n = 1; n <= 20; n += 1) {
+    const puzzle = gameOf({ mode: 'delay', tier: 'expert', settings: { exercise: 'match' }, seed: `round-${n}` });
+    const { feedback, diffusion = 0 } = puzzle.answer;
+    if (feedback >= 0.4) {
+      longTail += 1;
+      if (diffusion > 0) smeared += 1;
+    } else {
+      assert.equal(diffusion, 0,
+        `a target with ${feedback} of feedback was asked to be ${diffusion} smeared`);
+    }
+  }
+  assert.ok(longTail > 5, 'half the targets should have a tail worth smearing');
+  assert.ok(smeared > 0 && smeared < longTail,
+    `${smeared} of ${longTail} long-tailed targets were smeared - "is it smeared at all" `
+    + 'stops being a question at either extreme');
+});
+
+test('a smeared delay cannot be matched with a clean one', () => {
+  // Measured over the nine smeared targets in twenty: answering clean passes
+  // 0 of 9, a seventh of diffusion out passes 9 of 9, and a third out passes
+  // 5 of 9. So clean is refused, a near match by ear passes, and about a
+  // fifth of the travel is the boundary.
+  let clean = 0;
+  let near = 0;
+  let tried = 0;
+  for (let n = 1; n <= 20; n += 1) {
+    const puzzle = gameOf({ mode: 'delay', tier: 'expert', settings: { exercise: 'match' }, seed: `round-${n}` });
+    const right = { ...ECHO_DEFAULTS, ...puzzle.answer };
+    if (!(right.diffusion > 0)) continue;
+    tried += 1;
+    if (delay.score({ ...right, diffusion: 0 }, puzzle).correct) clean += 1;
+    if (delay.score({ ...right, diffusion: Math.min(1, right.diffusion + 0.15) }, puzzle).correct) {
+      near += 1;
+    }
+  }
+  assert.ok(tried > 0, 'no smeared target to try, so this test proves nothing');
+  assert.equal(clean, 0, 'a clean delay is not a match for a smeared one');
+  assert.equal(near, tried, 'a seventh of the travel out is a match by ear and should pass');
 });
