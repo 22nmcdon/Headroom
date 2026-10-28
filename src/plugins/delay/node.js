@@ -1,6 +1,8 @@
 import { makeBiquad, setBiquad, runBiquad } from '../../lib/dsp.js';
 import * as dsp from './dsp.js';
-import { machineTone, makeupFor, headsOf, sidesOf, echoCore } from './dsp.js';
+import {
+  machineTone, makeupFor, headsOf, sidesOf, wanderOf, centsOf, echoCore,
+} from './dsp.js';
 import { workletModule, installWorklet } from '../../lib/worklet.js';
 
 /**
@@ -37,9 +39,24 @@ import { workletModule, installWorklet } from '../../lib/worklet.js';
  * refused.
  */
 
-/** The functions the audio thread needs, in the order they are defined. */
+/**
+ * The functions the audio thread needs, in the order they are defined.
+ *
+ * The list is by hand and the constants below are not, which is a seam worth
+ * naming because it has already cost a silent delay. Adding wow and flutter
+ * added two functions to `dsp.js` that `echoCore` calls, and leaving them off
+ * here broke nothing in Node, nothing in the module, and nothing the page
+ * could report: the error happens on the audio thread, inside a blob, where
+ * there is no console anybody is listening to. What you get is a delay with
+ * no repeats at all - and a processor doing nothing is also a processor that
+ * measures beautifully, which is how it nearly got measured as a saving.
+ *
+ * The test that catches it runs this source for real and holds its core
+ * against the module's, sample for sample. See tests/echo.test.js.
+ */
 const ECHO_PARTS = [
-  makeBiquad, setBiquad, runBiquad, machineTone, headsOf, sidesOf, echoCore, makeupFor,
+  makeBiquad, setBiquad, runBiquad,
+  machineTone, headsOf, sidesOf, wanderOf, centsOf, makeupFor, echoCore,
 ];
 
 /**

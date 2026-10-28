@@ -30,6 +30,8 @@ export const ECHO_DEFAULTS = {
   heads: 'single',   // how many places the line is read from
   diffusion: 0,      // how smeared each pass is, 0 to 1
   machine: 'digital', // what the repeats are stored on
+  wow: 0,            // slow pitch wander, in cents of peak deviation
+  flutter: 0,        // fast pitch wander, the same way
   mix: 0.3,
 };
 
@@ -204,6 +206,113 @@ export function machineTone(id, ms) {
   return null;
 }
 
+/**
+ * Wow and flutter: the two speeds at which a transport fails to hold time.
+ *
+ * The split is a standard, not a taste. IEC and DIN put the line at about
+ * 6 Hz: a speed error slower than that is wow, faster is flutter, and they
+ * are quoted separately because they are two different faults of two
+ * different parts - wow is the capstan and the reels, flutter is the guides
+ * and the tape rubbing past them. They are also two different sounds. Wow is
+ * a pitch you can follow going up and down; flutter is a roughness on the
+ * note that you cannot. So they are two controls, which is what a tape
+ * machine's spec sheet has had for sixty years.
+ *
+ * Not round numbers and not a ratio of each other, for the same reason the
+ * all-passes are not: periodic modulations at related rates line up every so
+ * often and the sum has a beat in it that neither one has.
+ */
+export const WOW_RATE = 0.55;
+export const FLUTTER_RATE = 7.9;
+
+/**
+ * And how far each may go, in cents of peak pitch deviation.
+ *
+ * Cents rather than per cent of speed, rather than milliseconds, and the
+ * choice is worth the paragraph because all three are defensible and only one
+ * of them is useful.
+ *
+ * A spec sheet quotes speed deviation: 0.1 per cent weighted RMS is a good
+ * machine. The honest physical model of it is not a knob though, because what
+ * you hear is not the speed error but the difference between the speed the
+ * tape was recorded at and the speed it is played back at - which for a
+ * deviation at rate `f` across a gap of `tau` comes out as `2*d*sin(pi*f*tau)`
+ * (take v(t)/v(t-tau) for v = v0*(1 + d*sin), and the difference of two sines
+ * is twice the sine of half their difference). That saturates: a slapback on a
+ * wandering machine is steady and a long echo on the same machine warbles,
+ * because at 20 ms the tape has not had time to be anywhere else and at a
+ * second it has. True, audible, and no use on a control - the same number
+ * would mean six cents at one setting and one at another, so a wow knob would
+ * be unmarkable at every delay time but one.
+ *
+ * Milliseconds of displacement has the opposite problem and worse: pitch
+ * deviation is displacement times rate, so a millisecond of wow and a
+ * millisecond of flutter are fourteen times apart by ear.
+ *
+ * So the knob is the thing you hear - peak pitch deviation - and the
+ * displacement is worked back out of it. Equal numbers sound equally deep
+ * whatever the time and whichever of the two it is, which is what makes
+ * either of them a question anybody can be asked. It is the same choice the
+ * machine model makes two hundred lines up, and for the same reason:
+ * behavioural, not physical, on purpose.
+ *
+ * The tops are set where the thing stops being a tape machine and starts
+ * being a chorus. Real tape echo runs five to ten cents; fifty is a sick
+ * transport, and past that the repeats are a different instrument.
+ */
+export const MOST_WOW = 50;
+export const MOST_FLUTTER = 25;
+
+/**
+ * How much of the line the wander may use, less a few samples for the
+ * interpolator's elbows.
+ *
+ * Fifty cents at 0.55 Hz wants ten milliseconds of displacement, which is
+ * half of the shortest delay this offers - so at short times the line itself
+ * is the limit, as it is on a tape loop.
+ *
+ * A quarter and not a half, because a line dragged to half its length is not
+ * the delay the knob says it is any more. The two depths share the one
+ * allowance rather than each getting it, since they are added together before
+ * the line is read and it is their sum that has to fit. So asking for
+ * everything at once at a short time gets both scaled back together - at
+ * 20 ms on one head, 50 and 25 come out as 26.5 and 13.2.
+ */
+export const WANDER_SHARE = 0.25;
+
+/**
+ * And how close to the write head a wandering read may come, in samples.
+ *
+ * Three, which is what the interpolator needs: it reads one sample behind its
+ * target and two in front, so a read three samples back from where the line
+ * is being written still touches only what has been written.
+ *
+ * This is the one that bites, and it is about the shorter heads rather than
+ * the line. A four-head pattern reads a quarter of the loop back, which at a
+ * short delay is a few hundred samples - and a wander deep enough to be worth
+ * hearing would carry that head straight past the write head and into
+ * whatever was there a loop ago. The depth is held against the nearest head,
+ * not the longest, so the tap that is most nearly caught is the one that
+ * decides. Measured off the core itself - asked for fifty cents of wow, the
+ * most it will actually give:
+ *
+ *     time      one head   three heads   four heads
+ *      20 ms      27.4 c       27.4 c       20.1 c
+ *      30 ms      40.9         40.9         30.3
+ *      40 ms      50.0         50.0         40.4
+ *      60 ms      50.0         50.0         50.0
+ *     375 ms      50.0         50.0         50.0
+ *
+ * Which is less dramatic than it looked like being. Nothing is held back
+ * above sixty milliseconds, the head pattern costs a quarter of the depth at
+ * the very bottom of the range and nothing at all past that, and flutter -
+ * whose displacement is fourteen times smaller for the same pitch - is never
+ * held back anywhere. What this limit really is, then, is a guard rather than
+ * a character: it stops a thing that cannot happen rather than shaping
+ * something that does.
+ */
+export const WANDER_EDGE = 3;
+
 /** Which side a ping-pong may be started from. */
 export const PING_FROM = ['left', 'right'];
 
@@ -299,6 +408,8 @@ export const ECHO_LIMITS = {
   lowCut: [20, 800],
   offset: [-MOST_OFFSET, MOST_OFFSET],
   diffusion: [0, 1],
+  wow: [0, MOST_WOW],
+  flutter: [0, MOST_FLUTTER],
   mix: [0, 1],
 };
 
@@ -315,6 +426,26 @@ export function sidesOf(settings) {
   const offset = Math.min(MOST_OFFSET, Math.max(-MOST_OFFSET, settings.offset ?? 0));
   const right = Math.min(LONGEST_TIME, Math.max(SHORTEST_TIME, left + offset));
   return [left, right];
+}
+
+/**
+ * A depth in cents, as a displacement in samples.
+ *
+ * A line read at `tau + A*sin(2*pi*f*t)` is read at a rate of
+ * `1 - A*2*pi*f*cos(2*pi*f*t)` samples a sample, so the peak pitch ratio is
+ * `1 + A*2*pi*f` and the cents follow. Inverted here, which is all this is.
+ */
+export function wanderOf(cents, hz, rate) {
+  const asked = Math.max(0, cents);
+  if (asked <= 0) return 0;
+  const ratio = 2 ** (asked / 1200) - 1;
+  return (ratio / (2 * Math.PI * hz)) * rate;
+}
+
+/** And back the other way, so the depth a line actually allows can be read. */
+export function centsOf(samples, hz, rate) {
+  if (samples <= 0) return 0;
+  return 1200 * Math.log2(1 + (samples / rate) * 2 * Math.PI * hz);
 }
 
 /* ---------- the loop itself ---------- */
@@ -378,6 +509,10 @@ export function echoCore(rate) {
   let bumping = false;
   let mediumGain = 1;
   let madeFor = null;   // the medium the makeup above was worked out for
+  let wowAt = 0;        // the wander's two depths, in samples
+  let flutterAt = 0;
+  let moving = false;   // whether there is any wander to work out at all
+  let turned = 0;       // samples since the transport started, for the phase
   const steps = [0, 0];
   const spans = [0, 0];
   const holds = [0, 0];
@@ -421,6 +556,33 @@ export function echoCore(rate) {
       setBiquad(cut[c], 'highpass', state.lowCut, rate);
     }
 
+    // How far the wander may go, in samples. Two limits, and the tighter one
+    // wins: a quarter of the line, so the loop cannot be dragged to a length
+    // that is not a delay any more, and far enough in front of the write head
+    // that the nearest head still reads something that has been written.
+    //
+    // Taken over both sides together, so the two stay the same transport
+    // rather than one of them being allowed a deeper wobble because it happens
+    // to be the longer line.
+    let room = Infinity;
+    for (let c = 0; c < 2; c += 1) {
+      let nearest = spans[c];
+      for (let t = 0; t < taps[c].length; t += 1) nearest = Math.min(nearest, taps[c][t]);
+      room = Math.min(room, spans[c] * WANDER_SHARE, nearest - WANDER_EDGE);
+    }
+    room = Math.max(0, room);
+
+    // Both depths share the one allowance rather than each getting it, because
+    // they are added together before the line is read and it is their sum that
+    // has to stay inside it.
+    const wowWant = wanderOf(Math.min(MOST_WOW, state.wow ?? 0), WOW_RATE, rate);
+    const flutterWant = wanderOf(Math.min(MOST_FLUTTER, state.flutter ?? 0), FLUTTER_RATE, rate);
+    const wanted = wowWant + flutterWant;
+    const fits = wanted > room && wanted > 0 ? room / wanted : 1;
+    wowAt = wowWant * fits;
+    flutterAt = flutterWant * fits;
+    moving = wowAt > 0 || flutterAt > 0;
+
     // The machine's own response, which is not a knob: its corner comes from
     // the delay time and the medium, and it sits on the way into the line
     // rather than in the feedback path with the user's filters. That is the
@@ -457,6 +619,37 @@ export function echoCore(rate) {
     return value;
   }
 
+  /**
+   * The line, read somewhere between two samples.
+   *
+   * Four-point Catmull-Rom, which is the cheapest interpolator that does not
+   * audibly dull a delay the moment it starts moving: linear interpolation of
+   * a line whose length is changing is a comb filter whose notch moves with
+   * it, and what you hear is the top end breathing in time with the wow.
+   *
+   * At a whole number it is exactly the sample, with no arithmetic left in
+   * it - the cubic's three other terms are multiplied by a fraction of zero -
+   * so a delay with no wander on it reads exactly what it read before there
+   * was any such thing as wander. Checked rather than asserted: the twenty
+   * settings that fingerprint this delay are unchanged to the bit.
+   */
+  function readAt(c, at) {
+    const buf = lines[c];
+    const whole = Math.floor(at);
+    const part = at - whole;
+    if (part === 0) return buf[((whole % longest) + longest) % longest];
+
+    const i = ((whole % longest) + longest) % longest;
+    const m1 = buf[(i - 1 + longest) % longest];
+    const p0 = buf[i];
+    const p1 = buf[(i + 1) % longest];
+    const p2 = buf[(i + 2) % longest];
+    const a1 = 0.5 * (p1 - m1);
+    const a2 = m1 - 2.5 * p0 + 2 * p1 - 0.5 * p2;
+    const a3 = 0.5 * (p2 - m1) + 1.5 * (p0 - p1);
+    return ((a3 * part + a2) * part + a1) * part + p0;
+  }
+
   /** One all-pass stage, in place. */
   function allpass(c, k, x) {
     const buf = apBuf[c][k];
@@ -480,14 +673,44 @@ export function echoCore(rate) {
 
     params() { return { ...state }; },
 
+    /**
+     * How deep the wander actually is, in cents, once the line has had its
+     * say. Asked for by the measurements that set the limits above, and the
+     * only way to know the answer exactly - reading it back off the audio
+     * means tracking the pitch of a sum of several heads, which comb-filter
+     * each other and send a zero-crossing tracker somewhere silly.
+     */
+    wander() {
+      return {
+        wow: centsOf(wowAt, WOW_RATE, rate),
+        flutter: centsOf(flutterAt, FLUTTER_RATE, rate),
+      };
+    },
+
     /** One sample in on each side, one sample out on each. */
     stereo(inL, inR) {
       const feedIn = [inL, inR];
 
+      // Where the heads are reading, in samples further back than they would
+      // be on a transport that held time. One number for both sides and every
+      // head on them: wow and flutter move the tape, and everything touching
+      // it is displaced by the same amount at the same moment.
+      let mod = 0;
+      if (moving) {
+        const t = turned / rate;
+        mod = wowAt * Math.sin(2 * Math.PI * WOW_RATE * t)
+          + flutterAt * Math.sin(2 * Math.PI * FLUTTER_RATE * t);
+      }
+      // Counted whether or not anything is wandering, so the transport has one
+      // clock. Otherwise turning the wow off and on again would start the
+      // wander from its own beginning, and a knob at zero would be a knob that
+      // reset the machine.
+      turned += 1;
+
       // The longest head: the sample written a whole line ago, which is both
       // an output and the only thing that goes round again.
-      const takenL = lines[0][(ats[0] - spans[0] + longest) % longest];
-      const takenR = lines[1][(ats[1] - spans[1] + longest) % longest];
+      const takenL = readAt(0, ats[0] - spans[0] - mod + longest);
+      const takenR = readAt(1, ats[1] - spans[1] - mod + longest);
       const taken = [takenL, takenR];
 
       // Out through the lag, so the first repeat lands on the time even
@@ -512,7 +735,7 @@ export function echoCore(rate) {
         // nothing to round.
         lag[c][lagAt[c]] = taken[c];
         for (let t = 0; t < taps[c].length; t += 1) {
-          lag[c][lagAt[c]] += lines[c][(ats[c] - taps[c][t] + longest) % longest];
+          lag[c][lagAt[c]] += readAt(c, ats[c] - taps[c][t] - mod + longest);
         }
       }
 

@@ -24,6 +24,7 @@ export {
   ECHO_DEFAULTS, ECHO_LIMITS, MACHINES, BBD_STAGES, MACHINE_FLOOR, MACHINE_CEILING,
   machineTone, PING_FROM, HEAD_PATTERNS, headsOf, LONGEST_TIME, SHORTEST_TIME,
   MOST_FEEDBACK, MOST_OFFSET, sidesOf, echoCore,
+  WOW_RATE, FLUTTER_RATE, MOST_WOW, MOST_FLUTTER,
 } from './dsp.js';
 /**
  * The note values a delay is set to, as fractions of a beat.
@@ -236,9 +237,34 @@ export const ARRIVAL_FLOOR = -60;
 /**
  * How far a frame's energy is smeared into its neighbours, in frames.
  *
- * Two either side. Without it the reading is a hair trigger - a repeat that
- * moves into the next frame swings the full sixty decibels - and with it a
- * small shift is a small change.
+ * Two either side, which softens the hair trigger without removing it - and
+ * the first version of this comment claimed it removed it, which is measurably
+ * wrong.
+ *
+ * The trigger is a repeat crossing a frame edge. The smear spreads energy, but
+ * the floor below is in decibels, so a frame holding nothing reads -60 and the
+ * same frame holding a ninth of a repeat reads about -9: a sixty-decibel step
+ * softened into a fifty-decibel one. Measured, three samples of flutter moving
+ * the first repeat from sample 18000 to 17997 - and sample 18000 is exactly
+ * where frame 64 begins, so the whole repeat changed frames:
+ *
+ *     frames on the floor with no wander        239 of 256
+ *     of those, lifted off it by the three      6
+ *     worst single frame                        55.2 dB
+ *     the whole reading                          7.0 dB
+ *
+ * Seven decibels from three samples, against the six this reading's tolerance
+ * allows. Nothing in the app moved sub-frame until the transport could wander,
+ * which is why it has never bitten.
+ *
+ * The fix, when something needs it, is to frame the response with an
+ * overlapping window rather than a box and a smear afterwards - then a
+ * three-sample shift moves every frame by a per cent or so, continuously. It
+ * is not done here because it would move every number this reading has ever
+ * produced, and the measurements built on them: the diffusion table, the head
+ * pattern distances, the pattern drill's fairness figures, and the tolerance
+ * itself. What is done instead is to keep the wander out of this reading, for
+ * which see `repeatsReading` below - a reading measures one thing.
  */
 export const ARRIVAL_SMEAR = 2;
 
@@ -349,9 +375,26 @@ export function loopShape(samples, rate, ms) {
  */
 export const ARRIVAL_AXIS = { kind: 'arrivals', perLoop: LOOP_FRAMES, passes: LOOP_PASSES };
 
-/** Where a delay's repeats land inside its own loop, in an envelope. */
+/**
+ * Where a delay's repeats land inside its own loop, in an envelope.
+ *
+ * With the transport held still, whatever it is set to. This reading answers
+ * where inside a pass the repeats fall - which heads, how smeared - and the
+ * question has an answer only if the pass is the same length every time
+ * round. A wandering line moves each repeat by a few samples, which is nothing
+ * to the ear and everything to a reading whose frames have edges: three
+ * samples read seven decibels, measured, which is more than its whole
+ * tolerance. See ARRIVAL_SMEAR above for why that happens and what the real
+ * fix would cost.
+ *
+ * So the wander is somebody else's to measure, and `wanderReading` measures
+ * it. The alternative was to let this one react to both and call the sum a
+ * reading, which is how you get a tolerance that cannot be set: too tight and
+ * five cents of flutter fails a correct pattern, too loose and the pattern
+ * stops being marked at all.
+ */
 export function repeatsReading(rate, settings, { source = null } = {}) {
-  const whole = { ...ECHO_DEFAULTS, ...settings };
+  const whole = { ...ECHO_DEFAULTS, ...settings, wow: 0, flutter: 0 };
   const [left] = sidesOf(whole);
   return readingOf({
     tool: 'delay',

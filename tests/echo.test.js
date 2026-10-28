@@ -7,12 +7,15 @@ import {
   makeEcho, repeatsOf, echoProfile, timeOf, nearestDivision, repeatsReading,
   MACHINES, machineTone, BBD_STAGES, MACHINE_FLOOR, MACHINE_CEILING, echoCore,
 } from '../src/plugins/delay/line.js';
+import { WOW_RATE, FLUTTER_RATE } from '../src/plugins/delay/dsp.js';
+import { echoSource } from '../src/plugins/delay/node.js';
 import { distance } from '../src/gap.js';
 import { comparable } from '../src/lib/read.js';
 import { mulberry32 } from '../src/lib/random.js';
 import { NEAR, MISS } from '../src/learn/work/scoring.js';
 import {
   monoOf, bandOf, profileDistance, RESPONSE_BANDS, decayProfile, wetDryImpulse,
+  decayReading,
 } from '../src/lib/response.js';
 import { LOOP_BEAT } from '../src/core/audio.js';
 import { ECHO_WORK as delay } from '../src/learn/work/delay.js';
@@ -1335,4 +1338,250 @@ test('running a signal through the core is convolving it with the response', () 
     assert.ok(residue < -100,
       `channel ${c} differs by ${residue.toFixed(1)} dB, which is more than rounding`);
   }
+});
+
+/* --- the transport wandering ---------------------------------------------- */
+
+/** The pitch of a tone through the loop, frame by frame, off its zero crossings. */
+function pitchOf(settings, probe = 1000, seconds = 8) {
+  const core = echoCore(rate).set({ ...settings, feedback: 0, tone: 20000, lowCut: 20 });
+  const n = Math.ceil(rate * seconds);
+  const out = new Float32Array(n);
+  for (let i = 0; i < n; i += 1) {
+    const x = Math.sin((2 * Math.PI * probe * i) / rate);
+    core.stereo(x, x);
+    out[i] = core.left;
+  }
+
+  const crossings = [];
+  for (let i = Math.round(rate * 0.45); i < n; i += 1) {
+    if (out[i - 1] < 0 && out[i] >= 0) {
+      crossings.push(i - 1 + out[i - 1] / (out[i - 1] - out[i]));
+    }
+  }
+
+  const track = [];
+  for (let k = 1; k < crossings.length; k += 1) {
+    track.push({ at: crossings[k] / rate, hz: rate / (crossings[k] - crossings[k - 1]) });
+  }
+
+  const inside = track.filter((point) => point.at > 0.6 && point.at < seconds - 0.2);
+  const highest = Math.max(...inside.map((point) => point.hz));
+  const lowest = Math.min(...inside.map((point) => point.hz));
+  const cents = (hz) => 1200 * Math.log2(hz / probe);
+
+  // The rate, from how often the deviation crosses its own middle - twice a
+  // cycle.
+  const middle = (highest + lowest) / 2;
+  let turns = 0;
+  let first = null;
+  let last = null;
+  for (let k = 1; k < inside.length; k += 1) {
+    if ((inside[k - 1].hz - middle) * (inside[k].hz - middle) < 0) {
+      turns += 1;
+      if (first === null) first = inside[k].at;
+      last = inside[k].at;
+    }
+  }
+
+  return {
+    peak: Math.max(cents(highest), -cents(lowest)),
+    hz: turns > 2 ? (turns - 1) / (2 * (last - first)) : 0,
+  };
+}
+
+test('the wander knobs are in the unit they are labelled with', () => {
+  // Cents of peak pitch deviation, which is the thing you hear - so the same
+  // number means the same depth whichever of the two knobs it is on and
+  // whatever the delay is set to. Measured off a 1 kHz tone through the loop:
+  //
+  //     asked    wow reads    flutter reads
+  //        5       5.01 c         5.01 c
+  //       15      15.13         15.13
+  //       30      30.53           -
+  //       50      51.49           -
+  //
+  // The two agree with each other to the hundredth, which is the claim that
+  // matters: a cent of wow and a cent of flutter are the same depth of
+  // wobble at two different speeds. Both read a hair over what was asked
+  // because the peak of a frequency-modulated tone is not symmetrical in
+  // cents, and three per cent at the top of the range is not a calibration
+  // anybody can hear.
+  for (const [which, hz] of [['wow', WOW_RATE], ['flutter', FLUTTER_RATE]]) {
+    for (const cents of [5, 15]) {
+      const got = pitchOf({ ...ECHO_DEFAULTS, time: 375, [which]: cents });
+      assert.ok(Math.abs(got.peak - cents) < cents * 0.1,
+        `${which} at ${cents} cents came out at ${got.peak.toFixed(2)}`);
+      assert.ok(Math.abs(got.hz - hz) < hz * 0.1,
+        `${which} wandered at ${got.hz.toFixed(2)} Hz rather than ${hz}`);
+    }
+  }
+});
+
+test('a delay with no wander on it is the delay that was there before', () => {
+  // The interpolator is exactly the sample it lands on at a whole number, so
+  // nothing about the arithmetic changes until something moves. Checked on the
+  // repeats themselves rather than on a hash, which a test cannot carry: the
+  // first repeat of a 375 ms delay is exactly one, at exactly sample 18000,
+  // and the sample either side of it is exactly nothing.
+  const settings = { ...ECHO_DEFAULTS, time: 375, feedback: 0.5 };
+  const quiet = makeEcho(rate, settings);
+  const at = Math.round(0.375 * rate);
+  assert.equal(quiet.channels[0][at], 1, 'the first repeat should be the sound that went in');
+  assert.equal(quiet.channels[0][at - 1], 0, 'and nothing should arrive before it');
+  assert.equal(quiet.channels[0][at + 1], 0, 'or after it');
+
+  // And with the transport wandering, it does move - three samples early at
+  // five cents of flutter, which is what makes the reading below necessary.
+  const moving = makeEcho(rate, { ...settings, flutter: 5 });
+  assert.notEqual(moving.channels[0][at], 1, 'five cents of flutter should move the repeat');
+});
+
+test('the line puts a ceiling on the wander, and only where it has to', () => {
+  const depth = (over) => echoCore(rate).set({ ...ECHO_DEFAULTS, ...over }).wander();
+
+  // Fifty cents of wow wants ten milliseconds of displacement, so a line
+  // shorter than about forty gives what it can and no more. Measured:
+  //
+  //     time      one head   three heads   four heads
+  //      20 ms      27.4 c       27.4 c       20.1 c
+  //      40 ms      50.0         50.0         40.4
+  //      60 ms      50.0         50.0         50.0
+  assert.ok(depth({ time: 20, wow: 50 }).wow < 30, 'a 20 ms line cannot wander 50 cents');
+  assert.ok(depth({ time: 20, wow: 50 }).wow > 20, 'but it should manage more than 20');
+  for (const heads of ['single', 'heads3', 'heads4']) {
+    assert.ok(Math.abs(depth({ time: 60, heads, wow: 50 }).wow - 50) < 0.01,
+      `60 ms on ${heads} should give the whole 50 cents`);
+    assert.ok(Math.abs(depth({ time: 375, heads, flutter: 25 }).flutter - 25) < 0.01,
+      `flutter is fourteen times smaller and should never be held back on ${heads}`);
+  }
+
+  // The nearest head is what decides, not the longest - a four-head pattern
+  // reads a quarter of the loop back, and a wander deep enough would carry
+  // that head past the write head and into whatever was there a loop ago.
+  assert.ok(depth({ time: 30, heads: 'heads4', wow: 50 }).wow
+    < depth({ time: 30, heads: 'single', wow: 50 }).wow - 5,
+    'four heads should be held back further than one at a short time');
+});
+
+test('a wandering line never reads past the write head', () => {
+  // What the ceiling is for. At the extremes - the shortest delay, the most
+  // feedback, four heads reading a quarter of a loop that is already tiny, and
+  // both wander knobs at their tops - nothing may come out non-finite or
+  // louder than what went in.
+  for (const time of [20, 25, 40, 375]) {
+    for (const heads of ['single', 'heads3', 'heads4']) {
+      const echo = makeEcho(rate, {
+        ...ECHO_DEFAULTS,
+        time,
+        heads,
+        feedback: MOST_FEEDBACK,
+        diffusion: 1,
+        wow: 50,
+        flutter: 25,
+      });
+      let peak = 0;
+      let wrong = 0;
+      for (const channel of echo.channels) {
+        for (const value of channel) {
+          if (!Number.isFinite(value)) wrong += 1;
+          else peak = Math.max(peak, Math.abs(value));
+        }
+      }
+      assert.equal(wrong, 0, `${time} ms on ${heads} produced ${wrong} non-finite samples`);
+      assert.ok(peak <= 1.0001,
+        `${time} ms on ${heads} peaked at ${peak.toFixed(4)}, so the loop found gain somewhere`);
+    }
+  }
+});
+
+test('the arrival reading is blind to the wander and still sees the loop', () => {
+  // A reading measures one thing. This one says where inside a pass the
+  // repeats fall, and a pass is only a length if it is the same length every
+  // time round - so it is taken with the transport held still. Three samples
+  // of flutter read 7.0 dB through it against a tolerance of 6, which is a
+  // frame edge rather than a measurement: see ARRIVAL_SMEAR.
+  const base = { ...ECHO_DEFAULTS, time: 375, feedback: 0.5, mix: 0.4 };
+  const flat = repeatsReading(rate, base);
+
+  for (const over of [{ wow: 5 }, { wow: 50 }, { flutter: 5 }, { flutter: 25 },
+    { wow: 25, flutter: 25 }]) {
+    assert.equal(distance(repeatsReading(rate, { ...base, ...over }), flat).off, 0,
+      `${JSON.stringify(over)} reached a reading that is not about it`);
+  }
+
+  // And it has not gone deaf to what it is for.
+  assert.ok(distance(repeatsReading(rate, { ...base, heads: 'heads4' }), flat).off > 15,
+    'the arrival reading should still see a head pattern');
+});
+
+test('the decay reading cannot mark the wander, which is why there is another', () => {
+  // Measured, against no wander at all, with the tolerances that decide a pass
+  // being 2.6, 1.9 and 1.2 dB:
+  //
+  //     wow 5        0.11 dB      flutter 5     0.05 dB
+  //     wow 15       0.27         flutter 15    0.11
+  //     wow 30       0.88         flutter 25    0.16
+  //     wow 50       0.88
+  //
+  // Under the easiest tolerance at every depth, and not even monotonic - 30
+  // and 50 read the same, and 30 against 50 reads 0.04 dB. An energy decay
+  // curve says how the repeats fade, and a transport that wanders does not
+  // change that. So wow and flutter get a reading of their own.
+  const base = { ...ECHO_DEFAULTS, time: 375, feedback: 0.5, mix: 0.4 };
+  const read = (over) => decayReading('delay', echoProfile(rate, { ...base, ...over }),
+    { state: { ...base, ...over } });
+  const flat = read({});
+
+  for (const over of [{ wow: 15 }, { wow: 50 }, { flutter: 15 }, { flutter: 25 }]) {
+    const off = distance(read(over), flat).off;
+    assert.ok(off < 1.2,
+      `${JSON.stringify(over)} read ${off.toFixed(2)} dB, so the decay curve can see it after all `
+      + '- which would be good news and this comment would be wrong');
+  }
+});
+
+/* --- the audio thread ----------------------------------------------------- */
+
+test('the worklet is built from the delay, not a copy of it', () => {
+  // The one test that can catch a part left off the list. Everything else
+  // passes with an incomplete worklet: the module is fine, Node is fine, and
+  // the failure happens on the audio thread inside a blob URL, where a thrown
+  // ReferenceError reaches no console and the delay simply has no repeats.
+  // That is how adding wow and flutter silently stopped every insert in the
+  // app, with 693 green tests.
+  const source = echoSource();
+
+  for (const name of ['echoCore', 'wanderOf', 'centsOf', 'machineTone', 'headsOf',
+    'sidesOf', 'makeupFor', 'WOW_RATE', 'FLUTTER_RATE', 'DIFFUSE_AT', 'WANDER_EDGE']) {
+    assert.ok(source.includes(name), `the audio thread needs ${name}`);
+  }
+
+  // Run the string the audio thread is given, and hold it against the module.
+  // Settings that reach the wander, the heads, the diffusion and the medium at
+  // once, because any one of them could be the thing a missing part breaks.
+  const theirs = new Function(
+    `${source.replace(/class HeadroomEcho[\s\S]*$/, '')}; return echoCore;`,
+  )();
+  const settings = {
+    ...ECHO_DEFAULTS,
+    time: 320,
+    feedback: 0.45,
+    heads: 'heads3',
+    diffusion: 0.4,
+    machine: 'tape',
+    wow: 18,
+    flutter: 9,
+  };
+  const mine = echoCore(rate).set(settings);
+  const yours = theirs(rate).set(settings);
+
+  let worst = 0;
+  for (let i = 0; i < rate; i += 1) {
+    const x = Math.sin((2 * Math.PI * 220 * i) / rate) * (i % 8000 < 2000 ? 0.9 : 0.1);
+    mine.stereo(x, x);
+    yours.stereo(x, x);
+    worst = Math.max(worst, Math.abs(mine.left - yours.left), Math.abs(mine.right - yours.right));
+  }
+  assert.equal(worst, 0, 'what you hear has to be what you are marked on');
 });
