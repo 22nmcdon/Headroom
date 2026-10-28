@@ -1,6 +1,6 @@
 import {
   ECHO_DEFAULTS, SYNC_DIVISIONS, makeEcho, timeOf, nearestDivision,
-  ECHO_LIMITS, PING_FROM, HEAD_PATTERNS, MACHINES, machineTone,
+  ECHO_LIMITS, PING_FROM, HEAD_PATTERNS, MACHINES, machineTone, CHANGE_MODES,
 } from './line.js';
 import { echoTail } from './line.js';
 import { LiveEcho } from './node.js';
@@ -217,6 +217,12 @@ export class EchoPlugin {
             </select>
           </label>
           <label class="field">
+            <span class="field-label">Time moves</span>
+            <select id="echoChange">
+              ${CHANGE_MODES.map((m) => `<option value="${m.id}">${m.label}</option>`).join('')}
+            </select>
+          </label>
+          <label class="field">
             <span class="field-label">Heads</span>
             <select id="echoHeads">
               ${HEAD_PATTERNS.map((p) => `<option value="${p.id}">${p.label}</option>`).join('')}
@@ -290,6 +296,13 @@ export class EchoPlugin {
       if (!this.interactive) return;
       this.settings.pingPong = e.target.checked;
       this.showFrom();
+      this.changed();
+    });
+
+    this.el.querySelector('#echoChange').addEventListener('change', (e) => {
+      if (!this.interactive) return;
+      this.settings.change = CHANGE_MODES.some((m) => m.id === e.target.value)
+        ? e.target.value : 'repitch';
       this.changed();
     });
 
@@ -415,6 +428,9 @@ export class EchoPlugin {
 
     const machine = this.el.querySelector('#echoMachine');
     if (machine) machine.value = this.settings.machine ?? 'digital';
+
+    const change = this.el.querySelector('#echoChange');
+    if (change) change.value = this.settings.change ?? 'repitch';
 
     // What the medium is doing at this time, which is the thing that makes a
     // machine a machine rather than a tone knob: it moves when the time does.

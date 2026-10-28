@@ -1446,9 +1446,9 @@ test('the line puts a ceiling on the wander, and only where it has to', () => {
   // shorter than about forty gives what it can and no more. Measured:
   //
   //     time      one head   three heads   four heads
-  //      20 ms      27.4 c       27.4 c       20.1 c
-  //      40 ms      50.0         50.0         40.4
-  //      60 ms      50.0         50.0         50.0
+  //      20 ms      27.4 c       27.4 c       27.4 c
+  //      30 ms      40.9         40.9         40.9
+  //      40 ms      50.0         50.0         50.0
   assert.ok(depth({ time: 20, wow: 50 }).wow < 30, 'a 20 ms line cannot wander 50 cents');
   assert.ok(depth({ time: 20, wow: 50 }).wow > 20, 'but it should manage more than 20');
   for (const heads of ['single', 'heads3', 'heads4']) {
@@ -1458,12 +1458,18 @@ test('the line puts a ceiling on the wander, and only where it has to', () => {
       `flutter is fourteen times smaller and should never be held back on ${heads}`);
   }
 
-  // The nearest head is what decides, not the longest - a four-head pattern
-  // reads a quarter of the loop back, and a wander deep enough would carry
-  // that head past the write head and into whatever was there a loop ago.
-  assert.ok(depth({ time: 30, heads: 'heads4', wow: 50 }).wow
-    < depth({ time: 30, heads: 'single', wow: 50 }).wow - 5,
-    'four heads should be held back further than one at a short time');
+  // The head pattern costs nothing, and did until the lag buffer came out of
+  // the output path. Every head used to sit closer to the write head by what
+  // the all-passes hold, which put a four-head pattern at 20 ms on 20.1 cents
+  // against one head's 27.4; read at the whole length of the loop, the nearest
+  // head is further out than the line's own quarter and the line is the only
+  // limit left. Asserted so that putting a lag back would be noticed.
+  for (const time of [20, 30, 40]) {
+    const one = depth({ time, heads: 'single', wow: 50 }).wow;
+    const four = depth({ time, heads: 'heads4', wow: 50 }).wow;
+    assert.ok(Math.abs(one - four) < 0.01,
+      `at ${time} ms one head allows ${one.toFixed(1)} cents and four allow ${four.toFixed(1)}`);
+  }
 });
 
 test('a wandering line never reads past the write head', () => {
@@ -1555,7 +1561,8 @@ test('the worklet is built from the delay, not a copy of it', () => {
   const source = echoSource();
 
   for (const name of ['echoCore', 'wanderOf', 'centsOf', 'machineTone', 'headsOf',
-    'sidesOf', 'makeupFor', 'WOW_RATE', 'FLUTTER_RATE', 'DIFFUSE_AT', 'WANDER_EDGE']) {
+    'sidesOf', 'makeupFor', 'WOW_RATE', 'FLUTTER_RATE', 'DIFFUSE_AT', 'WANDER_EDGE',
+    'CHANGE_MODES', 'REPITCH_TIME', 'REPITCH_MOST', 'FADE_TIME']) {
     assert.ok(source.includes(name), `the audio thread needs ${name}`);
   }
 
@@ -1580,6 +1587,13 @@ test('the worklet is built from the delay, not a copy of it', () => {
 
   let worst = 0;
   for (let i = 0; i < rate; i += 1) {
+    // The time moved partway through, so the glide is exercised too: that is
+    // new arithmetic on the audio thread, and the whole point of this test is
+    // that the audio thread is running the module's arithmetic and not a copy.
+    if (i === Math.round(rate * 0.4)) {
+      mine.set({ time: 210 });
+      yours.set({ time: 210 });
+    }
     const x = Math.sin((2 * Math.PI * 220 * i) / rate) * (i % 8000 < 2000 ? 0.9 : 0.1);
     mine.stereo(x, x);
     yours.stereo(x, x);
@@ -1914,4 +1928,149 @@ test('a smeared delay cannot be matched with a clean one', () => {
   assert.ok(tried > 0, 'no smeared target to try, so this test proves nothing');
   assert.equal(clean, 0, 'a clean delay is not a match for a smeared one');
   assert.equal(near, tried, 'a seventh of the travel out is a match by ear and should pass');
+});
+
+/* --- what happens when the time moves -------------------------------------- */
+
+/** A tone through one repeat, with the time moved partway. */
+function timeMove(change, from, to, seconds = 3) {
+  const probe = 440;
+  const core = echoCore(rate)
+    .set({ ...ECHO_DEFAULTS, change, time: from, feedback: 0, tone: 20000, lowCut: 20 });
+  const n = Math.ceil(rate * seconds);
+  const out = new Float32Array(n);
+  const when = Math.round(1.2 * rate);
+  for (let i = 0; i < n; i += 1) {
+    if (i === when) core.set({ time: to });
+    const x = Math.sin((2 * Math.PI * probe * i) / rate);
+    core.stereo(x, x);
+    out[i] = core.left;
+  }
+
+  let worst = 0;
+  for (let i = when; i < Math.min(n, when + rate); i += 1) {
+    worst = Math.max(worst, Math.abs(out[i] - out[i - 1]));
+  }
+
+  const pitchAt = (fromSample, span) => {
+    const cross = [];
+    for (let i = fromSample + 1; i < fromSample + span; i += 1) {
+      if (out[i - 1] < 0 && out[i] >= 0) cross.push(i - 1 + out[i - 1] / (out[i - 1] - out[i]));
+    }
+    if (cross.length < 3) return 0;
+    const hz = ((cross.length - 1) * rate) / (cross[cross.length - 1] - cross[0]);
+    return 1200 * Math.log2(hz / probe);
+  };
+
+  return {
+    worst,
+    // The tone's own slew, which is what a step has to be held against.
+    smooth: Math.abs(Math.sin((2 * Math.PI * probe) / rate)),
+    bend: pitchAt(when + Math.round(rate * 0.06), Math.round(rate * 0.04)),
+    settled: pitchAt(when + Math.round(rate * 1.2), Math.round(rate * 0.04)),
+  };
+}
+
+test('a repitching delay bends what is already in the line and settles', () => {
+  // What a transport does, because it has no choice: the tape is recorded and
+  // playing it at a new speed is the only thing a new speed can mean.
+  // Measured, 375 ms to 251, a 440 Hz tone through one repeat - 400 cents up
+  // and held there by the cap, 3 cents by a second later. Shortening the line
+  // reads the tape faster, so the pitch goes up.
+  const shorter = timeMove('repitch', 375, 251);
+  assert.ok(shorter.bend > 200, `shortening bent the pitch ${shorter.bend.toFixed(0)} cents`);
+  assert.ok(Math.abs(shorter.settled) < 20,
+    `a second later it was still ${shorter.settled.toFixed(0)} cents out`);
+
+  const longer = timeMove('repitch', 375, 499);
+  assert.ok(longer.bend < -200, `lengthening bent the pitch ${longer.bend.toFixed(0)} cents`);
+  assert.ok(Math.abs(longer.settled) < 20, 'and it should come home too');
+
+  // And no step bigger than a tone 1.26 times faster, which is what the cap
+  // allows - a bend, not a break.
+  for (const got of [shorter, longer]) {
+    assert.ok(got.worst < got.smooth * 1.35,
+      `a repitching head stepped ${got.worst.toFixed(4)} against the tone's ${got.smooth.toFixed(4)}`);
+  }
+});
+
+test('a fading delay changes time without changing pitch, and a jumping one clicks', () => {
+  // The other two answers. Fade holds the old head, starts a new one, and
+  // crosses too fast to follow: no bend at all. Jump moves the head and takes
+  // the discontinuity, which is what this delay did by accident on every step
+  // of every drag.
+  //
+  // Measured at 375 ms to 251 and to 499, against the tone's own slew of
+  // 0.0576 a sample: fade steps 0.0576 and 0.0658, jump steps 0.3106 and
+  // 0.4257 - five to seven times the signal.
+  for (const [from, to] of [[375, 251], [375, 499]]) {
+    const fade = timeMove('fade', from, to);
+    assert.ok(Math.abs(fade.bend) < 20,
+      `a fading head bent the pitch ${fade.bend.toFixed(0)} cents, and should not bend it at all`);
+    assert.ok(fade.worst < fade.smooth * 1.2,
+      `a fading head stepped ${fade.worst.toFixed(4)} against the tone's ${fade.smooth.toFixed(4)}`);
+
+    const jump = timeMove('jump', from, to);
+    assert.ok(Math.abs(jump.bend) < 20, 'a jumping head does not bend the pitch either');
+    assert.ok(jump.worst > jump.smooth * 3,
+      `a jumping head stepped only ${jump.worst.toFixed(4)}, so this is not measuring the click`);
+  }
+
+  // 375 to 250 is exactly 55 periods of 440 Hz, so a jumping head lands on the
+  // same phase and shows no step. Kept as a note rather than a trap: it is why
+  // the moves above are 251 and 499.
+  const lucky = timeMove('jump', 375, 250);
+  assert.ok(lucky.worst < lucky.smooth * 1.2,
+    'at a whole number of periods even a jump is seamless, which is a coincidence');
+});
+
+test('a drag is a hundred small moves, and only one mode survives it', () => {
+  // The gesture this is actually about. Twenty one-per-cent steps down from
+  // 375 ms, which is what dragging the time knob does. Measured: repitch 0.325,
+  // fade 0.268, jump 2.777.
+  const drag = (change) => {
+    const core = echoCore(rate)
+      .set({ ...ECHO_DEFAULTS, change, time: 375, feedback: 0.5, tone: 20000, lowCut: 20 });
+    const n = Math.ceil(rate * 2);
+    const out = new Float32Array(n);
+    let time = 375;
+    for (let i = 0; i < n; i += 1) {
+      if (i % Math.round(rate * 0.03) === 0 && i > rate * 0.5 && time > 300) {
+        time = Math.round(time * 0.99);
+        core.set({ time });
+      }
+      const x = Math.sin((2 * Math.PI * 440 * i) / rate);
+      core.stereo(x, x);
+      out[i] = core.left;
+    }
+    let worst = 0;
+    for (let i = Math.round(rate * 0.5); i < n; i += 1) {
+      worst = Math.max(worst, Math.abs(out[i] - out[i - 1]));
+    }
+    return worst;
+  };
+
+  const jumped = drag('jump');
+  for (const change of ['repitch', 'fade']) {
+    const got = drag(change);
+    assert.ok(got < jumped / 3,
+      `dragging in ${change} stepped ${got.toFixed(3)} against jump's ${jumped.toFixed(3)}`);
+  }
+});
+
+test('the mode cannot change a response, because a response never moves', () => {
+  // Which is the whole reason this is a tool and not a question. Every reading
+  // in this app is taken of a delay standing still, and a mode that only acts
+  // while the time is moving is invisible to all of them. Asserted rather than
+  // assumed, because if it were ever false every mark in the delay would
+  // depend on a control nobody is being asked about.
+  for (const change of ['repitch', 'fade', 'jump']) {
+    const made = makeEcho(rate, { ...ECHO_DEFAULTS, time: 320, feedback: 0.5, change });
+    const plain = makeEcho(rate, { ...ECHO_DEFAULTS, time: 320, feedback: 0.5 });
+    let worst = 0;
+    for (let i = 0; i < made.length; i += 1) {
+      worst = Math.max(worst, Math.abs(made.channels[0][i] - plain.channels[0][i]));
+    }
+    assert.equal(worst, 0, `${change} changed the response of a delay that never moved`);
+  }
 });

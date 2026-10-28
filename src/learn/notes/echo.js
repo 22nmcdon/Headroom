@@ -62,6 +62,25 @@ export const ECHO_NOTES = {
         + 'you can be asked about.',
     },
     {
+      heading: 'What a delay does while you move the time',
+      body: 'There is already sound in the line when the knob moves, and what happens to it '
+        + 'is the one thing every delay ever built has had to decide. There are three '
+        + 'answers and you can pick any of them here.\n\n'
+        + '\u201cRepitch\u201d is what a transport does, because it has no choice: the tape '
+        + 'is already recorded, and playing it at a new speed is the only thing a new speed '
+        + 'can mean. The read head glides to its new place and what is on the way there '
+        + 'bends \u2014 up when you shorten the delay, down when you lengthen it. A bucket '
+        + 'brigade does the same for the same reason, since its clock is its speed. It is '
+        + 'the sound of a dub engineer riding the time knob.\n\n'
+        + '\u201cFade\u201d is what most digital delays do: hold the old read head, start a '
+        + 'new one, and cross between them too fast to follow. Nothing bends. For a moment '
+        + 'you hear both, and where their phases oppose they cancel \u2014 which is why a '
+        + 'fade on a sustained note dips, and why there is no fade law that avoids it.\n\n'
+        + '\u201cJump\u201d moves the head and takes the click. Some hardware really does, '
+        + 'and on small moves you cannot hear it; a drag is a hundred small moves, and you '
+        + 'can hear that.',
+    },
+    {
       heading: 'Note values, and why these ones',
       body: 'Every adjacent pair of divisions offered here is at least a third apart, so '
         + 'telling one from the next is a question about the music rather than about a '

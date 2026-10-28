@@ -32,6 +32,7 @@ export const ECHO_DEFAULTS = {
   machine: 'digital', // what the repeats are stored on
   wow: 0,            // slow pitch wander, in cents of peak deviation
   flutter: 0,        // fast pitch wander, the same way
+  change: 'repitch', // what it does to what is already in the line when the time moves
   mix: 0.3,
 };
 
@@ -287,31 +288,104 @@ export const WANDER_SHARE = 0.25;
  * target and two in front, so a read three samples back from where the line
  * is being written still touches only what has been written.
  *
- * This is the one that bites, and it is about the shorter heads rather than
- * the line. A four-head pattern reads a quarter of the loop back, which at a
- * short delay is a few hundred samples - and a wander deep enough to be worth
- * hearing would carry that head straight past the write head and into
- * whatever was there a loop ago. The depth is held against the nearest head,
- * not the longest, so the tap that is most nearly caught is the one that
- * decides. Measured off the core itself - asked for fifty cents of wow, the
- * most it will actually give:
+ * The depth is held against whichever head is nearest the write head, since
+ * that is the one a deep enough wander would carry past it and into whatever
+ * was there a loop ago. Measured off the core - asked for fifty cents of wow,
+ * the most it will actually give:
  *
  *     time      one head   three heads   four heads
- *      20 ms      27.4 c       27.4 c       20.1 c
- *      30 ms      40.9         40.9         30.3
- *      40 ms      50.0         50.0         40.4
- *      60 ms      50.0         50.0         50.0
+ *      20 ms      27.4 c       27.4 c       27.4 c
+ *      30 ms      40.9         40.9         40.9
+ *      40 ms      50.0         50.0         50.0
  *     375 ms      50.0         50.0         50.0
  *
- * Which is less dramatic than it looked like being. Nothing is held back
- * above sixty milliseconds, the head pattern costs a quarter of the depth at
- * the very bottom of the range and nothing at all past that, and flutter -
- * whose displacement is fourteen times smaller for the same pitch - is never
- * held back anywhere. What this limit really is, then, is a guard rather than
- * a character: it stops a thing that cannot happen rather than shaping
- * something that does.
+ * The head pattern used to cost a quarter of the depth at the bottom of the
+ * range - four heads at 20 ms got 20.1 cents where one got 27.4 - and it no
+ * longer costs anything. That is the lag buffer's removal: the output used to
+ * be read at the shortened line and delayed again, so every head sat closer to
+ * the write head by what the all-passes hold. Read at the whole length
+ * instead, the nearest head is further away than the line's own quarter, so
+ * the line is the only thing left limiting it.
+ *
+ * Which leaves this a guard rather than a character: nothing is held back at
+ * all above forty milliseconds, and flutter - whose displacement is fourteen
+ * times smaller for the same pitch - is never held back anywhere.
  */
 export const WANDER_EDGE = 3;
+
+/**
+ * What a delay does to the sound already in its line when the time moves.
+ *
+ * Three answers, and every delay ever built gives one of them. The question
+ * only exists while the knob is moving, which is why it took until now to
+ * notice that this one was answering it with a click: measured, moving the
+ * time from 375 ms to 250 made the output jump 1.52 in a single sample, where
+ * a 440 Hz tone at full scale moves 0.06. At 375 to 120 it jumped 2.81. Every
+ * step of a drag, on every insert.
+ *
+ *     from -> to      the worst step between two samples
+ *     375 -> 375      0.11      (two tones summing, not a discontinuity)
+ *     375 -> 250      1.52
+ *     375 -> 500      2.31
+ *     375 -> 120      2.81
+ *     250 -> 1000     1.82
+ *
+ * `repitch` is what a transport does, because it has no choice: the tape is
+ * already recorded and playing it at a new speed is the only thing a new
+ * speed can mean. The read head glides to its new place and what is in the
+ * line bends as it goes. A bucket brigade does the same thing for the same
+ * reason - the clock is the speed.
+ *
+ * `fade` is what most digital delays do: hold the old read head, start a new
+ * one, and cross from one to the other too fast to follow. Nothing bends, and
+ * for a moment you hear both.
+ *
+ * `jump` is the one this had by accident. Some hardware really does it, and
+ * on small moves it is inaudible, which is why it survived - a drag is a
+ * hundred small moves and each of them clicks.
+ */
+export const CHANGE_MODES = [
+  { id: 'repitch', label: 'Repitch' },
+  { id: 'fade', label: 'Fade' },
+  { id: 'jump', label: 'Jump' },
+];
+
+/**
+ * How fast a repitching head glides, and how far it is allowed to bend.
+ *
+ * A time constant rather than a speed, because a capstan has inertia: a big
+ * change dives hard and settles, which is the sound of the thing. And a cap
+ * on the bend, because the exponential's first sample of a large move asks
+ * for a pitch nothing mechanical could reach - 375 ms to 250 is six thousand
+ * samples of travel, and at this time constant the first sample of it would
+ * be a fifth and a half.
+ *
+ * A third of an octave, which is about what a Space Echo's selector does
+ * between neighbouring settings.
+ */
+export const REPITCH_TIME = 0.18;
+export const REPITCH_MOST = 0.26;
+
+/**
+ * How long a fading head takes to hand over, in seconds.
+ *
+ * Thirty milliseconds: long enough that neither end of it is a click, short
+ * enough that the pair of heads is a flicker rather than a chorus. Measured
+ * against the other two, a 440 Hz tone through one repeat, the time moved by a
+ * figure that is not a whole number of its periods:
+ *
+ *     mode       worst step between samples      pitch           level
+ *     repitch              0.0726              400 cents, settling   held
+ *     fade                 0.0576                none            dips to 0.27
+ *     jump             0.3106 to 0.4257          none              held
+ *
+ * The tone itself steps 0.0576 a sample, so repitch's figure is that times the
+ * 1.26 its bend is capped at - no discontinuity, just a faster wave - and
+ * fade's is the tone exactly. Jump's is five to seven times the signal's own
+ * slew, which is a click, and that is what this delay did on every step of
+ * every drag until these modes existed.
+ */
+export const FADE_TIME = 0.03;
 
 /** Which side a ping-pong may be started from. */
 export const PING_FROM = ['left', 'right'];
@@ -476,9 +550,13 @@ export function centsOf(samples, hz, rate) {
 export function echoCore(rate) {
   const state = { ...ECHO_DEFAULTS };
 
-  // The longest line, in samples. Both sides are clamped to LONGEST_TIME, so
-  // an offset cannot push past it.
-  const longest = Math.ceil((LONGEST_TIME / 1000) * rate) + 2;
+  // The longest line, in samples, with room for the interpolator's elbows on
+  // top. The eight is not spare: the output head reads at the whole length of
+  // the loop and the interpolator reads two samples in front of wherever it is
+  // pointed, so a buffer only as long as the loop puts the longest delay's
+  // output head past the end of it. Measured as a hash that changed at 1500 ms
+  // and nowhere else.
+  const longest = Math.ceil((LONGEST_TIME / 1000) * rate) + 8;
   const lines = [new Float32Array(longest), new Float32Array(longest)];
   const ats = [0, 0];
 
@@ -489,9 +567,12 @@ export function echoCore(rate) {
   ));
   const apAt = [[0, 0, 0], [0, 0, 0]];
   // Room for the three stages' own rounding on top of the sum of fractions.
-  const lagSpan = Math.ceil(DIFFUSE_AT.reduce((sum, f) => sum + f, 0) * longest) + 8;
-  const lag = [new Float32Array(lagSpan), new Float32Array(lagSpan)];
-  const lagAt = [0, 0];
+  // One float32 a channel, which is all that is left of the lag buffer the
+  // output used to come out of. It is not storage: the heads are summed into a
+  // single-precision slot because each addition has to round the way it has
+  // always rounded, and a double would be a different number from the one in
+  // every response this app has drawn.
+  const rounding = new Float32Array(2);
 
   const tone = [setBiquad(makeBiquad(), 'lowpass', ECHO_DEFAULTS.tone, rate),
     setBiquad(makeBiquad(), 'lowpass', ECHO_DEFAULTS.tone, rate)];
@@ -513,6 +594,18 @@ export function echoCore(rate) {
   let flutterAt = 0;
   let moving = false;   // whether there is any wander to work out at all
   let turned = 0;       // samples since the transport started, for the phase
+  // How far along the line every head is reading, as a multiple of where it
+  // belongs. One at rest; away from one while the time has moved and the tape
+  // has not caught up. A scale rather than a place, because a transport that
+  // changes speed moves every head on it by the same factor - which is also
+  // what makes this exact at rest, since multiplying an integer offset by 1 is
+  // the integer offset.
+  const scale = [1, 1];
+  const leaving = [1, 1];   // the scale a fading head is handing over from
+  let handover = 0;         // samples of fade left to go
+  let fadeSpan = 1;
+  let glide = 0;
+  let settled = false;      // whether the first tune has happened yet
   const steps = [0, 0];
   const spans = [0, 0];
   const holds = [0, 0];
@@ -520,6 +613,7 @@ export function echoCore(rate) {
   const taps = [[], []];
 
   function retune() {
+    const was = [steps[0], steps[1]];
     const times = sidesOf(state);
     feedback = Math.min(MOST_FEEDBACK, Math.max(0, state.feedback));
     from = state.pingPongFrom === 'right' ? 1 : 0;
@@ -547,14 +641,42 @@ export function echoCore(rate) {
       // all-passes hold. Measured against the full step and not the shortened
       // line, which is the mistake that put four heads at 76, 152, 228 ms
       // instead of 100, 200, 300.
+      // Fractions of the whole loop, which is what they are: a head at a
+      // quarter of the time comes out a quarter of the time back. The filter
+      // is on what the shortened line can carry, because that is where the
+      // longest head reads and the shorter ones have to be inside it.
       taps[c] = headsOf(state.heads).taps
         .slice(0, -1)
-        .map((tap) => Math.round(steps[c] * tap) - held)
-        .filter((d) => d >= 1 && d < spans[c]);
+        .map((tap) => Math.round(steps[c] * tap))
+        .filter((d) => d - held >= 1 && d - held < spans[c]);
 
       setBiquad(tone[c], 'lowpass', state.tone, rate);
       setBiquad(cut[c], 'highpass', state.lowCut, rate);
     }
+
+    // What to do about a line that has just changed length under whatever is
+    // already in it. Nothing, on the first tune: there is no sound in the line
+    // to protect and a head gliding in from nowhere would make the response
+    // this delay is drawn and marked from depend on where it started.
+    glide = 1 - Math.exp(-1 / Math.max(1, REPITCH_TIME * rate));
+    fadeSpan = Math.max(1, Math.round(FADE_TIME * rate));
+    const how = CHANGE_MODES.some((mode) => mode.id === state.change) ? state.change : 'repitch';
+    for (let c = 0; c < 2; c += 1) {
+      if (!settled || how === 'jump' || was[c] === steps[c]) {
+        scale[c] = 1;
+      } else if (how === 'fade') {
+        // A head at the old place and a head at the new one, for long enough
+        // to cross between them and no longer.
+        leaving[c] = (was[c] * scale[c]) / steps[c];
+        scale[c] = 1;
+        handover = fadeSpan;
+      } else {
+        // Repitch: the heads stay exactly where they are and the step walks
+        // the scale home, so what is already on the tape bends on its way.
+        scale[c] = (was[c] * scale[c]) / steps[c];
+      }
+    }
+    settled = true;
 
     // How far the wander may go, in samples. Two limits, and the tighter one
     // wins: a quarter of the line, so the loop cannot be dragged to a length
@@ -637,9 +759,13 @@ export function echoCore(rate) {
     const buf = lines[c];
     const whole = Math.floor(at);
     const part = at - whole;
-    if (part === 0) return buf[((whole % longest) + longest) % longest];
+    // Wrapped with a comparison rather than two modulos. Everything handed to
+    // this is built as `ats[c] - back + longest` with `ats` inside the buffer
+    // and `back` no larger than it, so the index is in [0, 2 * longest) and one
+    // subtraction is the whole of the arithmetic a modulo would do.
+    const i = whole >= longest ? whole - longest : whole;
+    if (part === 0) return buf[i];
 
-    const i = ((whole % longest) + longest) % longest;
     const m1 = buf[(i - 1 + longest) % longest];
     const p0 = buf[i];
     const p1 = buf[(i + 1) % longest];
@@ -648,6 +774,18 @@ export function echoCore(rate) {
     const a2 = m1 - 2.5 * p0 + 2 * p1 - 0.5 * p2;
     const a3 = 0.5 * (p2 - m1) + 1.5 * (p0 - p1);
     return ((a3 * part + a2) * part + a1) * part + p0;
+  }
+
+  /**
+   * The line, read a given number of samples back.
+   *
+   * Held clear of the write head by the interpolator's own margin, because
+   * everything that can move a head - the wander, a glide, a shorter head
+   * under either of them - can move it toward the sample about to be written.
+   */
+  function pull(c, back) {
+    const held = Math.min(longest - 3, Math.max(WANDER_EDGE, back));
+    return readAt(c, ats[c] - held + longest);
   }
 
   /** One all-pass stage, in place. */
@@ -707,36 +845,84 @@ export function echoCore(rate) {
       // reset the machine.
       turned += 1;
 
-      // The longest head: the sample written a whole line ago, which is both
-      // an output and the only thing that goes round again.
-      const takenL = readAt(0, ats[0] - spans[0] - mod + longest);
-      const takenR = readAt(1, ats[1] - spans[1] - mod + longest);
-      const taken = [takenL, takenR];
-
-      // Out through the lag, so the first repeat lands on the time even
-      // though it is read in front of the all-passes.
-      const heard = [0, 0];
+      // And where the tape has got to, if the time has moved and it has not
+      // caught up. A time constant rather than a speed, so a big change dives
+      // and settles the way a capstan does, with a cap on how far it may bend
+      // in one sample - the first sample of a six-thousand-sample move would
+      // otherwise ask for a pitch nothing mechanical could reach.
       for (let c = 0; c < 2; c += 1) {
-        const span = lag[c].length;
-        heard[c] = lag[c][(lagAt[c] - holds[c] + span) % span];
-        // And the shorter heads, which are heard and not fed back - so a
-        // pattern repeats as a pattern instead of each head breeding its own
-        // train. Into the lag with the longest head rather than straight out:
-        // they are read in front of the all-passes too, so they owe the same
-        // compensation, and adding them to what is leaving would sound them
-        // early by exactly what the all-passes hold.
-        // Summed into the buffer and not into a local, which is not the
-        // indirection it looks like: the element is a float32, so each head
-        // added rounds to single precision. Summing in a double and storing
-        // once is more accurate and is a different number, and the one in
-        // every response this app has drawn and marked is this one. Visible
-        // only with diffusion on - without it the response is sparse spikes
-        // and the heads rarely carry anything at the same sample, so there is
-        // nothing to round.
-        lag[c][lagAt[c]] = taken[c];
-        for (let t = 0; t < taps[c].length; t += 1) {
-          lag[c][lagAt[c]] += readAt(c, ats[c] - taps[c][t] - mod + longest);
+        if (scale[c] === 1) continue;
+        const toGo = (1 - scale[c]) * steps[c];
+        let move = toGo * glide;
+        if (move > REPITCH_MOST) move = REPITCH_MOST;
+        else if (move < -REPITCH_MOST) move = -REPITCH_MOST;
+        scale[c] += move / steps[c];
+        if (Math.abs(1 - scale[c]) * steps[c] < 0.01) scale[c] = 1;
+      }
+
+      // Every head, read off one scale. The longest is both an output and the
+      // only thing that goes round again - and it is read twice, in front of
+      // the all-passes for the loop and behind them for the ears, because the
+      // first repeat is the sound that went in and not a smeared copy of it.
+      //
+      // `heard` used to come out of a lag buffer: the line was read at the
+      // shortened length and delayed again by what the all-passes hold, so the
+      // repeat landed on the time. Reading the line at the whole length comes
+      // to the same sample and is one buffer and one read fewer - and it is
+      // what makes a head's offset literally the fraction of the loop it is
+      // documented as. It also has to be this way for a time change to be
+      // smooth: a lag whose length is a fraction of the delay jumps when the
+      // delay does, and measured, that jump was a step of 1.768 in the output
+      // where the signal itself moves 0.11 - a click in every mode, including
+      // the one whose whole job is not to click.
+      const heard = [0, 0];
+      const taken = [0, 0];
+      // `crossed` rather than the obvious word for it: `through` is already the
+      // medium's name in this scope, and a shadowed function is a silent fault
+      // rather than a loud one.
+      const crossed = handover > 0 ? 1 - handover / fadeSpan : 1;
+      // Crossed in equal power rather than equal gain, which is the better of
+      // the two by measurement and not by theory. A fade between two places on
+      // a line is a fade between two copies of the same sound at two phases,
+      // and where those phases oppose they cancel whatever law is used: on a
+      // steady tone the level dips to 0.27 of itself crossing in equal power
+      // and to 0.19 crossing in equal gain. The dip is the cost of fading a
+      // delay at all, and it is why `repitch` is what this opens on.
+      const into = handover > 0 ? Math.sqrt(crossed) : 1;
+      const outOf = handover > 0 ? Math.sqrt(1 - crossed) : 0;
+      if (handover > 0) handover -= 1;
+
+      // Written out rather than put behind a closure taking the head's place.
+      // A function built per channel per sample is an allocation in the
+      // hottest loop in the app, and it cost more than the lag buffer this
+      // whole rearrangement removed: measured, four delays with four heads
+      // went from 0.117 of a core to 0.151 and back to 0.117 when it came out.
+      for (let c = 0; c < 2; c += 1) {
+        const sc = scale[c];
+        const lv = leaving[c];
+        if (outOf > 0) {
+          taken[c] = pull(c, spans[c] * sc + mod) * into
+            + pull(c, spans[c] * lv + mod) * outOf;
+          // Summed into a float32 and not into a double, which is not the
+          // indirection it looks like: each head added rounds to single
+          // precision, and the one in every response this app has drawn and
+          // marked is the rounded one. Visible only with diffusion on -
+          // without it the response is sparse spikes and the heads rarely
+          // carry anything at the same sample, so there is nothing to round.
+          rounding[c] = pull(c, steps[c] * sc + mod) * into
+            + pull(c, steps[c] * lv + mod) * outOf;
+          for (let t = 0; t < taps[c].length; t += 1) {
+            rounding[c] += pull(c, taps[c][t] * sc + mod) * into
+              + pull(c, taps[c][t] * lv + mod) * outOf;
+          }
+        } else {
+          taken[c] = pull(c, spans[c] * sc + mod);
+          rounding[c] = pull(c, steps[c] * sc + mod);
+          for (let t = 0; t < taps[c].length; t += 1) {
+            rounding[c] += pull(c, taps[c][t] * sc + mod);
+          }
         }
+        heard[c] = rounding[c];
       }
 
       // Each side is filtered once a sample, and then routed. Filtering it
@@ -791,8 +977,6 @@ export function echoCore(rate) {
         lines[c][ats[c]] = through(c, feed + rounded[feeds] * feedback);
       }
 
-      lagAt[0] = (lagAt[0] + 1) % lag[0].length;
-      lagAt[1] = (lagAt[1] + 1) % lag[1].length;
       ats[0] = (ats[0] + 1) % longest;
       ats[1] = (ats[1] + 1) % longest;
 
@@ -803,6 +987,12 @@ export function echoCore(rate) {
   };
 
   retune();
+  // Tuned, but not settled: the constructor's tune is on the defaults, so
+  // whatever is set next is this core's first real configuration and not a
+  // change to be glided or faded into. Without this line `makeEcho` built its
+  // response with the head travelling in from 375 ms, and the response is what
+  // every delay in this app is drawn and marked from.
+  settled = false;
   return core;
 }
 

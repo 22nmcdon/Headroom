@@ -28,5 +28,12 @@ badly the transport holds time and is blind to everything else, measured to
 exactly zero for the time, the feedback, the tone, the heads, the diffusion,
 the medium, the routing and the mix.
 
+Three readings and one thing with no reading at all. What a delay does to the
+sound already in its line when the time moves - repitch, fade or jump - is
+audible only while the knob is moving, and every reading here is taken of a
+delay standing still. So it is a control and not a question, and there is a
+test asserting that it cannot change a response, because if it ever could then
+every mark in the delay would depend on something nobody is being asked about.
+
 Times are written in beats, off `lib/tempo.js` rather than off the engine - a
 plugin that has to import the engine to name a beat cannot be lifted out.
