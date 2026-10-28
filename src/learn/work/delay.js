@@ -1,7 +1,7 @@
 import {
   ECHO_DEFAULTS, DIVISIONS, SYNC_DIVISIONS, MOST_FEEDBACK,
   echoProfile, timeOf, nearestDivision,
-  HEAD_PATTERNS, repeatsReading, headsOf,
+  HEAD_PATTERNS, repeatsReading, headsOf, wanderReading,
 } from '../../plugins/delay/line.js';
 import { decayReading } from '../../lib/response.js';
 import { distance } from '../../gap.js';
@@ -35,7 +35,7 @@ import { HIT, NEAR, MISS, onScale, logPick, toStep, pick } from './scoring.js';
  * per cent, medium mostly does not, and nothing at all forgives being on the
  * wrong note.
  */
-const ECHO_CLOSE = { easy: 2.6, medium: 1.9, hard: 1.2 };
+const ECHO_CLOSE = { easy: 2.6, medium: 1.9, hard: 1.2, expert: 1.2 };
 
 /**
  * How far the shape of the loop may be out, in decibels, where it is asked
@@ -49,13 +49,57 @@ const ECHO_CLOSE = { easy: 2.6, medium: 1.9, hard: 1.2 };
 const SHAPE_CLOSE = 6;
 
 /**
+ * And how far the transport may be out, in cents.
+ *
+ * Four, and it is the floors on the targets below that set it rather than the
+ * other way round. The reading moves about 3.5 cents for every ten on a knob,
+ * so a tolerance in this region resolves the depth to roughly a tenth of a
+ * tone - and what it must not do is let somebody leave the transport alone and
+ * be told they matched a delay that wanders. Measured over twenty-four expert
+ * targets:
+ *
+ *     the exact answer        0.00 cents        passes 24 of 24
+ *     five cents out         0.32 to 2.41      passes 24 of 24
+ *     ten cents out          0.32 to 4.83      passes 20 of 24
+ *     swapped, wow for flutter  0.95 to 16.45
+ *     left steady            5.08 to 14.41     passes  0 of 24
+ *
+ * So five cents always passes, ten is the boundary, and steady never passes -
+ * the last row's floor is what the four is under. Where swapping the two
+ * reads as little as 0.95 the target had near-equal depths of each, and
+ * swapping those really is almost the same sound, so that row is a range
+ * rather than a threshold.
+ */
+const WANDER_CLOSE = 4;
+
+/**
+ * What an expert target's transport is doing, in cents.
+ *
+ * Three characters rather than two independent depths, because two
+ * independent draws would mostly produce targets with a little of each, and
+ * "a little of each" is the one answer nobody can name. One of them doing
+ * something definite is a question with an answer: which one, and how much.
+ *
+ * The floors are where the wander stops being audible as wander. Under about
+ * ten cents a delay sounds steady with something slightly wrong with it, and
+ * a target there would be asking people to hear the difference between nearly
+ * nothing and nothing.
+ */
+const WANDER_KINDS = ['wow', 'flutter', 'both'];
+const WANDER_DRAW = {
+  wow: { wow: [16, 45], flutter: [0, 0] },
+  flutter: { wow: [0, 0], flutter: [16, 24] },
+  both: { wow: [16, 32], flutter: [14, 20] },
+};
+
+/**
  * How far out the time may be when the time is the whole question, in octaves.
  *
  * The note values this mode draws from are at least a third apart, which is
  * 0.41 of an octave, so even the loosest of these lands you on one note value
  * and not its neighbour.
  */
-const LOCKED = { easy: 0.16, medium: 0.1, hard: 0.06 };
+const LOCKED = { easy: 0.16, medium: 0.1, hard: 0.06, expert: 0.04 };
 
 /**
  * The two exercises, in the shape a session can set up.
@@ -83,6 +127,9 @@ const DIVISION_DRILL = {
   easy: { ids: ['quarter', 'eighth', 'sixteenth'], near: 0 },
   medium: { ids: ['quarter', 'dotted8', 'eighth', 'sixteenth'], near: 1 },
   hard: { ids: DIVISIONS.map((d) => d.id), near: 1 },
+  // Every division, and nothing counted as nearly: the tier above hard is the
+  // one where the neighbouring note value is simply wrong.
+  expert: { ids: DIVISIONS.map((d) => d.id), near: 0 },
 };
 
 const divisionAt = (id) => DIVISIONS.findIndex((d) => d.id === id);
@@ -102,6 +149,15 @@ export const ECHO_EXERCISES = {
   find: {
     id: 'find',
     label: 'Find the time',
+    // Its own, because the generic ones name controls this exercise does not
+    // ask you to touch: here the only question is ever the time, and the tier
+    // is how close you have to be.
+    tierBlurbs: {
+      easy: 'Within a sixth of an octave',
+      medium: 'Within a tenth',
+      hard: 'Within a sixteenth',
+      expert: 'Within a twenty-fifth',
+    },
     source: 'drums',
     sourceOptions: { tempo: false },
     other: 'Dry',
@@ -119,6 +175,7 @@ export const ECHO_EXERCISES = {
       easy: 'Quarter, eighth, sixteenth',
       medium: 'And the dotted eighth',
       hard: 'And the triplet',
+      expert: 'And no credit for nearly',
     },
     // Drums, with the tempo they are in: a division only means anything
     // against a pulse you can hear.
@@ -148,6 +205,7 @@ export const ECHO_EXERCISES = {
       easy: 'One head or four',
       medium: 'And three',
       hard: 'Faster, louder and smeared',
+      expert: 'Smeared further still',
     },
     // Drums with the tempo they are in, like the division drill: a pattern is
     // a rhythm and a rhythm needs a pulse to be one against.
@@ -171,6 +229,28 @@ export const ECHO_EXERCISES = {
     restores: true,
   },
 };
+
+/**
+ * What a transport is doing, in words, without saying how much of it.
+ *
+ * Wow is a pitch you can follow up and down and flutter is a roughness on the
+ * note that you cannot, so naming which one is a real hint and still leaves
+ * the whole of the matching to do.
+ */
+function wanderWords(settings) {
+  const wow = settings.wow > 0;
+  const flutter = settings.flutter > 0;
+  if (wow && flutter) {
+    return 'The transport is doing both: a slow drift in pitch with a faster '
+      + 'roughness sitting on top of it.';
+  }
+  if (wow) return 'The transport drifts slowly - a pitch you can follow going up and down.';
+  if (flutter) {
+    return 'The transport is rough rather than drifting: a flutter too fast to '
+      + 'follow, which thickens the note instead of bending it.';
+  }
+  return 'The transport holds time: the repeats come back at the pitch they went in at.';
+}
 
 /** The three, in the order that makes a neighbour a neighbour. */
 const PATTERN_IDS = ['single', 'heads3', 'heads4'];
@@ -199,6 +279,9 @@ const PATTERN_IDS = ['single', 'heads3', 'heads4'];
  *     hard    (313 ms, fb 0.55, diffuse 0.35)  single vs heads3   23.05
  *                                              single vs heads4   27.53
  *                                              heads3 vs heads4   22.22
+ *     expert  (313 ms, fb 0.65, diffuse 0.5)   single vs heads3   25.77
+ *                                              single vs heads4   29.59
+ *                                              heads3 vs heads4   20.47
  *
  * The hard tier is further apart than the easy one. What it is is harder to
  * count, which is a difficulty the reading cannot see and the ear can. The
@@ -209,6 +292,7 @@ const PATTERN_DRILL = {
   easy: { ids: PATTERN_IDS, division: 'quarter', feedback: 0.3, diffusion: 0 },
   medium: { ids: PATTERN_IDS, division: 'dotted8', feedback: 0.45, diffusion: 0 },
   hard: { ids: PATTERN_IDS, division: 'eighth', feedback: 0.55, diffusion: 0.35 },
+  expert: { ids: PATTERN_IDS, division: 'eighth', feedback: 0.65, diffusion: 0.5 },
 };
 
 /** How many heads each one is, for the face of a chip. */
@@ -359,6 +443,14 @@ export const ECHO_WORK = {
     easy: { label: 'Easy', blurb: 'Time and feedback', guesses: 4, tone: false, detail: false },
     medium: { label: 'Medium', blurb: 'And their tone', guesses: 4, tone: true, detail: false },
     hard: { label: 'Hard', blurb: 'And the routing', guesses: 4, tone: true, detail: true },
+    expert: {
+      label: 'Expert',
+      blurb: 'And the machine',
+      guesses: 4,
+      tone: true,
+      detail: true,
+      wander: true,
+    },
   },
 
   /** Answered on the plugin, except in the drill, which asks with chips. */
@@ -433,6 +525,14 @@ export const ECHO_WORK = {
     };
 
     if (spec.tone) answer.tone = toStep(logPick(rng, 1500, 18000), 100);
+    if (spec.wander) {
+      const kind = pick(rng, WANDER_KINDS);
+      const draw = WANDER_DRAW[kind];
+      for (const which of ['wow', 'flutter']) {
+        const [low, high] = draw[which];
+        answer[which] = high > low ? toStep(low + rng() * (high - low), 1) : low;
+      }
+    }
     if (spec.detail) {
       answer.lowCut = toStep(logPick(rng, 20, 600), 5);
       answer.pingPong = rng() < 0.5;
@@ -501,11 +601,26 @@ export const ECHO_WORK = {
       ? distance(repeatsReading(rate, settings), repeatsReading(rate, wanted)).off
       : 0;
 
+    // And how badly the transport holds time, which neither of the other two
+    // can see: the decay curve reads fifty cents of wow at 0.88 dB against a
+    // tolerance of 1.2, and the loop shape is taken with the transport held
+    // still on purpose. Only where the tier asks for it, because the reading
+    // costs 72 ms and three tiers out of four have nothing to ask.
+    const wandering = this.tiers[tier]?.wander ?? false;
+    // The whole gap and not just its size, because `where` names the band the
+    // two disagree about most and that is what the note has to say - "wow" and
+    // "flutter" being two different things to go and listen for. Taken once:
+    // asking twice would be another two renders for a string.
+    const wanderOff = wandering
+      ? distance(wanderReading(rate, settings), wanderReading(rate, wanted))
+      : null;
+    const wander = wanderOff ? wanderOff.off : 0;
+
     const close = ECHO_CLOSE[tier];
     // A right-sounding decay with the wrong heads is not the delay. It can be
     // near, because the time and the feedback may well be right, and it
     // cannot be a hit.
-    const held = error <= close && shape <= SHAPE_CLOSE;
+    const held = error <= close && shape <= SHAPE_CLOSE && wander <= WANDER_CLOSE;
     const mark = held ? HIT : (error <= close * 2.5 ? NEAR : MISS);
 
     // Which way it is out, in the terms the delay is set in.
@@ -521,6 +636,8 @@ export const ECHO_WORK = {
           state: mark,
           text: held ? 'that is the delay'
             : shape > SHAPE_CLOSE ? 'the repeats are in the wrong places'
+            : wander > WANDER_CLOSE
+              ? `the transport is steadier or looser than that - listen to the ${wanderOff.where}`
             : Math.abs(timing) > 0.06 ? `${this.howFar(timing)} too ${timing > 0 ? 'long' : 'short'}`
             : Math.abs(back) > 0.1 ? `${Math.round(Math.abs(back) * 100)}% too much ${back > 0 ? 'feedback' : 'little feedback'}`
             : 'the right time, the wrong delay',
@@ -655,7 +772,7 @@ export const ECHO_WORK = {
     }
 
     const near = nearestDivision(settings.time);
-    return [
+    const said = [
       `The time is about ${writeMs(settings.time)}`
         + `${near && near.off < 0.02 ? ` - which is ${near.division.label}` : ''}.`,
       `Around ${Math.round(settings.feedback * 100)}% going back in, so `
@@ -663,6 +780,12 @@ export const ECHO_WORK = {
           : settings.feedback > 0.3 ? 'a few audible repeats' : 'barely more than a slap'}`
         + `${settings.pingPong ? ', and it alternates across the stereo field' : ''}.`,
     ];
+
+    // The transport, where the tier asks about it. Which of the two it is
+    // rather than how deep: the depth is the thing being matched, and a hint
+    // that gave it away would leave nothing to do.
+    if (this.tiers[tier]?.wander) said.push(wanderWords(settings));
+    return said;
   },
 
   reveal(puzzle) {
@@ -680,10 +803,15 @@ export const ECHO_WORK = {
     }
 
     const near = nearestDivision(settings.time);
+    const wander = settings.wow > 0 || settings.flutter > 0
+      ? `, ${[settings.wow > 0 ? `${Math.round(settings.wow)} cents of wow` : null,
+        settings.flutter > 0 ? `${Math.round(settings.flutter)} of flutter` : null]
+        .filter(Boolean).join(' and ')}`
+      : '';
     return {
       symbol: near && near.off < 0.02 ? near.division.label : writeMs(settings.time),
       name: `${writeMs(settings.time)}, ${Math.round(settings.feedback * 100)}% back`
-          + `${settings.pingPong ? ', ping-pong' : ''}`,
+          + `${settings.pingPong ? ', ping-pong' : ''}${wander}`,
     };
   },
 

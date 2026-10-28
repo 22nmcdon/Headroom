@@ -19,7 +19,8 @@ import {
   decayReading,
 } from '../src/lib/response.js';
 import { LOOP_BEAT } from '../src/core/audio.js';
-import { ECHO_WORK as delay } from '../src/learn/work/delay.js';
+import { ECHO_WORK as delay, ECHO_EXERCISES } from '../src/learn/work/delay.js';
+import { makePuzzle as gameOf } from '../src/learn/game.js';
 
 const rate = 48000;
 const echo = (params) => makeEcho(rate, { ...ECHO_DEFAULTS, ...params });
@@ -1704,4 +1705,108 @@ test('a wander reading cannot be compared with anything else', () => {
   const base = { ...ECHO_DEFAULTS, time: 375, feedback: 0.5, mix: 0.4 };
   assert.throws(() => distance(wanderReading(rate, base), repeatsReading(rate, base)),
     /compare/, 'a wander reading against an arrival reading should be refused');
+});
+
+/* --- the expert tier ------------------------------------------------------ */
+
+test('the expert tier asks what the transport is doing', () => {
+  // Three characters rather than two independent depths, because two
+  // independent draws would mostly make targets with a little of each and "a
+  // little of each" is the one answer nobody can name. Over twenty-four
+  // targets: twelve flutter, seven wow, five both - and never none.
+  const kinds = {};
+  for (let n = 1; n <= 24; n += 1) {
+    const puzzle = gameOf({ mode: 'delay', tier: 'expert', settings: { exercise: 'match' }, seed: `round-${n}` });
+    const { wow, flutter } = puzzle.answer;
+    const kind = wow > 0 && flutter > 0 ? 'both' : wow > 0 ? 'wow' : flutter > 0 ? 'flutter' : 'none';
+    kinds[kind] = (kinds[kind] ?? 0) + 1;
+
+    // The floors matter more than the spread: under about sixteen cents a
+    // wander is not far enough from steady for the reading to refuse somebody
+    // who left the transport alone.
+    if (wow > 0) assert.ok(wow >= 14, `a target asked for only ${wow} cents of wow`);
+    if (flutter > 0) assert.ok(flutter >= 14, `a target asked for only ${flutter} cents of flutter`);
+  }
+  assert.equal(kinds.none, undefined, 'an expert target should always be doing something');
+  for (const kind of ['wow', 'flutter', 'both']) {
+    assert.ok(kinds[kind] > 0, `twenty-four targets and not one was ${kind}`);
+  }
+});
+
+test('an expert answer cannot be matched with the transport left alone', () => {
+  // The whole reason the tier exists. Measured over twenty-four targets:
+  //
+  //     the exact answer        0.00 cents        passes 24 of 24
+  //     five cents out         0.32 to 2.41      passes 24 of 24
+  //     ten cents out          0.32 to 4.83      passes 20 of 24
+  //     left steady            5.08 to 14.41     passes  0 of 24
+  //
+  // So five cents always passes, ten is the boundary, and steady never does.
+  let exact = 0;
+  let five = 0;
+  let steady = 0;
+  for (let n = 1; n <= 12; n += 1) {
+    const puzzle = gameOf({ mode: 'delay', tier: 'expert', settings: { exercise: 'match' }, seed: `round-${n}` });
+    const right = { ...ECHO_DEFAULTS, ...puzzle.answer };
+    const near = {
+      ...right,
+      wow: right.wow > 0 ? Math.min(50, right.wow + 5) : right.wow,
+      flutter: right.flutter > 0 ? Math.min(25, right.flutter + 5) : right.flutter,
+    };
+    if (delay.score(right, puzzle).correct) exact += 1;
+    if (delay.score(near, puzzle).correct) five += 1;
+    if (delay.score({ ...right, wow: 0, flutter: 0 }, puzzle).correct) steady += 1;
+  }
+  assert.equal(exact, 12, 'the exact answer has to pass');
+  assert.equal(five, 12, 'five cents out is a match by ear and has to pass');
+  assert.equal(steady, 0, 'leaving the transport alone is not a match for one that wanders');
+});
+
+test('the expert tier says which way the transport is wrong', () => {
+  // Not just that it is. "Wow" and "flutter" are two different things to go
+  // and listen for, and the comparator names the band the two disagree about
+  // most.
+  const puzzle = gameOf({ mode: 'delay', tier: 'expert', settings: { exercise: 'match' }, seed: 'round-1' });
+  const right = { ...ECHO_DEFAULTS, ...puzzle.answer };
+  const got = delay.score({ ...right, wow: 0, flutter: 0 }, puzzle);
+  assert.ok(!got.correct);
+  assert.match(got.cells[1].text, /transport|wow|flutter/,
+    `the note said "${got.cells[1].text}", which does not send anybody anywhere`);
+
+  // And the hint names which of the two it is without giving the depth away.
+  const hints = delay.hints(puzzle);
+  assert.equal(hints.length, 3, 'the expert tier should have a hint about the transport');
+  assert.match(hints[2], /drift|rough|both|holds time/);
+  assert.ok(!/\d/.test(hints[2]), `the hint "${hints[2]}" gives a number away`);
+});
+
+test('the other three exercises get an expert tier that is not a duplicate', () => {
+  // Tiers belong to the tool and the blurbs to the exercise, so a fourth tier
+  // appears in all four exercises whether or not it means anything to them. It
+  // has to mean something. The division drill stops giving credit for nearly,
+  // the pattern drill smears further, and finding the time gets a tighter
+  // window - and each says so in its own words.
+  for (const exercise of ['drill', 'pattern', 'find']) {
+    const blurbs = ECHO_EXERCISES[exercise].tierBlurbs;
+    assert.ok(blurbs?.expert, `the ${exercise} exercise has nothing to say about the expert tier`);
+    assert.notEqual(blurbs.expert, blurbs.hard,
+      `the ${exercise} exercise's expert tier reads the same as its hard one`);
+  }
+
+  // And the pattern drill is still a fair question there: measured, every pair
+  // of answers is 25.77, 29.59 and 20.47 dB apart against a tolerance of 6.
+  const base = {
+    ...ECHO_DEFAULTS, time: timeOf(0.5), feedback: 0.65, diffusion: 0.5, mix: 0.4,
+  };
+  const ids = ['single', 'heads3', 'heads4'];
+  for (let i = 0; i < ids.length; i += 1) {
+    for (let j = i + 1; j < ids.length; j += 1) {
+      const off = distance(
+        repeatsReading(rate, { ...base, heads: ids[i] }),
+        repeatsReading(rate, { ...base, heads: ids[j] }),
+      ).off;
+      assert.ok(off > 12,
+        `${ids[i]} against ${ids[j]} is only ${off.toFixed(2)} dB apart at the expert tier`);
+    }
+  }
 });
