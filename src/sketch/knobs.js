@@ -90,7 +90,9 @@ export const KNOBS = {
   ],
   delay: [
     { id: 'time', label: 'Time', min: 60, max: 800, step: 5, unit: 'ms' },
-    { id: 'feedback', label: 'Feedback', min: 0, max: 0.85, step: 0.05 },
+    // Past unity on purpose: a track insert is where somebody would want to
+    // make a delay howl, and the loop's own ceiling is what stops it.
+    { id: 'feedback', label: 'Feedback', min: 0, max: 1.2, step: 0.05 },
     { id: 'mix', label: 'Amount', min: 0, max: 1, step: 0.02 },
     { id: 'tone', label: 'Tone', min: 1000, max: 16000, step: 250, unit: 'Hz' },
   ],

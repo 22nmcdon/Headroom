@@ -17,6 +17,18 @@ import { makeBiquad, setBiquad, runBiquad } from '../../lib/dsp.js';
 // audio thread, and by `makeEcho` offline to get the response that is drawn
 // and marked. One implementation, so what you hear is what you are scored
 // on - the same arrangement the compressor has.
+//
+// One caveat on "a delay is linear", which is the claim the drawings and the
+// marks rest on. It is exactly true of every response this app builds, because
+// those are built from a unity click and the loudest sample in one is that
+// click itself. It stops being true of loud sustained material, because the
+// loop has a ceiling now - it has to, or a feedback over unity would have
+// nowhere to stop. A sustained input builds to `level / (1 - feedback)` round
+// the loop, so at the feedback this opens on the loop is exactly linear up to
+// six tenths of full scale and at the old cap of 0.8 it bends from four
+// tenths. What that costs is that a drawing understates how a loud, heavily
+// fed-back delay compresses; what it buys is that such a delay stops getting
+// louder, and that a delay can be made to howl at all.
 
 /** Every knob, and where it starts. */
 export const ECHO_DEFAULTS = {
@@ -387,6 +399,50 @@ export const REPITCH_MOST = 0.26;
  */
 export const FADE_TIME = 0.03;
 
+/**
+ * How far past full scale the loop may be driven before the medium gives way.
+ *
+ * A delay whose feedback is over one is an oscillator, and an oscillator needs
+ * something to stop it. Hardware has the medium: tape saturates, a bucket
+ * brigade runs out of headroom, and the howl settles at whatever level the
+ * medium stops accepting more. Without that, measured with the cap lifted and
+ * nothing bounding the loop, the peak out in each of the first five seconds
+ * after a fifty millisecond burst:
+ *
+ *     machine    feedback    1 s    2 s    3 s    4 s    5 s
+ *     digital        1.00    0.48   0.48   0.44   0.42   0.40
+ *     digital        1.20    0.58   0.94   1.29   2.09   3.40
+ *     tape           1.20    0.68   1.52   2.57   5.49  12.38
+ *     bbd            1.20    0.58   0.94   1.28   2.09   3.38
+ *
+ * Still climbing at five seconds and with nowhere to stop.
+ *
+ * Tape climbs fastest, and that is the model working rather than a fault: its
+ * head bump is 2.5 dB of loop gain sitting at a frequency the makeup - which
+ * is referenced to 300 Hz - does not take back, so a tape echo howls at its
+ * head bump, which is what tape echoes do. And feedback at 1.00 decaying
+ * rather than holding is the loop filters: with a 6 kHz low-pass and a 120 Hz
+ * high-pass in the path, unity on the knob is under unity round the loop. So
+ * where the howling starts depends on how open the tone controls are, which is
+ * true of hardware and is the most musical thing about it.
+ *
+ * The curve is exactly linear to full scale and then bends: `1 + k*tanh(x/k)`
+ * past one, which meets the straight line with the same slope as well as the
+ * same value, so there is no corner at the join. `k` is both the headroom
+ * above full scale and the asymptote, so the loop cannot hold more than 1.4
+ * whatever is done to it. Linear below one is what keeps every response this
+ * app has drawn bit-identical: the loudest thing in any of them is the
+ * impulse's own first sample, which is exactly one and not more than one.
+ *
+ * On the way in, with the record level, rather than after the medium. A dark
+ * medium's makeup gain sits outside the loop and would undo a ceiling placed
+ * inside it - a bucket brigade's is 3.8 times at 400 ms, so a loop bounded at
+ * 1.4 after the medium would come out at 5.3. Bounded before it, the makeup
+ * puts the output back at about the ceiling for every machine, which is what
+ * the makeup is for.
+ */
+export const LOOP_CEILING = 0.4;
+
 /** Which side a ping-pong may be started from. */
 export const PING_FROM = ['left', 'right'];
 
@@ -451,7 +507,19 @@ export function headsOf(id) {
 /** As long as a repeat may be, and as much of it as may go round again. */
 export const LONGEST_TIME = 1500;
 export const SHORTEST_TIME = 20;
-export const MOST_FEEDBACK = 0.8;
+/**
+ * As much of each repeat as may go round again.
+ *
+ * Past unity, which is the point: a delay whose feedback is over one is an
+ * oscillator, and a tape echo ridden into howling is one of the sounds the
+ * device is for. It was 0.8, which is as far as you can go while a response is
+ * still something that dies away on its own.
+ *
+ * What stops it is LOOP_CEILING below, not this. Where the howling actually
+ * starts depends on the loop filters as well as this knob - with the defaults
+ * in the path, unity on the knob still decays - which is true of hardware too.
+ */
+export const MOST_FEEDBACK = 1.2;
 
 /**
  * How far the two sides may be pulled apart, in milliseconds.
@@ -733,6 +801,20 @@ export function echoCore(rate) {
     }
   }
 
+  /**
+   * The record level, with the medium's headroom on it.
+   *
+   * Exactly the input below full scale - the comparison is strict, so a sample
+   * at exactly one goes through untouched and the impulse responses are what
+   * they were.
+   */
+  function record(x) {
+    const size = x < 0 ? -x : x;
+    if (size <= 1) return x;
+    const held = 1 + LOOP_CEILING * Math.tanh((size - 1) / LOOP_CEILING);
+    return x < 0 ? -held : held;
+  }
+
   /** One pass through the medium, if there is one. No gain: see makeupFor. */
   function through(c, x) {
     let value = x;
@@ -974,7 +1056,7 @@ export function echoCore(rate) {
         const feed = state.pingPong
           ? (c === from ? (inL + inR) / 2 : 0)
           : feedIn[c];
-        lines[c][ats[c]] = through(c, feed + rounded[feeds] * feedback);
+        lines[c][ats[c]] = through(c, record(feed + rounded[feeds] * feedback));
       }
 
       ats[0] = (ats[0] + 1) % longest;

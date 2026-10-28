@@ -97,10 +97,18 @@ export function echoTail(rate, settings) {
   const step = Math.max(...sidesOf(whole)
     .map((ms) => Math.max(1, Math.round((ms / 1000) * rate))));
 
-  const fading = feedback > 0.001
-    ? (step / rate) * (Math.log(1e-3) / Math.log(feedback))
-    : step / rate;
-  const seconds = Math.min(LONGEST_TAIL, Math.max(step / rate + 0.05, fading + step / rate));
+  // At unity and above the repeats never die, so there is no decay to work
+  // out: the answer is as long as this app measures. Worked out rather than
+  // asked for, the formula gives nonsense there - log(1) is zero, so the
+  // division is minus infinity, the max picks the floor, and a delay howling
+  // for ever came out with a response 0.42 seconds long holding exactly one
+  // repeat. That is what a drawing and a mark would have been taken from.
+  const seconds = feedback >= 1
+    ? LONGEST_TAIL
+    : Math.min(LONGEST_TAIL, Math.max(
+      step / rate + 0.05,
+      (step / rate) * (feedback > 0.001 ? Math.log(1e-3) / Math.log(feedback) : 1) + step / rate,
+    ));
   return { length: Math.ceil(seconds * rate), step };
 }
 

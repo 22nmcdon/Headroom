@@ -6,7 +6,7 @@ import {
   SHORTEST_TIME, MOST_OFFSET, PING_FROM, HEAD_PATTERNS,
   makeEcho, repeatsOf, echoProfile, timeOf, nearestDivision, repeatsReading,
   MACHINES, machineTone, BBD_STAGES, MACHINE_FLOOR, MACHINE_CEILING, echoCore,
-  wanderReading, WANDER_BANDS,
+  wanderReading, WANDER_BANDS, echoTail,
 } from '../src/plugins/delay/line.js';
 import { WOW_RATE, FLUTTER_RATE } from '../src/plugins/delay/dsp.js';
 import { echoSource } from '../src/plugins/delay/node.js';
@@ -877,13 +877,18 @@ test('diffusion widens each pass without moving it', () => {
   }
 });
 
-test('a diffused loop at the most feedback still dies away', () => {
+test('a diffused loop below unity still dies away', () => {
   // All-passes are unity gain, so they cannot make a stable loop unstable -
   // but a cascade of them with a coefficient near one is exactly where that
   // claim gets tested in practice, and the tail is truncated rather than
   // faded, so a loop that grew would show as a response that ends loud.
+  //
+  // Below unity, and 0.8 rather than MOST_FEEDBACK, which this used to say.
+  // The cap is 1.2 now and a loop above unity is supposed to grow - so asking
+  // whether the loop at the cap dies away stopped being a question about
+  // diffusion and became a question about whether self-oscillation works.
   const ir = echo({
-    time: 120, feedback: MOST_FEEDBACK, diffusion: 1, tone: 20000, lowCut: 20,
+    time: 120, feedback: 0.8, diffusion: 1, tone: 20000, lowCut: 20,
   });
   let first = 0;
   let last = 0;
@@ -1483,7 +1488,10 @@ test('a wandering line never reads past the write head', () => {
         ...ECHO_DEFAULTS,
         time,
         heads,
-        feedback: MOST_FEEDBACK,
+        // The most feedback that still decays, not the most the knob allows:
+        // above unity the loop is meant to build, and what bounds it then is
+        // the medium's ceiling rather than the feedback.
+        feedback: 0.8,
         diffusion: 1,
         wow: 50,
         flutter: 25,
@@ -2073,4 +2081,121 @@ test('the mode cannot change a response, because a response never moves', () => 
     }
     assert.equal(worst, 0, `${change} changed the response of a delay that never moved`);
   }
+});
+
+/* --- the loop above unity --------------------------------------------- */
+
+test('a delay over unity howls instead of running away', () => {
+  // The whole point of lifting the cap, and the whole reason the medium needs
+  // a ceiling. Measured with nothing bounding the loop, the peak out in each
+  // of the first five seconds after a fifty millisecond burst ran 0.68, 1.52,
+  // 2.57, 5.49, 12.38 on tape at 1.2 and was still climbing. With the ceiling
+  // it settles at about 1.4, which is the ceiling plus what the makeup gain
+  // puts back.
+  for (const machine of ['digital', 'tape', 'bbd']) {
+    const core = echoCore(rate)
+      .set({ ...ECHO_DEFAULTS, machine, time: 375, feedback: MOST_FEEDBACK, mix: 1 });
+    let peak = 0;
+    let wrong = 0;
+    const n = Math.ceil(rate * 8);
+    for (let i = 0; i < n; i += 1) {
+      const x = i < rate * 0.05
+        ? Math.sin((2 * Math.PI * 300 * i) / rate) * Math.exp(-(i / rate) * 40) * 0.5
+        : 0;
+      core.stereo(x, x);
+      if (!Number.isFinite(core.left) || !Number.isFinite(core.right)) wrong += 1;
+      else peak = Math.max(peak, Math.abs(core.left), Math.abs(core.right));
+    }
+    assert.equal(wrong, 0, `${machine} produced ${wrong} non-finite samples`);
+    assert.ok(peak > 1, `${machine} at ${MOST_FEEDBACK} peaked at only ${peak.toFixed(2)}, so it never built`);
+    assert.ok(peak < 2, `${machine} at ${MOST_FEEDBACK} reached ${peak.toFixed(2)}, so nothing stopped it`);
+  }
+});
+
+test('the loop is exactly linear until its own sum reaches full scale', () => {
+  // And then it is not, which is the first thing in this delay that makes it
+  // depend on how loud the signal is. Worth being exact about, because "a
+  // delay is linear, so everything it will ever do is in what it does to one
+  // click" is the claim the drawings and the marks rest on.
+  //
+  // A sustained input builds to `level / (1 - feedback)` round the loop, so
+  // what matters is not whether the input is at full scale but whether the
+  // loop's own sum gets there. Measured, halving a sustained 300 Hz input and
+  // asking whether the output halves exactly:
+  //
+  //     input    feedback 0.35    feedback 0.8
+  //      0.20          0                0
+  //      0.40          0            2.0e-1
+  //      0.60          0            5.5e-1
+  //      0.80     1.5e-2           6.3e-1
+  //      1.00     1.0e-1           6.6e-1
+  //
+  // So at the feedback this opens on it is exactly linear to six tenths of
+  // full scale, and at the old cap it bends from four. The impulse responses
+  // are unaffected whatever the feedback, because the loudest sample in one is
+  // the click's own first and that is exactly one and not more.
+  const scaled = (level, feedback) => {
+    const whole = echoCore(rate).set({ ...ECHO_DEFAULTS, time: 200, feedback, tone: 20000, lowCut: 20 });
+    const half = echoCore(rate).set({ ...ECHO_DEFAULTS, time: 200, feedback, tone: 20000, lowCut: 20 });
+    let worst = 0;
+    for (let i = 0; i < rate; i += 1) {
+      const x = Math.sin((2 * Math.PI * 300 * i) / rate) * level;
+      whole.stereo(x, x);
+      half.stereo(x * 0.5, x * 0.5);
+      worst = Math.max(worst, Math.abs(whole.left * 0.5 - half.left));
+    }
+    return worst;
+  };
+
+  assert.equal(scaled(0.2, 0.35), 0, 'a quiet loop has to be exactly linear');
+  assert.equal(scaled(0.6, 0.35), 0, 'and still exactly linear at six tenths');
+  assert.ok(scaled(1, 0.8) > 0.1,
+    'a loud loop at high feedback is supposed to reach the ceiling, and this says it does not');
+});
+
+test('an oscillating delay gets a response as long as this app measures', () => {
+  // The tail is worked out from how fast the repeats decay, and at unity they
+  // do not. log(1) is zero, the division is minus infinity, the max picks the
+  // floor, and a delay howling for ever came out with a response 0.42 seconds
+  // long holding exactly one repeat - which is what the panel would have drawn
+  // and the mark would have been taken from.
+  for (const feedback of [1, 1.05, MOST_FEEDBACK]) {
+    const { length } = echoTail(rate, { ...ECHO_DEFAULTS, time: 375, feedback });
+    assert.ok(length / rate > 7, `feedback ${feedback} got a ${(length / rate).toFixed(2)} s tail`);
+  }
+
+  // And the response really does build across it: measured in one-second
+  // slices at feedback 1.2, the RMS goes -45.4, -44.6, -43.3, -33.7, -24.2 dB.
+  const echo = makeEcho(rate, { ...ECHO_DEFAULTS, time: 375, feedback: MOST_FEEDBACK });
+  const slice = (from, to) => {
+    let sum = 0;
+    let n = 0;
+    for (let i = Math.round(from * rate); i < Math.min(echo.length, Math.round(to * rate)); i += 1) {
+      sum += echo.channels[0][i] * echo.channels[0][i];
+      n += 1;
+    }
+    return 20 * Math.log10(Math.sqrt(sum / Math.max(1, n)) + 1e-12);
+  };
+  assert.ok(slice(7, 8) > slice(0, 1) + 15,
+    `it ended at ${slice(7, 8).toFixed(1)} dB having started at ${slice(0, 1).toFixed(1)}`);
+});
+
+test('the decay reading can see a delay howling', () => {
+  // Unlike the time-change modes, this one is visible to a reading that
+  // already exists - so it could be asked about, and the only reason it is not
+  // is that no tier draws a target above 0.7. Measured against feedback 0.7,
+  // with the tolerances that decide a pass being 2.6, 1.9 and 1.2 dB:
+  //
+  //     feedback 0.95   12.50 dB      1.05   15.69
+  //              1.00   14.41         1.20   17.08
+  //
+  // And it tells two howls apart: 1.0 against 1.2 reads 3.76 dB.
+  const base = { ...ECHO_DEFAULTS, time: 375, mix: 0.4 };
+  const read = (feedback) => decayReading('delay', echoProfile(rate, { ...base, feedback }),
+    { state: { ...base, feedback } });
+
+  assert.ok(distance(read(MOST_FEEDBACK), read(0.7)).off > 10,
+    'a howl should be a long way from a delay that decays');
+  assert.ok(distance(read(1), read(MOST_FEEDBACK)).off > 2.6,
+    'and two howls at different rates should be further apart than the easiest tolerance');
 });

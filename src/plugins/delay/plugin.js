@@ -679,6 +679,12 @@ export class EchoPlugin {
     }
 
     parts.push(`${Math.round(this.settings.feedback * 100)}% back`);
+    // Said in the readout rather than left to be worked out from a number over
+    // a hundred: past unity the repeats build instead of dying, and what stops
+    // them is the medium running out of headroom rather than the knob. Where
+    // it actually starts depends on the loop filters too, so "over unity" is
+    // the honest word for it and not "oscillating".
+    if (this.settings.feedback >= 1) parts.push('over unity');
     if (this.settings.pingPong) parts.push('ping-pong');
     if (this.player.playing) parts.push(`out ${this.player.level().toFixed(0)} dB`);
 

@@ -35,5 +35,13 @@ delay standing still. So it is a control and not a question, and there is a
 test asserting that it cannot change a response, because if it ever could then
 every mark in the delay would depend on something nobody is being asked about.
 
+The feedback goes past unity, where a delay stops being a delay and becomes an
+oscillator. What stops it is `LOOP_CEILING` - the medium running out of
+headroom - and that is also the one thing in here that makes the delay depend
+on how loud the signal is, so the note above about a response being everything
+has a caveat on it now. Measured in the sketchpad: four tape delays howling on
+four tracks come out of the master at exactly -1.00 dB, which is the limiter's
+ceiling, with nothing non-finite anywhere.
+
 Times are written in beats, off `lib/tempo.js` rather than off the engine - a
 plugin that has to import the engine to name a beat cannot be lifted out.

@@ -62,6 +62,23 @@ export const ECHO_NOTES = {
         + 'you can be asked about.',
     },
     {
+      heading: 'Over unity, a delay is an oscillator',
+      body: 'Feedback is how much of each repeat goes round again. Under one, each pass is '
+        + 'quieter than the last and the tail dies. At one it holds. Over one it builds, and '
+        + 'what you have is not a delay any more but an oscillator with a note in it '
+        + '\u2014 the howl a dub engineer rides the feedback knob into.\n\n'
+        + 'Something has to stop it, and on hardware that something is the medium: tape '
+        + 'saturates, a bucket brigade runs out of headroom, and the howl settles wherever '
+        + 'the medium stops accepting more. The same thing happens here, and it is why the '
+        + 'knob can go past a hundred per cent at all.\n\n'
+        + 'Where the howling starts is not the number on the knob, and that is the most '
+        + 'musical thing about it. The tone and low-cut filters are inside the loop, so they '
+        + 'take something off every pass: with them where they open, a hundred per cent '
+        + 'still dies away slowly. Open them up and it does not. A tape machine with its head '
+        + 'bump howls at the bump \u2014 a particular low note, every time \u2014 and that is '
+        + 'true here too.',
+    },
+    {
       heading: 'What a delay does while you move the time',
       body: 'There is already sound in the line when the knob moves, and what happens to it '
         + 'is the one thing every delay ever built has had to decide. There are three '

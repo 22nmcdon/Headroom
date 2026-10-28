@@ -1,5 +1,5 @@
 import {
-  ECHO_DEFAULTS, DIVISIONS, SYNC_DIVISIONS, MOST_FEEDBACK,
+  ECHO_DEFAULTS, DIVISIONS, SYNC_DIVISIONS,
   echoProfile, timeOf, nearestDivision,
   HEAD_PATTERNS, repeatsReading, headsOf, wanderReading,
 } from '../../plugins/delay/line.js';
@@ -930,8 +930,12 @@ export const ECHO_WORK = {
       return { key: answer.division, label: `the ${answer.division} delay` };
     }
 
+    // Three buckets over what a target is actually drawn from, which is 0.12
+    // to 0.24 or 0.5 to 0.7 - not over what the knob can reach. The knob goes
+    // to 1.2 so that a delay can be made to howl, and a bucket keyed to a
+    // fraction of that top would have been a bucket nothing ever landed in.
     const feedback = answer?.feedback ?? ECHO_DEFAULTS.feedback;
-    const how = feedback >= MOST_FEEDBACK * 0.75 ? 'long feedback'
+    const how = feedback >= 0.6 ? 'long feedback'
       : feedback >= 0.35 ? 'working feedback' : 'short delays';
     return { key: how, label: how };
   },
