@@ -32,7 +32,11 @@ const WHOLE = {
 test('every effect has knobs, and every knob a workable range', () => {
   for (const id of EFFECT_IDS) {
     const knobs = knobsFor(id);
-    assert.ok(knobs.length >= 3 && knobs.length <= 4, `${id} has ${knobs.length} knobs`);
+    // Three or four, so an insert panel stays a short list rather than a
+    // second plugin face. The delay is allowed five and is the only one -
+    // see the comment on KNOBS for why ducking earns the extra slot.
+    const most = id === 'delay' ? 5 : 4;
+    assert.ok(knobs.length >= 3 && knobs.length <= most, `${id} has ${knobs.length} knobs`);
 
     for (const knob of knobs) {
       assert.ok(knob.label, `${id}.${knob.id} has no label`);

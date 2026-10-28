@@ -47,7 +47,7 @@ pill survives changing tool, so a run of all six drills is one click each.
 | **Compression** | **a compressor** — threshold, ratio, attack, release, knee, lookahead, a filtered sidechain and a key input | **Match** a target compressor · **Even out** a loop whose hits are all over the place · **Duck** one thing under another | **How much is it doing**: 0 to 12 dB of reduction, level-matched |
 | **Stereo** | **an imager** — mid/side width in three bands, two movable crossovers, a pan, and mono and side monitoring | **Place** a sound · **Match** a target image · **Rescue** a low end somebody spread too wide to survive mono | **Where is it**: seven places across the field |
 | **Reverb** | **a reverb** — decay, pre-delay, damping, early/late balance and mix | **Match** a room · **Fit** the tail to the tempo | **How big, how long**: the space on chips, the tail on a dial |
-| **Delay** | **a delay** — time or note division, feedback, ping-pong, a filtered repeat path and mix | **Match** a delay · **Find** the note it is on | **Which note is it on**: five divisions at this tempo |
+| **Delay** | **a delay** — time or note division, feedback past unity, ping-pong, a filtered repeat path, diffusion, tape or bucket-brigade wow and flutter, ducking and mix | **Match** a delay · **Find** the note it is on | **Which note is it on**: five divisions at this tempo |
 | **Saturation** | **a saturator** — drive, bias, hardness, tone and a parallel mix, run eight times oversampled | **Match** how much · **Match** the colour · Build a warmth that is **even and not odd** | **Warm or dirty**: even harmonics against odd, and how hard |
 
 ### The EQ is a plugin
@@ -450,12 +450,28 @@ have moved since), `readNow()` (awaited, guaranteed current), and
 different kinds, on different axes, or over different material rather than
 returning a plausible number nothing downstream could question.
 
-Five kinds across six tools: `curve`, `reduction`, `decay`, `image`,
-`harmonics`. The reverb and the delay share `decay` on purpose — each is
-completely described by what it does to one click, so "is this delay as long as
-that room" is a question that can be asked. `distance` on `harmonics` is
-pairwise only: its masking floor is derived from both readings at once, so
-three of them cannot be ranked.
+Eight kinds across six tools: `curve`, `reduction`, `decay`, `arrivals`,
+`wander`, `ducking`, `image`, `harmonics`. The reverb and the delay share
+`decay` on purpose — each is completely described by what it does to one
+click, so "is this delay as long as that room" is a question that can be
+asked. `distance` on `harmonics` is pairwise only: its masking floor is derived
+from both readings at once, so three of them cannot be ranked.
+
+Four of the eight are the delay's, which is not a design — it is what a
+device that stopped being linear costs. Each is deliberately deaf to the
+others' subject: `decay` says how the repeats fade and is blind to where in
+the loop they land, `arrivals` says where they land and is blind to how long
+the loop is, `wander` says how badly the transport holds time and is blind to
+both, and `ducking` says how far the repeats get out of the way and is blind
+to all twelve of the other controls.
+
+The first two are read off a response. The last two cannot be: a wandering
+line needs a new response every sample, and a ducker's gain comes from a
+detector, which a click gives nothing to integrate — measured, 24 dB of duck
+moves the response 0.35 dB and every reading taken from it 0.005. So both run
+the loop over a probe instead, `wander` over a tone and `ducking` over two
+phrases and the gap between them, and read the thing being taught directly:
+the pitch in one case, the gain in the other.
 
 Four more belong to no tool: `loudness`, `crest`, `balance` and `width`, in
 `src/analysis/`. They are readings of a piece of audio rather than of a

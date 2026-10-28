@@ -3,7 +3,7 @@
     plugin.js   the face
     dsp.js      the loop itself: one sample in, one sample out
     node.js     that loop on the audio thread, and the fallback behind it
-    line.js     the response, where the repeats land, and three readings
+    line.js     the response, where the repeats land, and four readings
 
 The folder is Delay and the symbols are `ECHO_`, deliberately. A delay is the
 device; an echo is what you hear when the delay is long enough to register as
@@ -19,16 +19,26 @@ answer under every input sample, and a line whose length wanders needs a new
 one each time - so the loop had to become something that could be run while
 the audio goes past.
 
-Three readings, and each is deliberately deaf to the other two's subject. The
-decay curve says how the repeats fade and is blind to where in the loop they
-land. The loop shape says where they land and is blind to how long the loop
-is - and is taken with the transport held still, because a frame has edges and
-three samples of flutter read seven decibels through it. The wander says how
-badly the transport holds time and is blind to everything else, measured to
-exactly zero for the time, the feedback, the tone, the heads, the diffusion,
-the medium, the routing and the mix.
+Four readings, and each is deliberately deaf to the others' subject. The decay
+curve says how the repeats fade and is blind to where in the loop they land.
+The loop shape says where they land and is blind to how long the loop is - and
+is taken with the transport held still, because a frame has edges and three
+samples of flutter read seven decibels through it. The wander says how badly
+the transport holds time and is blind to everything else, measured to exactly
+zero for the time, the feedback, the tone, the heads, the diffusion, the
+medium, the routing and the mix.
 
-Three readings and one thing with no reading at all. What a delay does to the
+The fourth is the odd one out even here. Ducking's gain comes from a detector,
+and a detector needs time to see a level; the response is one click, which
+gives it none.
+Measured, a click moves the detector to four per cent of the threshold, so a
+24 dB duck shows up as 0.35 dB on the response and 0.005 dB on every reading
+built from it - at any depth. So `duckTrack` runs the loop over two phrases
+and a gap and reads the gain the ducker applied, frame by frame, the way the
+compressor's reduction reading does. What it reads is exactly the depth on the
+knob under a phrase, and exactly zero for all twelve of the other controls.
+
+Four readings and one thing with no reading at all. What a delay does to the
 sound already in its line when the time moves - repitch, fade or jump - is
 audible only while the knob is moving, and every reading here is taken of a
 delay standing still. So it is a control and not a question, and there is a

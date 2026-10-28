@@ -24,7 +24,7 @@ export {
   ECHO_DEFAULTS, ECHO_LIMITS, MACHINES, BBD_STAGES, MACHINE_FLOOR, MACHINE_CEILING,
   machineTone, PING_FROM, HEAD_PATTERNS, headsOf, LONGEST_TIME, SHORTEST_TIME,
   MOST_FEEDBACK, MOST_OFFSET, sidesOf, echoCore,
-  WOW_RATE, FLUTTER_RATE, MOST_WOW, MOST_FLUTTER, CHANGE_MODES,
+  WOW_RATE, FLUTTER_RATE, MOST_WOW, MOST_FLUTTER, CHANGE_MODES, MOST_DUCK,
 } from './dsp.js';
 /**
  * The note values a delay is set to, as fractions of a beat.
@@ -771,6 +771,134 @@ export function wanderGap(mine, theirs) {
     off: Math.sqrt(sum / Math.max(1, n)),
     where: WANDER_BANDS[at]?.id ?? 'nowhere',
     detail: { extra: worst, band: WANDER_BANDS[at]?.id ?? null },
+  };
+}
+
+/* ---------- how far out of the way the repeats get, as a reading ---------- */
+
+/**
+ * The phrase this is measured against, and how finely.
+ *
+ * Something playing, a gap, something playing again - which is the whole
+ * situation ducking exists for, and the shortest material that contains it.
+ * Nothing about the delay is in the probe, so two delays set differently are
+ * asked the same question.
+ *
+ * A reading over material rather than over a response, because the response
+ * cannot carry this. A ducker's gain comes from a detector, a detector
+ * integrates over time, and an impulse has no time: measured, one sample
+ * raises a five-millisecond detector to 0.4 per cent of full scale, which is
+ * four per cent of the threshold. So the duck a click causes is no duck at
+ * all: 24 dB of it moves the response 0.35 dB, the decay reading 0.005 and the
+ * loop shape 0.003, against tolerances of 2.6, 1.9 and 1.2. That is not a flaw
+ * in the response - it is what an impulse is.
+ *
+ * Three seconds and ninety-six frames, so a frame is 31 ms - short enough to
+ * see the duck arrive within one of them and long enough that the detector's
+ * own ripple averages out of it.
+ */
+export const DUCK_SECONDS = 3;
+export const DUCK_FRAMES = 96;
+
+/** Where the probe says something and where it says nothing, in seconds. */
+export const DUCK_PHRASES = [[0.1, 0.9], [1.6, 2.4]];
+
+/**
+ * The duck's own gain, frame by frame, in decibels.
+ *
+ * The gain and not the output, which is the decision that makes this a reading
+ * of ducking rather than a reading of a delay. A wet output's envelope depends
+ * on the time, the feedback, the heads and the tone as well; the gain the
+ * ducker applies depends on the dry signal and the depth and nothing else. The
+ * compressor is read the same way, and for the same reason.
+ */
+export function duckTrack(rate, settings) {
+  const whole = { ...ECHO_DEFAULTS, ...settings };
+  const core = echoCore(rate).set(whole);
+  const span = Math.ceil(DUCK_SECONDS * rate);
+  const per = span / DUCK_FRAMES;
+
+  const frames = new Float32Array(DUCK_FRAMES);
+  const counts = new Float32Array(DUCK_FRAMES);
+
+  for (let i = 0; i < span; i += 1) {
+    const at = i / rate;
+    let x = 0;
+    for (const [from, to] of DUCK_PHRASES) {
+      if (at < from || at > to) continue;
+      // Up and down at the ends, so the probe is a phrase rather than a pair
+      // of clicks with a tone between them.
+      const into = Math.min(1, (at - from) * 40);
+      const outOf = Math.min(1, (to - at) * 40);
+      x = (Math.sin(2 * Math.PI * 220 * (at - from)) * 0.5
+        + Math.sin(2 * Math.PI * 440 * (at - from)) * 0.2) * into * outOf;
+    }
+    core.stereo(x, x);
+    const frame = Math.min(DUCK_FRAMES - 1, Math.floor(i / per));
+    frames[frame] += 20 * Math.log10(Math.max(1e-6, core.ducked));
+    counts[frame] += 1;
+  }
+
+  for (let f = 0; f < DUCK_FRAMES; f += 1) {
+    if (counts[f] > 0) frames[f] /= counts[f];
+  }
+  return frames;
+}
+
+/**
+ * The axis two of these must share.
+ *
+ * The probe is in it, because a reading taken against one phrase cannot be
+ * held against a reading taken against another - and unlike the delay time,
+ * which two delays may differ in and still be compared, the probe is the
+ * question rather than the answer.
+ */
+export const DUCK_AXIS = {
+  kind: 'ducking',
+  frames: DUCK_FRAMES,
+  seconds: DUCK_SECONDS,
+  phrases: DUCK_PHRASES.map(([a, b]) => `${a}-${b}`).join(','),
+};
+
+/** How far a delay gets its repeats out of the way, over a phrase and a gap. */
+export function duckReading(rate, settings, { source = null } = {}) {
+  const whole = { ...ECHO_DEFAULTS, ...settings };
+  return readingOf({
+    tool: 'delay',
+    kind: 'ducking',
+    of: { state: stampOf(whole), source, axis: DUCK_AXIS },
+    values: duckTrack(rate, whole),
+  });
+}
+
+/**
+ * How far apart two duckers are, in decibels.
+ *
+ * The root mean square across the frames, as the other comparators do, and
+ * `where` says whether they part company while the phrase is playing or in
+ * the gap after it - which are two different faults: too little duck and too
+ * slow to come back.
+ */
+export function duckGap(mine, theirs) {
+  const a = mine.values;
+  const b = theirs.values;
+  const n = Math.min(a.length, b.length);
+
+  let sum = 0;
+  let worst = 0;
+  let at = 0;
+  for (let i = 0; i < n; i += 1) {
+    const off = a[i] - b[i];
+    sum += off * off;
+    if (Math.abs(off) > Math.abs(worst)) { worst = off; at = i; }
+  }
+
+  const when = (at / DUCK_FRAMES) * DUCK_SECONDS;
+  const playing = DUCK_PHRASES.some(([from, to]) => when >= from && when <= to);
+  return {
+    off: Math.sqrt(sum / Math.max(1, n)),
+    where: playing ? 'while the phrase is playing' : 'in the gap after it',
+    detail: { extra: worst, at: when },
   };
 }
 

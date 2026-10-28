@@ -7,8 +7,11 @@ import {
   makeEcho, repeatsOf, echoProfile, timeOf, nearestDivision, repeatsReading,
   MACHINES, machineTone, BBD_STAGES, MACHINE_FLOOR, MACHINE_CEILING, echoCore,
   wanderReading, WANDER_BANDS, echoTail,
+  duckReading, duckTrack, DUCK_FRAMES, DUCK_SECONDS, DUCK_PHRASES,
 } from '../src/plugins/delay/line.js';
-import { WOW_RATE, FLUTTER_RATE } from '../src/plugins/delay/dsp.js';
+import {
+  WOW_RATE, FLUTTER_RATE, MOST_DUCK, DUCK_AT, DUCK_ATTACK, DUCK_RELEASE,
+} from '../src/plugins/delay/dsp.js';
 import { echoSource } from '../src/plugins/delay/node.js';
 import { distance } from '../src/gap.js';
 import { comparable } from '../src/lib/read.js';
@@ -1570,7 +1573,8 @@ test('the worklet is built from the delay, not a copy of it', () => {
 
   for (const name of ['echoCore', 'wanderOf', 'centsOf', 'machineTone', 'headsOf',
     'sidesOf', 'makeupFor', 'WOW_RATE', 'FLUTTER_RATE', 'DIFFUSE_AT', 'WANDER_EDGE',
-    'CHANGE_MODES', 'REPITCH_TIME', 'REPITCH_MOST', 'FADE_TIME']) {
+    'CHANGE_MODES', 'REPITCH_TIME', 'REPITCH_MOST', 'FADE_TIME',
+    'MOST_DUCK', 'DUCK_AT', 'DUCK_ATTACK', 'DUCK_RELEASE']) {
     assert.ok(source.includes(name), `the audio thread needs ${name}`);
   }
 
@@ -1589,6 +1593,7 @@ test('the worklet is built from the delay, not a copy of it', () => {
     machine: 'tape',
     wow: 18,
     flutter: 9,
+    duck: 9,
   };
   const mine = echoCore(rate).set(settings);
   const yours = theirs(rate).set(settings);
@@ -2198,4 +2203,186 @@ test('the decay reading can see a delay howling', () => {
     'a howl should be a long way from a delay that decays');
   assert.ok(distance(read(1), read(MOST_FEEDBACK)).off > 2.6,
     'and two howls at different rates should be further apart than the easiest tolerance');
+});
+
+/* --- the duck -------------------------------------------------------------- */
+
+test('a delay with no duck on it is the delay that was there before', () => {
+  // The only promise the duck has to keep to everything already built: at
+  // nothing asked for the gain is exactly one, not one to within a rounding,
+  // so every response, every reading and every target drawn before the duck
+  // existed still holds.
+  const core = echoCore(rate).set({ ...ECHO_DEFAULTS, time: 375, feedback: 0.5 });
+  for (let i = 0; i < 4800; i += 1) {
+    core.stereo(Math.sin((2 * Math.PI * 220 * i) / rate) * 0.8, 0);
+    assert.equal(core.ducked, 1, 'a duck of nothing has to be a gain of one');
+  }
+});
+
+test('the duck is as deep as the knob says', () => {
+  // Under a phrase the duck should be the depth asked for, exactly - this is
+  // a gate, not a compressor, so above the threshold there is no ratio to
+  // soften it. In the gap it reads less, because the gap is where it is on its
+  // way back. Measured, averaging the frames inside the phrases and the frames
+  // outside them:
+  //
+  //     duck   under the phrase   in the gap   RMS from no duck
+  //        1           -1.00 dB     -0.43 dB          0.83 dB
+  //        3           -3.00        -1.27             2.48
+  //        6           -6.00        -2.47             4.94
+  //       12          -12.00        -4.67             9.83
+  //       24          -24.00        -8.52            19.50
+  const per = DUCK_SECONDS / DUCK_FRAMES;
+  const playing = (f) => DUCK_PHRASES.some(([a, b]) => f * per >= a && f * per <= b);
+
+  const under = (duck) => {
+    const frames = duckTrack(rate, { duck });
+    let sum = 0;
+    let n = 0;
+    for (let f = 0; f < frames.length; f += 1) {
+      if (!playing(f)) continue;
+      sum += frames[f];
+      n += 1;
+    }
+    return sum / n;
+  };
+
+  for (const duck of [1, 3, 6, 12, MOST_DUCK]) {
+    assert.ok(Math.abs(under(duck) + duck) < 0.01,
+      `${duck} dB of duck read ${under(duck).toFixed(2)} dB under the phrase`);
+  }
+  assert.equal(under(0), 0, 'and no duck is no duck');
+});
+
+test('the duck comes off in time for the next phrase', () => {
+  // What the release constant is actually for, and the thing a quarter-second
+  // release did not do - see DUCK_RELEASE for the table that moved it to
+  // 0.12. The gap in the probe is 700 ms, so the repeats have to be back
+  // inside that or the control only ever subtracts.
+  const frames = duckTrack(rate, { duck: MOST_DUCK });
+  const per = DUCK_SECONDS / DUCK_FRAMES;
+  const ends = DUCK_PHRASES[0][1];
+
+  const backTo = (want) => {
+    for (let f = Math.ceil(ends / per); f < frames.length; f += 1) {
+      if (frames[f] > -want) return f * per - ends;
+    }
+    return Infinity;
+  };
+
+  // Measured: 0.26 s to within 6 dB, 0.32 to within 3, 0.44 to within 1.
+  assert.ok(backTo(3) < 0.4, `three decibels off took ${backTo(3).toFixed(2)} s`);
+  assert.ok(backTo(1) < 0.6, `a decibel off took ${backTo(1).toFixed(2)} s`);
+
+  // And it is there when the phrase starts, not a syllable later. Measured at
+  // 0.02 s, which is the frame this reading can resolve rather than the
+  // attack: the attack is five milliseconds.
+  let on = Infinity;
+  for (let f = Math.floor(DUCK_PHRASES[0][0] / per); f < frames.length; f += 1) {
+    if (frames[f] < -(MOST_DUCK - 0.1)) { on = f * per - DUCK_PHRASES[0][0]; break; }
+  }
+  assert.ok(on <= 0.05, `full depth arrived ${on.toFixed(3)} s into the phrase`);
+});
+
+test('the duck is why this reading is taken over material', () => {
+  // The finding this reading exists because of. A ducker's gain comes from a
+  // detector, a detector integrates over time, and the response every other
+  // delay reading is built from is one click. Measured: one sample of full
+  // scale raises the five-millisecond detector to 0.00416, which is 4.2 per
+  // cent of DUCK_AT, so the gain barely leaves unity -
+  //
+  //     duck    one sample takes off   of the knob
+  //        6               0.18 dB       3.0 per cent
+  //       12               0.27          2.3
+  //       24               0.35          1.4
+  //
+  // - and the deeper the knob is set, the smaller the fraction of it a click
+  // can show.
+  for (const [duck, want] of [[6, 0.18], [12, 0.27], [MOST_DUCK, 0.35]]) {
+    const core = echoCore(rate).set({ ...ECHO_DEFAULTS, duck });
+    core.stereo(1, 1);
+    const off = -20 * Math.log10(core.ducked);
+    assert.ok(Math.abs(off - want) < 0.01,
+      `one sample took ${off.toFixed(2)} dB off a ${duck} dB duck, not ${want}`);
+    assert.ok(off / duck < 0.04,
+      `a click showed ${((100 * off) / duck).toFixed(1)} per cent of the knob`);
+  }
+
+  // Which is why the three readings that already exist cannot mark it.
+  // Measured against no duck, with the tolerances that decide a pass being
+  // 2.6, 1.9 and 1.2 dB:
+  //
+  //     duck   decay      loop shape   wander
+  //        6   0.003 dB   0.002 dB     0.0000
+  //       12   0.004      0.003        0.0000
+  //       24   0.005      0.003        0.0000
+  const base = { ...ECHO_DEFAULTS, time: 375, feedback: 0.5, mix: 0.4 };
+  const decay = (over) => {
+    const state = { ...base, ...over };
+    return decayReading('delay', echoProfile(rate, state), { state });
+  };
+  for (const duck of [6, 12, MOST_DUCK]) {
+    assert.ok(distance(decay({ duck }), decay({})).off < 0.05,
+      `the decay reading saw ${duck} dB of duck`);
+    assert.ok(distance(repeatsReading(rate, { ...base, duck }),
+      repeatsReading(rate, base)).off < 0.05, `the loop shape saw ${duck} dB of duck`);
+    assert.ok(distance(wanderReading(rate, { ...base, duck }),
+      wanderReading(rate, base)).off < 0.001, `the wander reading saw ${duck} dB of duck`);
+  }
+});
+
+test('the ducking reading sees nothing but the duck', () => {
+  // The half that is usually the hard half, and here it is the easy one: the
+  // reading is of the gain the ducker applies, and that gain comes from the
+  // dry input and the depth. Not one of these seventeen moves it at all -
+  // every one reads 0.000 dB, which is to say exactly zero.
+  const held = duckReading(rate, { duck: 12 });
+  const others = {
+    time: 120, feedback: 1.05, tone: 1200, lowCut: 600, heads: 'triplet',
+    diffusion: 0.8, machine: 'bbd', offset: 40, mix: 0.2, wow: 40,
+    flutter: 20, change: 'jump',
+  };
+  for (const [name, value] of Object.entries(others)) {
+    const moved = duckReading(rate, { duck: 12, [name]: value });
+    assert.equal(distance(moved, held).off, 0,
+      `${name} at ${value} changed what the ducker did`);
+  }
+
+  // Including the one that would be easiest to let through: a delay carrying
+  // its own repeats into the detector would duck itself, and this one does not
+  // because the detector watches the dry input and not the loop.
+  assert.equal(distance(duckReading(rate, { duck: 12, feedback: 0.95 }), held).off, 0,
+    'the repeats should not be ducking the repeats');
+});
+
+test('the ducking reading resolves a depth, and knows what it cannot compare', () => {
+  // The reading is the gain in decibels, so a decibel of depth is a decibel of
+  // reading less the gap frames averaging it down - measured, 0.83 dB per dB.
+  // Three decibels apart reads 2.4, which is clear of anything a tolerance
+  // would be set at.
+  //
+  //      0 vs  1 dB   0.83      6 vs 12 dB   4.89
+  //      3 vs  6      2.46     12 vs 24      9.70
+  //      6 vs  8      1.64     18 vs 24      4.84
+  const read = (duck) => duckReading(rate, { duck });
+  for (const [a, b, want] of [[0, 1, 0.83], [3, 6, 2.46], [6, 8, 1.64],
+    [6, 12, 4.89], [12, 24, 9.70], [18, 24, 4.84]]) {
+    const got = distance(read(a), read(b)).off;
+    assert.ok(Math.abs(got - want) < 0.05,
+      `${a} against ${b} read ${got.toFixed(2)} dB rather than ${want}`);
+  }
+
+  // And it says which of the two faults it found: too little duck under the
+  // phrase, or too slow coming back in the gap after it.
+  assert.equal(distance(read(0), read(12)).where, 'while the phrase is playing',
+    'the depth being wrong is a fault under the phrase');
+
+  // A reading of a ducker is not a reading of anything else. `comparable`
+  // answers with the reason rather than with a false, so the thing to assert
+  // is that there is a reason and that it names both kinds.
+  const why = comparable(read(12), wanderReading(rate, { ...ECHO_DEFAULTS, wow: 20 }));
+  assert.match(String(why), /ducking.*wander/,
+    `a ducking reading against a wander reading was refused with "${why}"`);
+  assert.throws(() => distance(read(12), repeatsReading(rate, ECHO_DEFAULTS)),
+    /compare/, 'a ducking reading against an arrival reading should be refused');
 });

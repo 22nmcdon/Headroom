@@ -1,5 +1,12 @@
-// The delay's two sides: that the routings are three different images, and
-// that the controls for them fit on the face.
+// The delay's two sides: that the routings are three different images, that
+// the controls for them fit on the face, and that the duck is connected.
+//
+// The duck is here as well as in tests/echo.test.js, which holds the gain it
+// applies, because the gain is keyed on what goes into the delay and nothing
+// without a browser renders a real insert with something going into it. A
+// knob can be drawn, labelled, read out and wired to nothing, and the duck is
+// the control most able to be: no response shows it, so no response-based
+// check would notice. See the table beside it.
 //
 // The arithmetic - where each repeat lands on each side - is held without a
 // browser in tests/echo.test.js. What is here is the part that says the
@@ -127,6 +134,11 @@ export async function check({ browser, at, say }) {
     ];
   });
 
+  const page2 = await browser.newPage();
+  page2.on('pageerror', (e) => problems.push(`duck pageerror: ${e.message}`));
+  page2.on('console', (m) => { if (m.type() === 'error') problems.push(`duck console: ${m.text()}`); });
+  await page2.goto(at, { waitUntil: 'networkidle' });
+
   say('  a centred source through a delay insert, read as an image\n');
   say('  routing                   correlation     width    mono cost      sides     peak   first');
   for (const r of rows) {
@@ -135,6 +147,89 @@ export async function check({ browser, at, say }) {
       + ` ${r.sides.toFixed(2).padStart(8)} dB ${r.peak.toFixed(3).padStart(8)}`
       + ` ${String(r.arrival).padStart(5)} ms`);
   }
+
+  // Then the duck, which is the one control on this face that no response
+  // can show and therefore the one most able to be drawn, labelled, read out
+  // and not connected to anything. Measured here through the real worklet: a
+  // 400 ms phrase through a 120 ms delay, all wet, so the repeats land under
+  // the phrase that caused them.
+  //
+  //     duck   under the phrase   after it   against no duck
+  //        0          -9.54 dB    -32.88 dB      -            -
+  //        6         -15.54       -33.02       -6.00 dB    -0.14 dB
+  //       12         -21.54       -33.09      -12.00       -0.22
+  //       24         -33.54       -33.15      -24.00       -0.27
+  //
+  // The depth on the knob, to the hundredth, and the tail after the phrase
+  // left alone to within a third of a decibel. Both halves matter: a duck
+  // that took the repeats off and did not put them back would read just as
+  // deep under the phrase and would be the wrong device.
+  const ducked = await page2.evaluate(async () => {
+    const { makeEffect } = await import('./src/core/effects.js');
+    const { ECHO_DEFAULTS } = await import('./src/plugins/delay/line.js');
+    const RATE = 48000;
+
+    const through = async (duck) => {
+      const ctx = new OfflineAudioContext(2, Math.round(RATE * 2.5), RATE);
+      const buf = ctx.createBuffer(2, Math.round(RATE * 0.4), RATE);
+      for (let i = 0; i < buf.length; i += 1) {
+        const at = i / RATE;
+        const env = Math.min(1, at * 40) * Math.min(1, (0.4 - at) * 40);
+        const v = (Math.sin(2 * Math.PI * 240 * at)
+          + Math.sin(2 * Math.PI * 700 * at) * 0.5) * env * 0.4;
+        buf.getChannelData(0)[i] = v;
+        buf.getChannelData(1)[i] = v;
+      }
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      const fx = await makeEffect(ctx, 'delay', {
+        settings: { ...ECHO_DEFAULTS, time: 120, feedback: 0.6, mix: 1, duck },
+      });
+      src.connect(fx.in);
+      fx.out.connect(ctx.destination);
+      src.start();
+      const done = await ctx.startRendering();
+      const L = done.getChannelData(0);
+      const rms = (from, to) => {
+        let sum = 0;
+        let n = 0;
+        for (let i = Math.round(from * RATE); i < Math.round(to * RATE); i += 1) {
+          sum += L[i] * L[i];
+          n += 1;
+        }
+        return 20 * Math.log10(Math.sqrt(sum / Math.max(1, n)) + 1e-12);
+      };
+      // Under the phrase, and well after it has gone and the duck has let go.
+      return { duck, under: rms(0.15, 0.4), after: rms(0.9, 1.4) };
+    };
+
+    const out = [];
+    for (const duck of [0, 6, 12, 24]) out.push(await through(duck));
+    return out;
+  });
+
+  say('');
+  say('  a 400 ms phrase through a 120 ms delay insert, all wet');
+  say('  duck   under the phrase   after it   against no duck');
+  const noDuck = ducked[0];
+  for (const r of ducked) {
+    say(`  ${String(r.duck).padStart(4)}   ${r.under.toFixed(2).padStart(9)} dB`
+      + ` ${r.after.toFixed(2).padStart(10)} dB   ${(r.under - noDuck.under).toFixed(2).padStart(7)} dB`
+      + ` under, ${(r.after - noDuck.after).toFixed(2)} after`);
+  }
+  for (const r of ducked.slice(1)) {
+    const got = noDuck.under - r.under;
+    if (Math.abs(got - r.duck) > 1) {
+      problems.push(`${r.duck} dB of duck took ${got.toFixed(2)} dB off the repeats under the `
+        + 'phrase, and the knob is the depth');
+    }
+    if (Math.abs(r.after - noDuck.after) > 1) {
+      problems.push(`${r.duck} dB of duck was still ${(noDuck.after - r.after).toFixed(2)} dB `
+        + 'down half a second after the phrase ended, and it is supposed to let go');
+    }
+  }
+
+  await page2.close();
 
   const by = (what) => rows.find((r) => r.what === what);
 

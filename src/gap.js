@@ -15,7 +15,7 @@
 import { curveGap } from './plugins/eq/filters.js';
 import { reductionGap } from './plugins/compressor/reading.js';
 import { decayGap } from './lib/response.js';
-import { repeatGap, wanderGap } from './plugins/delay/line.js';
+import { repeatGap, wanderGap, duckGap } from './plugins/delay/line.js';
 import { stereoGap } from './plugins/stereo/field.js';
 import { heatGap } from './plugins/saturation/shape.js';
 import { loudnessGap } from './analysis/loudness.js';
@@ -52,6 +52,13 @@ const GAPS = {
   // decay curve 0.88 dB against a tolerance of 1.2 - so without this one the
   // wander is a control you could get wrong and still pass.
   wander: wanderGap,
+  // And its fourth: how far it gets its repeats out of the way of the dry
+  // signal. Measured over a phrase and the gap after it rather than over a
+  // response, because a ducker's gain comes from a detector and an impulse has
+  // no duration for one to integrate - measured, 24 dB of duck moves the decay
+  // curve 0.005 dB, the loop shape 0.003 and the wander 0.0000, against
+  // tolerances of 2.6, 1.9 and 1.2.
+  ducking: duckGap,
   image: stereoGap,
   harmonics: heatGap,
   loudness: loudnessGap,

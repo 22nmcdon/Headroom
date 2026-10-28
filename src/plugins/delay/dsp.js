@@ -45,6 +45,7 @@ export const ECHO_DEFAULTS = {
   wow: 0,            // slow pitch wander, in cents of peak deviation
   flutter: 0,        // fast pitch wander, the same way
   change: 'repitch', // what it does to what is already in the line when the time moves
+  duck: 0,           // how far the repeats get out of the dry signal's way, in dB
   mix: 0.3,
 };
 
@@ -493,6 +494,77 @@ export const FADE_TIME = 0.03;
  */
 export const LOOP_CEILING = 0.4;
 
+/**
+ * How far out of the way the repeats can be made to get, in decibels, and how
+ * they get there.
+ *
+ * Ducking is a compressor on the wet path keyed by the dry one: while
+ * something is playing, the repeats are held down, and they come back up in
+ * the gaps between phrases. It is the one control here that is about
+ * arrangement rather than about the device - a delay you can hear the whole
+ * time is a delay that is in the way, and this is how a long echo gets to be
+ * long without burying what caused it.
+ *
+ * It sits on the way out, not in the loop, and it is keyed on the dry input
+ * rather than on the repeats, so a delay cannot duck itself into silence.
+ *
+ * Like the compander this app does not have - see BBD_AT - its gain comes from
+ * a detector, and a detector needs duration. The response every other delay
+ * reading is built from is one click, which has none: measured, one sample of
+ * full scale raises the five-millisecond detector to 0.00416, four per cent of
+ * DUCK_AT, so a 24 dB duck shows up on the response as 0.35 dB and on every
+ * reading taken from it as 0.005.
+ *
+ * That is where the two part company. The compander's problem was that it
+ * moved the response 17 dB and so stopped the response describing the device;
+ * this one's is the reverse - the response does not move at all, and the
+ * control is real anyway. So the duck is not read off a response. `duckTrack`
+ * in line.js runs the loop over two phrases and a gap and reads the gain,
+ * which is what the compressor's reduction reading does and for the same
+ * reason: the gain is the thing being taught.
+ *
+ * Twenty-four decibels at the top, which is further than anybody needs and far
+ * enough to hear what the control is for.
+ */
+export const MOST_DUCK = 24;
+
+/**
+ * Where the duck starts, as a level, and how fast it comes and goes.
+ *
+ * The threshold is low - a tenth of full scale, about -20 dB - because this is
+ * not a compressor looking for peaks, it is a gate on the repeats looking for
+ * whether anything is playing at all. Above it the duck is at its full depth;
+ * below it the depth comes off in proportion, so the repeats fade back in as
+ * the phrase ends rather than switching.
+ *
+ * The release is not the time the duck takes to come off. Two things stack:
+ * the detector has to fall from the phrase's own level all the way to the
+ * threshold before the gain moves at all, and only then does the proportional
+ * part start. Measured, through a phrase and the gap after it, time from the
+ * phrase ending to the repeats being back within a decibel:
+ *
+ *     release   full depth   back within   6 dB    3 dB    1 dB
+ *      0.25 s      0.02 s                 0.57 s  never   never
+ *      0.12 s      0.02 s                 0.26 s  0.32 s  0.44 s
+ *      0.08 s      0.02 s                 0.16 s  0.22 s  0.29 s
+ *
+ * At a quarter-second the repeats never return inside a 700 ms gap, which is
+ * the one thing this control exists to do. The cost of shortening it is ripple
+ * on the gain, and only for a source sitting right at the threshold, where the
+ * proportional part tracks the detector instead of clipping: worst case 0.66 dB
+ * at 40 Hz just under the threshold, against 0.36 dB at a quarter-second. Above
+ * the threshold - any normal level - the ripple is exactly zero at either, so
+ * the trade is a corner case against the whole point. Hence 0.12.
+ *
+ * A quick attack so the repeats are already out of the way by the time a word
+ * has started. Both fixed rather than controls: a depth is something anybody
+ * can hear and set, and two time constants are two more things to be wrong
+ * about for a difference nobody can name.
+ */
+export const DUCK_AT = 0.1;
+export const DUCK_ATTACK = 0.005;
+export const DUCK_RELEASE = 0.12;
+
 /** Which side a ping-pong may be started from. */
 export const PING_FROM = ['left', 'right'];
 
@@ -600,6 +672,7 @@ export const ECHO_LIMITS = {
   lowCut: [20, 800],
   offset: [-MOST_OFFSET, MOST_OFFSET],
   diffusion: [0, 1],
+  duck: [0, MOST_DUCK],
   wow: [0, MOST_WOW],
   flutter: [0, MOST_FLUTTER],
   mix: [0, 1],
@@ -724,6 +797,11 @@ export function echoCore(rate) {
   let fadeSpan = 1;
   let glide = 0;
   let settled = false;      // whether the first tune has happened yet
+  let watching = 0;         // the dry signal's level, for the ducking
+  let duckUp = 0;
+  let duckDown = 0;
+  let duckDeep = 0;         // how far down the repeats go, as a gain
+  let ducking = false;
   const steps = [0, 0];
   const spans = [0, 0];
   const holds = [0, 0];
@@ -822,6 +900,15 @@ export function echoCore(rate) {
     wowAt = wowWant * fits;
     flutterAt = flutterWant * fits;
     moving = wowAt > 0 || flutterAt > 0;
+
+    // The ducking, worked out as a gain rather than as decibels so the step
+    // has nothing to convert. At nothing asked for it is exactly one, which is
+    // what keeps every response that has none bit-identical.
+    const deep = Math.min(MOST_DUCK, Math.max(0, state.duck ?? 0));
+    duckDeep = deep > 0 ? 10 ** (-deep / 20) : 1;
+    ducking = deep > 0;
+    duckUp = Math.exp(-1 / Math.max(1, DUCK_ATTACK * rate));
+    duckDown = Math.exp(-1 / Math.max(1, DUCK_RELEASE * rate));
 
     // The machine's own response, which is not a knob: its corner comes from
     // the delay time and the medium, and it sits on the way into the line
@@ -934,6 +1021,11 @@ export function echoCore(rate) {
   const core = {
     left: 0,
     right: 0,
+    // How far the repeats are being held down this sample, as a gain. One when
+    // nothing is ducking. Reported the way the compressor reports its
+    // reduction, and for the same reason: the gain is the thing being taught,
+    // so the gain is what a reading of it should be taken from.
+    ducked: 1,
 
     set(next) {
       Object.assign(state, next);
@@ -1112,8 +1204,26 @@ export function echoCore(rate) {
       ats[0] = (ats[0] + 1) % longest;
       ats[1] = (ats[1] + 1) % longest;
 
-      core.left = heard[0] * mediumGain;
-      core.right = heard[1] * mediumGain;
+      // And out of the way, if it has been asked to be. Keyed on the louder of
+      // the two sides so a panned part ducks its own repeats by as much as a
+      // centred one would, and taken before the medium's makeup so the depth
+      // on the knob is the depth on the output.
+      let sent = 1;
+      if (ducking) {
+        const size = Math.max(inL < 0 ? -inL : inL, inR < 0 ? -inR : inR);
+        watching = size > watching
+          ? size + (watching - size) * duckUp
+          : size + (watching - size) * duckDown;
+        // Full depth once there is plainly something playing, and in
+        // proportion below that, so the repeats fade back as a phrase ends
+        // instead of switching on.
+        const how = watching >= DUCK_AT ? 1 : watching / DUCK_AT;
+        sent = 1 + (duckDeep - 1) * how;
+      }
+
+      core.ducked = sent;
+      core.left = heard[0] * mediumGain * sent;
+      core.right = heard[1] * mediumGain * sent;
       return core;
     },
   };

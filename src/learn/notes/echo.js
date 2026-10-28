@@ -98,6 +98,26 @@ export const ECHO_NOTES = {
         + 'can hear that.',
     },
     {
+      heading: 'Ducking: the repeats get out of the way',
+      body: 'A long delay on a voice buries the voice. The usual answer is less delay, '
+        + 'which is the wrong answer \u2014 you wanted the repeats, you just did not want '
+        + 'them underneath the word that caused them. Duck turns them down while something '
+        + 'is playing and lets them back up when it stops, so the tail arrives in the gap '
+        + 'where there is room for it.\n\n'
+        + 'It is keyed on what you send in, not on the repeats themselves, which is why the '
+        + 'delay does not duck itself into silence. Above a low threshold the duck is at '
+        + 'full depth; under it the depth comes off in proportion, so the repeats fade back '
+        + 'as a phrase ends rather than switching on.\n\n'
+        + 'The drawn repeats cannot show you this one, and for a different reason than '
+        + 'the way the time moves. That one is invisible because it only happens while '
+        + 'you are turning a knob. This one is a setting that sits still, and the picture '
+        + 'still misses it: those repeats are one click\u2019s response, and a ducker works '
+        + 'from a detector \u2014 something that needs time to see a level. One sample does '
+        + 'not give it any. Measured, a click moves the detector to four per cent of the '
+        + 'threshold, so the picture barely changes however deep the knob is set. Nothing '
+        + 'is broken. It is what a click is.',
+    },
+    {
       heading: 'Note values, and why these ones',
       body: 'Every adjacent pair of divisions offered here is at least a third apart, so '
         + 'telling one from the next is a question about the music rather than about a '

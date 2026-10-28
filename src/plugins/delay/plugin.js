@@ -75,6 +75,16 @@ const ECHO_KNOBS = [
       return `${Math.abs(ms)} ms ${ms > 0 ? 'L first' : 'R first'}`;
     },
   },
+  // Next to Mix, because both knobs answer the same question - how much of
+  // this do you want to hear - and this one answers it with "less, while
+  // something else is playing". Mix is how loud the repeats are; Duck is when.
+  {
+    id: 'duck',
+    name: 'Duck',
+    ...span(ECHO_LIMITS.duck),
+    step: 1,
+    write: (v) => (v <= 0 ? 'always on' : `\u2212${Math.round(v)} dB under`),
+  },
   { id: 'mix', name: 'Mix', ...span(ECHO_LIMITS.mix), step: 0.01, write: (v) => `${Math.round(v * 100)} %` },
 ];
 

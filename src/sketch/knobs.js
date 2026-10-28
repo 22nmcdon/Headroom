@@ -18,7 +18,7 @@ import { COMP_DEFAULTS, COMP_LIMITS } from '../plugins/compressor/dsp.js';
 import { HEAT_DEFAULTS, HEAT_LIMITS } from '../plugins/saturation/shape.js';
 import { STEREO_DEFAULTS, STEREO_LIMITS } from '../plugins/stereo/field.js';
 import { VERB_DEFAULTS, VERB_LIMITS } from '../plugins/reverb/ir.js';
-import { ECHO_DEFAULTS, ECHO_LIMITS } from '../plugins/delay/line.js';
+import { ECHO_DEFAULTS, ECHO_LIMITS, MOST_DUCK } from '../plugins/delay/line.js';
 import { EFFECT_IDS } from '../core/effects.js';
 import { RESTING_Q } from '../plugins/eq/filters.js';
 
@@ -58,7 +58,14 @@ export function fromTone(bands = []) {
   };
 }
 
-/** Three or four a piece, in the order a hand would reach for them. */
+/**
+ * Three or four a piece, in the order a hand would reach for them. The delay
+ * has five, and it is the only one: ducking is a control about what the delay
+ * is sitting underneath, and a track in a sketch is the only place in this app
+ * where a delay is underneath anything. The alternative was dropping Tone to
+ * keep the count, which would have left every saved sketch's tone value
+ * applied and unreachable.
+ */
 export const KNOBS = {
   eq: [
     { id: 'low', label: 'Low', min: -12, max: 12, step: 0.5, unit: 'dB', signed: true },
@@ -95,6 +102,11 @@ export const KNOBS = {
     { id: 'feedback', label: 'Feedback', min: 0, max: 1.2, step: 0.05 },
     { id: 'mix', label: 'Amount', min: 0, max: 1, step: 0.02 },
     { id: 'tone', label: 'Tone', min: 1000, max: 16000, step: 250, unit: 'Hz' },
+    // The fifth knob on an insert that gives every other effect four. This is
+    // the one control a delay on a track in a mix needs that the plugin face
+    // is not the place for: it is about what the delay is sitting under, and
+    // a track is the only place that is known.
+    { id: 'duck', label: 'Duck', min: 0, max: MOST_DUCK, step: 1, unit: 'dB' },
   ],
   saturation: [
     { id: 'drive', label: 'Drive', min: 0, max: 24, step: 0.5, unit: 'dB' },
