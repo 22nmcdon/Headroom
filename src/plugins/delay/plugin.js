@@ -44,6 +44,24 @@ const ECHO_KNOBS = [
     step: 0.01,
     write: (v) => (v <= 0 ? 'clean' : `${Math.round(v * 100)} %`),
   },
+  // Beside Diffusion rather than beside Time, because these two are what the
+  // machine is doing to the sound rather than what you asked it for - and
+  // reading left to right, the row is then the three things that make a delay
+  // sound like a device instead of a number.
+  {
+    id: 'wow',
+    name: 'Wow',
+    ...span(ECHO_LIMITS.wow),
+    step: 1,
+    write: (v) => (v <= 0 ? 'steady' : `${Math.round(v)} cents`),
+  },
+  {
+    id: 'flutter',
+    name: 'Flutter',
+    ...span(ECHO_LIMITS.flutter),
+    step: 1,
+    write: (v) => (v <= 0 ? 'steady' : `${Math.round(v)} cents`),
+  },
   {
     id: 'offset',
     name: 'Offset',
