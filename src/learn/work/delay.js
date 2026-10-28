@@ -470,7 +470,33 @@ export const ECHO_WORK = {
     // The shape of the loop, which the decay reading cannot see: where the
     // repeats land inside one pass of it. Only where the tier asks for a head
     // pattern at all, because otherwise there is one head and nothing to say.
-    const shaped = puzzle.spec?.detail ?? false;
+    //
+    // Off the tier rather than off `puzzle.spec`, which nothing has ever set:
+    // makePuzzle returns `{ answer }` and the game spreads that into the
+    // puzzle beside the mode, the tier and the seed, so `puzzle.spec` was
+    // undefined and this whole term was switched off. It let nothing through
+    // on its own - measured, 0 of 80 wrong head patterns scored as a hit with
+    // everything else exact, because the decay curve catches them at the hard
+    // tier's 1.2 dB - but the code said it was checking and it was not.
+    //
+    // Switched on, over sixty seeds a tier: the exact answer still passes 60
+    // of 60, a wrong head pattern passes 0 of 120, and a near miss of three
+    // per cent on the time still passes 60 of 60. So it vetoes nothing it
+    // should not, which is what a term that has never run has to be shown
+    // before it is trusted.
+    //
+    // Only the hard tier asks for a pattern, so only the hard tier checks
+    // one. At easy and medium the target's heads stay at the default and a
+    // player who dials four of them in passes - 120 of 120, measured - and
+    // the same goes for diffusion, which is in no tier's answer at all. That
+    // is a wider question than this repair: those tiers ask about the time,
+    // the feedback and the tone, and nothing invites you to touch a head
+    // selector. Turning the shape reading on everywhere would cost them
+    // nothing they are about, since it puts a 5 per cent time error at 0.12
+    // dB and 0.15 more feedback at 0.78 against a tolerance of 6. The only
+    // reason it is not on is that widening what fails at two tiers is a
+    // change to the game rather than a repair to it.
+    const shaped = this.tiers[tier]?.detail ?? false;
     const shape = shaped
       ? distance(repeatsReading(rate, settings), repeatsReading(rate, wanted)).off
       : 0;
