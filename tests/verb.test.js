@@ -3,8 +3,15 @@ import assert from 'node:assert/strict';
 
 import {
   VERB_DEFAULTS, VERB_LIMITS, MOST_DECAY, makeImpulse, roomProfile,
-  SPACES, SPACE_ORDER, verbDeckFor, mixingTime, imageSources,
+  SPACES, SPACE_ORDER, verbDeckFor, mixingTime, imageSources, SHIMMER_SPACES,
 } from '../src/plugins/reverb/ir.js';
+import {
+  shiftCore, shimmerRatio, SHIMMER_INTERVALS, SHIMMER_WINDOW, MOST_SHIMMER,
+  SHIMMER_FLOOR,
+} from '../src/plugins/reverb/shimmer.js';
+import { shimmerSource } from '../src/plugins/reverb/node.js';
+import { decayReading } from '../src/lib/response.js';
+import { distance } from '../src/gap.js';
 import {
   RESPONSE_BANDS, monoOf, bandOf, rt60, decayTimes, profileDistance, wetDryImpulse,
 } from '../src/lib/response.js';
@@ -790,4 +797,217 @@ test('a spring has no bottom end, because a spring never has', () => {
   assert.ok(low(spring) < low(wash) * 0.7,
     `the tank holds ${(low(spring) * 100).toFixed(1)}% of its energy down low against the room's `
     + `${(low(wash) * 100).toFixed(1)}%`);
+});
+
+/* --- the shimmer ---------------------------------------------------------- */
+
+test('a reverb with no shimmer is the reverb that was there before', () => {
+  // The promise the shimmer makes to everything already built. It is the one
+  // thing here that is not an impulse response, so the thing it must not do
+  // is change one - every picture drawn and every target marked comes off
+  // `makeImpulse`, and the shimmer is not in it.
+  for (const space of SPACE_ORDER) {
+    const without = room({ space });
+    for (const over of [{ shimmer: 0.5 }, { shimmer: 1 }, { interval: 'octaveDown' }]) {
+      const with_ = room({ space, ...over });
+      assert.equal(with_.length, without.length,
+        `${space} changed length for ${JSON.stringify(over)}`);
+      for (let c = 0; c < without.channels.length; c += 1) {
+        for (let i = 0; i < without.length; i += 1) {
+          if (with_.channels[c][i] !== without.channels[c][i]) {
+            assert.fail(`${space} with ${JSON.stringify(over)} differs at sample ${i}`);
+          }
+        }
+      }
+    }
+  }
+});
+
+test('the reading that marks a reverb cannot see a shimmer', () => {
+  // Which makes it the same category as the delay's time-change modes: a
+  // control, not a question. Measured against the same room with none, with
+  // the tolerances that decide a pass being 2.6, 1.9 and 1.2 dB - every
+  // shimmer setting reads 0.0000, where the controls that are in the response
+  // read 1.15 to 2.15:
+  //
+  //     shimmer 0.3        0.0000 dB      decay 1.8 to 2.1    1.63 dB
+  //     shimmer 1          0.0000         damping 0.55 to 0.4 2.15
+  //     shimmer 1 down     0.0000         pre-delay 20 to 60  1.15
+  const base = { ...VERB_DEFAULTS, decay: 1.8, mix: 0.4 };
+  const read = (over) => {
+    const state = { ...base, ...over };
+    return decayReading('reverb', roomProfile(rate, state), { state });
+  };
+
+  for (const over of [{ shimmer: 0.3 }, { shimmer: 0.6 }, { shimmer: MOST_SHIMMER },
+    { shimmer: 1, interval: 'octaveDown' }, { shimmer: 1, interval: 'twoOctavesUp' }]) {
+    assert.equal(distance(read(over), read({})).off, 0,
+      `${JSON.stringify(over)} reached a reading that is not about it`);
+  }
+
+  // And it has not gone deaf to what it is for.
+  assert.ok(distance(read({ decay: 2.1 }), read({})).off > 1,
+    'the decay reading should still see a decay');
+});
+
+test('the shifter puts the pitch where it says it will', () => {
+  // Measured over inputs at 220, 440 and 880 Hz, two seconds each, reading
+  // the second one: how far below the shifted pitch the original is left.
+  //
+  //     interval          220 Hz    440 Hz    880 Hz
+  //     octave up        -19.9 dB  -36.0 dB  -44.3 dB
+  //     fifth up         -31.3     -46.0     -42.0
+  //     fourth up        -13.9     -44.2     -38.9
+  //     two octaves up   -19.9     -55.6     -42.7
+  //     octave down      -28.7     -42.1     -51.5
+  //     fifth down       -20.1     -44.4     -41.2
+  //
+  // Thirteen decibels at the worst, which is a fourth up from 220 Hz, and
+  // that is the algorithm rather than a fault: the spray is widest where the
+  // input is lowest, because the window holds fewer cycles of it. Thirteen is
+  // still the shifted pitch winning by a factor of four and a half, and in a
+  // shimmer what is left behind is the room it came from anyway. The
+  // assertion is set a decibel under the worst of them.
+  const mag = (buf, hz) => {
+    const w = (2 * Math.PI * hz) / rate;
+    const c = 2 * Math.cos(w);
+    let s1 = 0;
+    let s2 = 0;
+    for (let i = 0; i < buf.length; i += 1) {
+      const s0 = buf[i] + c * s1 - s2;
+      s2 = s1;
+      s1 = s0;
+    }
+    return (2 * Math.sqrt(Math.max(0, s1 * s1 + s2 * s2 - c * s1 * s2))) / buf.length;
+  };
+
+  for (const interval of SHIMMER_INTERVALS) {
+    for (const hz of [220, 440, 880]) {
+      const core = shiftCore(rate).set({ interval: interval.id });
+      const out = new Float32Array(rate * 2);
+      for (let i = 0; i < out.length; i += 1) {
+        core.stereo(Math.sin((2 * Math.PI * hz * i) / rate), 0);
+        out[i] = core.left;
+      }
+      const body = out.subarray(rate);
+      const behind = 20 * Math.log10(mag(body, hz) / mag(body, hz * interval.ratio));
+      assert.ok(behind < -12.9,
+        `${interval.label} on ${hz} Hz left the original only ${behind.toFixed(1)} dB behind`);
+    }
+  }
+
+  // There is deliberately no interval that leaves the pitch alone: that is
+  // the one setting a loop around a convolver cannot survive. Measured, a
+  // shifter passing its input through takes the same loop to +254 dB in ten
+  // seconds where every real interval stays bounded.
+  for (const interval of SHIMMER_INTERVALS) {
+    assert.notEqual(interval.ratio, 1, `${interval.label} does not shift anything`);
+  }
+  assert.equal(shimmerRatio('nonsense'), SHIMMER_INTERVALS[0].ratio,
+    'an interval nobody has heard of should fall back to the octave');
+});
+
+test('the shifter has unity gain, by construction and then measured', () => {
+  // The bug this test exists for. Two heads half a line apart, each weighted
+  // by a raised cosine over its whole traverse, sum to exactly one at every
+  // position - because (0.5 - 0.5cos x) + (0.5 - 0.5cos(x + pi)) is 1. The
+  // obvious alternative, full weight through the middle and a fade only at
+  // the seams, sums to two in the middle, because both heads are in the
+  // middle at once. That is six decibels, and with it in the loop a feedback
+  // of 0.85 ran away and the conclusion drawn was that the loop was unstable
+  // above 0.8. The loop was fine. The knob was lying.
+  const size = SHIMMER_WINDOW;
+  for (let gap = 0; gap < size; gap += 1) {
+    const a = 0.5 - 0.5 * Math.cos((2 * Math.PI * gap) / size);
+    const b = 0.5 - 0.5 * Math.cos((2 * Math.PI * ((gap + size / 2) % size)) / size);
+    assert.ok(Math.abs(a + b - 1) < 1e-12,
+      `at a gap of ${gap} the two heads sum to ${(a + b).toFixed(6)}`);
+  }
+
+  // And on noise, where the two heads comb with each other: -1.28 dB measured,
+  // which is the algorithm rather than a gain error.
+  const core = shiftCore(rate).set({ interval: 'octaveUp' });
+  let seed = 2024;
+  let into = 0;
+  let outOf = 0;
+  let apart = 0;
+  for (let i = 0; i < rate * 3; i += 1) {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    const x = (seed / 0x3fffffff) - 1;
+    core.stereo(x, x);
+    if (i > rate) {
+      into += x * x;
+      outOf += core.left * core.left;
+      apart = Math.max(apart, Math.abs(core.left - core.right));
+    }
+  }
+  const through = 10 * Math.log10(outOf / into);
+  assert.ok(Math.abs(through + 1.28) < 0.2,
+    `the shifter put ${through.toFixed(2)} dB through, and -1.28 is the comb`);
+
+  // A centred source stays centred: the two channels share a read position,
+  // so they have to come out identical.
+  assert.equal(apart, 0, 'a centred source came out of the shifter uncentred');
+});
+
+test('the two spaces whose point is that they stop do not get a shimmer', () => {
+  // Same reasoning as a plate having no Size knob. A gate holds and shuts and
+  // a reverse swells and ends; a feedback path is a thing that keeps going.
+  assert.deepEqual(SHIMMER_SPACES, ['room', 'plate', 'spring']);
+  for (const space of SHIMMER_SPACES) {
+    assert.ok(verbDeckFor(space).includes('shimmer'), `${space} has no shimmer knob`);
+  }
+  for (const space of ['gated', 'reverse']) {
+    assert.ok(!verbDeckFor(space).includes('shimmer'),
+      `${space} was handed a control that fights the only thing it is`);
+  }
+});
+
+test('the shimmer worklet is built from the shifter, not a copy of it', () => {
+  // The delay's lesson, which cost a silent processor: the parts list is by
+  // hand, and a part left off it fails on the audio thread inside a blob,
+  // where no console is listening and every test still passes.
+  const source = shimmerSource();
+  for (const name of ['shiftCore', 'shimmerRatio', 'SHIMMER_WINDOW',
+    'SHIMMER_INTERVALS', 'SHIMMER_FLOOR']) {
+    assert.ok(source.includes(name), `the audio thread needs ${name}`);
+  }
+
+  // Run what the audio thread is given and hold it against the module.
+  const theirs = new Function(
+    `${source.replace(/class HeadroomShimmer[\s\S]*$/, '')}; return shiftCore;`,
+  )();
+  const settings = { interval: 'fifthUp' };
+  const mine = shiftCore(rate).set(settings);
+  const yours = theirs(rate).set(settings);
+
+  let worst = 0;
+  for (let i = 0; i < rate; i += 1) {
+    // Bursts, so the line fills and empties, and an interval change partway,
+    // because that is arithmetic the audio thread has to get right too.
+    if (i === Math.round(rate * 0.5)) {
+      mine.set({ interval: 'octaveDown' });
+      yours.set({ interval: 'octaveDown' });
+    }
+    const x = Math.sin((2 * Math.PI * 330 * i) / rate) * (i % 9000 < 3000 ? 0.9 : 0.05);
+    mine.stereo(x, x * 0.5);
+    yours.stereo(x, x * 0.5);
+    worst = Math.max(worst, Math.abs(mine.left - yours.left), Math.abs(mine.right - yours.right));
+  }
+  assert.equal(worst, 0, 'what you hear has to be what you are marked on');
+});
+
+test('the shimmer loop is high-passed, and the corner is in the band it protects', () => {
+  // Without one the loop silts up: a downward interval walks towards DC and
+  // an upward one leaves the shifter's low spray behind to accumulate.
+  // Measured as the centroid of the tail, octave up at a shimmer of 0.9 went
+  // 330, 547, 1102, 1241 and then collapsed to 47 Hz and 35; octave down went
+  // to 7 Hz by the third second. At 120 Hz the collapse does not happen and a
+  // downward shimmer settles at 53 Hz, which is a bass note.
+  assert.ok(SHIMMER_FLOOR >= 60 && SHIMMER_FLOOR <= 250,
+    `a corner of ${SHIMMER_FLOOR} Hz is outside the range this was swept over`);
+
+  // And the knob stops short of where the loop was measured to run away:
+  // stable at 1.2, away at 1.5, so one leaves 3.5 dB in hand.
+  assert.ok(MOST_SHIMMER <= 1.2, `a shimmer of ${MOST_SHIMMER} is past what was measured safe`);
 });

@@ -38,7 +38,8 @@ import { eqSections, tuneSections } from '../plugins/eq/sections.js';
 import { LiveCompressor } from '../plugins/compressor/node.js';
 import { LiveSaturator } from '../plugins/saturation/node.js';
 import { LiveImager } from '../plugins/stereo/node.js';
-import { makeImpulse, VERB_DEFAULTS } from '../plugins/reverb/ir.js';
+import { makeImpulse, VERB_DEFAULTS, SHIMMER_SPACES } from '../plugins/reverb/ir.js';
+import { LiveShimmer } from '../plugins/reverb/node.js';
 import { ECHO_DEFAULTS } from '../plugins/delay/line.js';
 import { LiveEcho } from '../plugins/delay/node.js';
 import { COMP_DEFAULTS } from '../plugins/compressor/dsp.js';
@@ -46,6 +47,7 @@ import { HEAT_DEFAULTS } from '../plugins/saturation/shape.js';
 import { STEREO_DEFAULTS } from '../plugins/stereo/field.js';
 import { newStrip } from '../plugins/eq/filters.js';
 import { wetDry } from './effect.js';
+import { MOST_SHIMMER, SHIMMER_FLOOR } from '../plugins/reverb/shimmer.js';
 
 /* --- the EQ --------------------------------------------------------------- */
 
@@ -257,6 +259,11 @@ function convolverEffect(ctx, id, impulseOf, defaults, settings) {
     id,
     in: pair.in,
     out: pair.out,
+    // The convolver itself, for the one caller that needs to put something
+    // in a loop around it. Not the wet gain: that sits after the mix, so a
+    // loop taken from there would send the dry signal round as well and
+    // would change depth every time the mix moved.
+    node: convolver,
     params: () => ({ ...current }),
     set(next, at = ctx.currentTime) {
       current = { ...current, ...next };
@@ -270,8 +277,77 @@ function convolverEffect(ctx, id, impulseOf, defaults, settings) {
   };
 }
 
-const verbEffect = (ctx, { settings = {} } = {}) =>
-  convolverEffect(ctx, 'reverb', makeImpulse, VERB_DEFAULTS, settings);
+/**
+ * The reverb: the response, and the one path that is not one.
+ *
+ * The convolver is the reverb and stays the reverb. What is added here is a
+ * feedback path around it with a pitch shifter in it, which is the shimmer -
+ * the room going back round through itself, a bit higher each time.
+ *
+ * The shifter is the whole reason this is safe. A bare gain in a loop around
+ * a convolver is not a shimmer and not a freeze: these responses are
+ * energy-normalised, but their worst single frequency sits between 1.6 and
+ * 4.8 times above unity, so the loop rings on whichever frequency the noise
+ * happened to favour and the gain that is stable depends on which space and
+ * which decay. Measured, and the numbers are beside `SHIMMER_SAFE` in
+ * shimmer.js. A shift in the path means energy never comes back at the
+ * frequency it left, and the loop is then stable past unity.
+ *
+ * Built only when there is a shimmer to run, so a reverb at rest is the graph
+ * it has always been - one convolver and a wet/dry pair, nothing in a loop.
+ */
+async function verbEffect(ctx, { settings = {} } = {}) {
+  const base = convolverEffect(ctx, 'reverb', makeImpulse, VERB_DEFAULTS, settings);
+  let current = { ...VERB_DEFAULTS, ...settings };
+
+  // The loop: the convolver's own output, through a gain and a shifter, back
+  // into it. The gain is the knob; the shifter is what keeps the gain safe.
+  const back = ctx.createGain();
+  back.gain.value = 0;
+
+  // And a high-pass in the loop, because a loop without one silts up at the
+  // bottom: every pass shifts again, so a downward interval walks towards DC
+  // and an upward one leaves the shifter's own low-frequency spray behind to
+  // accumulate. See SHIMMER_FLOOR for the sweep that set the corner.
+  const floor = ctx.createBiquadFilter();
+  floor.type = 'highpass';
+  floor.frequency.value = SHIMMER_FLOOR;
+  floor.Q.value = Math.SQRT1_2;
+
+  const live = new LiveShimmer(ctx);
+  live.settings = { interval: current.interval ?? VERB_DEFAULTS.interval };
+  await live.start();
+  base.node.connect(back);
+  back.connect(floor);
+  floor.connect(live.input);
+  live.out.connect(base.node);
+
+  // Off on the two spaces whose whole point is that they stop - see
+  // SHIMMER_SPACES - and off wherever the knob is down.
+  const depth = (what) => (SHIMMER_SPACES.includes(what.space ?? 'room')
+    ? Math.max(0, Math.min(MOST_SHIMMER, what.shimmer ?? 0))
+    : 0);
+
+  back.gain.value = depth(current);
+
+  return {
+    ...base,
+    params: () => ({ ...current }),
+    set(next, at = ctx.currentTime) {
+      current = { ...current, ...next };
+      base.set(next, at);
+      if (next.interval !== undefined) live.set({ interval: current.interval });
+      back.gain.setTargetAtTime(depth(current), at, 0.02);
+      return this;
+    },
+    destroy() {
+      try { back.disconnect(); } catch { /* gone */ }
+      try { floor.disconnect(); } catch { /* gone */ }
+      try { live.out.disconnect(); } catch { /* gone */ }
+      base.destroy();
+    },
+  };
+}
 
 /**
  * The delay, as the loop rather than as its response.

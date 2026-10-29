@@ -3,6 +3,7 @@ import { mulberry32 } from '../../lib/random.js';
 import {
   RESPONSE_BANDS, LONGEST_TAIL, decayProfile, decayTimes, monoOf, wetDryImpulse,
 } from '../../lib/response.js';
+import { MOST_SHIMMER } from './shimmer.js';
 
 // A room, as an impulse response.
 //
@@ -32,6 +33,8 @@ export const VERB_DEFAULTS = {
   highCut: 20000,    // Hz, on the way in
   spread: 0.5,       // dispersion: how far ahead of the lows the highs arrive
   tension: 0.5,      // a spring's: how fast the bounces come round
+  shimmer: 0,        // how much of the room goes back round through a shifter
+  interval: 'octaveUp', // and what happens to its pitch on the way
   mix: 0.3,          // 0 is dry, 1 is nothing but room
 };
 
@@ -55,12 +58,12 @@ export const SPACES = {
   room: {
     label: 'Room',
     shown: 'the room',
-    knobs: ['preDelay', 'decay', 'bass', 'damping', 'size', 'early', 'lowCut', 'highCut', 'mix'],
+    knobs: ['preDelay', 'decay', 'bass', 'damping', 'size', 'early', 'lowCut', 'highCut', 'shimmer', 'mix'],
   },
   plate: {
     label: 'Plate',
     shown: 'the plate',
-    knobs: ['preDelay', 'decay', 'bass', 'damping', 'spread', 'lowCut', 'highCut', 'mix'],
+    knobs: ['preDelay', 'decay', 'bass', 'damping', 'spread', 'lowCut', 'highCut', 'shimmer', 'mix'],
   },
   gated: {
     label: 'Gated',
@@ -79,9 +82,26 @@ export const SPACES = {
     shown: 'the tank',
     // No size, no early, no bass. A tank has no walls to be a distance from
     // and nothing underneath to lift.
-    knobs: ['preDelay', 'decay', 'tension', 'spread', 'damping', 'lowCut', 'highCut', 'mix'],
+    knobs: ['preDelay', 'decay', 'tension', 'spread', 'damping', 'lowCut', 'highCut', 'shimmer', 'mix'],
   },
 };
+
+/**
+ * Which spaces take a shimmer, and the two that do not.
+ *
+ * Shimmer is on the room, the plate and the tank, and off the gate and the
+ * reverse - the same reasoning that gives a plate no Size knob. Both of those
+ * two are the room with something done to its envelope afterwards, and what
+ * is done is that it stops: a gate holds and shuts, a reverse swells and
+ * ends. A feedback path is a thing that keeps going, so handing either of
+ * them one would hand it a control that fights the only thing that makes it
+ * what it is.
+ *
+ * It is not that it cannot be done - the loop is around the convolver and
+ * does not care which response is in it. It is that a gated reverb with an
+ * endless tail is a gated reverb with the gate taken off.
+ */
+export const SHIMMER_SPACES = ['room', 'plate', 'spring'];
 
 export const SPACE_ORDER = ['room', 'plate', 'gated', 'reverse', 'spring'];
 
@@ -399,6 +419,7 @@ export const VERB_LIMITS = {
   highCut: [1500, 20000],
   spread: [0, 1],
   tension: [0, 1],
+  shimmer: [0, MOST_SHIMMER],
   mix: [0, 1],
 };
 const CACHE_SECONDS = MOST_DECAY * 1.1 + 0.5;

@@ -44,6 +44,17 @@ const VERB_KNOBS = [
   // A spring's own: how fast the bounces come round. Tighter is quicker and
   // higher, which is what tension does to a wire.
   { id: 'tension', name: 'Tension', ...span(VERB_LIMITS.tension), step: 0.01, write: (v) => `${Math.round(v * 100)} %` },
+  // The one control here that is not in the response. Everything above makes
+  // an impulse; this one sends the room back round through a pitch shifter,
+  // which is a thing with memory and has no response to be drawn from. So it
+  // moves the sound and does not move the picture - see shimmer.js.
+  {
+    id: 'shimmer',
+    name: 'Shimmer',
+    ...span(VERB_LIMITS.shimmer),
+    step: 0.01,
+    write: (v) => (v <= 0 ? 'off' : `${Math.round(v * 100)} %`),
+  },
   { id: 'mix', name: 'Mix', ...span(VERB_LIMITS.mix), step: 0.01, write: (v) => `${Math.round(v * 100)} %` },
 ];
 

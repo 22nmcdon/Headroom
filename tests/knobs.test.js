@@ -104,8 +104,16 @@ test('a value out of range is clamped and a value that is not one is ignored', (
   assert.equal(tidy('reverb', { decay: 'loud' }).decay, restFor('reverb').decay);
   assert.equal(tidy('reverb', {}).decay, restFor('reverb').decay);
 
-  // A control a later version added and this one does not have.
-  assert.equal(tidy('reverb', { shimmer: 1 }).shimmer, undefined);
+  // A control a later version added and this one does not have. It used to
+  // say `shimmer`, which was a fair guess at something the reverb might grow
+  // and is now a knob on its face - so the example has to be something that
+  // really is not there.
+  assert.equal(tidy('reverb', { chorus: 1 }).chorus, undefined);
+
+  // And the one it used to use, now that it exists, is kept and clamped like
+  // any other.
+  assert.equal(tidy('reverb', { shimmer: 0.4 }).shimmer, 0.4);
+  assert.equal(tidy('reverb', { shimmer: 9 }).shimmer, VERB_LIMITS.shimmer[1]);
 });
 
 test('an insert keeps every setting the effect has, not only the panel\'s few', () => {

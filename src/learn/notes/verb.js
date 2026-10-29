@@ -40,6 +40,27 @@ export const VERB_NOTES = {
         + 'where the reading is taken.',
     },
     {
+      heading: 'Shimmer: the room going back round through itself',
+      body: 'Send a room\u2019s output back into the room and you get a longer room. Send it '
+        + 'back through a pitch shifter and you get something that climbs: every pass is a '
+        + 'little higher than the one before, so the tail does not just last, it rises. '
+        + 'That is the sound, and it is older than the gear \u2014 it was two tape machines '
+        + 'and a reverb plate before anybody built a box for it.\n\n'
+        + 'The pitch shift is not decoration, it is the only reason the thing is safe. A '
+        + 'plain gain in a loop around a reverb does not make a longer reverb; it makes a '
+        + 'resonator. A room\u2019s response is not flat, so some one frequency in it is '
+        + 'loudest, and that is the frequency a feedback loop finds and holds. Measured '
+        + 'here, a chord sent round at half gain came back as the room\u2019s own worst '
+        + 'note and nothing else within six seconds. Shifting the pitch means the energy '
+        + 'never returns to the frequency it left, so there is nothing for it to build on '
+        + '\u2014 it climbs out of hearing instead.\n\n'
+        + 'Which is why the interval can be set and cannot be set to \u201cnone\u201d. '
+        + 'Everything else on this face is in the picture of the response; this one is not, '
+        + 'because a thing that depends on what it has already produced has no single '
+        + 'response to draw. The gate and the reverse do not have it at all: their whole '
+        + 'point is that they stop.',
+    },
+    {
       heading: 'How a decay time is measured',
       body: 'Not by watching the tail and guessing. The response is integrated backwards '
         + 'from its end, which turns a noisy decay into a smooth curve, and the time is '

@@ -2,6 +2,8 @@
 
     plugin.js   the face
     ir.js       the impulse response, built rather than sampled
+    shimmer.js  the pitch shifter, which is the one part that is not a response
+    node.js     that shifter on the audio thread, and the fallback behind it
 
 Built rather than sampled because every parameter on the face has to move
 something in the response, and a sampled tail can only be filtered and faded.
@@ -73,7 +75,65 @@ middle of the reading and the mid band's skirt takes the measurement over -
 the damping knob went down and then back up. An octave early, at 1500, the
 mid band is 24 dB down by 3000. `BAND_EDGES` in ir.js has the sweep.
 
-Everything here is still one impulse response per setting, convolved,
-measured, displayed and marked. That is what rules out shimmer and freeze: a
-pitch shifter inside a feedback loop and a loop gain of one are not linear
-time-invariant, so neither has an impulse response to be the truth.
+## The shimmer, which is not a response
+
+Everything above is one impulse response per setting, convolved, measured,
+displayed and marked, and all five spaces still are. The shimmer is not: it is
+the room's own output sent back into the room through a pitch shifter, and a
+thing whose output depends on what it has already produced has no response to
+be the truth of it. So it is a control and not a question - measured, the
+reading that marks a reverb reads exactly 0.0000 dB for every shimmer setting,
+where a decay moved three tenths of a second reads 1.63. Same category as the
+delay's time-change modes.
+
+With the knob down the node is not built and the graph is the graph it has
+always been. All fifty-five responses are bit-identical with it in the file.
+
+**A bare gain in a loop around a convolver does not work, and the measurement
+is worth keeping because it is the first thing anybody tries.** These responses
+are energy-normalised to -3.01 dB apiece, which looks like it should make a
+loop gain of one marginally stable. Energy says nothing about it. What decides
+whether a feedback loop runs away is the worst single frequency in the
+response, and a noise-like tail of a hundred thousand taps is nowhere near
+flat: the peak of |H| runs from 1.6 to 4.8 depending on the space and the
+decay, so the gain that is safe is somewhere between 0.21 and 0.64 and depends
+on knobs. Below that it does not do the job either - at a gain of 0.5 a chord
+came back as the room's own worst frequency and nothing else, with the energy
+at the chord's partials falling from -4.6 dB to -64 over six seconds. A gain in
+a loop around a reverb is a resonator, not a reverb.
+
+**The shift is what makes it safe.** Energy that comes back at a different
+frequency cannot resonate with the frequency it left, and it climbs out of the
+band instead. The control case says it plainly: a shifter set to leave the
+pitch alone takes the same loop to +254 dB in ten seconds, where every real
+interval stays bounded. Measured as the peak per four-second block over twenty
+seconds, the loop is stable at a gain of 1.2 and away at 1.5, so the knob stops
+at one with three and a half decibels in hand.
+
+**It climbs, which is the thing it is named for.** The centroid of each second
+of the tail, at a shimmer of 0.9, octave up: 346, 577, 1099, 1179 Hz. A fifth
+up: 278, 460, 933, 1180. Turn it down and it climbs less far and ends sooner.
+
+The shifter is a crossfaded delay line and crude - between two and twenty per
+cent of its output lands within a semitone of the pitch asked for, and it
+breathes four to six decibels on a bare tone. `SHIMMER_WINDOW` has those
+numbers and the two measurement mistakes they cost: a single-tone probe of the
+window length measures a coincidence rather than the window, and growing the
+window with the interval to match the lap rate makes four of six intervals
+worse. What rescues it is that its output is only ever heard through the room,
+which smears it - the shimmer tail ripples 1.9 to 2.5 dB around its own slope.
+
+The loop is high-passed at 120 Hz, because without one it silts up at the
+bottom: a downward interval walks towards DC and an upward one leaves the
+shifter's own low spray behind to accumulate. Octave up collapsed from 1241 Hz
+to 47 and then 35; octave down reached 7 Hz by the third second. See
+`SHIMMER_FLOOR`.
+
+Gated and reverse do not get one. Both are the room with something done to
+its envelope afterwards, and what is done is that it stops - a feedback path
+is a thing that keeps going, so handing either of them one would hand it a
+control that fights the only thing that makes it what it is. It is not that it
+cannot be done; a gated reverb with an endless tail is a gated reverb with the
+gate taken off.
+
+Freeze is still not built.
