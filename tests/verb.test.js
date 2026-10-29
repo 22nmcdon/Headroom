@@ -9,7 +9,10 @@ import {
   shiftCore, shimmerRatio, SHIMMER_INTERVALS, SHIMMER_WINDOW, MOST_SHIMMER,
   SHIMMER_FLOOR,
 } from '../src/plugins/reverb/shimmer.js';
-import { shimmerSource } from '../src/plugins/reverb/node.js';
+import {
+  freezeCore, FREEZE_SECONDS, FREEZE_FADE,
+} from '../src/plugins/reverb/freeze.js';
+import { shimmerSource, freezeSource } from '../src/plugins/reverb/node.js';
 import { decayReading } from '../src/lib/response.js';
 import { distance } from '../src/gap.js';
 import {
@@ -1010,4 +1013,200 @@ test('the shimmer loop is high-passed, and the corner is in the band it protects
   // And the knob stops short of where the loop was measured to run away:
   // stable at 1.2, away at 1.5, so one leaves 3.5 dB in hand.
   assert.ok(MOST_SHIMMER <= 1.2, `a shimmer of ${MOST_SHIMMER} is past what was measured safe`);
+});
+
+/* --- the freeze ----------------------------------------------------------- */
+
+/** A decaying noise tail, which is what a wet output is. */
+function noiseTail(n) {
+  let seed = 7717;
+  let lp = 0;
+  const out = new Float32Array(n);
+  for (let i = 0; i < n; i += 1) {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    lp += (((seed / 0x3fffffff) - 1) - lp) * 0.25;
+    out[i] = lp * Math.exp(-i / (rate * 1.2)) * 0.5;
+  }
+  return out;
+}
+
+/** The core run over a tail, frozen partway. */
+function heldTail(freezeAt, seconds = 6) {
+  const core = freezeCore(rate);
+  const src = noiseTail(Math.round(rate * seconds));
+  const out = new Float32Array(src.length);
+  for (let i = 0; i < out.length; i += 1) {
+    if (i === Math.round(freezeAt * rate)) core.set({ freeze: true });
+    core.stereo(src[i], src[i]);
+    out[i] = core.left;
+  }
+  return out;
+}
+
+test('a frozen room holds its level instead of decaying', () => {
+  // The whole of what the word means, and the thing the first version did not
+  // do. It kept recording while it played, so the write head walked through
+  // the ring the loop was reading and every pass played newer material:
+  // measured, a tail frozen at three seconds read -44.1, -44.4 and then -51.8
+  // dB over the following seconds, still decaying. Recording stops now, and
+  // the same measurement reads -37.0, -36.9, -36.9.
+  const out = heldTail(1.5);
+  const rms = (from, to) => {
+    let sum = 0;
+    for (let i = Math.round(from * rate); i < Math.round(to * rate); i += 1) sum += out[i] * out[i];
+    return 20 * Math.log10(Math.sqrt(sum / ((to - from) * rate)) + 1e-20);
+  };
+
+  const held = [rms(3, 4), rms(4, 5), rms(5, 6)];
+  for (const level of held) {
+    assert.ok(Math.abs(level - held[0]) < 0.2,
+      `the held level wandered: ${held.map((l) => l.toFixed(1)).join(', ')} dB`);
+  }
+
+  // And it is silent until it is pressed: this is a voice beside the room,
+  // not in series with it, so before the button there is nothing of it at all.
+  let before = 0;
+  for (let i = 0; i < Math.round(1.5 * rate); i += 1) before = Math.max(before, Math.abs(out[i]));
+  assert.equal(before, 0, 'the freeze voice made a sound before it was frozen');
+});
+
+test('a frozen room really is a loop, to the sample', () => {
+  // Not approximately. Two passes have to be the same samples, because they
+  // are the same samples - and when they were not, the reason was that
+  // something was still writing to them.
+  const out = heldTail(1.5);
+  const fade = Math.round(FREEZE_FADE * rate);
+  const body = Math.round(FREEZE_SECONDS * rate) - fade;
+  const from = Math.round(1.5 * rate) + fade;
+
+  let worst = 0;
+  for (let i = 0; i < body - fade; i += 1) {
+    worst = Math.max(worst, Math.abs(out[from + i] - out[from + body + i]));
+  }
+  assert.equal(worst, 0, 'two passes of the same loop differed outside the seam');
+});
+
+test('the seam does not click, and that is what the crossfade is for', () => {
+  // Measured as the biggest sample-to-sample step - which is what an ear
+  // hears as a click - at the seam against the biggest step anywhere in the
+  // loop's body. With no crossfade the seam is 1.33 times the body's worst
+  // step, which is a discontinuity bigger than anything in the material. With
+  // one it is under a half.
+  const out = heldTail(1.5);
+  const fade = Math.round(FREEZE_FADE * rate);
+  const body = Math.round(FREEZE_SECONDS * rate) - fade;
+  const seam = Math.round(1.5 * rate) + body;
+
+  const step = (from, to) => {
+    let worst = 0;
+    for (let i = Math.max(1, from); i < to; i += 1) {
+      worst = Math.max(worst, Math.abs(out[i] - out[i - 1]));
+    }
+    return worst;
+  };
+
+  const atSeam = step(seam - 8, seam + 8);
+  const elsewhere = step(seam + 2000, seam + 20000);
+  assert.ok(atSeam < elsewhere,
+    `the seam stepped ${atSeam.toExponential(2)} against ${elsewhere.toExponential(2)} in the body`);
+});
+
+test('the crossfade is equal power, because the two ends are uncorrelated', () => {
+  // The measurement that chose the law, and the reason it is not the same
+  // answer as the delay's time-change fade. There the two sides are one sound
+  // at two delays, which is correlated and dips whatever you do. Here they
+  // are two different parts of a noise tail, so their energies add and
+  // weights that sum to one in power hold the level where weights that sum to
+  // one in amplitude leave a three-decibel hole:
+  //
+  //     equal power, 10 ms     -0.01 dB
+  //     equal gain, 10 ms      -2.95 dB
+  //
+  // Asserted on the shape of the weights rather than on a rendered level,
+  // because that is the thing that would be wrong if somebody changed it.
+  const fade = Math.round(FREEZE_FADE * rate);
+  for (const at of [0, fade / 4, fade / 2, (fade * 3) / 4, fade - 1]) {
+    const t = at / fade;
+    const rising = Math.sin((t * Math.PI) / 2);
+    const falling = Math.cos((t * Math.PI) / 2);
+    assert.ok(Math.abs(rising * rising + falling * falling - 1) < 1e-12,
+      `at ${(100 * t).toFixed(0)} % through the fade the two weights do not sum to one in power`);
+  }
+});
+
+test('a freeze pressed early holds what there is, not the silence in front of it', () => {
+  // The ring takes a second to fill, and a freeze can be pressed before that.
+  // What it must not do is loop the zeros the ring still holds - half a second
+  // of room and half a second of nothing, once a second, is a very audible
+  // fault. Measured: frozen a fifth of a second in, the level holds flat.
+  const out = heldTail(0.2);
+  const rms = (from, to) => {
+    let sum = 0;
+    for (let i = Math.round(from * rate); i < Math.round(to * rate); i += 1) sum += out[i] * out[i];
+    return 20 * Math.log10(Math.sqrt(sum / ((to - from) * rate)) + 1e-20);
+  };
+  const held = [rms(1, 2), rms(2, 3), rms(3, 4), rms(4, 5)];
+  for (const level of held) {
+    assert.ok(Math.abs(level - held[0]) < 0.2,
+      `frozen early, the level went ${held.map((l) => l.toFixed(1)).join(', ')} dB`);
+  }
+  // And there is no silent stretch in it, which is what looping the unwritten
+  // part of the ring would sound like.
+  const per = Math.round(rate * 0.05);
+  for (let f = Math.round(rate * 1.5); f + per < Math.round(rate * 4); f += per) {
+    let peak = 0;
+    for (let i = f; i < f + per; i += 1) peak = Math.max(peak, Math.abs(out[i]));
+    assert.ok(peak > 1e-5, `a silent 50 ms gap at ${(f / rate).toFixed(2)} s`);
+  }
+});
+
+test('the freeze worklet is built from the core, not a copy of it', () => {
+  const source = freezeSource();
+  for (const name of ['freezeCore', 'FREEZE_SECONDS', 'FREEZE_FADE']) {
+    assert.ok(source.includes(name), `the audio thread needs ${name}`);
+  }
+
+  // It is a param and not a message, because a freeze is a moment rather than
+  // a mode - and because a message is never delivered inside an offline
+  // render, which is where this is tested. Measured before it was a param: a
+  // freeze scheduled through the port read identically to one never pressed,
+  // at every time it was tried.
+  assert.ok(source.includes('parameterDescriptors') && source.includes("name: 'freeze'"),
+    'the freeze has to be an AudioParam to be scheduled or rendered');
+
+  const theirs = new Function(
+    `${source.replace(/class HeadroomFreeze[\s\S]*$/, '')}; return freezeCore;`,
+  )();
+  const mine = freezeCore(rate);
+  const yours = theirs(rate);
+  const src = noiseTail(Math.round(rate * 3));
+
+  let worst = 0;
+  for (let i = 0; i < src.length; i += 1) {
+    if (i === Math.round(rate * 1.2)) {
+      mine.set({ freeze: true });
+      yours.set({ freeze: true });
+    }
+    mine.stereo(src[i], src[i] * 0.5);
+    yours.stereo(src[i], src[i] * 0.5);
+    worst = Math.max(worst, Math.abs(mine.left - yours.left), Math.abs(mine.right - yours.right));
+  }
+  assert.equal(worst, 0, 'what you hear has to be what you are marked on');
+});
+
+test('a freeze does not change the response either', () => {
+  // Same promise the shimmer makes, for the same reason: it is not in the
+  // impulse, and the impulse is what is drawn and marked.
+  for (const space of SPACE_ORDER) {
+    const without = room({ space });
+    const with_ = room({ space, freeze: true });
+    assert.equal(with_.length, without.length, `${space} changed length`);
+    for (let c = 0; c < without.channels.length; c += 1) {
+      for (let i = 0; i < without.length; i += 1) {
+        if (with_.channels[c][i] !== without.channels[c][i]) {
+          assert.fail(`${space} with a freeze differs at sample ${i}`);
+        }
+      }
+    }
+  }
 });

@@ -1,5 +1,7 @@
 import * as shimmer from './shimmer.js';
 import { shiftCore, shimmerRatio } from './shimmer.js';
+import * as freeze from './freeze.js';
+import { freezeCore } from './freeze.js';
 import { workletModule, installWorklet } from '../../lib/worklet.js';
 
 /**
@@ -140,6 +142,148 @@ export class LiveShimmer {
   set(settings) {
     this.settings = { ...this.settings, ...settings };
     if (this.node?.port) this.node.port.postMessage(this.settings);
+    else this.core?.set(this.settings);
+    return this;
+  }
+}
+
+/**
+ * And the freeze, which is the reverb's other non-response.
+ *
+ * A separate processor rather than a second job for the shifter, because the
+ * two sit in different places: the shifter is inside a feedback path around
+ * the convolver and this is a parallel voice beside it. One node doing both
+ * would have to be in two places at once.
+ */
+const FREEZE_PARTS = [freezeCore];
+
+const FREEZE_CONSTANTS = Object.fromEntries(
+  Object.entries(freeze).filter(([, value]) => typeof value !== 'function'),
+);
+
+/**
+ * Two in, two out, silent until it is frozen - and no early exit, for the
+ * same reason as the others.
+ *
+ * This one needs it most. A freeze is pressed after something has stopped as
+ * often as during it, and by then the convolver upstream may be handing this
+ * an empty input array. Bailing out on that would mean the ring stops being
+ * written in exactly the moment somebody is about to ask it to hold what is
+ * in it.
+ *
+ * The button is an AudioParam and not a message, which every other processor
+ * here uses. A message is delivered on the audio thread's own schedule, which
+ * is fine for a mode and wrong for a moment: a freeze is pressed at a time,
+ * and what it holds is whatever was sounding then. It also cannot be tested
+ * offline, because an offline render finishes before any message is delivered
+ * - measured, a freeze scheduled through the port read identically to one
+ * never pressed at every time it was tried, while the shimmer beside it
+ * worked. A param is sample-accurate and renders.
+ */
+const FREEZE_PROCESSOR = `class HeadroomFreeze extends AudioWorkletProcessor {
+  static get parameterDescriptors() {
+    return [{ name: 'freeze', defaultValue: 0, minValue: 0, maxValue: 1, automationRate: 'k-rate' }];
+  }
+
+  constructor(options) {
+    super();
+    this.core = freezeCore(sampleRate);
+    if (options?.processorOptions) this.core.set(options.processorOptions);
+    this.held = false;
+    this.port.onmessage = (event) => this.core.set(event.data);
+  }
+
+  process(inputs, outputs, params) {
+    const outL = outputs[0][0];
+    const outR = outputs[0][1] ?? outL;
+    const ins = inputs[0];
+    const left = ins && ins[0];
+    const right = (ins && ins[1]) ?? left;
+
+    // Per block, which is 2.7 ms - finer than anybody presses a button, and
+    // the core only cares when the answer changes.
+    const want = params.freeze[0] >= 0.5;
+    if (want !== this.held) {
+      this.held = want;
+      this.core.set({ freeze: want });
+    }
+
+    for (let i = 0; i < outL.length; i += 1) {
+      this.core.stereo(left ? left[i] : 0, right ? right[i] : 0);
+      outL[i] = this.core.left;
+      outR[i] = this.core.right;
+    }
+
+    return true;
+  }
+}
+
+registerProcessor('headroom-freeze', HeadroomFreeze);`;
+
+/** The freeze worklet's source, as the audio thread will see it. */
+export const freezeSource = () => workletModule({
+  constants: FREEZE_CONSTANTS,
+  parts: FREEZE_PARTS,
+  processor: FREEZE_PROCESSOR,
+});
+
+/** A held room in a graph, with the main-thread fallback behind it. */
+export class LiveFreeze {
+  constructor(ctx) {
+    this.ctx = ctx;
+    this.settings = {};
+    this.node = null;
+    this.core = null;
+  }
+
+  async start() {
+    const ok = await installWorklet(this.ctx, freezeSource(), 'headroom-freeze');
+    if (ok) {
+      this.node = new AudioWorkletNode(this.ctx, 'headroom-freeze', {
+        numberOfInputs: 1,
+        numberOfOutputs: 1,
+        outputChannelCount: [2],
+        processorOptions: { ...this.settings },
+      });
+      return this;
+    }
+
+    const size = 1024;
+    this.core = freezeCore(this.ctx.sampleRate).set(this.settings);
+    const node = this.ctx.createScriptProcessor(size, 2, 2);
+    node.onaudioprocess = (event) => {
+      const inL = event.inputBuffer.getChannelData(0);
+      const inR = event.inputBuffer.numberOfChannels > 1
+        ? event.inputBuffer.getChannelData(1) : inL;
+      const outL = event.outputBuffer.getChannelData(0);
+      const outR = event.outputBuffer.numberOfChannels > 1
+        ? event.outputBuffer.getChannelData(1) : null;
+      for (let i = 0; i < outL.length; i += 1) {
+        this.core.stereo(inL[i], inR[i]);
+        outL[i] = this.core.left;
+        if (outR) outR[i] = this.core.right;
+      }
+    };
+    this.node = node;
+    return this;
+  }
+
+  get input() { return this.node; }
+
+  get out() { return this.node; }
+
+  /**
+   * `at` is honoured, because for this one it is the point.
+   *
+   * The worklet path sets the param at that time, which is sample-accurate.
+   * The fallback has no param to set, so it changes when it is told and the
+   * time is dropped - a ScriptProcessor is already a compromise and this is
+   * the smaller half of it.
+   */
+  set(settings, at = this.ctx.currentTime) {
+    this.settings = { ...this.settings, ...settings };
+    const param = this.node?.parameters?.get('freeze');
+    if (param) param.setValueAtTime(this.settings.freeze ? 1 : 0, at);
     else this.core?.set(this.settings);
     return this;
   }

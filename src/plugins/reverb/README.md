@@ -2,8 +2,9 @@
 
     plugin.js   the face
     ir.js       the impulse response, built rather than sampled
-    shimmer.js  the pitch shifter, which is the one part that is not a response
-    node.js     that shifter on the audio thread, and the fallback behind it
+    shimmer.js  the pitch shifter, one of the two parts that are not a response
+    freeze.js   and the held loop, which is the other
+    node.js     both on the audio thread, and the fallbacks behind them
 
 Built rather than sampled because every parameter on the face has to move
 something in the response, and a sampled tail can only be filtered and faded.
@@ -75,7 +76,7 @@ middle of the reading and the mid band's skirt takes the measurement over -
 the damping knob went down and then back up. An octave early, at 1500, the
 mid band is 24 dB down by 3000. `BAND_EDGES` in ir.js has the sweep.
 
-## The shimmer, which is not a response
+## The two things that are not responses
 
 Everything above is one impulse response per setting, convolved, measured,
 displayed and marked, and all five spaces still are. The shimmer is not: it is
@@ -136,4 +137,71 @@ control that fights the only thing that makes it what it is. It is not that it
 cannot be done; a gated reverb with an endless tail is a gated reverb with the
 gate taken off.
 
-Freeze is still not built.
+## Freeze
+
+The other thing the README used to say convolution ruled out, and the reason
+it gave was a loop gain of one. That reason turned out to be right in a way
+worth keeping: the shimmer work measured what a gain of one around a convolver
+actually does, and it is not a sustain. So a freeze does not recirculate at
+all. It keeps the last second of what the room produced and plays it round.
+
+That makes it a sampler sitting on the wet output, and saying so is more
+honest than dressing it up. What makes it a reverb control rather than a
+sampler is what it captures: a reverb tail is noise, and noise is the one
+thing a one-second loop can repeat without anybody hearing the repeat.
+
+It is a voice beside the room rather than something in series with it, so with
+the button up it contributes nothing and the graph is what it was. Checked by
+rendering the reverb through the real graph on all five spaces and comparing
+sample for sample against the commit before: identical, with the summing gain
+and the freeze node both in place.
+
+**Holding the output beats feeding the room**, which was not what I expected.
+The other design is to capture a slice of the dry input and keep feeding it to
+the room, so the room goes on generating rather than repeating - and 1.8
+seconds of tail ought to smear the seam away. Measured as the modulation of
+the output at the loop's own rate:
+
+    loop     holding the output   feeding the room
+    0.25 s          0.5 %                -
+    0.5 s           1.6                12.7 %
+    1 s             3.9                 9.1
+
+Feeding the room loops the *input*, and the input is whatever was played - a
+chord, usually. A seam in a tonal signal is a discontinuity in something an
+ear tracks, and the tail smears it without removing it. Holding the output
+loops noise, where a seam has nothing to be discontinuous against.
+
+**The crossfade is not optional and two milliseconds of it is enough.**
+Measured as the biggest sample-to-sample step at the seam against the biggest
+step in the loop's body, which is what an ear hears as a click: with no fade
+the seam is 1.33 times the body's worst step - a discontinuity bigger than
+anything in the material - and with any fade at all it is under a half.
+Everything past two milliseconds is margin; it is 25 ms.
+
+**It is equal power, and that is the opposite of the delay's fade.** The two
+ends of this seam are different parts of a noise tail, so their energies add
+and an equal-gain fade leaves a hole: measured, -0.01 dB through an
+equal-power fade against -2.95 dB through an equal-gain one, which is the
+three decibels two uncorrelated halves at half amplitude come to. The delay's
+time-change fade crosses one sound at two delays, which is correlated, and no
+law avoids the dip there. Correlated or not is the whole question and it has
+a different answer in the two places.
+
+**Recording stops when the button goes down**, which sounds obvious and was
+the first bug. Writing while playing means the write head walks through the
+ring the loop is reading, so every pass plays newer material than the one
+before: measured, a tail frozen at three seconds read -44.1, -44.4 and then
+-51.8 dB, still decaying, and two passes differed where they have to be
+identical. They differ by exactly zero now.
+
+**The button is an AudioParam and not a port message.** Every other processor
+here takes its settings by message, which is right for a mode and wrong for a
+moment - and a message is never delivered inside an offline render, so a
+freeze scheduled that way read identically to one never pressed, at every
+time it was tried, while the shimmer beside it worked. A param is
+sample-accurate and renders.
+
+A freeze pressed before the ring has filled loops what there is. And a freeze
+pressed after the room has finished holds silence, which is correct: what it
+holds is what was there.

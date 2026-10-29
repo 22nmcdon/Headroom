@@ -61,6 +61,25 @@ export const VERB_NOTES = {
         + 'point is that they stop.',
     },
     {
+      heading: 'Freeze: holding what was there',
+      body: 'A reverb that never ends sounds like a good idea and is harder than it '
+        + 'looks. The obvious way - turn the feedback up to one - does not give you a '
+        + 'room that goes on forever, it gives you a resonator: a room\u2019s response '
+        + 'has a loudest frequency, and a loop at unity finds it and rings on it until '
+        + 'that is all there is left. Measured here, six seconds was enough to turn a '
+        + 'chord into one note.\n\n'
+        + 'So this does not loop the reverb, it loops the sound. The last second of what '
+        + 'the room produced is kept and played round, which holds exactly what was '
+        + 'there rather than a filtered version of it. It is a sampler wearing a reverb '
+        + 'control, and the thing that makes it work is what it is sampling: a reverb '
+        + 'tail is noise, and noise is the one material a short loop can repeat without '
+        + 'anybody hearing the repeat.\n\n'
+        + 'Which is why you press it while something is sounding rather than after. '
+        + 'Press it when the room has already finished and it holds silence, because '
+        + 'silence is what was there. And you can play over the top of it \u2014 the held '
+        + 'loop sits beside the room, not in place of it.',
+    },
+    {
       heading: 'How a decay time is measured',
       body: 'Not by watching the tail and guessing. The response is integrated backwards '
         + 'from its end, which turns a noisy decay into a smooth curve, and the time is '

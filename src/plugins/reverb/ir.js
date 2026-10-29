@@ -35,6 +35,7 @@ export const VERB_DEFAULTS = {
   tension: 0.5,      // a spring's: how fast the bounces come round
   shimmer: 0,        // how much of the room goes back round through a shifter
   interval: 'octaveUp', // and what happens to its pitch on the way
+  freeze: false,     // hold the last second of the room and play it round
   mix: 0.3,          // 0 is dry, 1 is nothing but room
 };
 

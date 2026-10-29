@@ -39,7 +39,7 @@ import { LiveCompressor } from '../plugins/compressor/node.js';
 import { LiveSaturator } from '../plugins/saturation/node.js';
 import { LiveImager } from '../plugins/stereo/node.js';
 import { makeImpulse, VERB_DEFAULTS, SHIMMER_SPACES } from '../plugins/reverb/ir.js';
-import { LiveShimmer } from '../plugins/reverb/node.js';
+import { LiveShimmer, LiveFreeze } from '../plugins/reverb/node.js';
 import { ECHO_DEFAULTS } from '../plugins/delay/line.js';
 import { LiveEcho } from '../plugins/delay/node.js';
 import { COMP_DEFAULTS } from '../plugins/compressor/dsp.js';
@@ -235,7 +235,13 @@ async function stereoEffect(ctx, { settings = STEREO_DEFAULTS } = {}) {
 function convolverEffect(ctx, id, impulseOf, defaults, settings) {
   const convolver = ctx.createConvolver();
   convolver.normalize = false;
-  const pair = wetDry(ctx, convolver);
+  // The wet side is summed rather than taken straight off the convolver, so
+  // something else can be added to it - the reverb's freeze is a second voice
+  // alongside the room rather than something in series with it. A gain of one
+  // multiplies by one exactly, so this costs the responses nothing.
+  const wetSum = ctx.createGain();
+  convolver.connect(wetSum);
+  const pair = wetDry(ctx, convolver, wetSum);
 
   let current = { ...defaults, ...settings };
   let stamp = null;
@@ -264,6 +270,9 @@ function convolverEffect(ctx, id, impulseOf, defaults, settings) {
     // loop taken from there would send the dry signal round as well and
     // would change depth every time the mix moved.
     node: convolver,
+    // And where to add a second wet voice, which sits under the mix knob with
+    // the room because it is as wet as the room is.
+    wetSum,
     params: () => ({ ...current }),
     set(next, at = ctx.currentTime) {
       current = { ...current, ...next };
@@ -322,6 +331,17 @@ async function verbEffect(ctx, { settings = {} } = {}) {
   floor.connect(live.input);
   live.out.connect(base.node);
 
+  // And the freeze, which is not in that loop and must not be. A loop gain of
+  // one around a convolver is the unstable case this whole folder now has a
+  // measurement for, so holding a room means keeping what it produced rather
+  // than sending it round again: a second voice beside the room, reading the
+  // same wet signal and playing its last second back.
+  const held = new LiveFreeze(ctx);
+  held.settings = { freeze: false };
+  await held.start();
+  base.node.connect(held.input);
+  held.out.connect(base.wetSum);
+
   // Off on the two spaces whose whole point is that they stop - see
   // SHIMMER_SPACES - and off wherever the knob is down.
   const depth = (what) => (SHIMMER_SPACES.includes(what.space ?? 'room')
@@ -337,6 +357,7 @@ async function verbEffect(ctx, { settings = {} } = {}) {
       current = { ...current, ...next };
       base.set(next, at);
       if (next.interval !== undefined) live.set({ interval: current.interval });
+      if (next.freeze !== undefined) held.set({ freeze: !!current.freeze }, at);
       back.gain.setTargetAtTime(depth(current), at, 0.02);
       return this;
     },
@@ -344,6 +365,7 @@ async function verbEffect(ctx, { settings = {} } = {}) {
       try { back.disconnect(); } catch { /* gone */ }
       try { floor.disconnect(); } catch { /* gone */ }
       try { live.out.disconnect(); } catch { /* gone */ }
+      try { held.out.disconnect(); } catch { /* gone */ }
       base.destroy();
     },
   };

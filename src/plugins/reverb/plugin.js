@@ -226,6 +226,12 @@ export class VerbPlugin {
               ${SPACE_ORDER.map((id) => `<button class="ab-btn${id === spaceOf(this.settings) ? ' is-on' : ''}"
                 type="button" data-space="${id}">${SPACES[id].label}</button>`).join('')}
             </div>
+            <!-- Beside the spaces rather than on the deck, because it is not a
+                 knob: it is a thing you press while something is sounding, and
+                 what it holds is whatever was sounding when you pressed it. -->
+            <label class="toggle">
+              <input type="checkbox" id="verbFreeze"> Freeze
+            </label>
           </div>
           <div class="plugin-controls" id="verbKnobs"></div>
         </div>
@@ -264,6 +270,12 @@ export class VerbPlugin {
       if (!dial || !this.interactive) return;
       const knob = VERB_KNOBS.find((k) => k.id === dial.dataset.dial);
       this.settings[knob.id] = offDial(knob, dial.value);
+      this.changed();
+    });
+
+    this.el.querySelector('#verbFreeze').addEventListener('change', (e) => {
+      if (!this.interactive) return;
+      this.settings.freeze = e.target.checked;
       this.changed();
     });
 
@@ -366,6 +378,8 @@ export class VerbPlugin {
         dial.value = dialOf(knob, this.settings[knob.id]).at;
       }
     }
+    const frozen = this.el.querySelector('#verbFreeze');
+    if (frozen) frozen.checked = !!this.settings.freeze;
     dressKnobs(this.el);
   }
 
