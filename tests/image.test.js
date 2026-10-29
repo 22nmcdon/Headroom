@@ -22,7 +22,9 @@ import {
 import { pitchCore } from '../src/lib/pitch.js';
 import { mulberry32 } from '../src/lib/random.js';
 import { STEREO_WORK as panning } from '../src/learn/work/panning.js';
-import { PAN_LAWS, panGains, panMatrix, panPair } from '../src/plugins/stereo/pan.js';
+import {
+  PAN_LAWS, panGains, panMatrix, panPair, skewMatrix, timesMatrix, placeMatrix,
+} from '../src/plugins/stereo/pan.js';
 import { panDeck } from '../src/plugins/stereo/plugin.js';
 
 const rate = 48000;
@@ -1073,4 +1075,190 @@ test('a quiet band at the top does not hijack the worst-band search', () => {
   // And two identical images still read as identical, which is the floor the
   // extra band could have lifted off zero.
   assert.equal(stereoDistance(flat, flat), 0, 'an image against itself is no distance at all');
+});
+
+/* --- turning the field, and leaning it ------------------------------------ */
+
+test('rotation is a turn, which is the one thing the other two placements are not', () => {
+  // The matrix is orthonormal, so it cannot change how much there is - only
+  // where it is. Balance can and does, because folding one channel into the
+  // other adds them. Measured on a mono source, which both place identically:
+  //
+  //                     width   balance   energy
+  //     untouched      -30.00     0.00     -1.76
+  //     balance 0.5     -7.66    -7.66     +0.56
+  //     rotate 22.5     -7.66    -7.66     -1.76
+  const bed = pair(2, sameBoth);
+  const hear = (s) => {
+    const out = runImager(bed.left, bed.right, rate, { ...STEREO_DEFAULTS, ...s });
+    return widthOf(out.left, out.right);
+  };
+
+  const flat = hear({});
+  const turned = hear({ panMode: 'rotate', rotate: 22.5 });
+  const folded = hear({ pan: 0.5 });
+
+  assert.ok(Math.abs(turned.energy - flat.energy) < 0.01,
+    `a turn cannot change the total: ${flat.energy.toFixed(2)} to ${turned.energy.toFixed(2)}`);
+  assert.ok(folded.energy > flat.energy + 2,
+    `where balance can: ${flat.energy.toFixed(2)} to ${folded.energy.toFixed(2)}`);
+
+  // And they put it in the same place, which is why the difference is worth
+  // teaching rather than obvious.
+  assert.ok(Math.abs(turned.balance - folded.balance) < 0.05,
+    `both place it the same: ${turned.balance.toFixed(2)} against ${folded.balance.toFixed(2)}`);
+
+  // The turn holds its energy at every angle, not just that one.
+  for (const rotate of [-45, -20, 10, 45]) {
+    const at = hear({ panMode: 'rotate', rotate });
+    assert.ok(Math.abs(at.energy - flat.energy) < 0.01,
+      `${rotate} degrees changed the total by ${(at.energy - flat.energy).toFixed(3)} dB`);
+  }
+});
+
+test('a rotation of 45 degrees swaps the width and the balance', () => {
+  // What rotation is, at the end of its travel: the matrix sends the side to
+  // one speaker and the middle to the other - L = sqrt(2) S and R = sqrt(2) M
+  // exactly - so the output's balance is the input's width and the other way
+  // about. Measured on a source reading -4.42 width and 0.06 balance, a 45
+  // degree turn reads -0.06 width and -4.42 balance.
+  const bed = pair(2, mostlyShared);
+  const read = (s) => {
+    const out = runImager(bed.left, bed.right, rate, { ...STEREO_DEFAULTS, ...s });
+    return widthOf(out.left, out.right);
+  };
+
+  const flat = read({});
+  const turned = read({ panMode: 'rotate', rotate: 45 });
+  assert.ok(Math.abs(turned.balance - flat.width) < 0.05,
+    `the balance should become the width: ${flat.width.toFixed(2)} against ${turned.balance.toFixed(2)}`);
+  assert.ok(Math.abs(turned.width + flat.balance) < 0.05,
+    `and the width the balance: ${flat.balance.toFixed(2)} against ${turned.width.toFixed(2)}`);
+});
+
+test('leaning the width leaves the middle exactly where it was', () => {
+  // The whole of what asymmetry is for, and the thing no placement can do. A
+  // mono source has no side, so a control that only moves side does not know
+  // it is there - measured to the last bit, where a pan at the same setting
+  // would have shut one channel.
+  const bed = pair(2, sameBoth);
+  const read = (s) => {
+    const out = runImager(bed.left, bed.right, rate, { ...STEREO_DEFAULTS, ...s });
+    return widthOf(out.left, out.right);
+  };
+
+  const flat = read({});
+  for (const asymmetry of [-1, -0.5, 0.5, 1]) {
+    const leaned = read({ asymmetry });
+    assert.ok(Math.abs(leaned.balance - flat.balance) < 1e-6,
+      `a lean of ${asymmetry} moved a mono source to ${leaned.balance.toFixed(4)}`);
+    assert.equal(leaned.width, flat.width, 'and it has no side to lean');
+  }
+
+  // On a stereo source it does the thing it is for. Measured:
+  //
+  //                      width   balance
+  //     untouched        -4.42     0.06
+  //     lean +0.5        -4.77    -2.16
+  //     lean +1.0        -5.73    -3.85
+  //     lean -1.0        -5.78    +3.92
+  const wide = pair(2, mostlyShared);
+  const leaned = (asymmetry) => {
+    const out = runImager(wide.left, wide.right, rate, { ...STEREO_DEFAULTS, asymmetry });
+    return widthOf(out.left, out.right);
+  };
+  assert.ok(leaned(1).balance < leaned(0).balance - 3, 'a lean right puts the side on the right');
+  assert.ok(leaned(-1).balance > leaned(0).balance + 3, 'and a lean left on the left');
+  assert.ok(Math.abs(leaned(1).balance + leaned(-1).balance) < 0.2,
+    'and the two ends are mirror images of each other');
+});
+
+test('what the lean and the turn are worth depends on how much side there is', () => {
+  // The question that decides whether these are exercises or only controls:
+  // if a balance pan can reach the same reading, they are one control wearing
+  // three names. Swept over the whole of every other control's travel, the
+  // closest any of them gets to the right answer - and it depends entirely on
+  // how much side the source has, which follows from what a lean is. A lean
+  // only moves side, so a source with little side gives it little to move,
+  // and on nearly-mono material a lean IS a pan as far as the output goes.
+  //
+  //     source width   lean target: pan / turn   turn target: pan / lean
+  //        -14.0 dB        0.40 / 0.25              1.07 / 9.73
+  //         -9.1           0.84 / 0.72              2.14 / 5.86
+  //         -6.0           1.32 / 1.41              3.30 / 3.59
+  //         -4.4           1.52 / 1.96              3.32 / 2.54
+  //         -1.9           1.62 / 3.67              1.58 / 1.07
+  //          0.0           1.52 / 6.96              0.33 / 0.42
+  //
+  // Against the match tolerances - 2.4 easy, 1.6 medium, 1.0 hard - a balance
+  // pan lands inside the medium one everywhere in that table. So these are
+  // real controls and the reading does see them, but neither is safe as a
+  // match target: a round asking for a lean could be solved with the pan
+  // knob. They are on the face and not in the exercise generator, and this
+  // test is the reason why.
+  const sided = (side) => {
+    const n = Math.round(rate * 2);
+    const left = new Float32Array(n);
+    const right = new Float32Array(n);
+    const a = mulberry32(0x11);
+    const b = mulberry32(0x22);
+    for (let i = 0; i < n; i += 1) {
+      const x = a() * 2 - 1;
+      const y = b() * 2 - 1;
+      left[i] = x + side * y;
+      right[i] = x - side * y;
+    }
+    return { left, right };
+  };
+
+  const pans = [];
+  for (let p = -1; p <= 1.0001; p += 0.05) pans.push({ pan: p });
+
+  const nearest = (side) => {
+    const bed = sided(side);
+    const read = (s) => stereoReading(bed.left, bed.right, rate, { ...STEREO_DEFAULTS, ...s });
+    const leaned = read({ asymmetry: 1 });
+    return {
+      byPan: pans.reduce((best, s) => Math.min(best, stereoGap(read(s), leaned).off), Infinity),
+      byLean: stereoGap(read({ asymmetry: 1 }), leaned).off,
+    };
+  };
+
+  // The right control always nulls it, whatever the material.
+  for (const side of [0.2, 0.5, 0.8]) {
+    assert.equal(nearest(side).byLean, 0, `a lean should null a lean at ${side} side`);
+  }
+
+  // And the wrong one cannot, but gets closer the narrower the source is -
+  // which is the finding, and the reason neither is an exercise.
+  const narrow = nearest(0.2).byPan;
+  const wide = nearest(0.8).byPan;
+  assert.ok(narrow < wide,
+    `a pan should stand in better on narrow material: ${narrow.toFixed(2)} against ${wide.toFixed(2)}`);
+  assert.ok(narrow < 1.0,
+    `on a -14 dB source a pan gets inside even the hard tolerance, and read ${narrow.toFixed(2)}`);
+  assert.ok(wide > 1.0,
+    `on a wide source it should not, and read ${wide.toFixed(2)}`);
+});
+
+test('the decode is one matrix however much of it is turned on', () => {
+  // Three placements and a lean, and the per-sample path is still four
+  // multiplies and two adds - which is the reason they are matrices rather
+  // than passes over the audio. At rest the whole thing is the identity.
+  const rest = placeMatrix({ panMode: 'balance', panLaw: 'power', pan: 0, asymmetry: 0 });
+  assert.deepEqual(rest, { ll: 1, rl: 0, lr: 0, rr: 1 }, 'at rest it is a wire');
+
+  // And composing is not the same as doing one of them: the lean and the pan
+  // are applied in an order, and the order is asymmetry first.
+  const both = placeMatrix({ panMode: 'balance', panLaw: 'power', pan: 0.4, asymmetry: 0.7 });
+  const byHand = timesMatrix(
+    panMatrix('balance', 'power', { pan: 0.4 }),
+    skewMatrix(0.7),
+  );
+  assert.deepEqual(both, byHand, 'the placement is applied to the leaned field');
+
+  // Which is not the other way round, and the test says so rather than
+  // trusting that two matrices happen to commute.
+  const flipped = timesMatrix(skewMatrix(0.7), panMatrix('balance', 'power', { pan: 0.4 }));
+  assert.notDeepEqual(both, flipped, 'the order is a decision, not a detail');
 });

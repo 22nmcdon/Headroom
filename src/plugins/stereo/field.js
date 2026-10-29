@@ -6,7 +6,7 @@ import { pitchCore } from '../../lib/pitch.js';
 import {
   coherenceProbe, coherenceOf, COHERENCE_SECONDS, COHERENCE_WINDOW,
 } from './coherence.js';
-import { panMatrix, panPair } from './pan.js';
+import { placeMatrix, panPair, ROTATE_RANGE, ASYMMETRY_RANGE } from './pan.js';
 import { fft } from '../../lib/fft.js';
 import { mulberry32 } from '../../lib/random.js';
 import { makeBiquad, setBiquad, runBiquad } from '../../lib/dsp.js';
@@ -48,6 +48,8 @@ export const STEREO_DEFAULTS = {
   // {1, 0, 0, 1} under two of the three laws and 6.1e-17 off under the third.
   panL: -1,        // where the left input goes, in dual
   panR: 1,         // and where the right one goes
+  rotate: 0,       // degrees the whole field is turned, in the rotate mode
+  asymmetry: 0,    // how far the width leans, with the middle left alone
   monoBelow: MONO_RANGE[0], // Hz below which the side is taken away; the bottom is off
   monoSlope: 'gentle', // and how steeply it goes
   shuffle: 0,      // dB of side lifted at the bottom, the other way round
@@ -78,6 +80,8 @@ export const STEREO_LIMITS = {
   widenCents: WIDEN_CENTS,
   panL: [-1, 1],
   panR: [-1, 1],
+  rotate: ROTATE_RANGE,
+  asymmetry: ASYMMETRY_RANGE,
   low: [0, WIDEST],
   mid: [0, WIDEST],
   high: [0, WIDEST],
@@ -145,13 +149,15 @@ export function imagerCore(rate) {
     monoBelow: MONO_RANGE[0], monoSlope: 'gentle', shuffle: 0,
     widen: 'off', widenAmount: 0, widenDelay: 12, widenCents: 9,
     panMode: 'balance', panLaw: 'power', panL: -1, panR: 1,
+    rotate: 0, asymmetry: 0,
     listen: 'stereo',
   };
 
-  // The four gains a pan comes to, worked out when a knob moves rather than
-  // per sample - see pan.js. Both modes fill the same table, so the per-sample
-  // path is one matrix multiply either way.
-  let gains = panMatrix('balance', 'power', state);
+  // The four gains the decode comes to - placement and asymmetry together -
+  // worked out when a knob moves rather than per sample. See pan.js. Every
+  // mode fills the same table, so the per-sample path is one matrix multiply
+  // whatever is turned on.
+  let gains = placeMatrix(state);
 
   // The two filters that work on the side across the whole range rather than
   // inside one band - see shuffle.js. They sit after the bands come back
@@ -228,7 +234,7 @@ export function imagerCore(rate) {
       retune();
       shuffler.set(state);
       widener.set(state);
-      gains = panMatrix(state.panMode, state.panLaw, state);
+      gains = placeMatrix(state);
     },
 
     step(l, r) {
@@ -308,12 +314,15 @@ export function imagerCore(rate) {
         return;
       }
 
-      // And where it all ends up. Two modes, and the difference between them
-      // is a thing to be able to hear: balance moves the field and folds one
-      // side into the other at the end of its travel, where dual pan places
-      // each input channel on its own and can narrow a stereo source to a
-      // part of the field - which balance cannot express, having only one
-      // number. See pan.js.
+      // And where it all ends up. Three ways of placing it and one way of
+      // leaning it, and the differences between them are things to be able to
+      // hear: balance moves the field and folds one side into the other at
+      // the end of its travel, dual pan places each input channel on its own
+      // and can narrow a stereo source to a part of the field, and rotation
+      // turns the whole thing without changing how much of it there is.
+      // Asymmetry is the odd one out - it leans the width and leaves the
+      // middle where it was, so a mono source does not move at all. See
+      // pan.js.
       const placed = panPair(gains, left, right);
       this.outL = placed.left;
       this.outR = placed.right;

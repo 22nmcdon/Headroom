@@ -3,7 +3,7 @@ import * as shuffle from './shuffle.js';
 import { shuffleCore } from './shuffle.js';
 import * as widen from './widen.js';
 import * as pan from './pan.js';
-import { panGains, panMatrix, panPair } from './pan.js';
+import { panGains, panMatrix, panPair, skewMatrix, timesMatrix, placeMatrix } from './pan.js';
 import { widenCore, velvetTaps } from './widen.js';
 import { pitchCore } from '../../lib/pitch.js';
 import * as pitch from '../../lib/pitch.js';
@@ -25,7 +25,7 @@ import { workletModule, installWorklet } from '../../lib/worklet.js';
 const IMAGER_PARTS = [
   makeBiquad, setBiquad, runBiquad,
   shuffleCore, velvetTaps, pitchCore, widenCore,
-  panGains, panMatrix, panPair, imagerCore,
+  panGains, panMatrix, panPair, skewMatrix, timesMatrix, placeMatrix, imagerCore,
 ];
 
 /**

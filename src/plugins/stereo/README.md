@@ -337,6 +337,92 @@ reads 0.00 on all five readings, and a pan move of 0.10, 0.20 and 0.35 still
 reads 0.45, 0.89 and 1.52 on placement against the 0.42, 0.87 and 1.57 the
 tolerances were set from.
 
+## Rotation and asymmetry: the two operations a pan is not
+
+Three ways to place a field and one way to lean it, and the differences
+between them are the point of having all four.
+
+**Rotation** multiplies the pair by an orthonormal matrix, so it cannot change
+how much total energy there is - only where it is. On a mono source it places
+the sound exactly where balance does and differs only in level:
+
+    mono source        width    balance   energy
+    untouched         -345 dB    0.00     -1.76
+    balance 0.5         -7.66   -7.66     +0.56
+    rotate 22.5 deg     -7.66   -7.66     -1.76
+
+Same place, same width, 2.3 dB apart. Balance gets louder as it folds one
+channel into the other; rotation cannot, by construction. On a stereo source
+the two part company completely and in opposite directions:
+
+    stereo source      width    balance   energy   correlation
+    untouched          -4.42     0.06     -0.42       0.47
+    balance 0.5        -6.40    -6.33     +0.82       0.80
+    rotate 22.5 deg    -3.04    -2.95     -0.42       0.36
+
+Balance narrows the field and makes the channels more alike, because folding
+one into the other is a move towards mono. Rotation widens it and makes them
+less alike, because it turns mid into side as it goes. **At 45 degrees the
+matrix sends the side to one speaker and the mid to the other** - L = sqrt(2) S
+and R = sqrt(2) M exactly - so the output's balance becomes the input's width
+and the other way about. Measured on a source reading -4.42 width and 0.06
+balance, a 45 degree turn reads -0.06 width and -4.42 balance. The two
+readings have swapped.
+
+**Asymmetry** is the one that is not a placement at all. It pulls the two side
+gains apart - L = M + aS and R = M - bS - so the middle stays exactly where it
+was and only the sides move. On a mono source, which has no side, it does
+nothing whatsoever:
+
+    mono source       width    balance
+    untouched        -345 dB    0.00
+    lean 0.5         -345       0.00
+    lean 1.0         -345       0.00
+
+Nothing, to the last bit, where a pan at the same setting would have shut one
+channel. At the end of its travel one channel is pure middle and the other
+carries all the side, which is a field whose one half is wide and whose other
+half is a point. That is what a stereo recording arrives with when the two
+microphones were not matched or not placed evenly, and nothing else here can
+make it or take it away.
+
+**Neither is an exercise, and that was measured rather than decided.** The
+question is whether a balance pan can reach the same reading, because if it
+can then the three controls are one control wearing three names. Swept over
+the whole of every other control's travel, how close the wrong control gets:
+
+    source width   lean target: pan / turn   turn target: pan / lean
+       -14.0 dB        0.40 / 0.25              1.07 / 9.73
+        -9.1           0.84 / 0.72              2.14 / 5.86
+        -6.0           1.32 / 1.41              3.30 / 3.59
+        -4.4           1.52 / 1.96              3.32 / 2.54
+        -1.9           1.62 / 3.67              1.58 / 1.07
+         0.0           1.52 / 6.96              0.33 / 0.42
+
+The right control nulls its own target exactly at every width, and the wrong
+one never does. But the match tolerances are 2.4 dB easy, 1.6 medium and 1.0
+hard, and a balance pan lands inside the medium one everywhere in that table.
+So a round asking for a lean could be solved with the pan knob. These go on
+the face and not in the exercise generator.
+
+The trend is the explanation rather than a nuisance: a lean only moves side,
+so a source with little side gives it little to move, and on nearly-mono
+material a lean *is* a pan as far as the output is concerned. **Nothing read
+off the output can say otherwise**, because at the output the two really are
+the same thing - the field is lopsided either way, and which knob made it
+lopsided is not a property of the sound. A mid-against-side correlation was
+tried as the reading that would name it and does not separate them either: a
+lean of 1.0 reads -0.51 where a balance pan of 0.3 reads -0.47. This is the
+same shape of finding as the notchiness one below, and it gets written down
+for the same reason.
+
+**The law picker greys out except in dual mode.** A law is a choice about what
+the centre costs when a point is placed, and only dual pan places points.
+Balance is a crossfade between two channels that are already placed, and
+rotation is a turn that cannot change the total, so neither has a centre to
+cost anything. Greyed rather than hidden, because a control that vanishes
+looks like a bug and one that is greyed is an explanation.
+
 ## Notchiness is not a reading, and that is worth writing down
 
 The obvious companion to coherence is how combed the mono sum is - it is what

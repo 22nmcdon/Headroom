@@ -64,6 +64,19 @@ const STEREO_KNOBS = [
     step: 0.5,
     write: (v) => (v <= 0 ? 'flat' : `+${v.toFixed(1)} dB`),
   },
+  // Beside the other two side-shapers rather than with the pan controls,
+  // because that is what it is: it leans the width and leaves the middle
+  // where it was, so it is a width control that happens to be lopsided
+  // rather than a placement. On a mono source it does nothing at all.
+  {
+    id: 'asymmetry',
+    name: 'Width lean',
+    ...span(STEREO_LIMITS.asymmetry),
+    step: 0.01,
+    write: (v) => (Math.abs(v) < 0.02
+      ? 'even'
+      : `${Math.round(Math.abs(v) * 100)}% ${v < 0 ? 'left' : 'right'}`),
+  },
   // The one block that makes side out of middle. Amount first, because it is
   // the one that does nothing until it is up, and the two that shape it
   // after - the delay belongs to two of the five kinds and the detune to one,
@@ -113,6 +126,18 @@ const STEREO_KNOBS = [
     step: 0.01,
     write: writePlace,
   },
+  // The rotate mode's one knob, in degrees because that is what it is - a
+  // turn of the pair rather than a position on a line, and 45 degrees is
+  // where the side ends up in one speaker and the middle in the other.
+  {
+    id: 'rotate',
+    name: 'Turn',
+    ...span(STEREO_LIMITS.rotate),
+    step: 0.5,
+    write: (v) => (Math.abs(v) < 0.5
+      ? 'square on'
+      : `${Math.abs(v).toFixed(0)}\u00b0 ${v < 0 ? 'left' : 'right'}`),
+  },
 ];
 
 /**
@@ -123,7 +148,7 @@ const STEREO_KNOBS = [
  * which is the thing the reverb's spaces comment calls a preset wearing a
  * plugin's controls.
  */
-const PAN_KNOBS = { balance: ['pan'], dual: ['panL', 'panR'] };
+const PAN_KNOBS = { balance: ['pan'], dual: ['panL', 'panR'], rotate: ['rotate'] };
 
 export const panDeck = (mode) => {
   const mine = PAN_KNOBS[mode] ?? PAN_KNOBS.balance;
@@ -563,7 +588,16 @@ export class StereoPlugin {
     const mode = this.el.querySelector('#stereoPanMode');
     if (mode) mode.value = this.settings.panMode ?? 'balance';
     const law = this.el.querySelector('#stereoPanLaw');
-    if (law) law.value = this.settings.panLaw ?? 'power';
+    if (law) {
+      law.value = this.settings.panLaw ?? 'power';
+      // A law is a choice about what the centre costs when a point is placed,
+      // and only dual pan places points. Balance is a crossfade between two
+      // channels that are already placed and rotation is a turn that cannot
+      // change the total, so neither has a centre to cost anything. Greyed
+      // rather than hidden, because a control that vanishes looks like a bug
+      // and one that is greyed is an explanation.
+      law.disabled = (this.settings.panMode ?? 'balance') !== 'dual';
+    }
     dressKnobs(this.el);
   }
 
