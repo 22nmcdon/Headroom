@@ -1,6 +1,10 @@
 import { imagerCore } from './field.js';
 import * as shuffle from './shuffle.js';
 import { shuffleCore } from './shuffle.js';
+import * as widen from './widen.js';
+import { widenCore, velvetTaps } from './widen.js';
+import { pitchCore } from '../../lib/pitch.js';
+import * as pitch from '../../lib/pitch.js';
 import { makeBiquad, setBiquad, runBiquad } from '../../lib/dsp.js';
 import { workletModule, installWorklet } from '../../lib/worklet.js';
 
@@ -16,7 +20,10 @@ import { workletModule, installWorklet } from '../../lib/worklet.js';
  * hear is the same code that marks the guess.
  */
 
-const IMAGER_PARTS = [makeBiquad, setBiquad, runBiquad, shuffleCore, imagerCore];
+const IMAGER_PARTS = [
+  makeBiquad, setBiquad, runBiquad,
+  shuffleCore, velvetTaps, pitchCore, widenCore, imagerCore,
+];
 
 /**
  * And the side filters' own constants, which `shuffleCore` reads.
@@ -29,7 +36,8 @@ const IMAGER_PARTS = [makeBiquad, setBiquad, runBiquad, shuffleCore, imagerCore]
  * calling it, which is the system working.
  */
 const IMAGER_CONSTANTS = Object.fromEntries(
-  Object.entries(shuffle).filter(([, value]) => typeof value !== 'function'),
+  [...Object.entries(shuffle), ...Object.entries(widen), ...Object.entries(pitch)]
+    .filter(([, value]) => typeof value !== 'function'),
 );
 
 const IMAGER_PROCESSOR = `class HeadroomImager extends AudioWorkletProcessor {

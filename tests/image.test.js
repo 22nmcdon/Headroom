@@ -10,6 +10,10 @@ import {
   shuffleCore, MONO_SLOPES, MONO_RANGE, SHUFFLE_RANGE, SHUFFLE_AT, STEEP_STAGES,
 } from '../src/plugins/stereo/shuffle.js';
 import { makeBiquad, setBiquad, runBiquad } from '../src/lib/dsp.js';
+import {
+  widenCore, velvetTaps, WIDEN_KINDS, WIDEN_DELAY, WIDEN_AMOUNT,
+} from '../src/plugins/stereo/widen.js';
+import { pitchCore } from '../src/lib/pitch.js';
 import { mulberry32 } from '../src/lib/random.js';
 import { STEREO_WORK as panning } from '../src/learn/work/panning.js';
 
@@ -414,4 +418,204 @@ test('the side filters sit out of the way when nothing is asked of them', () => 
   assert.ok(MONO_SLOPES.length >= 2, 'one slope is not a question');
   assert.ok(MONO_RANGE[0] < MONO_RANGE[1] && SHUFFLE_RANGE[0] === 0,
     'the ranges should start where the control is off');
+});
+
+/* --- making side out of middle -------------------------------------------- */
+
+/** A mono source with something in every band, which is what has no side. */
+function monoSource(seconds = 2) {
+  const n = Math.round(rate * seconds);
+  const x = new Float32Array(n);
+  const noise = mulberry32(0x5151);
+  let lp = 0;
+  for (let i = 0; i < n; i += 1) {
+    const at = i / rate;
+    lp += ((noise() * 2 - 1) - lp) * 0.08;
+    x[i] = (Math.sin(2 * Math.PI * 180 * at) * 0.4
+      + Math.sin(2 * Math.PI * 700 * at) * 0.25
+      + Math.sin(2 * Math.PI * 2600 * at) * 0.15 + lp * 0.8) * 0.35;
+  }
+  return x;
+}
+
+/** Side against middle, in dB, over the second half of a pair. */
+function widthOfPair(L, R) {
+  let em = 0;
+  let es = 0;
+  for (let i = Math.round(L.length / 2); i < L.length; i += 1) {
+    const m = (L[i] + R[i]) * 0.5;
+    const sd = (L[i] - R[i]) * 0.5;
+    em += m * m;
+    es += sd * sd;
+  }
+  return 10 * Math.log10((es + 1e-30) / (em + 1e-30));
+}
+
+test('no amount of width makes a mono source wide, and that is why this exists', () => {
+  // The gap the whole block closes. Every control in field.js is a ratio on
+  // side that is already there, and two and a half times nothing is nothing.
+  // Measured on a mono source: the three band widths at their maximum produce
+  // -333 dB of side, which is the floating-point floor, and the widener
+  // produces -1.9.
+  const x = monoSource();
+  const L = Float32Array.from(x);
+  const R = Float32Array.from(x);
+
+  const widest = runImager(L, R, rate, {
+    ...STEREO_DEFAULTS, low: WIDEST, mid: WIDEST, high: WIDEST,
+  });
+  assert.ok(widthOfPair(widest.left, widest.right) < -100,
+    'a width control found side in a mono source, which it cannot have');
+
+  const made = runImager(L, R, rate, {
+    ...STEREO_DEFAULTS, widen: 'comb', widenAmount: 0.8,
+  });
+  assert.ok(widthOfPair(made.left, made.right) > -6,
+    `the widener only managed ${widthOfPair(made.left, made.right).toFixed(1)} dB of side`);
+});
+
+test('the kinds differ in where they put the damage', () => {
+  // Measured at an amount of 0.8 and a delay of 12 ms, as how uneven the
+  // spectrum is - the standard deviation in dB at a twelfth of an octave,
+  // which resolves a comb's teeth rather than averaging them away - of the
+  // mono sum and of the worse of the two channels, each against the input:
+  //
+  //     kind           mono   one side    coherence
+  //     Haas           2.85     6.01      0.84-1.00
+  //     comb           0.00     6.01      0.53-0.99
+  //     all-pass       0.00     5.99      1.00
+  //     decorrelator   0.00     4.13      0.99-1.00
+  //     micro-pitch    5.86     6.45      0.19-0.73
+  //
+  // The mono column is the one that matters most and the one no width meter
+  // can see: sending the delayed copy to one side leaves nearly three
+  // decibels of comb in the sum, and putting it in the side leaves exactly
+  // none, because L = M + D and R = M - D add back to M whatever D is.
+  const x = monoSource(3);
+  const uneven = (buf, against) => {
+    const binOf = (b, hz) => {
+      const w = (2 * Math.PI * hz) / rate;
+      const c = 2 * Math.cos(w);
+      let s1 = 0;
+      let s2 = 0;
+      for (let i = 0; i < b.length; i += 1) {
+        const s0 = b[i] + c * s1 - s2;
+        s2 = s1;
+        s1 = s0;
+      }
+      return s1 * s1 + s2 * s2 - c * s1 * s2;
+    };
+    const got = [];
+    for (let k = 0; k < 72; k += 1) {
+      const hz = 100 * 2 ** (k / 12);
+      if (hz > 8000) break;
+      got.push(10 * Math.log10((binOf(buf, hz) + 1e-20) / (binOf(against, hz) + 1e-20)));
+    }
+    const mean = got.reduce((a, b) => a + b, 0) / got.length;
+    let v = 0;
+    for (const g of got) v += (g - mean) ** 2;
+    return Math.sqrt(v / got.length);
+  };
+
+  // Against the imager's own output with the widener off, rather than against
+  // the raw input. The crossover's all-passes shift the output's phase
+  // without changing its level, and a Goertzel over a window holding a
+  // non-integer number of cycles reads a phase-shifted signal slightly
+  // differently at the edges - which showed up as 1.14 dB of "comb" from a
+  // kind whose two additions are exact negatives. Measured directly, the mono
+  // sum deviates from the input by the same 4.543e-1 at the same sample with
+  // the widener on and off, so the widener really does add nothing to mono
+  // and the 1.14 was the estimator.
+  const summedOf = (over) => {
+    const out = runImager(Float32Array.from(x), Float32Array.from(x), rate,
+      { ...STEREO_DEFAULTS, ...over });
+    const summed = new Float32Array(x.length);
+    for (let i = 0; i < x.length; i += 1) summed[i] = (out.left[i] + out.right[i]) * 0.5;
+    return summed;
+  };
+  const bare = summedOf({});
+  const monoNotch = (kind) => uneven(
+    summedOf({ widen: kind, widenAmount: 0.8, widenDelay: 12 }), bare,
+  );
+
+  // The three complementary kinds fold back to the input exactly. Not nearly:
+  // the arithmetic is M + D and M - D, so the sum is 2M whatever D is.
+  for (const kind of ['comb', 'allpass', 'velvet']) {
+    assert.ok(monoNotch(kind) < 0.05,
+      `${kind} left ${monoNotch(kind).toFixed(2)} dB of comb in the mono sum`);
+  }
+
+  // And the one that sends its copy to one side does not.
+  assert.ok(monoNotch('haas') > 1.5,
+    `Haas left only ${monoNotch('haas').toFixed(2)} dB of comb in mono, which is its whole signature`);
+});
+
+test('every kind is a real option and off really is off', () => {
+  const x = monoSource(1);
+  const flat = runImager(Float32Array.from(x), Float32Array.from(x), rate, { ...STEREO_DEFAULTS });
+
+  // Off adds nothing at all, whatever the other widener knobs are set to -
+  // which is what lets the core skip the whole block.
+  const off = runImager(Float32Array.from(x), Float32Array.from(x), rate,
+    { ...STEREO_DEFAULTS, widen: 'off', widenAmount: 1, widenDelay: 40, widenCents: 25 });
+  for (let i = 0; i < x.length; i += 1) {
+    assert.equal(off.left[i], flat.left[i]);
+    assert.equal(off.right[i], flat.right[i]);
+  }
+
+  // And an amount of zero is off whichever kind is chosen, so the picker can
+  // be moved without the sound changing until the knob comes up.
+  for (const kind of WIDEN_KINDS) {
+    const quiet = runImager(Float32Array.from(x), Float32Array.from(x), rate,
+      { ...STEREO_DEFAULTS, widen: kind.id, widenAmount: 0 });
+    let worst = 0;
+    for (let i = 0; i < x.length; i += 1) worst = Math.max(worst, Math.abs(quiet.left[i] - flat.left[i]));
+    assert.equal(worst, 0, `${kind.id} at zero amount was not silent`);
+  }
+
+  // Every kind but off actually produces side.
+  for (const kind of WIDEN_KINDS) {
+    if (kind.id === 'off') continue;
+    const out = runImager(Float32Array.from(x), Float32Array.from(x), rate,
+      { ...STEREO_DEFAULTS, widen: kind.id, widenAmount: 0.8 });
+    assert.ok(widthOfPair(out.left, out.right) > -20,
+      `${kind.id} made ${widthOfPair(out.left, out.right).toFixed(1)} dB of side, which is none`);
+  }
+});
+
+test('the velvet response is the same response every time', () => {
+  // A widener that is a different filter each time the tool opens is a
+  // widener nobody can be asked to identify, and a daily that is a different
+  // sound on two machines is not a daily. So the sparse response comes from a
+  // counter rather than from Math.random.
+  const a = velvetTaps(rate);
+  const b = velvetTaps(rate);
+  assert.deepEqual([...a.at], [...b.at]);
+  assert.deepEqual([...a.sign], [...b.sign]);
+
+  // And it passes as much energy as it is given, so the amount knob means the
+  // same thing across the kinds.
+  let energy = 0;
+  for (const s of a.sign) energy += s * s;
+  assert.ok(Math.abs(energy - 1) < 1e-6,
+    `the velvet response has ${energy.toFixed(4)} of energy rather than one`);
+});
+
+test('the widener sits out of the way when it is not wanted', () => {
+  const core = widenCore(rate, makeBiquad, setBiquad, runBiquad, pitchCore);
+  assert.equal(core.resting, true);
+  assert.equal(core.set({ widen: 'comb' }).resting, true, 'a kind with no amount is still resting');
+  assert.equal(core.set({ widenAmount: 0.5 }).resting, false);
+  assert.equal(core.set({ widen: 'off' }).resting, true);
+
+  // A kind nobody has heard of falls back to off rather than throwing on the
+  // audio thread.
+  assert.equal(core.set({ widen: 'nonsense', widenAmount: 1 }).resting, true);
+
+  // The delay range stays inside where precedence holds: below about two and
+  // a half milliseconds a delay stops being a position and becomes a tone,
+  // and past about fifty it comes apart into an echo.
+  assert.ok(WIDEN_DELAY[0] >= 1 && WIDEN_DELAY[1] <= 50,
+    'the widen delay reaches outside where the effect is an effect');
+  assert.equal(WIDEN_AMOUNT[0], 0, 'the amount knob should start at off');
 });

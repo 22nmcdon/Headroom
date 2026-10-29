@@ -3,6 +3,7 @@
     plugin.js   the face
     field.js    the width and placement maths, and comparing two readings
     shuffle.js  width that is not the same at every frequency
+    widen.js    making side out of middle, which nothing else here can do
     node.js     the AudioWorklet
     player.js   auditioning it
 
@@ -69,3 +70,62 @@ and twelve decibels down at the corner. Measured, which is how it was caught.
 it. A default has to sit inside its own limits or a saved file loads back
 clamped into them, and a `monoBelow` of 0 would have come back as 40 with the
 filter quietly on. An existing test caught that the moment the knob existed.
+
+## Making side out of middle
+
+Every control in field.js is a ratio on side that is already there. Turn all
+three widths up on a mono source and nothing happens, because two and a half
+times nothing is nothing - measured, -333 dB of side, which is the
+floating-point floor. That is the gap `widen.js` closes, and it is the only
+thing in this folder that adds rather than scales.
+
+Five kinds, measured through the real arithmetic at an amount of 0.8 and a
+delay of 12 ms. `mono` and `one side` are how uneven the spectrum is - the
+standard deviation in dB at a twelfth of an octave, so a comb's teeth are
+resolved rather than averaged away:
+
+    kind           width     mono    one side    lag      coherence
+    Haas           -9.1 dB   2.85     6.01      11.6 ms   0.84-1.00
+    comb           -1.9      0.00     6.01      -9.5      0.53-0.99
+    all-pass       -1.9      0.00     5.99       9.5      1.00
+    decorrelator   -1.1      0.00     4.13      -4.8      0.99-1.00
+    micro-pitch    -6.6      5.86     6.45       0.0      0.19-0.73
+
+**The mono column splits Haas from the three complementary kinds**, and no
+width meter can see it. Sending the delayed copy to one side leaves nearly
+three decibels of comb in the sum; putting it in the side leaves exactly none,
+because L = M + D and R = M - D add back to M whatever D is.
+
+**The coherence column splits micro-pitch from everything else**, and the
+decorrelator was the surprise. A velvet-noise response is a linear
+time-invariant filter like any other, so however diffuse it sounds, each
+channel stays perfectly predictable from the other - it reads 0.99 to 1.00,
+as coherent as a bare delay. Only the kind that moves reads low. So coherence
+does not separate artificial width from natural. It separates time-invariant
+from time-varying, and the only widener here that passes is the one that
+drifts for ever.
+
+**What does not separate is comb against all-pass.** The usual reason for
+preferring the all-pass version is that it is "less comb-like", and measured
+as unevenness that is simply not true: 5.99 against 6.01. Each channel is
+1 +/- g times an all-pass, and an all-pass has unit magnitude everywhere, so
+the sum swings between 1-g and 1+g exactly as a delay's does. What differs is
+where the teeth are, not how deep - a delay puts nulls at odd multiples of one
+over twice the delay, which an ear hears as a pitch, and a chain of all-passes
+puts them wherever its phase crosses, which an ear hears as phasiness. No
+reading here measures that, and saying so is better than implying these
+numbers prove something they do not.
+
+One asymmetry worth knowing, since the design looks symmetric: for the
+all-pass kind the two channels are not equally uneven, 1.58 against 5.99,
+because its phase does not sweep evenly and so 1 + g*AP and 1 - g*AP are not
+mirror images the way they are for a delay.
+
+**A measurement note that cost a test.** Comparing the mono sum's spectrum
+against the raw input reads 1.14 dB of comb from a kind whose two additions
+are exact negatives. The crossover's all-passes shift the output's phase
+without changing its level, and a Goertzel over a window holding a
+non-integer number of cycles reads a phase-shifted signal differently at the
+edges. Measured directly, the mono sum deviates from the input by the same
+4.543e-1 at the same sample with the widener on and off. The comparison has
+to be against the imager's own output with the widener off.

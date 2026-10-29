@@ -1,4 +1,8 @@
 import { shuffleCore, MONO_RANGE, MONO_SLOPES, SHUFFLE_RANGE, SHUFFLE_AT } from './shuffle.js';
+import {
+  widenCore, WIDEN_KINDS, WIDEN_AMOUNT, WIDEN_DELAY, WIDEN_CENTS,
+} from './widen.js';
+import { pitchCore } from '../../lib/pitch.js';
 import { makeBiquad, setBiquad, runBiquad } from '../../lib/dsp.js';
 import { bandOf } from '../../lib/response.js';
 import { readingOf, stampOf } from '../../lib/read.js';
@@ -33,6 +37,10 @@ export const STEREO_DEFAULTS = {
   monoBelow: MONO_RANGE[0], // Hz below which the side is taken away; the bottom is off
   monoSlope: 'gentle', // and how steeply it goes
   shuffle: 0,      // dB of side lifted at the bottom, the other way round
+  widen: 'off',    // which way side is made out of middle, if at all
+  widenAmount: 0,  // and how much of it is added
+  widenDelay: 12,  // ms, for the two kinds built on a delay
+  widenCents: 9,   // and how far apart the two sides are detuned, for micro-pitch
   listen: 'stereo',
 };
 
@@ -51,6 +59,9 @@ export const WIDEST = 2.5;
 export const STEREO_LIMITS = {
   monoBelow: MONO_RANGE,
   shuffle: SHUFFLE_RANGE,
+  widenAmount: WIDEN_AMOUNT,
+  widenDelay: WIDEN_DELAY,
+  widenCents: WIDEN_CENTS,
   low: [0, WIDEST],
   mid: [0, WIDEST],
   high: [0, WIDEST],
@@ -83,7 +94,9 @@ export const WIDEST_READING = 30;
 export function imagerCore(rate) {
   const state = {
     low: 1, mid: 1, high: 1, lowMid: 250, midHigh: 4000, pan: 0,
-    monoBelow: MONO_RANGE[0], monoSlope: 'gentle', shuffle: 0, listen: 'stereo',
+    monoBelow: MONO_RANGE[0], monoSlope: 'gentle', shuffle: 0,
+    widen: 'off', widenAmount: 0, widenDelay: 12, widenCents: 9,
+    listen: 'stereo',
   };
 
   // The two filters that work on the side across the whole range rather than
@@ -91,6 +104,12 @@ export function imagerCore(rate) {
   // together, because that is what they are: a shape on the side signal, not
   // a ratio inside a slice of it.
   const shuffler = shuffleCore(rate, makeBiquad, setBiquad, runBiquad);
+
+  // And the one block that makes side where there was none - see widen.js.
+  // It reads the middle of the whole signal rather than of a band, because
+  // what it produces is a second version of the source and the source is not
+  // a band of itself.
+  const widener = widenCore(rate, makeBiquad, setBiquad, runBiquad, pitchCore);
 
   // A Linkwitz-Riley crossover on each channel: two cascaded Butterworths,
   // which is the split that sums flat. One low-pass and one high-pass at each
@@ -154,6 +173,7 @@ export function imagerCore(rate) {
       for (const key in next) if (key in state) state[key] = next[key];
       retune();
       shuffler.set(state);
+      widener.set(state);
     },
 
     step(l, r) {
@@ -206,6 +226,18 @@ export function imagerCore(rate) {
 
       let left = middles + sides;
       let right = middles - sides;
+
+      // And last, the widener, which adds rather than scales. It is fed the
+      // middle of the input rather than of the output, so turning the band
+      // widths down does not starve it - a mono source has a middle whatever
+      // the widths are, and making side out of that middle is the whole job.
+      // Four of the five add in opposite signs and one does not, which is why
+      // it hands back a pair rather than a side.
+      if (!widener.resting) {
+        widener.step((l + r) * 0.5);
+        left += widener.addL;
+        right += widener.addR;
+      }
 
       if (state.listen === 'mono') {
         const summed = (left + right) * 0.5;

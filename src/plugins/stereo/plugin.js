@@ -8,6 +8,7 @@ import { dialOf, offDial, sizeOf, readyCanvas, watchSize, span } from '../../lib
 import { dressKnobs } from '../../lib/knob.js';
 import { writeHertz } from '../../lib/panel.js';
 import { MONO_SLOPES } from './shuffle.js';
+import { WIDEN_KINDS } from './widen.js';
 
 /**
  * The imager, as a plugin.
@@ -49,6 +50,31 @@ const STEREO_KNOBS = [
     ...span(STEREO_LIMITS.shuffle),
     step: 0.5,
     write: (v) => (v <= 0 ? 'flat' : `+${v.toFixed(1)} dB`),
+  },
+  // The one block that makes side out of middle. Amount first, because it is
+  // the one that does nothing until it is up, and the two that shape it
+  // after - the delay belongs to two of the five kinds and the detune to one,
+  // which is a thing the face says by greying them rather than by hiding them.
+  {
+    id: 'widenAmount',
+    name: 'Widen',
+    ...span(STEREO_LIMITS.widenAmount),
+    step: 0.01,
+    write: (v) => (v <= 0 ? 'off' : `${Math.round(v * 100)} %`),
+  },
+  {
+    id: 'widenDelay',
+    name: 'Widen time',
+    ...span(STEREO_LIMITS.widenDelay),
+    step: 0.5,
+    write: (v) => `${v.toFixed(1)} ms`,
+  },
+  {
+    id: 'widenCents',
+    name: 'Detune',
+    ...span(STEREO_LIMITS.widenCents),
+    step: 1,
+    write: (v) => `\u00b1 ${Math.round(v)} cents`,
   },
   {
     id: 'pan',
@@ -185,6 +211,12 @@ export class StereoPlugin {
           <!-- Beside Listen because it belongs to the Mono below knob, and
                that knob is about what survives the button to its left. -->
           <label class="field">
+            <span class="field-label">Widen</span>
+            <select id="stereoWiden">
+              ${WIDEN_KINDS.map((kind) => `<option value="${kind.id}">${kind.label}</option>`).join('')}
+            </select>
+          </label>
+          <label class="field">
             <span class="field-label">Slope</span>
             <select id="stereoSlope">
               ${MONO_SLOPES.map((slope) => `<option value="${slope.id}">${slope.label}</option>`).join('')}
@@ -227,6 +259,13 @@ export class StereoPlugin {
       if (!dial || !this.interactive) return;
       const knob = STEREO_KNOBS.find((k) => k.id === dial.dataset.dial);
       this.settings[knob.id] = offDial(knob, dial.value);
+      this.changed();
+    });
+
+    this.el.querySelector('#stereoWiden').addEventListener('change', (e) => {
+      if (!this.interactive) return;
+      const want = e.target.value;
+      this.settings.widen = WIDEN_KINDS.some((kind) => kind.id === want) ? want : 'off';
       this.changed();
     });
 
@@ -441,6 +480,8 @@ export class StereoPlugin {
     }
     const slope = this.el.querySelector('#stereoSlope');
     if (slope) slope.value = this.settings.monoSlope ?? 'gentle';
+    const which = this.el.querySelector('#stereoWiden');
+    if (which) which.value = this.settings.widen ?? 'off';
     dressKnobs(this.el);
   }
 
