@@ -21,9 +21,16 @@ the audio goes past.
 
 Four readings, and each is deliberately deaf to the others' subject. The decay
 curve says how the repeats fade and is blind to where in the loop they land.
-The loop shape says where they land and is blind to how long the loop is - and
-is taken with the transport held still, because a frame has edges and three
-samples of flutter read seven decibels through it. The wander says how badly
+The loop shape says where they land and is blind to how long the loop is. It
+used to be framed in boxes, where one sample of movement read 5.22 dB against
+a tolerance of six - but only in the direction that crossed an edge, so the
+other direction read 0.01 and nothing caught it for as long as nothing moved
+sub-frame. It is framed in overlapping raised cosines now, four frames wide,
+which makes it continuous in the arrival time: a sample reads 0.01 either way,
+and twenty-five cents of flutter reads 0.40 where it read 7.25. It is still
+taken with the transport held still, but for a real reason now rather than a
+defect - fifty cents of wow moves the repeats two frames, which this reading
+is right to see and wrong to be asked about. The wander says how badly
 the transport holds time and is blind to everything else, measured to exactly
 zero for the time, the feedback, the tone, the heads, the diffusion, the
 medium, the routing and the mix.

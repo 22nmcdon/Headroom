@@ -8,6 +8,7 @@ import {
   MACHINES, machineTone, BBD_STAGES, MACHINE_FLOOR, MACHINE_CEILING, echoCore,
   wanderReading, WANDER_BANDS, echoTail,
   duckReading, duckTrack, DUCK_FRAMES, DUCK_SECONDS, DUCK_PHRASES,
+  loopShape, ARRIVALS, ARRIVAL_WIDTH, sidesOf,
 } from '../src/plugins/delay/line.js';
 import {
   WOW_RATE, FLUTTER_RATE, MOST_DUCK, DUCK_AT, DUCK_ATTACK, DUCK_RELEASE,
@@ -625,6 +626,10 @@ test('an unknown head pattern is one head rather than nothing', () => {
 
 const shapeOf = (over) => repeatsReading(rate, { ...ECHO_DEFAULTS, time: 400, feedback: 0.5, ...over });
 const shapeGap = (a, b) => distance(shapeOf(a), shapeOf(b)).off;
+// The tolerance a match is decided by, repeated here rather than imported:
+// src/learn/work/delay.js does not export it, and a test that quietly
+// followed it would stop being a test of anything.
+const SHAPE_CLOSE_HERE = 6;
 
 test('the shape of a loop sees the heads and not the time', () => {
   // The whole reason this reading is in fractions of the loop rather than in
@@ -661,19 +666,25 @@ test('and what time dependence is left is the loop filters ringing', () => {
   // of a fifteen-hundred one. Measured:
   //
   //     pair            default loop    wide open loop
-  //     380 vs 420          0.28 dB          0.00 dB
-  //     400 vs 600          0.24 dB          0.00 dB
-  //     300 vs 900          0.71 dB          0.00 dB
-  //     200 vs 900          1.17 dB          0.00 dB
-  //     20 vs 1500          5.97 dB          0.00 dB
+  //     380 vs 420          0.16 dB          0.00 dB
+  //     400 vs 600          0.45 dB          0.00 dB
+  //     300 vs 900          0.87 dB          0.00 dB
+  //     200 vs 900          1.38 dB          0.00 dB
+  //     20 vs 1500          6.05 dB          0.00 dB
   //
-  // Against a tolerance of six and pattern differences above twenty, that is
+  // Against a tolerance of six and pattern differences above fifteen, that is
   // nothing anywhere a match is actually played - two delays being compared
   // are on the same material and one is trying to be the other.
+  //
+  // The open-loop zero used to be a literal one, because the box summed whole
+  // samples and two scaled loops summed the same ones. The window evaluates a
+  // cosine at fractional offsets, so it is now 3.01e-17 dB - the same claim,
+  // at the precision a double has.
   const open = { tone: 20000, lowCut: 20 };
   for (const [a, b] of [[20, 1500], [200, 900], [400, 600]]) {
-    assert.equal(distance(shapeOf({ time: a, ...open }), shapeOf({ time: b, ...open })).off, 0,
-      `with the loop open, ${a} ms and ${b} ms should read identically`);
+    const off = distance(shapeOf({ time: a, ...open }), shapeOf({ time: b, ...open })).off;
+    assert.ok(off < 1e-12,
+      `with the loop open, ${a} ms and ${b} ms read ${off.toExponential(2)} dB apart`);
   }
 
   // And with the filters in, still small over any ratio a match sees.
@@ -691,7 +702,20 @@ test('the shape of a loop is blind to level, and to a ping-pong', () => {
 
 test('an offset is a change in the shape of the loop', () => {
   // Because it is: the right side's repeats stop landing on the left's grid.
-  assert.ok(shapeGap({ offset: 40 }, {}) > 10);
+  // Measured at 400 ms - it climbs and then settles, because once the two
+  // sides are far enough apart to be separate arrivals, more offset only
+  // moves where the second one lands:
+  //
+  //     5 ms   5.10 dB      40 ms   9.77 dB
+  //    10 ms   7.71        80 ms   9.80
+  //    20 ms   9.36       150 ms   8.97
+  //
+  // Five milliseconds is under the tolerance of six, and that is the right
+  // answer rather than a gap: a 1 % spread on a 400 ms delay is not a
+  // different shape of loop.
+  assert.ok(shapeGap({ offset: 40 }, {}) > 8);
+  assert.ok(shapeGap({ offset: 20 }, {}) > 8);
+  assert.ok(shapeGap({ offset: 5 }, {}) < SHAPE_CLOSE_HERE);
 });
 
 test('the hard tier asks for a head pattern and the others do not', () => {
@@ -1517,9 +1541,10 @@ test('a wandering line never reads past the write head', () => {
 test('the arrival reading is blind to the wander and still sees the loop', () => {
   // A reading measures one thing. This one says where inside a pass the
   // repeats fall, and a pass is only a length if it is the same length every
-  // time round - so it is taken with the transport held still. Three samples
-  // of flutter read 7.0 dB through it against a tolerance of 6, which is a
-  // frame edge rather than a measurement: see ARRIVAL_SMEAR.
+  // time round - so it is taken with the transport held still. With the guard
+  // taken off, flutter now reads 0.40 dB at its deepest where it read 7.25
+  // through the box, but fifty cents of wow still reads 8.01, because that is
+  // not jitter: see ARRIVAL_WIDTH and `repeatsReading`.
   const base = { ...ECHO_DEFAULTS, time: 375, feedback: 0.5, mix: 0.4 };
   const flat = repeatsReading(rate, base);
 
@@ -1532,6 +1557,113 @@ test('the arrival reading is blind to the wander and still sees the loop', () =>
   // And it has not gone deaf to what it is for.
   assert.ok(distance(repeatsReading(rate, { ...base, heads: 'heads4' }), flat).off > 15,
     'the arrival reading should still see a head pattern');
+});
+
+test('a repeat moving a sample moves the reading by about nothing', () => {
+  // The property the overlapping window exists for, and the one a box cannot
+  // have. Framed in boxes this reading was continuous in the arrival time
+  // everywhere except at a frame edge, where it stepped - and at 375 ms the
+  // first repeat lands on sample 18000, which is exactly where frame 64
+  // begins, so the edge is under it. Measured through the box: one sample
+  // early read 5.22 dB and ten read 6.99, against a tolerance of 6. One
+  // sample late read 0.01, which is why nothing ever caught it.
+  //
+  // The assertion is not a tolerance, it is the shape of the curve: moving a
+  // repeat n samples may not move the reading more than about n times what
+  // moving it one sample does. A step cannot pass that and a slope can.
+  const base = { ...ECHO_DEFAULTS, time: 375, feedback: 0.5 };
+  const [left] = sidesOf(base);
+  const mono = monoOf(makeEcho(rate, base));
+  const still = loopShape(mono, rate, left);
+
+  const by = (n) => {
+    const moved = new Float32Array(mono.length);
+    for (let i = 0; i < mono.length; i += 1) {
+      const from = i - n;
+      moved[i] = from >= 0 && from < mono.length ? mono[from] : 0;
+    }
+    const them = loopShape(moved, rate, left);
+    let sum = 0;
+    for (let i = 0; i < ARRIVALS; i += 1) sum += (them[i] - still[i]) ** 2;
+    return Math.sqrt(sum / ARRIVALS);
+  };
+
+  const one = Math.max(by(1), by(-1));
+  assert.ok(one < 0.05, `one sample moved the reading ${one.toFixed(3)} dB`);
+  for (const n of [2, 3, 5, 10]) {
+    for (const way of [n, -n]) {
+      assert.ok(by(way) < one * n * 1.5,
+        `${way} samples read ${by(way).toFixed(2)} dB where one reads ${one.toFixed(3)}`);
+    }
+  }
+
+  // And both ways round to within a tenth of a decibel, which the box was not:
+  // it read five hundred times further in one direction than the other.
+  for (const n of [1, 3, 5, 10]) {
+    assert.ok(Math.abs(by(n) - by(-n)) < 0.1,
+      `${n} samples early and late read ${by(-n).toFixed(2)} and ${by(n).toFixed(2)}`);
+  }
+});
+
+test('the tolerance still has room on both sides of it', () => {
+  // The measurement that picked the window's width, and the one that goes
+  // stale first if anything ever widens what a machine does to the arrivals.
+  // Six has to sit above everything that is not the head pattern and below
+  // the closest pair of patterns. Swept over every pattern and every other
+  // control, the worst incidental is a tape machine read against a digital
+  // one on four heads - 4.57 dB, where the comment on SHAPE_CLOSE used to
+  // claim 2.31 - and the closest wrong pattern is 14.96.
+  const ids = HEAD_PATTERNS.map((pattern) => pattern.id);
+  let incidental = 0;
+  let what = '';
+  for (const heads of ids) {
+    const base = { ...ECHO_DEFAULTS, time: 400, feedback: 0.5, heads };
+    const read = (over) => repeatsReading(rate, { ...base, ...over });
+    for (const [name, over] of [
+      ['three per cent on the time', { time: 412 }],
+      ['ten per cent on the time', { time: 440 }],
+      ['feedback a seventh up', { feedback: 0.65 }],
+      ['feedback a seventh down', { feedback: 0.35 }],
+      ['the tone an octave down', { tone: ECHO_DEFAULTS.tone / 2 }],
+      ['the low cut at 600', { lowCut: 600 }],
+      ['a tape machine', { machine: 'tape' }],
+      ['a bucket brigade', { machine: 'bbd' }],
+      ['the mix at 0.9', { mix: 0.9 }],
+      ['24 dB of duck', { duck: 24 }],
+      ['ping-pong', { pingPong: true }],
+    ]) {
+      const off = distance(read(over), read({})).off;
+      if (off > incidental) { incidental = off; what = `${name} on ${heads}`; }
+    }
+  }
+
+  let pattern = Infinity;
+  const base = { ...ECHO_DEFAULTS, time: 400, feedback: 0.5 };
+  for (let i = 0; i < ids.length; i += 1) {
+    for (let j = i + 1; j < ids.length; j += 1) {
+      pattern = Math.min(pattern, distance(repeatsReading(rate, { ...base, heads: ids[i] }),
+        repeatsReading(rate, { ...base, heads: ids[j] })).off);
+    }
+  }
+
+  assert.ok(incidental < SHAPE_CLOSE_HERE - 1,
+    `${what} reads ${incidental.toFixed(2)} dB, and the tolerance is ${SHAPE_CLOSE_HERE}`);
+  assert.ok(pattern > SHAPE_CLOSE_HERE * 2,
+    `the closest pair of head patterns is only ${pattern.toFixed(2)} dB apart`);
+});
+
+test('the frame window has to be an even number of frames wide', () => {
+  // Not a preference. Frame f's window runs from (f + 0.5 - W/2) frames to
+  // (f + 0.5 + W/2), so an odd width puts those ends on whole frames - and
+  // when a repeat sits on a frame boundary, some frame is holding it exactly
+  // at its own window's end, where the weight is zero. A frame reading almost
+  // nothing swings wildly in decibels for an arrival that barely moves.
+  // Measured at 375 ms, three samples: widths 2, 4, 6 and 8 read 0.04 dB and
+  // widths 3 and 5 read 1.40 and 1.06, with worst frames of 22.16 and 16.94
+  // against 0.25.
+  assert.equal(ARRIVAL_WIDTH % 2, 0,
+    `a width of ${ARRIVAL_WIDTH} frames puts a window end on every frame boundary`);
+  assert.ok(ARRIVAL_WIDTH >= 2, 'a window narrower than two frames does not overlap');
 });
 
 test('the decay reading cannot mark the wander, which is why there is another', () => {
@@ -1830,7 +1962,7 @@ test('the other three exercises get an expert tier that is not a duplicate', () 
   }
 
   // And the pattern drill is still a fair question there: measured, every pair
-  // of answers is 25.77, 29.59 and 20.47 dB apart against a tolerance of 6.
+  // of answers is 23.86, 28.04 and 19.47 dB apart against a tolerance of 6.
   const base = {
     ...ECHO_DEFAULTS, time: timeOf(0.5), feedback: 0.65, diffusion: 0.5, mix: 0.4,
   };
@@ -1854,7 +1986,7 @@ test('a wrong head pattern is refused at every tier', () => {
   // measurement. With seeds that differ, the decay curve on its own lets a
   // wrong head pattern through 20 of 20 times at the easy tier, 17 of 20 at
   // medium, 9 of 20 at hard and 10 of 20 at expert, while the loop reading
-  // puts the same answers 12.9 to 29.6 dB apart against a tolerance of 6.
+  // puts the same answers 11.97 to 26.67 dB apart against a tolerance of 6.
   //
   // Seeds are strings here for that reason. A numeric seed is not wrong, it
   // is just not a different seed.
@@ -1878,8 +2010,8 @@ test('a wrong head pattern is refused at every tier', () => {
 test('the shape reading refuses nothing but the shape', () => {
   // The other half. A three per cent error on the time is a near miss on the
   // question the easy tier is actually asking, and it must not be refused by
-  // a reading that is not about the time: measured, 0.00 to 0.20 dB through
-  // this reading at every tier, against the 6 it allows.
+  // a reading that is not about the time: measured, at most 0.29 dB through
+  // this reading over sixteen targets, against the 6 it allows.
   for (const tier of ['easy', 'medium', 'hard', 'expert']) {
     for (let n = 1; n <= 4; n += 1) {
       const puzzle = gameOf({ mode: 'delay', tier, settings: { exercise: 'match' }, seed: `round-${n}` });
@@ -1897,10 +2029,10 @@ test('the expert tier asks how smeared the repeats are, where that is audible', 
   // output is taken in front of the all-passes, so the first repeat is clean
   // whatever the diffusion is and every pass after it is smeared once more -
   // which leaves a delay with two audible repeats almost nothing to smear.
-  // Measured at 375 ms on the loop reading, clean against six tenths: 13.2 dB
-  // with the feedback at 0.6, and 6.2 with it at 0.18, against the 6 that
-  // decides a pass. Asking on a short tail would be asking for something
-  // nobody can hear.
+  // Measured at 375 ms on the loop reading, clean against six tenths: 12.64 dB
+  // with the feedback at 0.6, and 6.09 with it at 0.18, against the 6 that
+  // decides a pass. Asking on a short tail would be asking for something that
+  // clears the tolerance by a tenth of a decibel and nobody can hear.
   let longTail = 0;
   let smeared = 0;
   for (let n = 1; n <= 20; n += 1) {

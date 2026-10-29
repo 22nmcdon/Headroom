@@ -257,38 +257,80 @@ export const ARRIVALS = LOOP_FRAMES * LOOP_PASSES;
 export const ARRIVAL_FLOOR = -60;
 
 /**
- * How far a frame's energy is smeared into its neighbours, in frames.
+ * How wide each frame's window is, in frames.
  *
- * Two either side, which softens the hair trigger without removing it - and
- * the first version of this comment claimed it removed it, which is measurably
- * wrong.
+ * The frames overlap, and that is the whole point of this number. A reading
+ * cut into boxes has edges, and a repeat crossing one takes its whole energy
+ * into the next frame in a single sample. The box this replaced had the
+ * edges; smearing the frames afterwards softened them and the comment here
+ * used to claim that fixed it, which was measurably wrong. Spreading energy
+ * across neighbours cannot remove a step underneath it: a floor in decibels
+ * turns a frame going from nothing to a ninth of a repeat into a
+ * fifty-decibel jump rather than a sixty-decibel one.
  *
- * The trigger is a repeat crossing a frame edge. The smear spreads energy, but
- * the floor below is in decibels, so a frame holding nothing reads -60 and the
- * same frame holding a ninth of a repeat reads about -9: a sixty-decibel step
- * softened into a fifty-decibel one. Measured, three samples of flutter moving
- * the first repeat from sample 18000 to 17997 - and sample 18000 is exactly
- * where frame 64 begins, so the whole repeat changed frames:
+ * Measured on a 375 ms loop, where the frames are 281.25 samples and the
+ * first repeat lands on sample 18000, which is exactly where frame 64 begins.
+ * The whole reading, and its worst single frame:
  *
- *     frames on the floor with no wander        239 of 256
- *     of those, lifted off it by the three      6
- *     worst single frame                        55.2 dB
- *     the whole reading                          7.0 dB
+ *     the first repeat moves    1 early   3 early   5 early   10 early
+ *       a box and a smear      5.22 dB   5.94 dB   6.62 dB    6.99 dB
+ *         worst frame         55.23     55.23     55.23      55.23
+ *       this window            0.01      0.04      0.06       0.12
+ *         worst frame          0.08      0.25      0.43       0.86
  *
- * Seven decibels from three samples, against the six this reading's tolerance
- * allows. Nothing in the app moved sub-frame until the transport could wander,
- * which is why it has never bitten.
+ * One sample took five decibels out of a reading whose tolerance is six. Only
+ * early: a repeat arriving late stays in the frame it was in, so the box read
+ * 0.01 dB in that direction and nothing ever caught it. The window reads the
+ * same either way, because it is continuous in the arrival time, which is
+ * what this reading was always supposed to be.
  *
- * The fix, when something needs it, is to frame the response with an
- * overlapping window rather than a box and a smear afterwards - then a
- * three-sample shift moves every frame by a per cent or so, continuously. It
- * is not done here because it would move every number this reading has ever
- * produced, and the measurements built on them: the diffusion table, the head
- * pattern distances, the pattern drill's fairness figures, and the tolerance
- * itself. What is done instead is to keep the wander out of this reading, for
- * which see `repeatsReading` below - a reading measures one thing.
+ * What that buys, through the wander a transport actually has:
+ *
+ *     flutter        1 cent    5 cents   25 cents
+ *       the box      2.88 dB   6.21 dB    7.25 dB
+ *       the window   0.05      0.31       0.40
+ *
+ * The width has to be even, and that is a fact about where the window's ends
+ * land rather than a preference. Frame f's window runs from (f + 0.5 - W/2)
+ * frames to (f + 0.5 + W/2). For an odd width those ends fall on whole
+ * frames, so whenever a repeat sits on a frame boundary there is some frame
+ * holding it exactly at its own window's end, where the weight is zero - and
+ * a frame reading almost nothing swings wildly in decibels for an arrival
+ * that barely moves. Measured, three samples at 375 ms:
+ *
+ *     width     2       3       4       5       6       8
+ *     whole  0.04    1.40    0.04    1.06    0.04    0.04
+ *     worst  0.35   22.16    0.25   16.94    0.24    0.24
+ *
+ * and at widths 3 and 5 the frame carrying it is exactly the one the
+ * arithmetic names. Even widths put the ends half a frame off the grid, where
+ * nothing lands.
+ *
+ * Four of the even ones, and what picks it is the room either side of the
+ * tolerance rather than any single reading. SHAPE_CLOSE is six, and six has
+ * to sit above everything that is not the head pattern and below the closest
+ * pair of patterns. Swept over every pattern and every other control:
+ *
+ *     width   worst incidental   closest wrong pattern   diffusion 0 vs 0.5
+ *         2          5.14 dB              10.96 dB             11.00 dB
+ *         4          4.57                 14.96                10.42
+ *         6          4.47                 18.18                10.15
+ *         8          4.37                 20.94                 9.81
+ *
+ * At a width of two the tolerance has 0.86 dB of room underneath it - a tape
+ * machine against a digital one on four heads, which is not a wrong answer
+ * and must not read as one. Four gives that 1.43 dB and the other side nine,
+ * and six and eight buy almost nothing more on either while blurring the
+ * diffusion further. So the narrow end is ruled out by a measurement and the
+ * wide end by diminishing returns, which leaves four.
+ *
+ * The blurring is the one real cost and it is paid at every length, not just
+ * at short ones: the diffusion all-passes sit 2.37, 1.54 and 1.07 frames into
+ * the loop whatever the loop is, because DIFFUSE_AT is a fraction of it. So
+ * any window of two frames or more is already as wide as the thing it is
+ * reading. Measured, that costs about half a decibel out of eleven.
  */
-export const ARRIVAL_SMEAR = 2;
+export const ARRIVAL_WIDTH = 4;
 
 /**
  * The shape of one pass of the loop: where the energy arrives inside it.
@@ -314,13 +356,13 @@ export const ARRIVAL_SMEAR = 2;
  * Cut into fractions of the loop instead, the time falls out of it entirely:
  *
  *       exact                    0.00 dB
- *       time 1 % long            0.06 dB
- *       time 10 % long           0.40 dB
- *       time 50 % long           0.48 dB
- *       feedback 0.15 more       2.31 dB
- *       tone an octave down      1.45 dB
- *       single head             21.47 dB
- *       three heads             26.61 dB
+ *       time 1 % long            0.04 dB
+ *       time 10 % long           0.34 dB
+ *       time 50 % long           0.91 dB
+ *       feedback 0.15 more       2.27 dB
+ *       tone an octave down      1.34 dB
+ *       single head             18.76 dB
+ *       three heads             23.87 dB
  *
  * Which is a reading worth having: the pattern at twenty decibels and
  * everything else at two.
@@ -332,10 +374,10 @@ export const ARRIVAL_SMEAR = 2;
  * fifteen-hundred one:
  *
  *     pair            default loop    wide open loop
- *     380 vs 420          0.28 dB          0.00 dB
- *     300 vs 900          0.71 dB          0.00 dB
- *     200 vs 900          1.17 dB          0.00 dB
- *     20 vs 1500          5.97 dB          0.00 dB
+ *     380 vs 420          0.16 dB          0.00 dB
+ *     300 vs 900          0.87 dB          0.00 dB
+ *     200 vs 900          1.38 dB          0.00 dB
+ *     20 vs 1500          6.05 dB          0.00 dB
  *
  * Nothing anywhere a match is played, where the two delays are on the same
  * material and one is trying to be the other. It is the complement of the decay curve rather than
@@ -349,39 +391,45 @@ export const ARRIVAL_SMEAR = 2;
  */
 export function loopShape(samples, rate, ms) {
   const span = ((ms / 1000) * rate) / LOOP_FRAMES;
-  const raw = new Float64Array(ARRIVALS);
 
-  for (let f = 0; f < ARRIVALS; f += 1) {
-    const from = Math.floor(f * span);
-    const to = Math.min(samples.length, Math.floor((f + 1) * span));
-    let energy = 0;
-    for (let i = from; i < to; i += 1) energy += samples[i] * samples[i];
-    raw[f] = energy;
-  }
-
-  // Smeared in energy rather than in decibels: adding two levels is adding
-  // their energies, and a triangle over the logarithms averages the wrong
-  // thing.
-  const smeared = new Float64Array(ARRIVALS);
+  // A frame is not a whole number of samples - 375 ms at 48 kHz is 281.25 of
+  // them - so the window is placed at its true fractional position and the
+  // raised cosine is evaluated at each sample's real offset into it, rather
+  // than being built once as an array and started at a rounded sample.
+  // Rounding the start leaves each frame's weights up to half a sample out of
+  // step with the grid, which shows up as the reading being slightly
+  // different depending on which way a frame's start happened to round, and
+  // as one direction of movement reading differently from the other.
+  const half = (span * ARRIVAL_WIDTH) / 2;
+  const level = new Float64Array(ARRIVALS);
   let loudest = 0;
   for (let f = 0; f < ARRIVALS; f += 1) {
+    const opens = (f + 0.5) * span - half;
+    const from = Math.ceil(opens);
+    const to = Math.floor(opens + 2 * half);
+
+    // Each frame is the windowed mean power around its own middle. Weighting
+    // the power rather than the samples, because a frame is asking how much
+    // energy arrived near here and energies add where amplitudes do not.
+    // Anything off either end of the response counts as the silence it is -
+    // its weight still goes into the divisor - so the first frame is not
+    // lifted by having nothing in front of it.
     let sum = 0;
     let weight = 0;
-    for (let k = -ARRIVAL_SMEAR; k <= ARRIVAL_SMEAR; k += 1) {
-      const at = f + k;
-      if (at < 0 || at >= ARRIVALS) continue;
-      const w = ARRIVAL_SMEAR + 1 - Math.abs(k);
-      sum += raw[at] * w;
+    for (let at = from; at <= to; at += 1) {
+      const w = 0.5 - 0.5 * Math.cos((Math.PI * (at - opens)) / half);
       weight += w;
+      if (at < 0 || at >= samples.length) continue;
+      sum += w * samples[at] * samples[at];
     }
-    smeared[f] = weight > 0 ? sum / weight : 0;
-    if (smeared[f] > loudest) loudest = smeared[f];
+    level[f] = weight > 0 ? sum / weight : 0;
+    if (level[f] > loudest) loudest = level[f];
   }
 
   const out = new Float32Array(ARRIVALS);
   for (let f = 0; f < ARRIVALS; f += 1) {
     out[f] = loudest > 1e-20
-      ? Math.max(ARRIVAL_FLOOR, 10 * Math.log10(Math.max(smeared[f], 1e-20) / loudest))
+      ? Math.max(ARRIVAL_FLOOR, 10 * Math.log10(Math.max(level[f], 1e-20) / loudest))
       : ARRIVAL_FLOOR;
   }
   return out;
@@ -403,17 +451,35 @@ export const ARRIVAL_AXIS = { kind: 'arrivals', perLoop: LOOP_FRAMES, passes: LO
  * With the transport held still, whatever it is set to. This reading answers
  * where inside a pass the repeats fall - which heads, how smeared - and the
  * question has an answer only if the pass is the same length every time
- * round. A wandering line moves each repeat by a few samples, which is nothing
- * to the ear and everything to a reading whose frames have edges: three
- * samples read seven decibels, measured, which is more than its whole
- * tolerance. See ARRIVAL_SMEAR above for why that happens and what the real
- * fix would cost.
+ * round.
  *
- * So the wander is somebody else's to measure, and `wanderReading` measures
- * it. The alternative was to let this one react to both and call the sum a
+ * It used to be held still because it had to be. Through the box this reading
+ * was framed with, five cents of flutter read 6.21 dB against a tolerance of
+ * six, and twenty-five read 7.25 - a correct head pattern failing on a
+ * transport nobody was being asked about. See ARRIVAL_WIDTH: that was frame
+ * edges, and the overlapping window removed it. The same two now read 0.31
+ * and 0.40.
+ *
+ * It is still held still, and the reason is now a real one rather than a
+ * defect. Measured with the guard taken off on purpose:
+ *
+ *     flutter 25 cents           0.40 dB
+ *     wow 5 cents                0.57 dB
+ *     wow 25 and flutter 25      5.86 dB
+ *     wow 50 cents               8.01 dB
+ *
+ * Deep wow is not jitter. It is slow enough that a whole pass goes by at a
+ * stretched length, so the repeats really do land somewhere else - two frames
+ * out at fifty cents - and a reading of where the repeats land is right to
+ * say so. Which is exactly why it must not: that is the wander's question,
+ * and `wanderReading` asks it. Both numbers read the same through the box as
+ * through the window, 8.03 against 8.01, which is how you can tell this half
+ * was never the frame edges.
+ *
+ * The alternative was to let this one react to both and call the sum a
  * reading, which is how you get a tolerance that cannot be set: too tight and
- * five cents of flutter fails a correct pattern, too loose and the pattern
- * stops being marked at all.
+ * deep wow fails a correct pattern, too loose and the pattern stops being
+ * marked at all.
  */
 export function repeatsReading(rate, settings, { source = null } = {}) {
   const whole = { ...ECHO_DEFAULTS, ...settings, wow: 0, flutter: 0 };

@@ -41,10 +41,19 @@ const ECHO_CLOSE = { easy: 2.6, medium: 1.9, hard: 1.2, expert: 1.2 };
  * How far the shape of the loop may be out, in decibels, where it is asked
  * for at all.
  *
- * Six, from the measurements in line.js beside the reading: everything that
- * is not the head pattern moves this by at most 2.31 dB - that is the
- * feedback a seventh of the way out - and a wrong pattern moves it by 21 or
- * more. So six is firmly inside the gap rather than near either side of it.
+ * Six, and the gap it has to sit in is narrower than this comment used to
+ * say. It claimed the worst incidental was 2.31 dB, the feedback a seventh of
+ * the way out - but that was the worst of the handful of settings the table
+ * beside the reading happened to list. Swept over every head pattern and
+ * every other control, the worst is a bucket brigade or a tape machine read
+ * against a digital one on four heads: 4.57 dB, and 4.31 through the box this
+ * reading used to be framed with, so the claim was already wrong before the
+ * framing changed. The closest wrong pattern is 14.96 dB.
+ *
+ * So six sits between 4.57 and 14.96 rather than between 2.31 and 21. Still
+ * comfortably inside, and worth knowing it is three decibels from one side
+ * and nine from the other rather than the other way round: if anything ever
+ * widens what a machine does to the arrivals, this is the number that moves.
  */
 const SHAPE_CLOSE = 6;
 
@@ -104,9 +113,9 @@ const WANDER_CLOSE = 4;
  *
  * Against the 6 dB that decides a pass, a long tail resolves diffusion to
  * about a fifth of its travel and a short one does not resolve it at all -
- * clean against six tenths is 6.2 dB, which is the tolerance itself. So asking
- * on a short tail would be asking for something nobody can hear, and the
- * reading would be right to shrug.
+ * clean against six tenths is 6.09 dB, which is the tolerance itself. So
+ * asking on a short tail would be asking for something nobody can hear, and
+ * the reading would be right to shrug.
  *
  * It is not a tell worth worrying about. What somebody learns from this is
  * that smearing a slapback does nothing, which is true of delays rather than
@@ -114,7 +123,10 @@ const WANDER_CLOSE = 4;
  *
  * A third of the long-tailed targets are clean, so that "is it smeared at
  * all" stays a question - and clean is enforceable, since six tenths against
- * none reads 13.2 dB and even a seventh of it reads 7.4.
+ * none reads 12.64 dB and the least this tier ever draws, three tenths,
+ * reads 8.03. A seventh of the travel would read 6.31, which is the
+ * tolerance plus a rounding - but SMEAR_RANGE never draws one that small, so
+ * the number the drill rests on is the 8.03 rather than that.
  *
  * What the whole of it comes to, over twenty expert targets - twelve with a
  * long tail, nine of those smeared, none of the short-tailed ones:
