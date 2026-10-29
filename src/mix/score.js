@@ -27,6 +27,12 @@
 // on all five, so the floor is a real zero and a tolerance means what it
 // says. (It was not, until the kit's noise was seeded: see `makeKit`.)
 //
+// Re-checked when the image reading grew a seventh band at the top, because
+// placement is read in the imager's bands and a new one could have put noise
+// under the tightest tolerance here. It did not: the unchanged mix still
+// reads 0.00 on all five, and a pan move of 0.10, 0.20 and 0.35 still reads
+// 0.45, 0.89 and 1.52 on placement against the 0.42, 0.87 and 1.57 above.
+//
 // The tiers are set so that a single stem being out by about two decibels
 // still passes the easy one, about one decibel passes the middle one, and
 // the hard one wants half of that.

@@ -132,6 +132,11 @@ export const COHERENCE_MOVING = 0.4;
  * submitted and marked, and far too slow to run while somebody is turning a
  * knob. Anything that wants it live would have to read it on release rather
  * than on move.
+ *
+ * Both re-measured when the image reading grew a seventh band: 187 and 53 on
+ * that run. The 53 against 49 is the band; the 187 against 229 is the machine,
+ * which is the reminder that the number worth keeping here is the ratio. Three
+ * to four times the image reading, either way round.
  */
 export const COHERENCE_COST_MS = 229;
 

@@ -1,7 +1,7 @@
 // How wide a track is, band by band, and whether it survives being summed.
 //
 // This one is almost entirely reuse. `src/plugins/stereo/field.js` already reads an
-// image - correlation, width and balance in six bands - because the imager is
+// image - correlation, width and balance in seven bands - because the imager is
 // marked on exactly that measurement. The imager reads it through its own
 // processing; here it is read off the audio as it arrived, with nothing in
 // the way.

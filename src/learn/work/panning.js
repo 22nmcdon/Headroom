@@ -495,10 +495,10 @@ export const STEREO_WORK = {
           value: gap.where === null
             ? 'the whole image, not one band'
             : `${gap.where}, ${error.toFixed(2)} dB out`,
-          how: 'The image is measured in six bands, and this is the one furthest '
-             + 'from the target. The worst band rather than the average, because '
-             + 'an average over six says nothing when one is in completely the '
-             + 'wrong place and the other five are right.',
+          how: 'The image is measured in seven bands, and this is the one '
+             + 'furthest from the target. The worst band rather than the average, '
+             + 'because an average over seven says nothing when one is in '
+             + 'completely the wrong place and the other six are right.',
         },
         {
           label: 'Which way',

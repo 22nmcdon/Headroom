@@ -284,6 +284,59 @@ this effect measured on an unequal pair and filed under correlation. It did
 not reproduce when it was measured again, which is the only reason it was
 caught.
 
+## Raising the reading's ceiling needed a band, not a wider band
+
+The image was read in six bands stopping at 14 kHz. The obvious way to take
+that to 20 was to stretch the top band, and measured, that changes what the
+reading says by 0.06 dB. In this app's own material 14 to 20 kHz runs thirty
+decibels under 6 to 14, so a pooled 6-20 band is decided entirely by its
+bottom end and reads to 20 kHz in name only. A ceiling can only be raised by
+adding a band.
+
+Added as a seventh, it earns its place and does not get in the way. Measured
+as how far apart two imagers read, on a target and a guess that differ
+somewhere other than the top:
+
+    what is wrong             six bands        seven
+    low end too wide        5.93 at sub     5.93 at sub
+    mid slightly off        2.86 at mid     2.86 at mid
+    a touch narrow all over 1.94 at himid   1.94 at himid
+    top wide against flat   5.73 at high    6.01 at the new one
+
+So a band with thirty decibels less in it than its neighbour does not hijack
+the worst-band search - every error below the top reports the same band at the
+same number - and an error at the top reads larger, which is the point of
+going up there. No energy gate was needed, which is what this was expected to
+need.
+
+It earns its place against the band below it too. With the top width control
+at zero and the upper crossover at 4 kHz, the new band reads -30.0 dB against
+the band below it at -24.3: narrowing the top takes 14-20 kHz all the way to
+mono while 6-14 keeps some side, and that is the distinction a pooled band
+loses.
+
+The band is narrower than the family - a ratio of 1.43 where the others are
+2.3 to 3.0 - and that is Nyquist's doing rather than a choice. At 44.1 kHz
+there is nowhere above 20 kHz for its top edge to go.
+
+**And a band has to stop where it says, not where the sample rate does.**
+`bandOf` skipped its low-pass above a flat 20 kHz, which was harmless while no
+band reached that high and wrong the moment one did: a band declared to 20 kHz
+got no low-pass at all and ran to Nyquist, so the same material read 14-22.05
+kHz at 44.1 and 14-24 at 48. Measured then, a 21 kHz tone came out of that
+band at -0.0 dB. The guard is Nyquist now, and the band is 6 dB down at its
+own corner at both rates - 20 kHz reads -6.0 at 44.1 and -6.1 at 48. What
+still differs between the rates is the skirt above the corner, 21 kHz reading
+-24.0 against -12.7, because the same corner sits at a different fraction of
+Nyquist. That is past the corner and past hearing, so there is nothing up
+there for the two to disagree about.
+
+The mix exercise reads placement in these same bands and its tolerances are
+measured, so the seventh band was checked against them: an unchanged mix still
+reads 0.00 on all five readings, and a pan move of 0.10, 0.20 and 0.35 still
+reads 0.45, 0.89 and 1.52 on placement against the 0.42, 0.87 and 1.57 the
+tolerances were set from.
+
 ## Notchiness is not a reading, and that is worth writing down
 
 The obvious companion to coherence is how combed the mono sum is - it is what

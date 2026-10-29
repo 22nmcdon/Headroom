@@ -12,7 +12,7 @@
 // one thing a pan control does is the one thing a width reading is blind to.
 //
 // So: a plain reading of how much energy is on each side, band by band, over
-// the same six bands the imager uses. A pan shows up in exactly the band the
+// the same seven bands the imager uses. A pan shows up in exactly the band the
 // panned thing lives in, which is also what makes it useful to say out loud -
 // "the 400 is 4 dB further left than it should be" is an instruction.
 

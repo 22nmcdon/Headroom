@@ -86,7 +86,38 @@ export const STEREO_LIMITS = {
   pan: [-1, 1],
 };
 
-/** The bands an image is read in - finer than the three it is worked in. */
+/**
+ * The bands an image is read in - finer than the three it is worked in.
+ *
+ * The top one was added later, and the reason is worth keeping because the
+ * obvious way to raise a ceiling does not work. The reading stopped at 14 kHz
+ * and the top of the band it stopped in was pooled with the two octaves below
+ * it, so the first attempt was simply to stretch that band to 20 kHz.
+ * Measured, that changes what the reading says by 0.06 dB: in this material
+ * 14 to 20 kHz runs 30-odd decibels under 6 to 14, so a pooled band is
+ * decided entirely by its bottom end and reads to 20 kHz in name only. A
+ * ceiling can only be raised by adding a band.
+ *
+ * Added, it earns its place and does not get in the way. Measured as how far
+ * apart two imagers read, on a target and a guess that differ somewhere other
+ * than the top:
+ *
+ *     what is wrong             six bands        seven
+ *     low end too wide        5.93 at sub     5.93 at sub
+ *     mid slightly off        2.86 at mid     2.86 at mid
+ *     a touch narrow all over 1.94 at himid   1.94 at himid
+ *     top wide against flat   5.73 at high    6.01 at the new one
+ *
+ * So a band with thirty decibels less in it than its neighbour does not
+ * hijack the worst-band search - every error below the top reports the same
+ * band and the same number - and an error at the top reads larger, which is
+ * the whole point of going up there. No energy gate was needed, which was the
+ * thing this was expected to need.
+ *
+ * It is narrower than the family - a ratio of 1.43 where the others are 2.3
+ * to 3.0 - and that is Nyquist's doing rather than a choice. At 44.1 kHz
+ * there is nowhere above 20 kHz for its top edge to go.
+ */
 export const STEREO_BANDS = [
   { id: 'sub', label: '40', low: 30, high: 90 },
   { id: 'low', label: '120', low: 90, high: 250 },
@@ -94,6 +125,7 @@ export const STEREO_BANDS = [
   { id: 'mid', label: '1k', low: 700, high: 2000 },
   { id: 'himid', label: '4k', low: 2000, high: 6000 },
   { id: 'high', label: '10k', low: 6000, high: 14000 },
+  { id: 'air', label: '16k', low: 14000, high: 20000 },
 ];
 
 /** Below this a band is too quiet to have an image at all. */
@@ -388,10 +420,10 @@ export function stereoOf(left, right, rate, settings) {
  * How far apart two images are: the worst band, in decibels of width.
  *
  * The worst rather than the average, for the reason the EQ found first. An
- * imager works three bands out of six the reading covers, so averaging a
- * whole band's worth of error across all of them divides it by six and a mix
- * with its low end in completely the wrong place scores well. What anybody
- * means by two images matching is that they match everywhere.
+ * imager works three bands out of the seven the reading covers, so averaging
+ * a whole band's worth of error across all of them divides it by seven and a
+ * mix with its low end in completely the wrong place scores well. What
+ * anybody means by two images matching is that they match everywhere.
  *
  * Placing counts alongside the bands, because being on the wrong side of the
  * room is not a detail either.
@@ -428,7 +460,7 @@ export function stereoGap(mine, theirs) {
 
 export const stereoDistance = (mine, theirs) => stereoGap(mine, theirs).off;
 
-/** What a stereo image is indexed by: the six bands, in order. */
+/** What a stereo image is indexed by: the seven bands, in order. */
 export const STEREO_AXIS = { kind: 'bands', ids: STEREO_BANDS.map((band) => band.id) };
 
 /** An image, in an envelope. */

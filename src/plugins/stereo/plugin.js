@@ -410,7 +410,7 @@ export class StereoPlugin {
   /**
    * Reads the image off the material, no more often than it is worth doing.
    *
-   * Filtering a bar of stereo audio into six bands and correlating each one
+   * Filtering a bar of stereo audio into seven bands and correlating each one
    * is tens of milliseconds - fine once, far too slow for every frame of a
    * drag. The goniometer is the live picture; this is the considered one, and
    * it catches up when the hand stops.

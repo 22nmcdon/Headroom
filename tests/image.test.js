@@ -4,8 +4,9 @@ import assert from 'node:assert/strict';
 import {
   STEREO_DEFAULTS, STEREO_BANDS, STEREO_FLOOR, WIDEST,
   imagerCore, runImager, widthOf, stereoOf, stereoDistance,
-  stereoReading, coherenceReading,
+  stereoReading, coherenceReading, stereoGap, STEREO_AXIS,
 } from '../src/plugins/stereo/field.js';
+import { bandOf } from '../src/lib/response.js';
 import {
   COHERENCE_WINDOW, COHERENCE_FLOOR, COHERENCE_MOVING,
 } from '../src/plugins/stereo/coherence.js';
@@ -929,4 +930,147 @@ test('a mode shows its own pan knobs and not the other mode\'s', () => {
   // Everything that is not a pan knob is on both.
   const common = ids('balance').filter((id) => !['pan', 'panL', 'panR'].includes(id));
   for (const id of common) assert.ok(ids('dual').includes(id), `${id} belongs to neither mode`);
+});
+
+/* --- how high the reading goes -------------------------------------------- */
+
+/**
+ * A stereo pair with something in every band the reading covers, 20 kHz
+ * included, and real side everywhere rather than side made by a widener.
+ *
+ * Side rather than a widener's side, because the width controls scale the
+ * side that is there and the widener adds after them - see the note at the
+ * end of `imagerCore.step`. On a mono source the three width knobs have
+ * nothing to work on, which is what a first version of these tests got wrong:
+ * it turned the top width from 0 to 2.5 on a widened mono source and read
+ * -2.0 dB either way, correctly.
+ */
+function toTheTop(seconds = 2, at = rate) {
+  const n = Math.round(at * seconds);
+  const left = new Float32Array(n);
+  const right = new Float32Array(n);
+  const a = mulberry32(0x7a17);
+  const b = mulberry32(0x3c0d);
+  let lpa = 0;
+  let lpb = 0;
+  for (let i = 0; i < n; i += 1) {
+    const t = i / at;
+    lpa += ((a() * 2 - 1) - lpa) * 0.6;
+    lpb += ((b() * 2 - 1) - lpb) * 0.6;
+    const tones = (Math.sin(2 * Math.PI * 60 * t) * 0.3
+      + Math.sin(2 * Math.PI * 900 * t) * 0.2
+      + Math.sin(2 * Math.PI * 4000 * t) * 0.2
+      + Math.sin(2 * Math.PI * 9000 * t) * 0.2
+      + Math.sin(2 * Math.PI * 17000 * t) * 0.2);
+    // The tones in the middle and the noise to the sides, so every band has
+    // both - the noise reaches to Nyquist, so the top band has side of its own.
+    left[i] = (tones + lpa * 0.9) * 0.3;
+    right[i] = (tones + lpb * 0.9) * 0.3;
+  }
+  return { left, right };
+}
+
+test('the reading goes up to 20 kHz, and the band at the top is its own', () => {
+  // The ceiling was 14 kHz. The obvious way to raise it - stretch the top
+  // band - does not work: measured, 14 to 20 kHz runs thirty-odd decibels
+  // under 6 to 14 in this app's own material, so a pooled 6-20 band is
+  // decided by its bottom end and changes what the reading says by 0.06 dB.
+  // A ceiling can only be raised by adding a band.
+  const top = STEREO_BANDS[STEREO_BANDS.length - 1];
+  assert.equal(top.high, 20000, 'the reading should reach 20 kHz');
+  assert.ok(top.low >= 14000, 'and the band at the top should begin where the old one ended');
+
+  // Every band keeps its own id, because two readings are compared band by
+  // band and an id that moved would compare the wrong two.
+  const ids = STEREO_BANDS.map((band) => band.id);
+  assert.deepEqual(ids.slice(0, 6), ['sub', 'low', 'lowmid', 'mid', 'himid', 'high'],
+    'the six that were here first should still be here, in order and under their own names');
+  assert.equal(new Set(ids).size, ids.length, 'no two bands share an id');
+  assert.deepEqual(STEREO_AXIS.ids, ids, 'and the axis is the band list');
+});
+
+test('a band stops where it says, not where the sample rate does', () => {
+  // What the top edge used to do, and why it had to change. `bandOf` skipped
+  // its low-pass above a flat 20 kHz, which was harmless while no band
+  // reached that high: a band declared to 20 kHz got no low-pass at all and
+  // ran to Nyquist, so the same material read 14-22.05 kHz at 44.1 and
+  // 14-24 at 48. Measured then, a 21 kHz tone came out of that band at
+  // -0.0 dB.
+  const top = STEREO_BANDS[STEREO_BANDS.length - 1];
+  const level = (x) => {
+    let sum = 0;
+    for (let i = Math.round(x.length / 4); i < x.length; i += 1) sum += x[i] * x[i];
+    return 10 * Math.log10(sum / (x.length - Math.round(x.length / 4)) + 1e-30);
+  };
+  const through = (at, hz) => {
+    const n = at * 2;
+    const x = new Float32Array(n);
+    for (let i = 0; i < n; i += 1) x[i] = Math.sin((2 * Math.PI * hz * i) / at);
+    return level(bandOf(x, at, top)) - level(x);
+  };
+
+  // Measured at the corner and above it:
+  //
+  //     rate       16 kHz   20 kHz   21 kHz
+  //     44.1 k      -2.1     -6.0    -24.0
+  //     48 k        -2.8     -6.1    -12.7
+  //
+  // The corner is the band's own at both rates, which is the point. What
+  // differs is the skirt above it, because the same corner sits at a
+  // different fraction of Nyquist - and 21 kHz is past the corner and past
+  // hearing, so there is nothing up there for the two to disagree about.
+  for (const at of [44100, 48000]) {
+    assert.ok(Math.abs(through(at, top.high) + 6) < 0.5,
+      `at ${at} Hz the band should be 6 dB down at its own corner, and read ${through(at, top.high).toFixed(1)}`);
+    assert.ok(through(at, 21000) < -10,
+      `at ${at} Hz a 21 kHz tone should be out of the band, and read ${through(at, 21000).toFixed(1)}`);
+  }
+});
+
+test('the top band answers the control that reaches it', () => {
+  // A band nothing can change is a band nobody can be asked about. The high
+  // width control works above the upper crossover, which tops out below this
+  // band, so it reaches it - and the reading has to show that.
+  const bed = toTheTop(2);
+  const read = (settings) => stereoOf(bed.left, bed.right, rate, { ...STEREO_DEFAULTS, ...settings });
+
+  // Measured, band by band, with the upper crossover at 4 kHz:
+  //
+  //     top control     himid    high     air
+  //     flat            -3.6    -3.7    -6.0
+  //     wide (2.5x)      1.2     4.0     2.0
+  //     narrow (0x)     -7.9   -24.3   -30.0
+  const wide = read({ high: 2.5, midHigh: 4000 });
+  const narrow = read({ high: 0, midHigh: 4000 });
+  assert.ok(wide.bands.air.width > narrow.bands.air.width + 5,
+    `the top control should move the top band: ${narrow.bands.air.width.toFixed(1)} `
+    + `against ${wide.bands.air.width.toFixed(1)} dB`);
+
+  // And it is not just the band below it bleeding through: narrowed, the new
+  // band reads 5.7 dB further down than the one under it - -30.0 against
+  // -24.3 - which is the information a pooled 6-20 kHz band would have lost.
+  assert.ok(narrow.bands.air.width <= narrow.bands.high.width + 0.5,
+    `narrowed, the top band should be no wider than the one below: `
+    + `${narrow.bands.air.width.toFixed(1)} against ${narrow.bands.high.width.toFixed(1)}`);
+});
+
+test('a quiet band at the top does not hijack the worst-band search', () => {
+  // The thing this was expected to need an energy gate for. A band thirty
+  // decibels quieter than its neighbour still reports a width, and nothing in
+  // the gap weighs a band by how much is in it - so the worry was that the
+  // top would win every comparison on noise. Measured on the app's own
+  // material it does not: an error in the low end still reports the low end,
+  // at the same number it did with six bands.
+  const bed = toTheTop(2);
+  const wideLow = stereoReading(bed.left, bed.right, rate, { ...STEREO_DEFAULTS, low: 2.5 });
+  const flat = stereoReading(bed.left, bed.right, rate, { ...STEREO_DEFAULTS });
+
+  // Measured: 7.91 dB at 40 Hz, which is where the error was put.
+  const gap = stereoGap(wideLow, flat);
+  assert.ok(gap.where !== null && !gap.where.startsWith('16k'),
+    `a low-end error should be reported in the low end, and was reported at ${gap.where}`);
+
+  // And two identical images still read as identical, which is the floor the
+  // extra band could have lifted off zero.
+  assert.equal(stereoDistance(flat, flat), 0, 'an image against itself is no distance at all');
 });

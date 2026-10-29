@@ -82,7 +82,24 @@ export function rt60(samples, rate) {
   return ((to - from) * 60) / 20;
 }
 
-/** One band of a response, for reading its decay on its own. */
+/**
+ * One band of a response, for reading its decay or its image on its own.
+ *
+ * Each edge is two Butterworth passes, which is a gentle band rather than a
+ * slice: a band from 14 kHz up still passes 13 kHz at -9 dB and 11 kHz at
+ * -17. Every band here is like that, so they overlap by design and a reading
+ * is a weighting rather than a partition.
+ *
+ * The top edge is skipped only when it is at or above this machine's Nyquist,
+ * where there is nothing to cut and a biquad could not be asked to cut it
+ * anyway. It used to be skipped above a flat 20 kHz, which was harmless while
+ * no band reached that high and wrong the moment one did: a band declared to
+ * 20 kHz got no low-pass at all and so ran to Nyquist, which made the reading
+ * say something different at 44.1 kHz than at 48 - 14 to 22.05 against 14 to
+ * 24. Measured at 44.1 kHz, a 21 kHz tone came out of that band at -0.0 dB,
+ * where with the low-pass it is -24. A band's top edge has to be the band's,
+ * not the machine's.
+ */
 export function bandOf(samples, rate, band) {
   const out = new Float32Array(samples.length);
   out.set(samples);
@@ -93,7 +110,7 @@ export function bandOf(samples, rate, band) {
       for (let i = 0; i < out.length; i += 1) out[i] = runBiquad(hp, out[i]);
     }
   }
-  if (band.high < 20000) {
+  if (band.high < rate / 2) {
     for (let pass = 0; pass < 2; pass += 1) {
       const lp = setBiquad(makeBiquad(), 'lowpass', band.high, rate);
       for (let i = 0; i < out.length; i += 1) out[i] = runBiquad(lp, out[i]);
