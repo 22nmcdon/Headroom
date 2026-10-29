@@ -4,7 +4,12 @@ import assert from 'node:assert/strict';
 import {
   STEREO_DEFAULTS, STEREO_BANDS, STEREO_FLOOR, WIDEST,
   imagerCore, runImager, widthOf, stereoOf, stereoDistance,
+  stereoReading, coherenceReading,
 } from '../src/plugins/stereo/field.js';
+import {
+  COHERENCE_WINDOW, COHERENCE_FLOOR, COHERENCE_MOVING,
+} from '../src/plugins/stereo/coherence.js';
+import { distance } from '../src/gap.js';
 import { imagerSource } from '../src/plugins/stereo/node.js';
 import {
   shuffleCore, MONO_SLOPES, MONO_RANGE, SHUFFLE_RANGE, SHUFFLE_AT, STEEP_STAGES,
@@ -618,4 +623,121 @@ test('the widener sits out of the way when it is not wanted', () => {
   assert.ok(WIDEN_DELAY[0] >= 1 && WIDEN_DELAY[1] <= 50,
     'the widen delay reaches outside where the effect is an effect');
   assert.equal(WIDEN_AMOUNT[0], 0, 'the amount knob should start at off');
+});
+
+/* --- where the width came from -------------------------------------------- */
+
+test('coherence tells a widener that moves from four that do not', () => {
+  // The one question none of the other readings can answer. A Haas delay, a
+  // complementary comb, a velvet-noise decorrelator and two microphones two
+  // metres apart can read the same width, the same correlation and the same
+  // fold-down loss - and three of them are one signal filtered twice.
+  //
+  // Measured through the reading, per band, at an amount of 0.8:
+  //
+  //     kind      sub    low   lowmid   mid   himid   high    gap from off
+  //     off      1.000  1.000  1.000   1.000  1.000  1.000       0.000
+  //     Haas     0.984  1.000  0.996   0.993  0.990  0.992       0.016
+  //     comb     0.963  0.999  0.993   0.982  0.959  0.969       0.041
+  //     all-pass 0.916  1.000  1.000   1.000  1.000  1.000       0.084
+  //     velvet   0.992  1.000  0.999   0.997  0.988  0.988       0.012
+  //     micro    0.531  0.575  0.513   0.624  0.575  0.645       0.487
+  //
+  // Every static kind stays above 0.91 and the only one that moves reads
+  // about 0.57 - six times further from "off" than the worst of the others.
+  // So this reading does not separate artificial width from natural; it
+  // separates a filter that stands still from one that does not, which is a
+  // narrower claim and the one the arithmetic supports.
+  const read = (over) => coherenceReading(rate, { ...STEREO_DEFAULTS, ...over });
+  const off = read({ widen: 'off' });
+
+  const worst = (kind) => distance(read({ widen: kind, widenAmount: 0.8, widenDelay: 12 }), off).off;
+
+  for (const kind of ['haas', 'comb', 'allpass', 'velvet']) {
+    assert.ok(worst(kind) < 0.2,
+      `${kind} read ${worst(kind).toFixed(3)} from off, and a static filter is coherent`);
+  }
+  assert.ok(worst('micro') > 0.3,
+    `micro-pitch read only ${worst('micro').toFixed(3)} from off, and it is the one that moves`);
+  assert.ok(worst('micro') > 4 * Math.max(...['haas', 'comb', 'allpass', 'velvet'].map(worst)),
+    'the kind that moves should be far clear of the ones that do not');
+});
+
+test('an imager doing nothing is perfectly coherent', () => {
+  // The floor at the other end: two channels that are the same signal read
+  // exactly one, so any reading below one is something the tool did.
+  const flat = coherenceReading(rate, { ...STEREO_DEFAULTS });
+  for (const [id, got] of Object.entries(flat.values.bands)) {
+    assert.ok(got > 0.999, `the ${id} band read ${got.toFixed(4)} through an imager at rest`);
+  }
+
+  // And there are enough windows in the probe for the estimate to mean
+  // something. With F frames the floor for unrelated signals is about 1/F, so
+  // a handful of frames would read two unrelated noises as nearly identical -
+  // measured at a window of 16384, two unrelated noises read 0.0304 over
+  // thirty-four frames and 0.5790 when the noise came from a linear
+  // congruential generator, which is a story in coherence.js.
+  assert.ok(flat.values.frames >= 30,
+    `only ${flat.values.frames} windows fit the probe, which is not enough to settle`);
+  assert.ok(COHERENCE_FLOOR < 0.1, 'the floor should be well clear of anything worth reading');
+});
+
+test('a coherence reading is not an image reading', () => {
+  // Two readings of the same tool, on the same material, measuring different
+  // things - so the envelope has to refuse to average them into one number.
+  const bed = pair(1, (a, b) => [a * 0.5 + b * 0.3, a * 0.5 - b * 0.3]);
+  const image = stereoReading(bed.left, bed.right, rate, { ...STEREO_DEFAULTS });
+  const where = coherenceReading(rate, { ...STEREO_DEFAULTS });
+  assert.throws(() => distance(image, where), /compare/,
+    'an image reading against a coherence reading should be refused');
+});
+
+test('the coherence window is long against the longest delay on offer', () => {
+  // The trap this constant sits between. Too short and a delay reads as
+  // decorrelated, because the two channels' windows hold different material;
+  // too few frames and everything reads coherent, because the floor is about
+  // one over the frame count. Measured over six seconds, 300 Hz to 5 kHz:
+  //
+  //     window    ms   frames    1 ms   12 ms   40 ms   unrelated
+  //       2048    43     280    0.993   0.349   0.004     0.0040
+  //       4096    85     139    0.998   0.772   0.052     0.0077
+  //       8192   171      69    1.000   0.938   0.489     0.0152
+  //      16384   341      34    1.000   0.984   0.839     0.0304
+  //
+  // At 8192 the longest delay the widener offers reads 0.489, which is
+  // indistinguishable from half decorrelated and is exactly the wrong answer -
+  // that delay is a filter, and a filter is coherent.
+  const longest = (WIDEN_DELAY[1] / 1000) * rate;
+  assert.ok(COHERENCE_WINDOW > longest * 8,
+    `a window of ${COHERENCE_WINDOW} is not long against a delay of ${Math.round(longest)} samples`);
+
+  // And the longest delay really does still read as the filter it is - but
+  // only just, which is the thing to know. Swept across the controls rather
+  // than measured at one setting:
+  //
+  //     delay      Haas    comb   all-pass   velvet
+  //      1 ms     0.000   0.001    0.084     0.012
+  //     12 ms     0.016   0.041    0.084     0.012
+  //     40 ms     0.081   0.327    0.084     0.012
+  //
+  // against micro-pitch at 0.487 to 0.635 across its own range. Every static
+  // kind under 0.33, the moving one over 0.48, and COHERENCE_MOVING is the
+  // only number between them. The margin is twelve times at twelve
+  // milliseconds and one and a half times at forty.
+  const off = coherenceReading(rate, { ...STEREO_DEFAULTS, widen: 'off' });
+  const far = coherenceReading(rate,
+    { ...STEREO_DEFAULTS, widen: 'comb', widenAmount: 0.8, widenDelay: WIDEN_DELAY[1] });
+  assert.ok(distance(far, off).off < COHERENCE_MOVING,
+    `a ${WIDEN_DELAY[1]} ms comb read ${distance(far, off).off.toFixed(3)} from off, `
+    + `which is past the ${COHERENCE_MOVING} that is supposed to mean "it moves"`);
+
+  // And the moving one is on the other side of that line at both ends of its
+  // own range, which is the half that would break first if the probe changed.
+  for (const cents of [2, 25]) {
+    const moving = coherenceReading(rate,
+      { ...STEREO_DEFAULTS, widen: 'micro', widenAmount: 0.8, widenCents: cents });
+    assert.ok(distance(moving, off).off > COHERENCE_MOVING,
+      `micro-pitch at ${cents} cents read ${distance(moving, off).off.toFixed(3)}, `
+      + 'which is on the filter side of the line');
+  }
 });

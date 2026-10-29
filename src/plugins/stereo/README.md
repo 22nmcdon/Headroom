@@ -4,6 +4,7 @@
     field.js    the width and placement maths, and comparing two readings
     shuffle.js  width that is not the same at every frequency
     widen.js    making side out of middle, which nothing else here can do
+    coherence.js  and whether that width was made or recorded
     node.js     the AudioWorklet
     player.js   auditioning it
 
@@ -129,3 +130,89 @@ non-integer number of cycles reads a phase-shifted signal differently at the
 edges. Measured directly, the mono sum deviates from the input by the same
 4.543e-1 at the same sample with the widener on and off. The comparison has
 to be against the imager's own output with the widener off.
+
+## Whether the width was made or recorded
+
+Every other reading here measures how much side there is. None of them can say
+where it came from, and that is the more interesting question: a Haas delay, a
+complementary comb, a velvet-noise decorrelator and two microphones two metres
+apart can read the same width, the same correlation and the same fold-down
+loss, and three of them are one signal filtered twice.
+
+Coherence is what tells them apart, and not in the way it is usually
+described. It is invariant to any linear time-invariant filtering - if one
+channel is any filter of the other, however wild, coherence is one at every
+frequency. So it does not separate artificial width from natural. It separates
+a filter that stands still from two signals or something that moves.
+
+    delay      Haas    comb   all-pass   velvet
+     1 ms     0.000   0.001    0.084     0.012
+    12 ms     0.016   0.041    0.084     0.012
+    20 ms     0.035   0.135    0.084     0.012
+    40 ms     0.081   0.327    0.084     0.012
+
+    micro-pitch:  2 cents 0.635  9 cents 0.487  15 cents 0.511  25 cents 0.543
+
+Swept rather than measured at one setting, which matters: at twelve
+milliseconds the separation looks twelve to one and at the comb's longest
+delay it is one and a half to one. Every static kind stays under 0.33 and the
+moving one stays over 0.48, so 0.4 is the only line between them.
+
+**The window has a trap at each end and the usable range is narrow.** Too
+short and a delay reads as decorrelated, because the two channels' windows
+hold different material. Too few frames and everything reads coherent, because
+the floor for unrelated signals is about one over the frame count. Measured
+over six seconds, 300 Hz to 5 kHz:
+
+    window    ms   frames    1 ms   12 ms   40 ms   unrelated
+      2048    43     280    0.993   0.349   0.004     0.0040
+      4096    85     139    0.998   0.772   0.052     0.0077
+      8192   171      69    1.000   0.938   0.489     0.0152
+     16384   341      34    1.000   0.984   0.839     0.0304
+
+Sixteen thousand is the only one that keeps the longest delay up at 0.84 while
+the floor is still 0.03. The research this came from recommends frames of
+twenty to fifty milliseconds alongside Haas delays of one to forty; those two
+contradict each other, and at 43 ms a twelve-millisecond delay reads 0.349 -
+the reading would call the most common widener setting "decorrelated".
+
+**It must be averaged across a band's bins, not taken at one frequency.** One
+bin's cross-spectrum is a sum of random phasors however many frames it is
+averaged over, so its variance never comes down: a first attempt with one
+Goertzel per band read two unrelated noises at 0.02, then 0.46, then 0.07 as
+the frame count went 5, 12, 25.
+
+**And the probe's noise generator is part of the measurement.** The first
+version used the classic linear congruential generator and put the floor
+thirteen times where it belonged - 0.5790 against an expected 0.0435 - because
+an LCG of that form has lattice structure and a sixteen-thousand-point
+transform is long enough to resolve it. Two streams from it are not unrelated,
+they are related in a way only a long window can see. The estimator was fine
+all along, checked against a known transform and against theory at 0.0024
+where one in two hundred was expected.
+
+It costs 229 ms a reading against the image reading's 49, so it belongs on a
+submitted guess and not on a knob being turned.
+
+## Notchiness is not a reading, and that is worth writing down
+
+The obvious companion to coherence is how combed the mono sum is - it is what
+separates Haas from the complementary kinds, measured at 2.85 dB against
+exactly 0.00. It cannot be a reading of audio, because it needs the dry input
+to compare against and a reading of somebody's mix has no dry input.
+
+The reference-free version that suggests itself - the mono sum against the
+stereo power at the same fine resolution - does not work. Measured:
+
+    kind         against the input   against the stereo power
+    Haas               2.67 dB                 1.21 dB
+    comb               0.00                    2.15
+    all-pass           0.00                    1.45
+    velvet             0.00                    2.74
+    micro              8.46                    1.71
+
+The separation is gone and the order is scrambled - the comb reads higher than
+Haas. The reason is that the mono-to-stereo power ratio is about one over one
+plus the side-to-mid ratio, so it is a width measure wearing a comb measure's
+name. So the mono notch stays where it works, in the widener's own tests,
+where the dry signal exists.

@@ -3,6 +3,11 @@ import {
   widenCore, WIDEN_KINDS, WIDEN_AMOUNT, WIDEN_DELAY, WIDEN_CENTS,
 } from './widen.js';
 import { pitchCore } from '../../lib/pitch.js';
+import {
+  coherenceProbe, coherenceOf, COHERENCE_SECONDS, COHERENCE_WINDOW,
+} from './coherence.js';
+import { fft } from '../../lib/fft.js';
+import { mulberry32 } from '../../lib/random.js';
 import { makeBiquad, setBiquad, runBiquad } from '../../lib/dsp.js';
 import { bandOf } from '../../lib/response.js';
 import { readingOf, stampOf } from '../../lib/read.js';
@@ -422,5 +427,47 @@ export function stereoReading(left, right, rate, settings, { source = null } = {
     kind: 'image',
     of: { state: stampOf(settings), source, axis: STEREO_AXIS },
     values: stereoOf(left, right, rate, settings),
+  });
+}
+
+/* ---------- where the width came from, as a reading ---------- */
+
+/**
+ * The axis two of these must share.
+ *
+ * The probe is in it, for the reason the duck's is: a reading taken against
+ * one probe cannot be held against a reading taken against another, and
+ * unlike the band edges - which two imagers may differ in and still be
+ * compared - the probe is the question rather than the answer.
+ */
+export const COHERENCE_AXIS = {
+  kind: 'coherence',
+  ids: STEREO_BANDS.map((band) => band.id),
+  seconds: COHERENCE_SECONDS,
+  // Named `frame` and not `window`, because tests/seams.test.js holds every
+  // core DSP file to naming no browser globals and a property called `window`
+  // reads as one. The same trap caught `wanderBands` in the delay.
+  frame: COHERENCE_WINDOW,
+};
+
+/**
+ * Where an imager's width came from, band by band.
+ *
+ * Builds its own material rather than reading what it is handed, which is the
+ * pattern the delay's wander and ducking readings already use and for the
+ * same two reasons. The estimate needs seconds of audio to settle - thirty-odd
+ * windows of 341 ms apiece - and the question only has an answer against a
+ * mono probe, since a probe with width already in it would be asking what the
+ * recording did rather than what the imager did.
+ */
+export function coherenceReading(rate, settings, { source = null } = {}) {
+  const whole = { ...STEREO_DEFAULTS, ...settings };
+  const mono = coherenceProbe(rate, mulberry32(0x5e1f));
+  const out = runImager(Float32Array.from(mono), Float32Array.from(mono), rate, whole);
+  return readingOf({
+    tool: 'panning',
+    kind: 'coherence',
+    of: { state: stampOf(whole), source, axis: COHERENCE_AXIS },
+    values: coherenceOf(out.left, out.right, rate, STEREO_BANDS, fft),
   });
 }

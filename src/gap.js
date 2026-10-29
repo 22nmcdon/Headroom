@@ -17,6 +17,7 @@ import { reductionGap } from './plugins/compressor/reading.js';
 import { decayGap } from './lib/response.js';
 import { repeatGap, wanderGap, duckGap } from './plugins/delay/line.js';
 import { stereoGap } from './plugins/stereo/field.js';
+import { coherenceGap } from './plugins/stereo/coherence.js';
 import { heatGap } from './plugins/saturation/shape.js';
 import { loudnessGap } from './analysis/loudness.js';
 import { crestGap } from './analysis/dynamics.js';
@@ -60,6 +61,13 @@ const GAPS = {
   // tolerances of 2.6, 1.9 and 1.2.
   ducking: duckGap,
   image: stereoGap,
+  // And where that image came from, which the one above cannot say. A Haas
+  // delay, a complementary comb, a velvet-noise decorrelator and two
+  // microphones two metres apart can read the same width, the same
+  // correlation and the same fold-down loss; three of them are one signal
+  // filtered twice. Measured, every static widener reads above 0.84 and the
+  // only kind that moves reads 0.19 to 0.73, against a floor of 0.03.
+  coherence: coherenceGap,
   harmonics: heatGap,
   loudness: loudnessGap,
   crest: crestGap,
