@@ -1,3 +1,4 @@
+import { PITCH_WINDOW } from '../../lib/pitch.js';
 // The one part of this reverb that is not an impulse response.
 //
 // Everything else here is convolution: the settings make a response and the
@@ -66,7 +67,7 @@
  * dB at every loop gain from 0.5 to 1.2. The room does the smoothing this
  * does not.
  */
-export const SHIMMER_WINDOW = 4096;
+export const SHIMMER_WINDOW = PITCH_WINDOW;
 
 /**
  * The two heads' weights, and why they are a raised cosine over the whole
@@ -214,74 +215,12 @@ export function shimmerRatio(id) {
 }
 
 /**
- * The shifter itself: one sample in, one sample out, two channels.
+ * The shifter has moved to lib/pitch.js, because the imager's micro-pitch
+ * widener wants the same arithmetic at a ratio a hundred times smaller. The
+ * window length and the unity-gain window shape are measured there, including
+ * the +6 dB version of the window that once made this loop look unstable.
  *
- * Shaped like `echoCore` in the delay - `set` then `stereo`, with the answer
- * on `left` and `right` - so that the same worklet machinery runs it and the
- * same kind of test can hold the audio thread's copy against this one.
- *
- * The two channels share a read position and a window and keep separate
- * lines, because the two heads have to land in the same place on both or a
- * centred source comes out of the shifter uncentred.
+ * What stays here is what is the reverb's: which intervals are offered, how
+ * far round the loop a shimmer may be sent, and why a bare gain in that loop
+ * does not work.
  */
-export function shiftCore(rate) {
-  const size = SHIMMER_WINDOW;
-  const half = size / 2;
-  const lines = [new Float32Array(size), new Float32Array(size)];
-
-  let at = 0;          // where the write head is
-  let read = 0;        // and where the first read head is, fractionally
-  let ratio = SHIMMER_INTERVALS[0].ratio;
-
-  const core = {
-    left: 0,
-    right: 0,
-
-    set(next) {
-      if (next && next.interval !== undefined) ratio = shimmerRatio(next.interval);
-      return core;
-    },
-
-    stereo(inL, inR) {
-      lines[0][at] = inL;
-      lines[1][at] = inR;
-
-      let sumL = 0;
-      let sumR = 0;
-      for (let h = 0; h < 2; h += 1) {
-        const pos = read + (h === 0 ? 0 : half);
-        const whole = Math.floor(pos);
-        const i0 = whole >= size ? whole - size : whole;
-        const i1 = i0 + 1 >= size ? 0 : i0 + 1;
-        const frac = pos - whole;
-
-        // How far this head is behind the write head, which is what the
-        // window is a function of: at zero it is about to be overtaken and
-        // reads nothing.
-        let gap = at - pos;
-        if (gap < 0) gap += size;
-        if (gap >= size) gap -= size;
-        const w = 0.5 - 0.5 * Math.cos((2 * Math.PI * gap) / size);
-
-        sumL += w * (lines[0][i0] * (1 - frac) + lines[0][i1] * frac);
-        sumR += w * (lines[1][i0] * (1 - frac) + lines[1][i1] * frac);
-      }
-
-      at += 1;
-      if (at === size) at = 0;
-      read += ratio;
-      while (read >= size) read -= size;
-
-      core.left = sumL;
-      core.right = sumR;
-      return core;
-    },
-  };
-
-  // `rate` is taken and not used, which is deliberate: every other core in
-  // this app is built from one and a shifter that did not take one would be
-  // the odd one out for no reason. The window is in samples because what it
-  // has to be is a power of two, not a number of milliseconds.
-  void rate;
-  return core;
-}

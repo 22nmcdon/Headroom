@@ -1,5 +1,6 @@
 import * as shimmer from './shimmer.js';
-import { shiftCore, shimmerRatio } from './shimmer.js';
+import { shimmerRatio, SHIMMER_WINDOW } from './shimmer.js';
+import { pitchCore } from '../../lib/pitch.js';
 import * as freeze from './freeze.js';
 import { freezeCore } from './freeze.js';
 import { workletModule, installWorklet } from '../../lib/worklet.js';
@@ -33,7 +34,7 @@ import { workletModule, installWorklet } from '../../lib/worklet.js';
  * already cost a silent processor. The test that catches it runs this source
  * for real and holds its core against the module's, sample for sample.
  */
-const SHIMMER_PARTS = [shimmerRatio, shiftCore];
+const SHIMMER_PARTS = [shimmerRatio, pitchCore];
 
 /** And the module-level values they read, taken from the module itself. */
 const SHIMMER_CONSTANTS = Object.fromEntries(
@@ -52,9 +53,15 @@ const SHIMMER_CONSTANTS = Object.fromEntries(
 const SHIMMER_PROCESSOR = `class HeadroomShimmer extends AudioWorkletProcessor {
   constructor(options) {
     super();
-    this.core = shiftCore(sampleRate);
-    if (options?.processorOptions) this.core.set(options.processorOptions);
-    this.port.onmessage = (event) => this.core.set(event.data);
+    this.core = pitchCore(sampleRate, SHIMMER_WINDOW);
+    // The interval is translated to a ratio here rather than inside the
+    // shifter, because the shifter is shared with the imager and the two name
+    // their intervals differently - octaves and fifths against cents.
+    const tune = (what) => {
+      if (what && what.interval !== undefined) this.core.set({ ratio: shimmerRatio(what.interval) });
+    };
+    tune(options?.processorOptions);
+    this.port.onmessage = (event) => tune(event.data);
   }
 
   process(inputs, outputs) {
@@ -116,7 +123,8 @@ export class LiveShimmer {
     // The deprecated path, on the main thread, which is still a working
     // shifter where the good one is refused.
     const size = 1024;
-    this.core = shiftCore(this.ctx.sampleRate).set(this.settings);
+    this.core = pitchCore(this.ctx.sampleRate, SHIMMER_WINDOW)
+      .set({ ratio: shimmerRatio(this.settings.interval) });
     const node = this.ctx.createScriptProcessor(size, 2, 2);
     node.onaudioprocess = (event) => {
       const inL = event.inputBuffer.getChannelData(0);
@@ -142,7 +150,7 @@ export class LiveShimmer {
   set(settings) {
     this.settings = { ...this.settings, ...settings };
     if (this.node?.port) this.node.port.postMessage(this.settings);
-    else this.core?.set(this.settings);
+    else this.core?.set({ ratio: shimmerRatio(this.settings.interval) });
     return this;
   }
 }

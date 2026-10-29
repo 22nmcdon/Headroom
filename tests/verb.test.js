@@ -6,9 +6,20 @@ import {
   SPACES, SPACE_ORDER, verbDeckFor, mixingTime, imageSources, SHIMMER_SPACES,
 } from '../src/plugins/reverb/ir.js';
 import {
-  shiftCore, shimmerRatio, SHIMMER_INTERVALS, SHIMMER_WINDOW, MOST_SHIMMER,
-  SHIMMER_FLOOR,
+  shimmerRatio, SHIMMER_INTERVALS, SHIMMER_WINDOW, MOST_SHIMMER, SHIMMER_FLOOR,
 } from '../src/plugins/reverb/shimmer.js';
+import { pitchCore } from '../src/lib/pitch.js';
+
+/** The reverb's shifter: the shared core at the reverb's own window. */
+const shiftCore = (rate_) => {
+  const core = pitchCore(rate_, SHIMMER_WINDOW);
+  return {
+    get left() { return core.left; },
+    get right() { return core.right; },
+    set(next) { core.set({ ratio: shimmerRatio(next.interval) }); return this; },
+    stereo(l, r) { core.stereo(l, r); return this; },
+  };
+};
 import {
   freezeCore, FREEZE_SECONDS, FREEZE_FADE,
 } from '../src/plugins/reverb/freeze.js';
@@ -971,18 +982,17 @@ test('the shimmer worklet is built from the shifter, not a copy of it', () => {
   // hand, and a part left off it fails on the audio thread inside a blob,
   // where no console is listening and every test still passes.
   const source = shimmerSource();
-  for (const name of ['shiftCore', 'shimmerRatio', 'SHIMMER_WINDOW',
+  for (const name of ['pitchCore', 'shimmerRatio', 'SHIMMER_WINDOW',
     'SHIMMER_INTERVALS', 'SHIMMER_FLOOR']) {
     assert.ok(source.includes(name), `the audio thread needs ${name}`);
   }
 
   // Run what the audio thread is given and hold it against the module.
   const theirs = new Function(
-    `${source.replace(/class HeadroomShimmer[\s\S]*$/, '')}; return shiftCore;`,
+    `${source.replace(/class HeadroomShimmer[\s\S]*$/, '')}; return pitchCore;`,
   )();
-  const settings = { interval: 'fifthUp' };
-  const mine = shiftCore(rate).set(settings);
-  const yours = theirs(rate).set(settings);
+  const mine = shiftCore(rate).set({ interval: 'fifthUp' });
+  const yours = theirs(rate, SHIMMER_WINDOW).set({ ratio: shimmerRatio('fifthUp') });
 
   let worst = 0;
   for (let i = 0; i < rate; i += 1) {
@@ -990,7 +1000,7 @@ test('the shimmer worklet is built from the shifter, not a copy of it', () => {
     // because that is arithmetic the audio thread has to get right too.
     if (i === Math.round(rate * 0.5)) {
       mine.set({ interval: 'octaveDown' });
-      yours.set({ interval: 'octaveDown' });
+      yours.set({ ratio: shimmerRatio('octaveDown') });
     }
     const x = Math.sin((2 * Math.PI * 330 * i) / rate) * (i % 9000 < 3000 ? 0.9 : 0.05);
     mine.stereo(x, x * 0.5);
