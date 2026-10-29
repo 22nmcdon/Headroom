@@ -9,6 +9,7 @@ import { dressKnobs } from '../../lib/knob.js';
 import { writeHertz } from '../../lib/panel.js';
 import { MONO_SLOPES } from './shuffle.js';
 import { WIDEN_KINDS } from './widen.js';
+import { PAN_MODES, PAN_LAWS } from './pan.js';
 
 /**
  * The imager, as a plugin.
@@ -26,6 +27,18 @@ const WIDTH_TOP = 6;      // decibels of width the bars reach to
 
 const bandX = (i, width) => ((i + 0.5) / STEREO_BANDS.length) * width;
 const widthY = (db, height) => height - ((db - STEREO_FLOOR) / (WIDTH_TOP - STEREO_FLOOR)) * height;
+
+/**
+ * Where a thing sits, said rather than numbered.
+ *
+ * One writer for all three pan knobs. The dead band is there because a
+ * continuous dial does not land on zero: without it a knob nudged off centre
+ * by a pixel reads "1% left", which is a number nobody asked for and a
+ * position nobody can hear.
+ */
+const writePlace = (v) => (Math.abs(v) < 0.02
+  ? 'Centre'
+  : `${Math.round(Math.abs(v) * 100)}% ${v < 0 ? 'left' : 'right'}`);
 
 /** Every knob, and how it reads. */
 const STEREO_KNOBS = [
@@ -76,14 +89,47 @@ const STEREO_KNOBS = [
     step: 1,
     write: (v) => `\u00b1 ${Math.round(v)} cents`,
   },
+  // In dual mode these two replace Pan, the way a reverb's spaces swap their
+  // own knobs: a mode that quietly left a control doing nothing would be a
+  // preset wearing a plugin's face.
+  {
+    id: 'panL',
+    name: 'Left goes',
+    ...span(STEREO_LIMITS.panL),
+    step: 0.01,
+    write: writePlace,
+  },
+  {
+    id: 'panR',
+    name: 'Right goes',
+    ...span(STEREO_LIMITS.panR),
+    step: 0.01,
+    write: writePlace,
+  },
   {
     id: 'pan',
     name: 'Pan',
     ...span(STEREO_LIMITS.pan),
     step: 0.01,
-    write: (v) => (Math.abs(v) < 0.02 ? 'Centre' : `${Math.round(Math.abs(v) * 100)}% ${v < 0 ? 'left' : 'right'}`),
+    write: writePlace,
   },
 ];
+
+/**
+ * Which knobs a pan mode has.
+ *
+ * Balance has one number and dual has two, and neither has the other's - a
+ * face that showed all three would be showing a control that does nothing,
+ * which is the thing the reverb's spaces comment calls a preset wearing a
+ * plugin's controls.
+ */
+const PAN_KNOBS = { balance: ['pan'], dual: ['panL', 'panR'] };
+
+export const panDeck = (mode) => {
+  const mine = PAN_KNOBS[mode] ?? PAN_KNOBS.balance;
+  const theirs = Object.values(PAN_KNOBS).flat().filter((id) => !mine.includes(id));
+  return STEREO_KNOBS.filter((knob) => !theirs.includes(knob.id));
+};
 
 const LISTENS = [
   { id: 'stereo', label: 'Stereo' },
@@ -222,6 +268,21 @@ export class StereoPlugin {
               ${MONO_SLOPES.map((slope) => `<option value="${slope.id}">${slope.label}</option>`).join('')}
             </select>
           </label>
+          <!-- The mode changes which knobs are on the face, so it is a
+               picker rather than a knob: a control that rearranges the
+               controls is not one of them. -->
+          <label class="field">
+            <span class="field-label">Pan</span>
+            <select id="stereoPanMode">
+              ${PAN_MODES.map((mode) => `<option value="${mode.id}">${mode.label}</option>`).join('')}
+            </select>
+          </label>
+          <label class="field">
+            <span class="field-label">Law</span>
+            <select id="stereoPanLaw">
+              ${PAN_LAWS.map((law) => `<option value="${law.id}">${law.label}</option>`).join('')}
+            </select>
+          </label>
           <span class="eq-hint">mono is the check that matters — what survives it is what everybody hears</span>
         </div>
       </div>`;
@@ -238,7 +299,7 @@ export class StereoPlugin {
   }
 
   buildKnobs() {
-    this.el.querySelector('#stereoKnobs').innerHTML = STEREO_KNOBS.map((knob) => {
+    this.el.querySelector('#stereoKnobs').innerHTML = panDeck(this.settings.panMode).map((knob) => {
       const dial = dialOf(knob, this.settings[knob.id]);
       return `
         <div class="knob">
@@ -273,6 +334,23 @@ export class StereoPlugin {
       if (!this.interactive) return;
       const want = e.target.value;
       this.settings.monoSlope = MONO_SLOPES.some((slope) => slope.id === want) ? want : 'gentle';
+      this.changed();
+    });
+
+    this.el.querySelector('#stereoPanMode').addEventListener('change', (e) => {
+      if (!this.interactive) return;
+      const want = e.target.value;
+      this.settings.panMode = PAN_MODES.some((mode) => mode.id === want) ? want : 'balance';
+      // The deck is different in the two modes, so this one rebuilds rather
+      // than syncs - and buildKnobs ends in a sync, so the rest follows.
+      this.buildKnobs();
+      this.changed();
+    });
+
+    this.el.querySelector('#stereoPanLaw').addEventListener('change', (e) => {
+      if (!this.interactive) return;
+      const want = e.target.value;
+      this.settings.panLaw = PAN_LAWS.some((law) => law.id === want) ? want : 'power';
       this.changed();
     });
 
@@ -470,7 +548,7 @@ export class StereoPlugin {
   }
 
   syncKnobs() {
-    for (const knob of STEREO_KNOBS) {
+    for (const knob of panDeck(this.settings.panMode)) {
       const readout = this.el.querySelector(`#image-${knob.id}-value`);
       const dial = this.el.querySelector(`#image-${knob.id}`);
       if (readout) readout.textContent = knob.write(this.settings[knob.id]);
@@ -482,6 +560,10 @@ export class StereoPlugin {
     if (slope) slope.value = this.settings.monoSlope ?? 'gentle';
     const which = this.el.querySelector('#stereoWiden');
     if (which) which.value = this.settings.widen ?? 'off';
+    const mode = this.el.querySelector('#stereoPanMode');
+    if (mode) mode.value = this.settings.panMode ?? 'balance';
+    const law = this.el.querySelector('#stereoPanLaw');
+    if (law) law.value = this.settings.panLaw ?? 'power';
     dressKnobs(this.el);
   }
 

@@ -6,6 +6,7 @@ import { pitchCore } from '../../lib/pitch.js';
 import {
   coherenceProbe, coherenceOf, COHERENCE_SECONDS, COHERENCE_WINDOW,
 } from './coherence.js';
+import { panMatrix, panPair } from './pan.js';
 import { fft } from '../../lib/fft.js';
 import { mulberry32 } from '../../lib/random.js';
 import { makeBiquad, setBiquad, runBiquad } from '../../lib/dsp.js';
@@ -38,7 +39,15 @@ export const STEREO_DEFAULTS = {
   high: 1,
   lowMid: 250,     // where the low band ends
   midHigh: 4000,   // where the top begins
-  pan: 0,          // -1 hard left, +1 hard right
+  pan: 0,          // -1 hard left, +1 hard right, for the balance mode
+  panMode: 'balance', // or 'dual', which places each side on its own
+  panLaw: 'power', // how much the centre costs, for the dual mode
+  // The two ends, which is where dual pan is the identity: with the left
+  // input hard left and the right one hard right, nothing is moved, so
+  // switching modes at rest changes nothing. Measured, the matrix is exactly
+  // {1, 0, 0, 1} under two of the three laws and 6.1e-17 off under the third.
+  panL: -1,        // where the left input goes, in dual
+  panR: 1,         // and where the right one goes
   monoBelow: MONO_RANGE[0], // Hz below which the side is taken away; the bottom is off
   monoSlope: 'gentle', // and how steeply it goes
   shuffle: 0,      // dB of side lifted at the bottom, the other way round
@@ -67,6 +76,8 @@ export const STEREO_LIMITS = {
   widenAmount: WIDEN_AMOUNT,
   widenDelay: WIDEN_DELAY,
   widenCents: WIDEN_CENTS,
+  panL: [-1, 1],
+  panR: [-1, 1],
   low: [0, WIDEST],
   mid: [0, WIDEST],
   high: [0, WIDEST],
@@ -101,8 +112,14 @@ export function imagerCore(rate) {
     low: 1, mid: 1, high: 1, lowMid: 250, midHigh: 4000, pan: 0,
     monoBelow: MONO_RANGE[0], monoSlope: 'gentle', shuffle: 0,
     widen: 'off', widenAmount: 0, widenDelay: 12, widenCents: 9,
+    panMode: 'balance', panLaw: 'power', panL: -1, panR: 1,
     listen: 'stereo',
   };
+
+  // The four gains a pan comes to, worked out when a knob moves rather than
+  // per sample - see pan.js. Both modes fill the same table, so the per-sample
+  // path is one matrix multiply either way.
+  let gains = panMatrix('balance', 'power', state);
 
   // The two filters that work on the side across the whole range rather than
   // inside one band - see shuffle.js. They sit after the bands come back
@@ -179,6 +196,7 @@ export function imagerCore(rate) {
       retune();
       shuffler.set(state);
       widener.set(state);
+      gains = panMatrix(state.panMode, state.panLaw, state);
     },
 
     step(l, r) {
@@ -258,22 +276,15 @@ export function imagerCore(rate) {
         return;
       }
 
-      // Panning a stereo signal moves the field rather than placing a point,
-      // which is what Web Audio's own stereo panner does with two channels in:
-      // one side is folded towards the other rather than both being turned.
-      const pan = state.pan;
-      if (pan === 0) {
-        this.outL = left;
-        this.outR = right;
-      } else if (pan < 0) {
-        const x = (pan + 1) * Math.PI * 0.5;
-        this.outL = left + right * Math.cos(x);
-        this.outR = right * Math.sin(x);
-      } else {
-        const x = pan * Math.PI * 0.5;
-        this.outL = left * Math.cos(x);
-        this.outR = right + left * Math.sin(x);
-      }
+      // And where it all ends up. Two modes, and the difference between them
+      // is a thing to be able to hear: balance moves the field and folds one
+      // side into the other at the end of its travel, where dual pan places
+      // each input channel on its own and can narrow a stereo source to a
+      // part of the field - which balance cannot express, having only one
+      // number. See pan.js.
+      const placed = panPair(gains, left, right);
+      this.outL = placed.left;
+      this.outR = placed.right;
     },
   };
 }

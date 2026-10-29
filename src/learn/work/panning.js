@@ -118,9 +118,10 @@ const held = (db) => Math.max(-MOST_BALANCE, Math.min(MOST_BALANCE, db));
 /**
  * Where a thing can be, and what somebody would call it.
  *
- * Seven places, measured on a mono instrument at this tool's own pan law:
- * hard left reads +156.6 dB of balance - which is one channel closed and no
- * balance at all - then +11.26, +4.72, 0.00, and the same back the other way.
+ * Seven places, measured on a mono instrument through the imager's balance
+ * control, which is the mode this drill puts it in: hard left reads +156.6 dB
+ * of balance - which is one channel closed and no balance at all - then
+ * +11.26, +4.72, 0.00, and the same back the other way.
  * Four to six and a half decibels a step, which is a move anybody hears.
  *
  * A mono source, and that is the whole reason this drill is not also about
@@ -262,8 +263,11 @@ function scorePlacing(state, puzzle) {
       {
         label: 'Where it was',
         value: `${wanted.symbol} - ${writePan(wanted.pan)}`,
-        how: 'Set on the imager\'s own pan control, which is the same law the '
-           + 'placing exercise is marked with.',
+        how: 'Set on the imager\'s own balance control, which is the same '
+           + 'control the placing exercise is marked on. The pan law picker '
+           + 'beside it has no say here - a law decides what the centre costs '
+           + 'when a point is placed, and balance is a crossfade between two '
+           + 'channels that are already placed.',
       },
       {
         label: 'How far apart the places are',

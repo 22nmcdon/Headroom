@@ -21,6 +21,8 @@ import {
 import { pitchCore } from '../src/lib/pitch.js';
 import { mulberry32 } from '../src/lib/random.js';
 import { STEREO_WORK as panning } from '../src/learn/work/panning.js';
+import { PAN_LAWS, panGains, panMatrix, panPair } from '../src/plugins/stereo/pan.js';
+import { panDeck } from '../src/plugins/stereo/plugin.js';
 
 const rate = 48000;
 
@@ -740,4 +742,191 @@ test('the coherence window is long against the longest delay on offer', () => {
       `micro-pitch at ${cents} cents read ${distance(moving, off).off.toFixed(3)}, `
       + 'which is on the filter side of the line');
   }
+});
+
+/* --- placing, and the two things that word means ------------------------- */
+
+/** How loud a pair is once it is folded to mono, in dB. */
+function monoLevel(L, R) {
+  let sum = 0;
+  for (let i = Math.round(L.length / 4); i < L.length; i += 1) {
+    const m = (L[i] + R[i]) * 0.5;
+    sum += m * m;
+  }
+  return 10 * Math.log10(sum / (L.length - Math.round(L.length / 4)) + 1e-30);
+}
+
+test('each pan law costs at the centre what its name says', () => {
+  for (const law of PAN_LAWS) {
+    const centre = panGains(law.id, 0);
+    const hard = panGains(law.id, 1);
+    const cost = 20 * Math.log10(centre.right / hard.right);
+    const said = Number(law.label.replace('−', '-').replace(' dB', ''));
+    assert.ok(Math.abs(cost - said) < 0.05,
+      `the ${law.id} law is called ${law.label} and measures ${cost.toFixed(2)}`);
+  }
+
+  // Measured: -3.01, -4.52 and -6.02, which is where the labels come from.
+  assert.ok(Math.abs(20 * Math.log10(panGains('power', 0).left) + 3.01) < 0.01);
+  assert.ok(Math.abs(20 * Math.log10(panGains('split', 0).left) + 4.52) < 0.01);
+  assert.ok(Math.abs(20 * Math.log10(panGains('linear', 0).left) + 6.02) < 0.01);
+});
+
+test('the law is the difference between a centred part and a side one in mono', () => {
+  // The whole reason the choice is on the face. A part placed centre and the
+  // same part placed hard left do not come out level when the two are summed,
+  // and how far apart they are is exactly the law. Measured as the mono
+  // level of a mono source placed each way, through the imager:
+  //
+  //     law        centre - hard left
+  //     -3 dB            3.01 dB
+  //     -4.5 dB          1.51
+  //     -6 dB            0.00
+  //
+  // So under -6 a pan move costs nothing in mono and under -3 it costs three
+  // decibels, which is the thing a mix engineer gets bitten by.
+  const x = monoSource(1);
+  const place = (panLaw, at) => {
+    const out = runImager(x, x, rate,
+      { ...STEREO_DEFAULTS, panMode: 'dual', panLaw, panL: at, panR: at });
+    return monoLevel(out.left, out.right);
+  };
+
+  const said = { power: 3.01, split: 1.51, linear: 0.00 };
+  for (const [law, expected] of Object.entries(said)) {
+    const off = place(law, 0) - place(law, -1);
+    assert.ok(Math.abs(off - expected) < 0.05,
+      `under ${law} a centred part should be ${expected} dB over a hard-panned one `
+      + `in mono, and read ${off.toFixed(2)}`);
+  }
+});
+
+test('dual pan can narrow a stereo source, which balance cannot', () => {
+  // The operation balance does not have. Balance has one number, so the most
+  // it can do to a wide source is fold one side into the other; it cannot
+  // bring the two sides together without closing one of them. Dual pan can,
+  // because it has a position for each.
+  const { left, right } = pair(1, unrelated);
+
+  const wide = widthOfPair(left, right);
+  const narrowed = runImager(left, right, rate,
+    { ...STEREO_DEFAULTS, panMode: 'dual', panL: -0.25, panR: 0.25 });
+  const got = widthOfPair(narrowed.left, narrowed.right);
+  assert.ok(got < wide - 5,
+    `bringing the two sides in should narrow it: ${wide.toFixed(1)} to ${got.toFixed(1)}`);
+
+  // And it is still a stereo signal rather than a fold to mono - the two
+  // positions are still apart, so there is side left.
+  assert.ok(got > STEREO_FLOOR + 10, `and not collapse it: ${got.toFixed(1)} dB`);
+
+  // Both sides to the same place is the collapse, and that is dual pan's
+  // other end rather than a bug. Measured, as width in dB: an unrelated pair
+  // reads 0.03 untouched, -14.00 with the two positions a quarter of the way
+  // in, and -339 with them on top of each other - which is mono to the last
+  // bit the arithmetic has.
+  const together = runImager(left, right, rate,
+    { ...STEREO_DEFAULTS, panMode: 'dual', panL: 0, panR: 0 });
+  assert.ok(widthOfPair(together.left, together.right) < -100,
+    `both sides in one place is mono, and read ${widthOfPair(together.left, together.right).toFixed(1)}`);
+});
+
+test('switching to dual pan at its rest moves nothing', () => {
+  // A mode that jumped when it was selected would be a mode nobody would
+  // select twice. Dual pan rests with the left input hard left and the right
+  // one hard right, which is the identity - measured, the matrix is exactly
+  // {1, 0, 0, 1} under the -4.5 and -6 laws and 6.1e-17 off under -3, which
+  // is cos(pi/2) in binary rather than an error.
+  const { left, right } = pair(0.25, mostlyShared);
+  const base = runImager(left, right, rate, STEREO_DEFAULTS);
+  for (const law of PAN_LAWS) {
+    const dual = runImager(left, right, rate,
+      { ...STEREO_DEFAULTS, panMode: 'dual', panLaw: law.id });
+    for (let i = 0; i < base.left.length; i += 1) {
+      assert.ok(Math.abs(dual.left[i] - base.left[i]) < 1e-12, `${law.id} moved the left`);
+      assert.ok(Math.abs(dual.right[i] - base.right[i]) < 1e-12, `${law.id} moved the right`);
+    }
+  }
+});
+
+test('the law has no say over balance, which is not placing anything', () => {
+  // Balance is a crossfade between two channels that are already placed, so
+  // the pan law has nothing to decide. The first version of the matrix had a
+  // branch per mode that computed the same expression either way; this is the
+  // test that would have caught it had it gone the other way, and it holds
+  // the balance path to the sample against every law.
+  const { left, right } = pair(0.25, mostlyShared);
+  const base = runImager(left, right, rate, { ...STEREO_DEFAULTS, pan: -0.4 });
+
+  for (const law of PAN_LAWS) {
+    const same = runImager(left, right, rate,
+      { ...STEREO_DEFAULTS, pan: -0.4, panLaw: law.id });
+    for (let i = 0; i < base.left.length; i += 1) {
+      assert.equal(same.left[i], base.left[i], `the ${law.id} law changed balance`);
+      assert.equal(same.right[i], base.right[i], `the ${law.id} law changed balance`);
+    }
+  }
+});
+
+test('what balance costs at its extreme is six decibels, and where it is not', () => {
+  // The number everybody quotes, and the two ways it goes wrong. At hard
+  // right the output is L + R, so what the surviving channel gains over the
+  // input it came from is 6.02 dB when the two channels are the same signal -
+  // by peak and by energy alike. For unrelated channels the two measures part
+  // company, and only the energy one is a property of the pan. Measured over
+  // four seconds:
+  //
+  //     pair                           by peak    by energy
+  //     correlated                      6.02 dB    6.02 dB
+  //     unrelated, white noise          6.01       3.01
+  //     unrelated, two sines            5.60       3.01
+  //     unrelated, low-passed noise     3.41       3.00
+  const hardRight = panMatrix('balance', 'power', { pan: 1 });
+  const fold = (L, R) => {
+    const out = new Float32Array(L.length);
+    for (let i = 0; i < L.length; i += 1) out[i] = panPair(hardRight, L[i], R[i]).right;
+    return out;
+  };
+  const peak = (x) => x.reduce((m, v) => Math.max(m, Math.abs(v)), 0);
+  const energy = (x) => Math.sqrt(x.reduce((s, v) => s + v * v, 0) / x.length);
+  const over = (how, out, R) => 20 * Math.log10(how(out) / how(R));
+
+  const both = pair(4, sameBoth);
+  const folded = fold(both.left, both.right);
+  for (const how of [peak, energy]) {
+    assert.ok(Math.abs(over(how, folded, both.right) - 6.02) < 0.02,
+      `correlated content should gain 6.02 dB, and read ${over(how, folded, both.right).toFixed(2)}`);
+  }
+
+  const apart = pair(4, unrelated);
+  const mixed = fold(apart.left, apart.right);
+  assert.ok(Math.abs(over(energy, mixed, apart.right) - 3.01) < 0.02,
+    'unrelated content gains 3 dB by energy, whatever it is made of');
+
+  // And the trap, which is not about correlation: balance folds the channel
+  // being turned away into the one being kept, so the louder that channel,
+  // the further past six decibels the survivor goes. Measured, 6.01, 9.53 and
+  // 13.97 dB by peak as the left is made one, two and four times the right.
+  const louder = (times) => {
+    const L = Float32Array.from(apart.left, (v) => v * times);
+    return over(peak, fold(L, apart.right), apart.right);
+  };
+  assert.ok(Math.abs(louder(1) - 6.01) < 0.05, `even levels read ${louder(1).toFixed(2)}`);
+  assert.ok(Math.abs(louder(2) - 9.53) < 0.05, `twice as loud reads ${louder(2).toFixed(2)}`);
+  assert.ok(Math.abs(louder(4) - 13.97) < 0.05, `four times reads ${louder(4).toFixed(2)}`);
+});
+
+test('a mode shows its own pan knobs and not the other mode\'s', () => {
+  // A face that showed all three at once would be showing a control that
+  // does nothing, which is the thing the reverb's spaces call a preset
+  // wearing a plugin's face.
+  const ids = (mode) => panDeck(mode).map((knob) => knob.id);
+
+  assert.ok(ids('balance').includes('pan'), 'balance has its one number');
+  assert.ok(!ids('balance').includes('panL'), 'and not the pair');
+  assert.ok(ids('dual').includes('panL') && ids('dual').includes('panR'), 'dual has the pair');
+  assert.ok(!ids('dual').includes('pan'), 'and not the one number');
+
+  // Everything that is not a pan knob is on both.
+  const common = ids('balance').filter((id) => !['pan', 'panL', 'panR'].includes(id));
+  for (const id of common) assert.ok(ids('dual').includes(id), `${id} belongs to neither mode`);
 });

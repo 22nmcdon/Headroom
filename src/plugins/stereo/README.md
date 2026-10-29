@@ -5,6 +5,7 @@
     shuffle.js  width that is not the same at every frequency
     widen.js    making side out of middle, which nothing else here can do
     coherence.js  and whether that width was made or recorded
+    pan.js      where a thing sits, and the two questions that hides
     node.js     the AudioWorklet
     player.js   auditioning it
 
@@ -193,6 +194,95 @@ where one in two hundred was expected.
 
 It costs 229 ms a reading against the image reading's 49, so it belongs on a
 submitted guess and not on a knob being turned.
+
+## Panning is two operations, and most desks only offer one
+
+Panning a mono source is placing a point: one signal, two gains, and the only
+decision is how those two gains add up in the middle. Panning a stereo source
+is not that at all - there are two signals already in two places, and "pan"
+can mean either moving the whole field or placing each side somewhere new.
+
+Both modes are here, because the difference is a thing to be able to hear.
+**Balance** is what a stereo channel on a desk does and what Web Audio's own
+stereo panner does with two channels in: turn one side down and fold it
+towards the other. **Dual pan** gives each input channel its own position,
+which is the only way to narrow a stereo source to one part of the field.
+Measured, as width in dB on an unrelated pair:
+
+    both sides where they were (-1, +1)         0.03 dB
+    both brought a quarter in (-0.25, +0.25)  -14.00
+    both in the same place (0, 0)            -339
+
+Balance cannot express the middle row at all, because balance only ever has
+one number: the most it can do to a wide source is close one side. The last
+row is mono to the last bit the arithmetic has, which is dual pan's other end
+rather than a bug - and its first row is its rest, so selecting the mode moves
+nothing: the matrix comes to exactly {1, 0, 0, 1} under two of the three laws
+and 6.1e-17 off under the third, which is cos(pi/2) in binary.
+
+**The pan law is the thing the choice is for, and it shows up in mono.** The
+number in each law's name is how far down the centre is, and that is exactly
+how far apart a centred part and a hard-panned one come out once the two
+channels are summed. Measured through the imager, as the mono level of the
+same mono source placed each way:
+
+    law        centre - hard left
+    -3 dB            3.01 dB
+    -4.5 dB          1.51
+    -6 dB            0.00
+
+So under -6 a pan move costs nothing in mono and under -3 it costs three
+decibels. Rooms add somewhere between coherently and in power, which is why
+desks settled on -4.5 as a compromise and broadcast settled on -6.
+
+**The law has no say over balance**, which is held to the sample in a test:
+balance is a crossfade between two channels that are already placed, so there
+is no centre to cost anything. The first version of the pan matrix had a
+branch per mode and the two branches computed the same expression with the
+operands in a different order - a branch that only looks like it is doing
+something.
+
+**The square-root law is left out on purpose.** It is the fourth law the
+textbooks list and it is three decibels down in the middle like the first one,
+so what differs is the shape between the ends: measured, 0.56 dB from the
+cosine law a quarter of the way across and 2.32 the other side of centre, not
+symmetric, because the square root puts more in the far channel and so reads
+wider. It is a real difference and not the one this app teaches. Three laws
+with three different centres is a question; four laws where two share an
+answer is a trick.
+
+**What balance costs at its extreme**, as what the surviving channel gains
+over the input it came from, over four seconds at hard right:
+
+    pair                           by peak    by energy
+    correlated                      6.02 dB    6.02 dB
+    unrelated, white noise          6.01       3.01
+    unrelated, two sines            5.60       3.01
+    unrelated, low-passed noise     3.41       3.00
+
+Six decibels for correlated content is the figure usually quoted and it is
+right, and it is the same by both measures. For unrelated content the two
+measures disagree, and only one of them is a property of the pan: the energy
+answer is 3.01 whatever the material, and the peak answer is anywhere between
+2 and 6 depending on how often the two channels' peaks coincide. An engineer
+reading an energy meter is told uncorrelated content is three decibels safer
+here, and the peak may not agree.
+
+**And the real headroom trap is not about correlation at all.** At hard right
+the output is L + R, so its peak cannot exceed twice the louder channel's -
+6.02 dB over that channel, and more than that over the other one. Balance
+folds the channel you are turning away into the one you are keeping, so the
+louder the side being folded, the further past six decibels the survivor goes.
+Measured on an unrelated pair:
+
+    left at the right's level    6.01 dB by peak
+    left twice the right         9.53
+    left four times the right   13.97
+
+A first version of the table above read 9.41 dB for "uncorrelated", which was
+this effect measured on an unequal pair and filed under correlation. It did
+not reproduce when it was measured again, which is the only reason it was
+caught.
 
 ## Notchiness is not a reading, and that is worth writing down
 

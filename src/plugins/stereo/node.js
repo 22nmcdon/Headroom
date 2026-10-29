@@ -2,6 +2,8 @@ import { imagerCore } from './field.js';
 import * as shuffle from './shuffle.js';
 import { shuffleCore } from './shuffle.js';
 import * as widen from './widen.js';
+import * as pan from './pan.js';
+import { panGains, panMatrix, panPair } from './pan.js';
 import { widenCore, velvetTaps } from './widen.js';
 import { pitchCore } from '../../lib/pitch.js';
 import * as pitch from '../../lib/pitch.js';
@@ -22,7 +24,8 @@ import { workletModule, installWorklet } from '../../lib/worklet.js';
 
 const IMAGER_PARTS = [
   makeBiquad, setBiquad, runBiquad,
-  shuffleCore, velvetTaps, pitchCore, widenCore, imagerCore,
+  shuffleCore, velvetTaps, pitchCore, widenCore,
+  panGains, panMatrix, panPair, imagerCore,
 ];
 
 /**
@@ -36,7 +39,8 @@ const IMAGER_PARTS = [
  * calling it, which is the system working.
  */
 const IMAGER_CONSTANTS = Object.fromEntries(
-  [...Object.entries(shuffle), ...Object.entries(widen), ...Object.entries(pitch)]
+  [...Object.entries(shuffle), ...Object.entries(widen), ...Object.entries(pitch),
+    ...Object.entries(pan)]
     .filter(([, value]) => typeof value !== 'function'),
 );
 
