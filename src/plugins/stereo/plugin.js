@@ -7,6 +7,7 @@ import { StereoPlayer } from './player.js';
 import { dialOf, offDial, sizeOf, readyCanvas, watchSize, span } from '../../lib/panel.js';
 import { dressKnobs } from '../../lib/knob.js';
 import { writeHertz } from '../../lib/panel.js';
+import { MONO_SLOPES } from './shuffle.js';
 
 /**
  * The imager, as a plugin.
@@ -32,6 +33,23 @@ const STEREO_KNOBS = [
   { id: 'high', name: 'High width', ...span(STEREO_LIMITS.high), step: 0.01, write: (v) => `${Math.round(v * 100)} %` },
   { id: 'lowMid', name: 'Low ends at', ...span(STEREO_LIMITS.lowMid), log: true, write: writeHertz },
   { id: 'midHigh', name: 'Top starts at', ...span(STEREO_LIMITS.midHigh), log: true, write: writeHertz },
+  // The two that work on the side across the whole range rather than inside
+  // one band. They pull in opposite directions in the same part of the
+  // spectrum on purpose - see shuffle.js.
+  {
+    id: 'monoBelow',
+    name: 'Mono below',
+    ...span(STEREO_LIMITS.monoBelow),
+    log: true,
+    write: (v) => (v <= STEREO_LIMITS.monoBelow[0] ? 'off' : writeHertz(v)),
+  },
+  {
+    id: 'shuffle',
+    name: 'Bass width',
+    ...span(STEREO_LIMITS.shuffle),
+    step: 0.5,
+    write: (v) => (v <= 0 ? 'flat' : `+${v.toFixed(1)} dB`),
+  },
   {
     id: 'pan',
     name: 'Pan',
@@ -164,6 +182,14 @@ export class StereoPlugin {
           <div class="eq-ab" role="group" aria-label="What you are monitoring">
             ${LISTENS.map((l) => `<button class="ab-btn${l.id === 'stereo' ? ' is-on' : ''}" type="button" data-listen="${l.id}">${l.label}</button>`).join('')}
           </div>
+          <!-- Beside Listen because it belongs to the Mono below knob, and
+               that knob is about what survives the button to its left. -->
+          <label class="field">
+            <span class="field-label">Slope</span>
+            <select id="stereoSlope">
+              ${MONO_SLOPES.map((slope) => `<option value="${slope.id}">${slope.label}</option>`).join('')}
+            </select>
+          </label>
           <span class="eq-hint">mono is the check that matters — what survives it is what everybody hears</span>
         </div>
       </div>`;
@@ -201,6 +227,13 @@ export class StereoPlugin {
       if (!dial || !this.interactive) return;
       const knob = STEREO_KNOBS.find((k) => k.id === dial.dataset.dial);
       this.settings[knob.id] = offDial(knob, dial.value);
+      this.changed();
+    });
+
+    this.el.querySelector('#stereoSlope').addEventListener('change', (e) => {
+      if (!this.interactive) return;
+      const want = e.target.value;
+      this.settings.monoSlope = MONO_SLOPES.some((slope) => slope.id === want) ? want : 'gentle';
       this.changed();
     });
 
@@ -406,6 +439,8 @@ export class StereoPlugin {
         dial.value = dialOf(knob, this.settings[knob.id]).at;
       }
     }
+    const slope = this.el.querySelector('#stereoSlope');
+    if (slope) slope.value = this.settings.monoSlope ?? 'gentle';
     dressKnobs(this.el);
   }
 

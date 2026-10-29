@@ -1,4 +1,6 @@
 import { imagerCore } from './field.js';
+import * as shuffle from './shuffle.js';
+import { shuffleCore } from './shuffle.js';
 import { makeBiquad, setBiquad, runBiquad } from '../../lib/dsp.js';
 import { workletModule, installWorklet } from '../../lib/worklet.js';
 
@@ -14,7 +16,21 @@ import { workletModule, installWorklet } from '../../lib/worklet.js';
  * hear is the same code that marks the guess.
  */
 
-const IMAGER_PARTS = [makeBiquad, setBiquad, runBiquad, imagerCore];
+const IMAGER_PARTS = [makeBiquad, setBiquad, runBiquad, shuffleCore, imagerCore];
+
+/**
+ * And the side filters' own constants, which `shuffleCore` reads.
+ *
+ * Taken from the module rather than listed, for the reason the delay's
+ * node.js spells out at length: a list that is remembered wrongly does not
+ * fail in Node or in the module, it fails on the audio thread inside a blob
+ * where nothing is listening. The test that catches it ran this source for
+ * real and said "shuffleCore is not defined" the moment the core started
+ * calling it, which is the system working.
+ */
+const IMAGER_CONSTANTS = Object.fromEntries(
+  Object.entries(shuffle).filter(([, value]) => typeof value !== 'function'),
+);
 
 const IMAGER_PROCESSOR = `class HeadroomImager extends AudioWorkletProcessor {
   constructor(options) {
@@ -52,7 +68,11 @@ const IMAGER_PROCESSOR = `class HeadroomImager extends AudioWorkletProcessor {
 registerProcessor('headroom-imager', HeadroomImager);`;
 
 export function imagerSource() {
-  return workletModule({ parts: IMAGER_PARTS, processor: IMAGER_PROCESSOR });
+  return workletModule({
+    constants: IMAGER_CONSTANTS,
+    parts: IMAGER_PARTS,
+    processor: IMAGER_PROCESSOR,
+  });
 }
 
 /** One imager in a graph, however it ended up being run. */

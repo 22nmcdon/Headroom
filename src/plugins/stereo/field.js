@@ -1,3 +1,4 @@
+import { shuffleCore, MONO_RANGE, MONO_SLOPES, SHUFFLE_RANGE, SHUFFLE_AT } from './shuffle.js';
 import { makeBiquad, setBiquad, runBiquad } from '../../lib/dsp.js';
 import { bandOf } from '../../lib/response.js';
 import { readingOf, stampOf } from '../../lib/read.js';
@@ -29,6 +30,9 @@ export const STEREO_DEFAULTS = {
   lowMid: 250,     // where the low band ends
   midHigh: 4000,   // where the top begins
   pan: 0,          // -1 hard left, +1 hard right
+  monoBelow: MONO_RANGE[0], // Hz below which the side is taken away; the bottom is off
+  monoSlope: 'gentle', // and how steeply it goes
+  shuffle: 0,      // dB of side lifted at the bottom, the other way round
   listen: 'stereo',
 };
 
@@ -45,6 +49,8 @@ export const WIDEST = 2.5;
  * drift is the day a saved sketch loads as a different sound.
  */
 export const STEREO_LIMITS = {
+  monoBelow: MONO_RANGE,
+  shuffle: SHUFFLE_RANGE,
   low: [0, WIDEST],
   mid: [0, WIDEST],
   high: [0, WIDEST],
@@ -75,7 +81,16 @@ export const WIDEST_READING = 30;
  * `step(l, r)` leaves what came out on `outL` and `outR`.
  */
 export function imagerCore(rate) {
-  const state = { low: 1, mid: 1, high: 1, lowMid: 250, midHigh: 4000, pan: 0, listen: 'stereo' };
+  const state = {
+    low: 1, mid: 1, high: 1, lowMid: 250, midHigh: 4000, pan: 0,
+    monoBelow: MONO_RANGE[0], monoSlope: 'gentle', shuffle: 0, listen: 'stereo',
+  };
+
+  // The two filters that work on the side across the whole range rather than
+  // inside one band - see shuffle.js. They sit after the bands come back
+  // together, because that is what they are: a shape on the side signal, not
+  // a ratio inside a slice of it.
+  const shuffler = shuffleCore(rate, makeBiquad, setBiquad, runBiquad);
 
   // A Linkwitz-Riley crossover on each channel: two cascaded Butterworths,
   // which is the split that sums flat. One low-pass and one high-pass at each
@@ -138,12 +153,10 @@ export function imagerCore(rate) {
     set(next) {
       for (const key in next) if (key in state) state[key] = next[key];
       retune();
+      shuffler.set(state);
     },
 
     step(l, r) {
-      let left = 0;
-      let right = 0;
-
       const input = [l, r];
       const bands = [0, 0, 0, 0, 0, 0];   // low L, low R, mid L, mid R, high L, high R
 
@@ -170,16 +183,29 @@ export function imagerCore(rate) {
       }
 
       const widths = [state.low, state.mid, state.high];
+      let middles = 0;
+      let sides = 0;
       for (let b = 0; b < 3; b += 1) {
         const bl = bands[b * 2];
         const br = bands[b * 2 + 1];
         // The whole of it: a pair is a middle and a side, and width is what
         // the side gets multiplied by on the way back.
-        const middle = (bl + br) * 0.5;
-        const sides = (bl - br) * 0.5 * widths[b];
-        left += middle + sides;
-        right += middle - sides;
+        middles += (bl + br) * 0.5;
+        sides += (bl - br) * 0.5 * widths[b];
       }
+
+      // Then the two filters that shape the side across the whole range. Kept
+      // in the middle-and-side form until after them, because that is what
+      // they act on - decoding first and re-encoding would be the same
+      // arithmetic with two more roundings in it.
+      if (!shuffler.resting) {
+        shuffler.step(middles, sides);
+        middles = shuffler.mid;
+        sides = shuffler.side;
+      }
+
+      let left = middles + sides;
+      let right = middles - sides;
 
       if (state.listen === 'mono') {
         const summed = (left + right) * 0.5;

@@ -6,6 +6,10 @@ import {
   imagerCore, runImager, widthOf, stereoOf, stereoDistance,
 } from '../src/plugins/stereo/field.js';
 import { imagerSource } from '../src/plugins/stereo/node.js';
+import {
+  shuffleCore, MONO_SLOPES, MONO_RANGE, SHUFFLE_RANGE, SHUFFLE_AT, STEEP_STAGES,
+} from '../src/plugins/stereo/shuffle.js';
+import { makeBiquad, setBiquad, runBiquad } from '../src/lib/dsp.js';
 import { mulberry32 } from '../src/lib/random.js';
 import { STEREO_WORK as panning } from '../src/learn/work/panning.js';
 
@@ -277,4 +281,137 @@ test('placing is read off the audio, on both sides', () => {
   const wrongSide = panning.score({ ...STEREO_DEFAULTS, pan: 0.5 }, { ...puzzle, tier: 'easy' });
   assert.ok(!wrongSide.correct);
   assert.match(wrongSide.cells[1].text, /too far right$/);
+});
+
+/* --- width that is not the same at every frequency ------------------------ */
+
+/** How much side survives at one frequency, in dB, through the real core. */
+function sideAt(settings, hz) {
+  const n = Math.round(rate * 0.5);
+  const left = new Float32Array(n);
+  const right = new Float32Array(n);
+  for (let i = 0; i < n; i += 1) {
+    // Opposite polarity, so the pair is all side and no middle: what comes
+    // out is exactly what the filter did.
+    left[i] = Math.sin((2 * Math.PI * hz * i) / rate);
+    right[i] = -left[i];
+  }
+  const out = runImager(left, right, rate, { ...STEREO_DEFAULTS, ...settings });
+  let into = 0;
+  let outOf = 0;
+  for (let i = Math.round(n / 2); i < n; i += 1) {
+    into += left[i] * left[i];
+    outOf += out.left[i] * out.left[i];
+  }
+  return 10 * Math.log10((outOf + 1e-30) / (into + 1e-30));
+}
+
+test('the side can be taken out from under a corner, at two slopes', () => {
+  // Measured with the corner at 150 Hz, as how much side is left. The gap
+  // between the two rows is the thing to be able to hear:
+  //
+  //        Hz      40     60     75    100    150    200    300
+  //     6 dB/oct  -11.9   -8.7   -7.1   -5.2   -3.1   -2.0   -1.1
+  //    24 dB/oct  -46.0  -32.1  -24.6  -15.7   -6.0   -2.4   -0.5
+  //
+  // So "mono below 150" at six decibels an octave leaves seven decibels of
+  // side at 75 Hz, which is not mono - and that is the classic cut, not a
+  // fault in it.
+  const flat = sideAt({}, 75);
+  const gentle = sideAt({ monoBelow: 150, monoSlope: 'gentle' }, 75);
+  const steep = sideAt({ monoBelow: 150, monoSlope: 'steep' }, 75);
+
+  assert.ok(gentle < flat - 3, `the gentle slope only took ${(flat - gentle).toFixed(1)} dB off at 75 Hz`);
+  assert.ok(steep < gentle - 12,
+    `the steep slope should be far below the gentle one at 75 Hz: ${steep.toFixed(1)} against ${gentle.toFixed(1)}`);
+
+  // At the corner itself the two are a Butterworth and a Linkwitz-Riley: three
+  // decibels down and six. That is what makes them one pole and two biquads.
+  assert.ok(Math.abs(sideAt({ monoBelow: 150 }, 150) - flat + 3) < 0.6,
+    'one pole should be three decibels down at its own corner');
+  assert.ok(Math.abs(sideAt({ monoBelow: 150, monoSlope: 'steep' }, 150) - flat + 6) < 0.6,
+    'a Linkwitz-Riley pair should be six decibels down at its own corner');
+
+  // And the labelling, which was wrong first time: four biquads at this Q is
+  // eighth order and reads twelve decibels down at the corner, not six.
+  assert.equal(STEEP_STAGES, 2, 'twenty-four decibels an octave is two biquads, not four');
+
+  // Above the corner it does nothing, so a width control up there still owns
+  // what it owns.
+  assert.ok(Math.abs(sideAt({ monoBelow: 150, monoSlope: 'steep' }, 2000) - flat) < 0.2,
+    'the mono-maker reached above its own corner');
+});
+
+test('taking the side away cannot change what mono hears', () => {
+  // The claim that makes this control safe, and it is structural rather than
+  // lucky: mono is the middle, and both of these filters are on the side. So
+  // there is no setting of either that a mono listener can detect at all -
+  // which is the whole reason somebody reaches for the first of them.
+  const bed = pair(1, (a, b) => [a * 0.5 + b * 0.3, a * 0.5 - b * 0.3]);
+  const flat = runImager(bed.left, bed.right, rate, { ...STEREO_DEFAULTS });
+
+  for (const over of [
+    { monoBelow: 150 }, { monoBelow: 500, monoSlope: 'steep' },
+    { shuffle: 8 }, { monoBelow: 150, shuffle: 4 },
+  ]) {
+    const got = runImager(bed.left, bed.right, rate, { ...STEREO_DEFAULTS, ...over });
+    let worst = 0;
+    for (let i = 0; i < bed.left.length; i += 1) {
+      const was = (flat.left[i] + flat.right[i]) * 0.5;
+      const now = (got.left[i] + got.right[i]) * 0.5;
+      worst = Math.max(worst, Math.abs(now - was));
+    }
+    assert.ok(worst < 1e-6,
+      `${JSON.stringify(over)} moved the mono sum by ${worst.toExponential(2)}`);
+  }
+});
+
+test('the bass width knob lifts the side where the mono-maker takes it away', () => {
+  // The two pull in opposite directions in the same part of the spectrum,
+  // which is the argument about low-frequency width rather than a mistake.
+  // Measured, how much side is left at 100 Hz against flat:
+  //
+  //     mono below 150, gentle    -5.2 dB
+  //     bass width +4             +4.0
+  //     bass width +8             +8.0
+  const flat = sideAt({}, 100);
+  assert.ok(sideAt({ shuffle: 4 }, 100) - flat > 3.5, 'four decibels of lift did not arrive');
+  assert.ok(sideAt({ shuffle: 8 }, 100) - flat > 7.5, 'eight decibels of lift did not arrive');
+
+  // It is a shelf, so it is half its gain at its own corner and gone above it.
+  const atCorner = sideAt({ shuffle: 8 }, SHUFFLE_AT) - flat;
+  assert.ok(Math.abs(atCorner - 4) < 0.6,
+    `an eight-decibel shelf read ${atCorner.toFixed(1)} dB at its corner rather than four`);
+  assert.ok(Math.abs(sideAt({ shuffle: 8 }, 6000) - flat) < 0.3, 'the shelf reached the top');
+
+  // And the two together are not the same as either alone.
+  const both = sideAt({ monoBelow: 150, shuffle: 8 }, 100);
+  assert.ok(both > sideAt({ monoBelow: 150 }, 100) && both < sideAt({ shuffle: 8 }, 100),
+    'the lift and the cut should fight rather than one of them winning outright');
+});
+
+test('the side filters sit out of the way when nothing is asked of them', () => {
+  // `resting` is what lets the core skip them entirely, so it has to be right
+  // about when they are doing nothing - a filter that is bypassed when it
+  // should be running is silent, and one that runs when it should be bypassed
+  // costs every sample.
+  const core = shuffleCore(rate, makeBiquad, setBiquad, runBiquad);
+  assert.equal(core.resting, true, 'a shuffler at rest should say so');
+  assert.equal(core.set({ monoBelow: 150 }).resting, false);
+  assert.equal(core.set({ monoBelow: 0 }).resting, true);
+  assert.equal(core.set({ shuffle: 3 }).resting, false);
+  assert.equal(core.set({ shuffle: 0 }).resting, true);
+
+  // And at rest it passes both through untouched, which is what makes
+  // skipping it the same as running it.
+  for (const [m, s] of [[0.4, -0.2], [-0.9, 0.7], [0, 0.1]]) {
+    core.step(m, s);
+    assert.equal(core.mid, m);
+    assert.equal(core.side, s);
+  }
+
+  // Every slope on offer is one somebody can be asked about.
+  assert.ok(MONO_SLOPES.length >= 2, 'one slope is not a question');
+  assert.ok(MONO_RANGE[0] < MONO_RANGE[1] && SHUFFLE_RANGE[0] === 0,
+    'the ranges should start where the control is off');
 });
