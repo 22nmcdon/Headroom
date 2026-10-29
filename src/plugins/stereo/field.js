@@ -80,11 +80,42 @@ export function imagerCore(rate) {
   // A Linkwitz-Riley crossover on each channel: two cascaded Butterworths,
   // which is the split that sums flat. One low-pass and one high-pass at each
   // corner, so the three bands add back up to what went in.
+  //
+  // With one more filter than that needs, and the reason is worth the four
+  // lines. The split is a tree: the input is cut at the low corner, and the
+  // upper half is cut again at the top corner. So the low band has been
+  // through one crossover and the other two have been through two, and the
+  // sum of an LR4 pair is not unity - it is an all-pass, which passes every
+  // level and moves phase. Adding a band that has not had that phase to two
+  // that have is adding things that are no longer lined up.
+  //
+  // Measured on the real core with every width at one, where the imager
+  // should do nothing whatsoever:
+  //
+  //     corners           worst error
+  //     250 / 4000 Hz      -0.04 dB at 400 Hz
+  //     800 / 4000         -0.45 dB at 1 kHz
+  //     250 / 1500         -0.31 dB at 315 Hz
+  //     800 / 1500         -4.09 dB at 1 kHz
+  //
+  // Four decibels out of the midrange, from a tool set to do nothing. It
+  // hid at the defaults, where the corners are far enough apart that the
+  // all-pass has barely turned by the time the low band has gone. Anybody
+  // closing the corners up to isolate a midrange band got a scoop with it,
+  // and every reading taken through the tool inherited it.
+  //
+  // The fix is the standard one: run the low band through the same all-pass
+  // the upper two picked up, so the sum is two all-passes in series on
+  // everything - flat, and with the bands back in step. One biquad does it,
+  // because an LR4 pair's sum IS a second-order all-pass at that corner;
+  // checked against a real LP+HP pair at 1500 Hz and it matches to 0.000 dB
+  // and the same phase at every frequency tried.
   const split = [0, 1].map(() => ({
     lowLP: [makeBiquad(), makeBiquad()],
     lowHP: [makeBiquad(), makeBiquad()],
     midLP: [makeBiquad(), makeBiquad()],
     midHP: [makeBiquad(), makeBiquad()],
+    lowAP: makeBiquad(),
   }));
 
   function retune() {
@@ -93,6 +124,7 @@ export function imagerCore(rate) {
       for (const stage of side.lowHP) setBiquad(stage, 'highpass', state.lowMid, rate);
       for (const stage of side.midLP) setBiquad(stage, 'lowpass', state.midHigh, rate);
       for (const stage of side.midHP) setBiquad(stage, 'highpass', state.midHigh, rate);
+      setBiquad(side.lowAP, 'allpass', state.midHigh, rate);
     }
   }
 
@@ -119,6 +151,9 @@ export function imagerCore(rate) {
         const side = split[c];
         let low = input[c];
         for (const stage of side.lowLP) low = runBiquad(stage, low);
+        // The phase the other two bands got from the upper crossover, which
+        // this one has to have as well or the three do not add back up.
+        low = runBiquad(side.lowAP, low);
 
         let rest = input[c];
         for (const stage of side.lowHP) rest = runBiquad(stage, rest);

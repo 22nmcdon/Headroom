@@ -89,6 +89,69 @@ test('each band is worked on its own', () => {
   assert.ok(Math.abs(topWide.bands.sub.width - flat.bands.sub.width) < 0.5, 'and the bottom should not notice');
 });
 
+test('an imager set to do nothing does nothing, wherever its corners are', () => {
+  // The invariant the split was quietly breaking. Three bands cut apart and
+  // added back are only the input again if they are added back in step - and
+  // the low band had been through one crossover where the other two had been
+  // through two, so it arrived with the wrong phase. The sum of a
+  // Linkwitz-Riley pair is an all-pass, not a wire.
+  //
+  // It hid because it is small at the default corners and large when they
+  // close up. Measured with every width at one, as the worst error across
+  // eighteen frequencies from 40 Hz to 10 kHz:
+  //
+  //     corners           before      after
+  //     250 / 4000 Hz    -0.04 dB    0.01 dB
+  //     800 / 4000       -0.45       0.02
+  //     250 / 1500       -0.31      -0.01
+  //     800 / 1500       -4.09       0.02
+  //
+  // Four decibels out of the midrange from a tool asked to do nothing at all.
+  const tone = (hz) => {
+    const n = Math.round(rate * 0.4);
+    const left = new Float32Array(n);
+    const right = new Float32Array(n);
+    for (let i = 0; i < n; i += 1) {
+      left[i] = Math.sin((2 * Math.PI * hz * i) / rate);
+      right[i] = left[i];
+    }
+    return { left, right };
+  };
+
+  const level = (settings, hz) => {
+    const { left, right } = tone(hz);
+    const out = runImager(left, right, rate, { ...STEREO_DEFAULTS, ...settings });
+    let into = 0;
+    let outOf = 0;
+    for (let i = Math.round(left.length / 2); i < left.length; i += 1) {
+      into += left[i] * left[i];
+      outOf += out.left[i] * out.left[i];
+    }
+    return 10 * Math.log10(outOf / into);
+  };
+
+  for (const corners of [{}, { lowMid: 800 }, { midHigh: 1500 },
+    { lowMid: 800, midHigh: 1500 }]) {
+    for (const hz of [40, 125, 400, 800, 1000, 1600, 4000, 10000]) {
+      const off = level(corners, hz);
+      assert.ok(Math.abs(off) < 0.1,
+        `at ${JSON.stringify(corners)} a flat imager moved ${hz} Hz by ${off.toFixed(2)} dB`);
+    }
+  }
+
+  // And the reading says the same thing: where the corners sit cannot matter
+  // to a tool that is not doing anything. Before the fix the whole-band width
+  // read -9.14 dB at the default corners and -8.91 at their closest; now both
+  // read -9.15.
+  const bed = pair(1.5, (a, b) => [a * 0.6 + b * 0.2, a * 0.6 - b * 0.2]);
+  const flatDefault = stereoOf(bed.left, bed.right, rate, { ...STEREO_DEFAULTS });
+  const flatClosest = stereoOf(bed.left, bed.right, rate,
+    { ...STEREO_DEFAULTS, lowMid: 800, midHigh: 1500 });
+  assert.ok(Math.abs(flatDefault.whole.width - flatClosest.whole.width) < 0.05,
+    `a flat imager read ${flatDefault.whole.width.toFixed(2)} dB wide at one pair of corners `
+    + `and ${flatClosest.whole.width.toFixed(2)} at another`);
+});
+
 test('the crossovers decide which band a control owns', () => {
   const { left, right } = pair(1.5, unrelated);
   const lowOnly = (lowMid) => stereoOf(left, right, rate, { ...STEREO_DEFAULTS, low: 0, lowMid });

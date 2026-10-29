@@ -65,6 +65,25 @@ export function setBiquad(bq, kind, hz, rate, gainDb = 0) {
   }
 
   const a0 = 1 + alpha;
+
+  // The all-pass, which passes every frequency at the same level and only
+  // moves their phase. It is here for one job: the sum of a Linkwitz-Riley
+  // pair at a corner IS a second-order all-pass at that corner, so a band
+  // that has to stay in step with a crossover it does not go through can be
+  // run through this instead. See the imager's split for the four decibels
+  // that cost before it existed.
+  //
+  // At the Q this file uses throughout - one over root two - it is exactly
+  // the Butterworth-Q all-pass, which is what an LR4 pair sums to.
+  if (kind === 'allpass') {
+    bq.b0 = (1 - alpha) / a0;
+    bq.b1 = (-2 * cos) / a0;
+    bq.b2 = 1;
+    bq.a1 = (-2 * cos) / a0;
+    bq.a2 = (1 - alpha) / a0;
+    return bq;
+  }
+
   if (kind === 'highpass') {
     bq.b0 = ((1 + cos) / 2) / a0;
     bq.b1 = -(1 + cos) / a0;
