@@ -10,10 +10,19 @@
 // rather than a second copy of it.
 
 import * as limiter from './limiter.js';
-import { makeLimiter } from './limiter.js';
+import { makeLimiter, cutTo } from './limiter.js';
 import { workletModule, installWorklet } from './worklet.js';
 
-const LIMITER_PARTS = [makeLimiter];
+/**
+ * `cutTo` as well as the limiter, because `makeLimiter` calls it.
+ *
+ * A part left off this list does not fail at the module or in the browser -
+ * it fails inside the worklet, where what you get is an audio thread running
+ * different arithmetic from the one being tested. `tests/limit.test.js` runs
+ * the worklet's own source and holds its limiter against this one, which is
+ * the only reason that is not a thing to remember.
+ */
+const LIMITER_PARTS = [cutTo, makeLimiter];
 
 /**
  * Every value `makeLimiter` reads, taken from the module rather than listed.

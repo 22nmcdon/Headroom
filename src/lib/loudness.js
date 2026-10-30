@@ -297,7 +297,7 @@ const PEAK_DELAY = PROTO_CENTRE / PEAK_OVERSAMPLE;
 
 const sinc = (x) => (Math.abs(x) < 1e-9 ? 1 : Math.sin(Math.PI * x) / (Math.PI * x));
 
-function interpolator() {
+function prototype() {
   const proto = new Float64Array(PROTOTYPE);
   for (let n = 0; n < PROTOTYPE; n += 1) {
     // Blackman, which keeps the stopband down far enough that the filter's
@@ -308,12 +308,20 @@ function interpolator() {
     // oversampled band - hence the four in the sinc.
     proto[n] = sinc((n - PROTO_CENTRE) / PEAK_OVERSAMPLE) * w;
   }
+  return proto;
+}
 
+const PROTO = prototype();
+
+function interpolator() {
   // One branch per phase: the taps whose index is that phase, modulo four.
+  // Phase p reconstructs the sub-sample at 4n + p, which is what makes the
+  // same table usable for interpolating a signal up as well as for looking
+  // between its samples - see the clipper in `limiter.js`.
   const phases = [];
   for (let p = 0; p < PEAK_OVERSAMPLE; p += 1) {
     const taps = [];
-    for (let n = p; n < PROTOTYPE; n += PEAK_OVERSAMPLE) taps.push(proto[n]);
+    for (let n = p; n < PROTOTYPE; n += PEAK_OVERSAMPLE) taps.push(PROTO[n]);
     phases.push(Float64Array.from(taps));
   }
   return phases;
@@ -333,6 +341,18 @@ const PHASES = interpolator();
  * limiter that misses by however much the two filters differ.
  */
 export const peakPhases = () => PHASES;
+
+/**
+ * The same filter again, unsplit.
+ *
+ * Interpolating a signal up needs it by phase; filtering one back down needs
+ * it whole, because the decimation runs at the oversampled rate and then
+ * throws three samples in four away. The clipper does both, and doing them
+ * with one prototype is the same argument as sharing the phases: two filters
+ * in a round trip that were designed separately is a round trip that is not
+ * transparent, and nothing would say so.
+ */
+export const peakProto = () => PROTO;
 
 /** How far behind the input the interpolator's output sits, in samples. */
 export const PEAK_LAG = PEAK_DELAY;

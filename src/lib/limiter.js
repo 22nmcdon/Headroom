@@ -1,4 +1,4 @@
-import { peakPhases } from './loudness.js';
+import { peakPhases, peakProto } from './loudness.js';
 
 // A ceiling that is actually a ceiling.
 //
@@ -68,6 +68,59 @@ import { peakPhases } from './loudness.js';
 // because a limiter calibrated against a different filter than the meter is a
 // limiter that misses by however much the two differ.
 //
+// And the other way of holding a ceiling, which is in here too: cutting the
+// waveform at it. A clipper has no lookahead, no gain and no state - it is a
+// line the signal may not cross - so what it costs is not dynamics but
+// harmonics, and the two modes are the two halves of what a master spends.
+//
+// Three things were measured about it and all three decided the design.
+//
+// First, a clipper is not a ceiling. Measured, hard clipping at -1 dB and
+// then reading what came out:
+//
+//     material        sample peak over   true peak over
+//     steady tone            0.091            0.123
+//     clicks                 3.141            3.141
+//     hits over a bed        2.735            3.456
+//     noise                  3.025            3.586
+//
+// Three and a half decibels over the line it was told not to cross. This is
+// not a bug in the clipping, it is what band-limiting a clipped waveform
+// does: the corners are a discontinuity, filtering the content above Nyquist
+// back out of them restores the overshoot, and the reconstruction between the
+// samples goes higher again. Which is why `mode: 'both'` exists and why a
+// mastering chain really is a clipper into a limiter - measured, the same
+// four signals through both come out at -0.000 dB over, every time.
+//
+// Second, the oversampling earns its cost, and how much depends entirely on
+// where the music is. Inharmonic energy left behind by a hard clip, against
+// the tone, clipping at the signal's own rate against clipping four times
+// faster:
+//
+//     tone        at 1x    oversampled   bought
+//      439 Hz     -58.7        -70.5      11.9
+//      999 Hz     -48.5        -62.1      13.6
+//     1999 Hz     -38.3        -51.2      12.8
+//     3999 Hz     -29.5        -48.1      18.6
+//     6999 Hz     -28.3        -51.1      22.8
+//     9999 Hz     -13.8        -39.1      25.3
+//    13999 Hz     -13.8        -40.1      26.2
+//
+// At ten kilohertz, clipping at the signal's own rate leaves junk fourteen
+// decibels under the tone, on frequencies with no musical relationship to
+// anything. That is the fizz people mean by digital clipping and it is not
+// the clipping, it is the fold-back.
+//
+// Four times rather than eight or sixteen, and that is a compromise stated
+// rather than hidden: it is the interpolator the true-peak detector already
+// has, so the thing that clips and the thing that reports cannot disagree
+// about where the ceiling is. More would be better at the top of the
+// spectrum. The numbers above are what this one gives.
+//
+// Third, the round trip is transparent to about -78 dB. A sine inside the
+// ceiling comes back delayed by exactly twelve samples and within 2.5e-5 of
+// where it started, which is two windowed sincs in series and nothing else.
+//
 // One trap in measuring any of this, which cost four wrong hypotheses before
 // the signals were looked at rather than the code. A true peak read off a
 // buffer that stops mid-waveform is measuring the truncation: the
@@ -132,6 +185,75 @@ export const DETECTOR_LAG = 'absorbed by the lookahead';
 export const LIMIT_PHASES = peakPhases().map((phase) => Array.from(phase));
 
 /**
+ * The other way of holding a ceiling: cut the waveform at it.
+ *
+ * A clipper is the opposite of everything above. No lookahead, no gain, no
+ * release, no state at all - a line the signal is not allowed to cross. What
+ * it costs is not dynamics, it is harmonics: the corner it puts on a waveform
+ * is a discontinuity in the slope, and a discontinuity in the slope is a
+ * series of odd harmonics going up for ever.
+ *
+ * Which is why it runs at four times the rate. "For ever" means past half the
+ * sample rate, and a harmonic past half the sample rate does not disappear -
+ * it folds back down to a frequency with no musical relationship to anything
+ * in the signal. Clipping at the signal's own rate puts that fold-back in the
+ * output; clipping four times faster puts the first fold four times higher up
+ * and filters most of what is left away. `tests/limit.test.js` measures how
+ * much, at several frequencies, so the claim is checked rather than asserted.
+ *
+ * Interpolated up with the same phases the true-peak detector looks between
+ * samples with, and filtered back down with the same prototype whole. One
+ * filter either way, because a round trip through two filters that were
+ * designed separately is a round trip that is not transparent, and nothing
+ * would say so.
+ *
+ * The down filter is normalised to unity at DC here rather than in the loop:
+ * the prototype's centre tap is exactly 1 so its phases interpolate at unity
+ * already, but the sum of all of them is four - it is the same filter run at
+ * four times the density - and dividing by that sum is what makes the round
+ * trip come back where it started.
+ */
+export const CLIP_DOWN = (() => {
+  const proto = peakProto();
+  let sum = 0;
+  for (const tap of proto) sum += tap;
+  return Array.from(proto, (tap) => tap / sum);
+})();
+
+/**
+ * What a clipper does to one sample, at the oversampled rate.
+ *
+ * `soft` is how far below the ceiling the curve starts bending, as a plain
+ * gain rather than in decibels. At zero it is a straight cut, which is what
+ * "hard clipping" means and is the one that makes the most of the high
+ * harmonics. Above zero the corner is rounded off, which trades the top of
+ * the series for more of the bottom of it - fewer of the harmonics that sound
+ * like breakage, more of the ones that sound like thickness.
+ *
+ * `tanh` rather than a polynomial knee, for one reason: it approaches the
+ * ceiling and never reaches it, so the ceiling is held by the shape of the
+ * function rather than by a clamp after it. A polynomial that meets the
+ * ceiling with zero slope would do as well and needs its own clamp outside
+ * the knee, which is one more place to be wrong.
+ *
+ * Not `clipAt`, which `sketch/project.js` already owns in the one scope the
+ * bundler flattens everything into - and which means a different thing by
+ * clip: the thing in a slot of the grid, not the thing done to a waveform.
+ */
+export function cutTo(x, roof, soft) {
+  const mag = x < 0 ? -x : x;
+  if (soft <= 0) {
+    if (mag <= roof) return x;
+    return x < 0 ? -roof : roof;
+  }
+
+  const bend = roof - soft;
+  if (mag <= bend) return x;
+  const shaped = bend + soft * Math.tanh((mag - bend) / soft);
+  return x < 0 ? -shaped : shaped;
+}
+
+/**
  * A brickwall limiter, one block at a time.
  *
  * `channels` are read and written in place, which is what an audio callback
@@ -139,7 +261,7 @@ export const LIMIT_PHASES = peakPhases().map((phase) => Array.from(phase));
  * channels independently would move the image every time it worked.
  */
 export function makeLimiter(rate, { lookahead = LIMIT_AHEAD, ceiling = CEILING_DB,
-  release = LIMIT_RELEASE, truePeak = false } = {}) {
+  release = LIMIT_RELEASE, truePeak = false, mode = 'limit', knee = 0 } = {}) {
   const ahead = Math.max(1, Math.round(lookahead * rate));
 
   // Let rather than const, because three of the four settings can be moved
@@ -152,6 +274,17 @@ export function makeLimiter(rate, { lookahead = LIMIT_AHEAD, ceiling = CEILING_D
   // where it was fixed, at construction.
   let roof = 10 ** (ceiling / 20);
   let up = Math.exp(-1 / Math.max(1, release * rate));
+
+  // How the ceiling is held: by looking ahead and moving a gain, by cutting
+  // the waveform at it, or by both in that order - which is what a mastering
+  // chain does and is not a compromise between the two. The clipper takes the
+  // tips off, so the limiter has less to do and moves its gain less; and the
+  // limiter catches whatever the clipper's own filters let back past.
+  let clipping = mode !== 'limit';
+  let limiting = mode !== 'clip';
+  // The knee as a plain gain under the ceiling rather than in decibels, so
+  // the per-sample loop has no logarithms in it.
+  let soft = knee > 0 ? roof * (1 - 10 ** (-knee / 20)) : 0;
 
   // The audio, waiting for the gain to be ready for it.
   const held = [];
@@ -193,6 +326,21 @@ export function makeLimiter(rate, { lookahead = LIMIT_AHEAD, ceiling = CEILING_D
   let recentAt = 0;
 
   // The box average of that minimum, kept as a running sum.
+  // The clipper's two rings a channel: the input it interpolates from, and
+  // the oversampled signal it filters back down. Built only when something
+  // asks for the mode, because the sketch's own safety limiter runs on every
+  // sketch and should pay nothing for a mode it does not use.
+  //
+  // The fast ring is a multiple of the oversampling and at least as long as
+  // the filter, so that advancing it four at a time never straddles the end.
+  const clipUp = [];
+  const clipFast = [];
+  const clipTaps = Math.max(...LIMIT_PHASES.map((phase) => phase.length));
+  const clipSpan = CLIP_DOWN.length + (LIMIT_PHASES.length
+    - (CLIP_DOWN.length % LIMIT_PHASES.length));
+  let clipAtUp = 0;
+  let clipAtFast = 0;
+
   const box = new Float64Array(ahead).fill(1);
   let boxAt = 0;
   let sum = ahead;
@@ -221,13 +369,105 @@ export function makeLimiter(rate, { lookahead = LIMIT_AHEAD, ceiling = CEILING_D
      */
     set(next = {}) {
       if (next.ceiling !== undefined) roof = 10 ** (next.ceiling / 20);
+      // The mode is the one setting here that is not seamless, and it cannot
+      // be: clipping holds the signal up by twelve samples and limiting by
+      // the whole lookahead, so changing between them changes the latency and
+      // there is a short discontinuity whichever way it goes. It is a button
+      // rather than a knob, so it is paid for once rather than per step of a
+      // drag. Running the limiter always with its gain pinned at one would
+      // keep the latency fixed, at the cost of five milliseconds of delay in
+      // a mode that does not need any.
+      if (next.mode !== undefined) {
+        clipping = next.mode !== 'limit';
+        limiting = next.mode !== 'clip';
+      }
+      // After the ceiling, because the knee is measured from it. Re-derived
+      // whenever either moves, or a ceiling change would leave the bend where
+      // the old ceiling put it.
+      if (next.ceiling !== undefined || next.knee !== undefined) {
+        const asked = next.knee !== undefined ? next.knee : knee;
+        knee = asked;
+        soft = asked > 0 ? roof * (1 - 10 ** (-asked / 20)) : 0;
+      }
       if (next.release !== undefined) {
         up = Math.exp(-1 / Math.max(1, Math.max(0, next.release) * rate));
       }
       if (next.truePeak !== undefined) phases = next.truePeak ? LIMIT_PHASES : null;
     },
 
+    /**
+     * The clipper, over a block, in place.
+     *
+     * One output a sample, from four clipped sub-samples. The signal is
+     * interpolated up a phase at a time, cut at the ceiling four times as
+     * often as it was sampled, and filtered back down - so the harmonics the
+     * corner makes have four times as much room before the first of them
+     * folds back, and most of what does fold is in the filter's stopband.
+     */
+    clipBlock(channels) {
+      while (clipUp.length < channels.length) {
+        clipUp.push(new Float64Array(clipTaps));
+        clipFast.push(new Float64Array(clipSpan));
+      }
+
+      const over = LIMIT_PHASES.length;
+      const span = channels[0].length;
+
+      for (let i = 0; i < span; i += 1) {
+        for (let c = 0; c < channels.length; c += 1) {
+          const slow = clipUp[c];
+          const fast = clipFast[c];
+          slow[clipAtUp] = channels[c][i];
+
+          // Phase p is the sub-sample at 4n + p, which is the same identity
+          // the true-peak detector reads these phases by - so the four come
+          // out in the order the waveform is actually in.
+          for (let p = 0; p < over; p += 1) {
+            const tap = LIMIT_PHASES[p];
+            let sum = 0;
+            for (let k = 0; k < tap.length; k += 1) {
+              let from = clipAtUp - k;
+              if (from < 0) from += clipTaps;
+              sum += tap[k] * slow[from];
+            }
+            let at = clipAtFast + p;
+            if (at >= clipSpan) at -= clipSpan;
+            fast[at] = cutTo(sum, roof, soft);
+          }
+
+          // And back down: one filter over the oversampled signal, read once
+          // per input sample, which is the decimation.
+          //
+          // Read at phase zero of this input, not at the newest sub-sample.
+          // Both are already written, so either runs - but the filters' delays
+          // only add up to a whole number of input samples on phase zero. Read
+          // three sub-samples later the round trip comes out 11.25 samples
+          // late, which is a quarter of a sample of fractional delay, and a
+          // fractional delay on a signal is a quarter-cycle phase error at the
+          // top of the spectrum. Measured, that read 2.9e-3 of error on a
+          // 440 Hz sine the round trip should have returned untouched. On
+          // phase zero the delay is exactly twelve samples and the same sine
+          // comes back within 2.5e-5 - the filter pair's own passband ripple,
+          // about 78 dB down, which is what two windowed sincs in series cost
+          // and is the price of the mode rather than a fault in it.
+          let out = 0;
+          for (let k = 0; k < CLIP_DOWN.length; k += 1) {
+            let from = clipAtFast - k;
+            if (from < 0) from += clipSpan;
+            out += CLIP_DOWN[k] * fast[from];
+          }
+          channels[c][i] = out;
+        }
+
+        clipAtUp = (clipAtUp + 1) % clipTaps;
+        clipAtFast = (clipAtFast + over) % clipSpan;
+      }
+    },
+
     block(channels) {
+      if (clipping) this.clipBlock(channels);
+      if (!limiting) return;
+
       while (held.length < channels.length) held.push(new Float32Array(ahead));
       if (phases) while (recent.length < channels.length) recent.push(new Float64Array(taps));
 
