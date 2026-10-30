@@ -46,8 +46,8 @@ import { TOOL_IDS, toolOf } from './registry.js';
  * the dynamics were doing.
  */
 export const TEACHING_ORDER = [
-  'level', 'eq', 'compression', 'gate', 'deess', 'panning', 'reverb', 'delay',
-  'saturation', 'limiter',
+  'level', 'eq', 'compression', 'gate', 'deess', 'panning', 'align', 'reverb',
+  'delay', 'saturation', 'limiter',
 ];
 
 /**
@@ -92,6 +92,7 @@ const CALLED = {
   limiter: { reading: 'what loudness costs', building: 'the limiter' },
   gate: { reading: 'what to do with the quiet', building: 'the gate' },
   deess: { reading: 'why a detector is not the signal', building: 'the de-esser' },
+  align: { reading: 'what two mics do to each other', building: 'the alignment' },
 };
 
 /**
@@ -185,6 +186,6 @@ export function progress({ solvesOf, hasRead }) {
 /** Where somebody is, in a line. */
 export function where(state) {
   if (state.finished) return 'You have been through all of it. The path is a starting order, not a ceiling.';
-  if (!state.done) return 'Ten tools, three steps each, and then all of them at once. Start at the top.';
+  if (!state.done) return 'Eleven tools, three steps each, and then all of them at once. Start at the top.';
   return `${state.done} of ${state.total} done.`;
 }

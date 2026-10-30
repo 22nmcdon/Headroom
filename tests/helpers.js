@@ -118,6 +118,17 @@ export function wrongGuess(puzzle, nth = 0) {
       };
     }
 
+    if (puzzle.mode === 'align') {
+      // The pair left exactly as it arrived, which is the honest wrong answer
+      // and the one the tolerances are set to refuse: measured, an unaligned
+      // pair reads at least 2.91 dB from any target this mode makes, against
+      // a tolerance of 1.5 at its loosest. The fader moves a little each time
+      // so no two attempts are the same guess.
+      return {
+        delay: 0, blend: -nth * 0.5, flip: false, hear: 'sum',
+      };
+    }
+
     if (puzzle.mode === 'limiter') {
       // The limiter left alone, which is the honest wrong answer and is
       // measured to fail every tier: the targets ask for at least six

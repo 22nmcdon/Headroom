@@ -1,6 +1,6 @@
 # plugins
 
-Eight devices in eight folders, and ten tools: the gate and the de-esser are
+Nine devices in nine folders, and eleven tools: the gate and the de-esser are
 the compressor's core with a second face on it rather than folders of their
 own, because a gate is the same curve mirrored and a de-esser is the same
 compressor aimed at a band - see `compressor/README.md`. Each folder is named
@@ -16,8 +16,13 @@ A device is usually four files:
 
 `level/` has no `node.js` and never will: its processing is one multiply, so a
 GainNode and the arithmetic are the same thing without anybody arranging it.
-It is the only face here where the meters are the instrument rather than a
-readout beside one.
+`align/` has none for the same reason and one more - it does not process
+anything at all. It adds two recordings together, and a delay, a negative
+gain and a sum are three things the graph already does correctly.
+
+Those two are also the faces where the meters are the instrument rather than a
+readout beside one: a level tool without its meters is a volume knob, and an
+alignment tool without its correlation display is a delay you cannot aim.
 
 ## What goes on a face, and what does not
 

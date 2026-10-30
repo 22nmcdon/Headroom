@@ -18,6 +18,7 @@ import { decayGap } from './lib/response.js';
 import { repeatGap, wanderGap, duckGap } from './plugins/delay/line.js';
 import { stereoGap } from './plugins/stereo/field.js';
 import { coherenceGap } from './plugins/stereo/coherence.js';
+import { alignGap } from './plugins/align/pair.js';
 import { seriesGap } from './lib/harmonics.js';
 import { loudnessGap } from './lib/loudness.js';
 import { levelsGap } from './mix/levels.js';
@@ -69,6 +70,12 @@ const GAPS = {
   // filtered twice. Measured, every static widener reads above 0.84 and the
   // only kind that moves reads 0.19 to 0.73, against a floor of 0.03.
   coherence: coherenceGap,
+  // Two microphones, added up: the comb their spacing makes, band by band.
+  // Not a `curve` and not an `image`, because what is being compared is
+  // neither a filter nor a stereo field - it is what two recordings of one
+  // event did to each other, and the only readings it can sensibly be put
+  // beside are other readings of the same pair.
+  align: alignGap,
   harmonics: seriesGap,
   loudness: loudnessGap,
   levels: levelsGap,

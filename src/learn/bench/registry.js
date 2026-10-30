@@ -1,6 +1,6 @@
 // What a tool is, put back together.
 //
-// Each of the ten is three files: what it is and how to open it in src/tools,
+// Each of the eleven is three files: what it is and how to open it in src/tools,
 // what you do with it in src/learn/work, and the long prose in src/notes.
 // Something has to say those three are the EQ, and this is it.
 //
@@ -21,6 +21,7 @@ import { LEVEL_TOOL } from '../../tools/level.js';
 import { LIMITER_TOOL } from '../../tools/limiter.js';
 import { GATE_TOOL } from '../../tools/gate.js';
 import { DEESS_TOOL } from '../../tools/deess.js';
+import { ALIGN_TOOL } from '../../tools/align.js';
 
 import { EQ_WORK } from '../work/eq.js';
 import { COMP_WORK } from '../work/compression.js';
@@ -32,6 +33,7 @@ import { LEVEL_WORK } from '../work/level.js';
 import { CEIL_WORK } from '../work/limiter.js';
 import { GATE_WORK } from '../work/gate.js';
 import { ESS_WORK } from '../work/deess.js';
+import { ALIGN_WORK } from '../work/align.js';
 
 import { notesFor } from '../notes/index.js';
 
@@ -54,6 +56,7 @@ export const TOOLS = {
   limiter: assemble(LIMITER_TOOL, CEIL_WORK),
   gate: assemble(GATE_TOOL, GATE_WORK),
   deess: assemble(DEESS_TOOL, ESS_WORK),
+  align: assemble(ALIGN_TOOL, ALIGN_WORK),
 };
 
 export const TOOL_IDS = Object.keys(TOOLS);

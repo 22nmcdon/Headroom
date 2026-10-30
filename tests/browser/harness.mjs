@@ -128,12 +128,12 @@ export async function shot(page, name) {
 }
 
 /** Every face, by the class each one wears. */
-export const FACES = '.eq, .comp, .heat, .stereo, .echo, .verb, .level, .limiter, .gate, .deess';
+export const FACES = '.eq, .comp, .heat, .stereo, .echo, .verb, .level, .limiter, .gate, .deess, .align';
 
 /** And their names on the strip. */
 export const TOOLS = [
   'EQ', 'Compression', 'Stereo', 'Reverb', 'Delay', 'Saturation', 'Level', 'Limiter',
-  'Gate', 'De-esser',
+  'Gate', 'De-esser', 'Align',
 ];
 
 /** The three shapes the app has to work in. */

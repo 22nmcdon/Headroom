@@ -5,8 +5,8 @@ One folder per piece, and the pieces point one way.
     main.js       the entry
     gap.js        comparing two readings without knowing what kind they are,
                   which needs every comparator and so sits above everything
-    plugins/      the eight devices: eq, compressor, saturation, stereo,
-                  delay, reverb, level, limiter - and the gate and the
+    plugins/      the nine devices: eq, compressor, saturation, stereo,
+                  delay, reverb, level, limiter, align - and the gate and the
                   de-esser, which are the compressor's core with a second
                   face on it rather than folders of their own
     learn/        everything that asks a question - the exercises, the

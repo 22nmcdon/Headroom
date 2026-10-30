@@ -34,6 +34,7 @@ export async function check({ browser, at, say }) {
     Saturation: 'heat',
     Gate: 'gate',
     'De-esser': 'deess',
+    Align: 'align',
   };
 
   /** Clicks a tool and waits for that tool's own face to be the one there. */
