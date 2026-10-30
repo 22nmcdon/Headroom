@@ -28,7 +28,7 @@ export async function check({ browser, at, say }) {
     const {
       mixBrief, flatMix, movesIn, MIX_TIERS, TONE_BANDS, TONE_LEAST, STEPS,
     } = await import('./src/mix/brief.js');
-    const { renderMix, readMaster, channelsIn } = await import('./src/mix/render.js');
+    const { renderMix, readMix, channelsIn } = await import('./src/mix/render.js');
     const { markMix } = await import('./src/mix/score.js');
     const { EQ_REST } = await import('./src/sketch/knobs.js');
 
@@ -41,8 +41,8 @@ export async function check({ browser, at, say }) {
       const brief = mixBrief('tone', seed);
       const piece = pieceOf(brief.piece);
 
-      const answer = readMaster(await renderMix(dress(piece, brief.target)), 'theirs');
-      const flat = readMaster(await renderMix(dress(piece, opening())), 'mine');
+      const answer = await readMix(dress(piece, brief.target), 'theirs');
+      const flat = await readMix(dress(piece, opening()), 'mine');
 
       // One step off the answer, on the band the round moved, which is the
       // smallest wrong answer the control can express.
@@ -54,7 +54,7 @@ export async function check({ browser, at, say }) {
         const band = TONE_BANDS[stem.id];
         nearly[stem.id].settings.eq[band] -= Math.sign(stem.tone.db) * TONE_LEAST;
       }
-      const close = readMaster(await renderMix(dress(piece, nearly)), 'mine');
+      const close = await readMix(dress(piece, nearly), 'mine');
 
       rows.push({
         seed,
