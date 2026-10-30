@@ -1,6 +1,8 @@
 import { makeBiquad, setBiquad, runBiquad } from '../../lib/dsp.js';
-import { fft } from '../../lib/fft.js';
 import { readingOf, stampOf } from '../../lib/read.js';
+import {
+  PROBE_BIN, HARMONIC_AXIS, spectrumThrough, seriesOf, foldbackIn,
+} from '../../lib/harmonics.js';
 
 // Saturation: what a signal comes out as when the thing it went through was
 // not quite a straight line.
@@ -732,16 +734,6 @@ function rms(samples) {
 //
 // Which bin decides what the reading can see. The first one tried put the
 // tone at 220 Hz, where the tenth harmonic is 2.2 kHz - so every tone setting
-// above about 3 kHz measured identically, and a third of that control was
-// invisible to the marking. At 440 the series runs to 4.4 kHz and the tone
-// control sweeps through the whole of it.
-export const PROBE_LENGTH = 16384;
-export const PROBE_BIN = 150;
-export const PROBE_LEVEL = -12;
-const PROBE_PRIME = 4096;
-
-/** How many harmonics are read, and shown. */
-export const HARMONICS = [2, 3, 4, 5, 6, 7, 8, 9, 10];
 
 /**
  * What a sine comes out of a setting as: the harmonic series, in decibels
@@ -754,115 +746,42 @@ export const HARMONICS = [2, 3, 4, 5, 6, 7, 8, 9, 10];
  * it - which is why the guess is marked on it rather than on the knobs.
  */
 export function harmonicsOf(rate, settings) {
-  const power = spectrumOf(rate, settings, PROBE_BIN);
-
-  const first = power[PROBE_BIN];
-
-  // Against the loudest thing that came out, not against the fundamental.
-  //
-  // For every family that bends a curve these are the same number, because
-  // the fundamental always survives a bend. Full-wave rectification is the
-  // family that breaks it: it folds the negative half up, the output repeats
-  // at twice the rate it went in, and the tone at 440 is simply gone. Read
-  // against it, a second harmonic 268 dB "above" the fundamental is not a
-  // measurement, it is a division by nothing.
-  //
-  // Reading against the loudest component says the true thing in both cases.
-  // Bend a curve and the fundamental is the loudest, so nothing moves. Rectify
-  // it fully and the series re-bases onto the octave that replaced it, which
-  // is what you are hearing.
-  let loudest = first;
-  for (const m of HARMONICS) {
-    const bin = PROBE_BIN * m;
-    if (bin < power.length && power[bin] > loudest) loudest = power[bin];
-  }
-  const dbOf = (p) => 10 * Math.log10(Math.max(p, 1e-20) / Math.max(loudest, 1e-20));
-
-  const harmonics = {};
-  let evens = 0;
-  let odds = 0;
-  for (const m of HARMONICS) {
-    const bin = PROBE_BIN * m;
-    harmonics[m] = bin < power.length ? dbOf(power[bin]) : -120;
-    if (bin >= power.length) continue;
-    if (m % 2 === 0) evens += power[bin]; else odds += power[bin];
-  }
-
-  let total = 0;
-  for (let i = 1; i < power.length; i += 1) total += power[i];
-
-  return {
-    harmonics,
-    // Total harmonic distortion: everything the curve added, against the
-    // tone it was given.
-    thd: 10 * Math.log10(Math.max(total - loudest, 1e-20) / Math.max(loudest, 1e-20)),
-    // How much of the note that went in is still there. Below about -40 the
-    // family has replaced it rather than coloured it, which only full-wave
-    // rectification does - and which is the thing to say on the face.
-    fundamental: dbOf(first),
-    // The two halves of the series, each as a whole. Which of these is the
-    // louder is the single thing an ear can hear about a saturator without
-    // being trained: even is an octave and a twelfth above, which sounds like
-    // the note getting richer, and odd is a fifth and a major third, which
-    // sounds like something going wrong.
-    even: dbOf(evens),
-    odd: dbOf(odds),
-    aliasing: foldbackIn(power, PROBE_BIN, loudest),
-  };
-}
-
-/** One bin-aligned sine through a setting, as power per bin. */
-function spectrumOf(rate, settings, bin) {
-  const step = (2 * Math.PI * bin) / PROBE_LENGTH;
-  const amplitude = Math.pow(10, PROBE_LEVEL / 20) * Math.SQRT2;
-
-  const core = shaperCore(rate, false);
-  core.set({ ...settings, listen: 'out' });
-
-  // Without the offset filter, which is the one piece of this the probe
-  // leaves out.
-  //
-  // It is not dodging it. A first-order corner at DC_CORNER is 0.0006 dB at
-  // 440 Hz and flatter above, so at steady state it does nothing a reading
-  // here can see - measured bin by bin across the whole spectrum against a
-  // probe primed for five seconds, and the two agree to 0.0006 dB everywhere,
-  // the quiet bins between the harmonics included.
-  //
-  // What it does do is start. The filter needs about fifteen of its 32 ms
-  // time constants to settle, and a decaying exponential inside a rectangular
-  // window is not periodic in it, so until it has settled it leaks across
-  // every bin at once. That put the noise floor between the harmonics - which
-  // is the whole of the aliasing reading - up from -279 dB to -46. Priming it
-  // out would cost six times the prime on a measurement that already runs on
-  // every turn of a knob, to arrive back at the number bypassing it gives for
-  // nothing.
-
-  // Let the tone filter settle before anything is measured, or its ringing
-  // turns up in the answer as harmonics nothing made.
-  for (let i = 0; i < PROBE_PRIME; i += 1) core.step(amplitude * Math.sin(step * i));
-
-  const re = new Float64Array(PROBE_LENGTH);
-  const im = new Float64Array(PROBE_LENGTH);
-  for (let i = 0; i < PROBE_LENGTH; i += 1) {
-    core.step(amplitude * Math.sin(step * (i + PROBE_PRIME)));
-    re[i] = core.out;
-  }
-
-  fft(re, im);
-
-  const power = new Float64Array(PROBE_LENGTH / 2);
-  for (let i = 0; i < power.length; i += 1) power[i] = re[i] * re[i] + im[i] * im[i];
-  return power;
+  return seriesOf(spectrumOf(rate, settings, PROBE_BIN), PROBE_BIN);
 }
 
 /**
- * Everything that is neither the tone nor a harmonic of it, against the tone.
+ * One bin-aligned sine through a setting, as power per bin.
  *
- * On an honest curve this is the noise floor. If it climbs, it is aliasing -
- * harmonics that went past half the sample rate and folded back down to
- * frequencies with no musical relationship to anything - and that is the one
- * failure mode of shaping a signal without running the curve faster than the
- * signal first.
+ * The probe itself is `lib/harmonics.js`'s, shared with everything else here
+ * that distorts; what belongs to the saturator is the core being probed and
+ * the one thing that core is asked to leave out.
+ *
+ * Without the offset filter, which is the one piece of this the probe leaves
+ * out.
+ *
+ * It is not dodging it. A first-order corner at DC_CORNER is 0.0006 dB at
+ * 440 Hz and flatter above, so at steady state it does nothing a reading
+ * here can see - measured bin by bin across the whole spectrum against a
+ * probe primed for five seconds, and the two agree to 0.0006 dB everywhere,
+ * the quiet bins between the harmonics included.
+ *
+ * What it does do is start. The filter needs about fifteen of its 32 ms time
+ * constants to settle, and a decaying exponential inside a rectangular window
+ * is not periodic in it, so until it has settled it leaks across every bin at
+ * once. That put the noise floor between the harmonics - which is the whole
+ * of the aliasing reading - up from -279 dB to -46. Priming it out would cost
+ * six times the prime on a measurement that already runs on every turn of a
+ * knob, to arrive back at the number bypassing it gives for nothing.
+ */
+function spectrumOf(rate, settings, bin) {
+  const core = shaperCore(rate, false);
+  core.set({ ...settings, listen: 'out' });
+
+  return spectrumThrough((x) => { core.step(x); return core.out; }, bin);
+}
+
+/**
+ * How much of what came out is neither the tone nor a harmonic of it.
  *
  * Nothing in the app calls this to make a sound or mark a guess. It exists so
  * that the claim the oversampling is there to make can be checked rather than
@@ -871,92 +790,6 @@ function spectrumOf(rate, settings, bin) {
 export function foldback(rate, settings, bin = PROBE_BIN) {
   return foldbackIn(spectrumOf(rate, settings, bin), bin);
 }
-
-function foldbackIn(power, bin, against = power[bin]) {
-  let total = 0;
-  for (let i = 1; i < power.length; i += 1) total += power[i];
-
-  let series = 0;
-  for (let m = 1; bin * m < power.length; m += 1) series += power[bin * m];
-
-  // Against the same reference the harmonics are read against, or full-wave
-  // rectification - which takes the fundamental away - reports its own noise
-  // floor as 204 dB of aliasing.
-  return 10 * Math.log10(Math.max(total - series, 1e-20) / Math.max(against, 1e-20));
-}
-
-/**
- * How far apart two harmonic profiles are: the worst harmonic, in decibels.
- *
- * The worst rather than the average, for the reason every other mode here
- * found in turn. What anybody means by two saturators sounding the same is
- * that the whole series matches - a third harmonic eight decibels out is
- * audible as a different distortion however well the other eight agree, and
- * averaging it across nine numbers turns it into a rounding error.
- *
- * Only harmonics that can be heard count, and what can be heard depends on
- * the rest of the series. A fixed floor was the first version of this and it
- * was not enough: these curves put real interference nulls in the series, so
- * a target whose seventh harmonic happens to land at -58 while everything
- * around it is at -12 would charge somebody thirty decibels for a harmonic
- * nobody could pick out under the ones either side of it. The floor rides
- * MASKED below the loudest harmonic there is, and never climbs above the
- * absolute one.
- *
- * **Pairwise only.** The masking floor is derived from both readings at once -
- * it rides MASKED below the loudest harmonic in *either* of them - so this is
- * not a metric and cannot be used to rank three readings against each other.
- * `heatGap(a, b)` and `heatGap(a, c)` are measured against different floors
- * and their `off` values are not on the same scale. That is the right
- * behaviour for the question it answers, and the wrong thing to build a
- * nearest-neighbour search on.
- */
-export const HEAT_FLOOR = -62;
-export const MASKED = 38;
-
-export function heatGap(mine, theirs) {
-  const a = mine.values ?? mine;
-  const b = theirs.values ?? theirs;
-
-  let loudest = -Infinity;
-  for (const m of HARMONICS) {
-    if (a.harmonics[m] > loudest) loudest = a.harmonics[m];
-    if (b.harmonics[m] > loudest) loudest = b.harmonics[m];
-  }
-  const floor = Math.max(HEAT_FLOOR, loudest - MASKED);
-
-  let off = 0;
-  let which = null;
-  let louder = 0;
-
-  for (const m of HARMONICS) {
-    const mine_m = Math.max(a.harmonics[m], floor);
-    const theirs_m = Math.max(b.harmonics[m], floor);
-    const gap = Math.abs(mine_m - theirs_m);
-    if (gap > off) { off = gap; which = m; louder = mine_m - theirs_m; }
-  }
-
-  // A label, not an index. This used to hand back the number 3 and leave every
-  // caller to turn it into "3rd harmonic" itself, which is how a comparator
-  // ends up with three conventions between four implementations.
-  return {
-    off,
-    where: which === null ? null : `${ordinal(which)} harmonic`,
-    detail: { harmonic: which, louder, thd: a.thd - b.thd },
-  };
-}
-
-export const heatDistance = (mine, theirs) => heatGap(mine, theirs).off;
-
-/** 2nd, 3rd, 4th - how anybody says which harmonic they mean. */
-export function ordinal(n) {
-  const tens = n % 100;
-  if (tens >= 11 && tens <= 13) return `${n}th`;
-  return `${n}${['th', 'st', 'nd', 'rd'][n % 10] ?? 'th'}`;
-}
-
-/** What a harmonic reading is indexed by: which harmonics, in order. */
-export const HARMONIC_AXIS = { kind: 'harmonics', ids: HARMONICS };
 
 /** A harmonic series, in an envelope. */
 export function harmonicsReading(rate, settings, { source = null } = {}) {

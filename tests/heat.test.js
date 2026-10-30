@@ -2,11 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  HEAT_DEFAULTS, HEAT_LATENCY, HARMONICS, MOST_TONE,
-  shape, shaperCore, runShaper, heatTrim, harmonicsOf, heatGap, transferCurve, foldback,
-  CURVES, CURVE_ORDER, HEAT_LIMITS, TAPE_SPEEDS,
-  DC_CORNER, PROBE_BIN, PROBE_LENGTH, PROBE_LEVEL,
+  HEAT_DEFAULTS, HEAT_LATENCY, MOST_TONE,
+  shape, shaperCore, runShaper, heatTrim, harmonicsOf, transferCurve, foldback,
+  CURVES, CURVE_ORDER, HEAT_LIMITS, TAPE_SPEEDS, DC_CORNER,
 } from '../src/plugins/saturation/shape.js';
+import {
+  HARMONICS, PROBE_BIN, PROBE_LENGTH, PROBE_LEVEL, seriesGap,
+} from '../src/lib/harmonics.js';
 import { fft } from '../src/lib/fft.js';
 import { saturatorSource } from '../src/plugins/saturation/node.js';
 import { mulberry32 } from '../src/lib/random.js';
@@ -553,10 +555,10 @@ test('the audio thread runs the same arithmetic as the marking', () => {
 
 test('the gap is the worst harmonic, and names it', () => {
   const theirs = harmonicsOf(rate, { ...HEAT_DEFAULTS, drive: 16, bias: 0.5 });
-  assert.equal(heatGap(theirs, theirs).off, 0);
+  assert.equal(seriesGap(theirs, theirs).off, 0);
 
   const mine = harmonicsOf(rate, { ...HEAT_DEFAULTS, drive: 16, bias: 0 });
-  const gap = heatGap(mine, theirs);
+  const gap = seriesGap(mine, theirs);
   // No bias against a biased target: the even harmonics are what is missing.
   assert.ok(gap.detail.harmonic % 2 === 0, `worst harmonic was the ${gap.where}`);
   assert.ok(gap.detail.louder < 0, 'and there should be too little of it');
@@ -565,7 +567,7 @@ test('the gap is the worst harmonic, and names it', () => {
   // caller to phrase. Three of the four comparators here had their own
   // convention for this; now none of them do.
   assert.equal(gap.where, `${gap.detail.harmonic}${gap.detail.harmonic === 2 ? 'nd' : 'th'} harmonic`);
-  assert.equal(heatGap(theirs, theirs).where, null, 'nothing stands out against itself');
+  assert.equal(seriesGap(theirs, theirs).where, null, 'nothing stands out against itself');
 });
 
 /* --- the mode -------------------------------------------------------------- */

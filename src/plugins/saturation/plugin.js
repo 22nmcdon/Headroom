@@ -1,9 +1,12 @@
 import {
-  HEAT_DEFAULTS, HARMONICS, HEAT_FLOOR, HARMONIC_AXIS, MOST_TONE, MASKED,
+  HEAT_DEFAULTS, MOST_TONE,
   CURVES, CURVE_ORDER, TAPE_SPEEDS,
   harmonicsOf, harmonicsReading, transferCurve,
   HEAT_LIMITS,
 } from './shape.js';
+import {
+  HARMONICS, HARMONIC_AXIS, SERIES_FLOOR, MASKED,
+} from '../../lib/harmonics.js';
 import { notReady, stampOf } from '../../lib/read.js';
 import { HeatPlayer } from './player.js';
 import { dialOf, offDial, readyCanvas, watchSize, span } from '../../lib/panel.js';
@@ -34,7 +37,7 @@ const barX = (i, width) => ((i + 0.5) / HARMONICS.length) * width;
 
 const barY = (db, height) => {
   const plot = height - NUMBERS;
-  return plot - ((db - HEAT_FLOOR) / (HEAT_TOP - HEAT_FLOOR)) * plot;
+  return plot - ((db - SERIES_FLOOR) / (HEAT_TOP - SERIES_FLOOR)) * plot;
 };
 
 /** Every knob, and how it reads. */
@@ -663,7 +666,7 @@ export class HeatPlugin {
     c.lineWidth = 1;
     c.textAlign = 'right';
     c.fillStyle = ink.soft;
-    for (let db = 0; db > HEAT_FLOOR; db -= 20) {
+    for (let db = 0; db > SERIES_FLOOR; db -= 20) {
       const y = barY(db, height);
       c.beginPath(); c.moveTo(0, y); c.lineTo(width, y); c.stroke();
       c.fillText(`${db}`, width - 4, y - 3);
@@ -682,10 +685,10 @@ export class HeatPlugin {
 
     const slot = width / HARMONICS.length;
     const bar = Math.min(26, slot * 0.52);
-    const base = barY(HEAT_FLOOR, height);
+    const base = barY(SERIES_FLOOR, height);
 
     HARMONICS.forEach((m, i) => {
-      const level = Math.max(HEAT_FLOOR, reading.values.harmonics[m]);
+      const level = Math.max(SERIES_FLOOR, reading.values.harmonics[m]);
       const x = barX(i, width);
       const top = barY(level, height);
 
@@ -741,12 +744,12 @@ export class HeatPlugin {
    */
   drawFloors(c, values, width, height, ink) {
     const loudest = Math.max(...HARMONICS.map((m) => values.harmonics[m]));
-    const masking = Math.max(HEAT_FLOOR, loudest - MASKED);
+    const masking = Math.max(SERIES_FLOOR, loudest - MASKED);
     const junk = values.aliasing ?? -200;
     const covered = junk > masking;
     const at = Math.max(masking, Math.min(HEAT_TOP, junk));
     const y = barY(at, height);
-    const base = barY(HEAT_FLOOR, height);
+    const base = barY(SERIES_FLOOR, height);
 
     c.fillStyle = covered ? ink.rustWash : ink.floorWash;
     c.fillRect(0, y, width, Math.max(0, base - y));
@@ -899,8 +902,8 @@ export class HeatPlugin {
     const SPAN = 12;
     const close = this.targetClose;
     const gauges = HARMONICS.map((m) => {
-      const mine = Math.max(HEAT_FLOOR, reading.values.harmonics[m]);
-      const theirs = Math.max(HEAT_FLOOR, this.target.harmonics[m]);
+      const mine = Math.max(SERIES_FLOOR, reading.values.harmonics[m]);
+      const theirs = Math.max(SERIES_FLOOR, this.target.harmonics[m]);
       const off = mine - theirs;
       const span = Math.max(-SPAN, Math.min(SPAN, off));
       const inside = close ? Math.abs(off) <= close : null;
@@ -922,8 +925,8 @@ export class HeatPlugin {
 
     const scored = close
       ? HARMONICS.filter((m) => Math.abs(
-        Math.max(HEAT_FLOOR, reading.values.harmonics[m])
-        - Math.max(HEAT_FLOOR, this.target.harmonics[m]),
+        Math.max(SERIES_FLOOR, reading.values.harmonics[m])
+        - Math.max(SERIES_FLOOR, this.target.harmonics[m]),
       ) <= close).length
       : null;
 
@@ -951,7 +954,7 @@ export class HeatPlugin {
       // an octave, and the tone that went in is simply not there.
       if (reading.values.fundamental < -40) parts.push('the note itself is gone — an octave up');
       const tilt = reading.values.even - reading.values.odd;
-      if (reading.values.even < HEAT_FLOOR) parts.push('odd only');
+      if (reading.values.even < SERIES_FLOOR) parts.push('odd only');
       else if (tilt > 3) parts.push('even-led');
       else if (tilt < -3) parts.push('odd-led');
       else parts.push('even and odd together');

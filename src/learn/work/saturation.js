@@ -1,7 +1,8 @@
 import {
-  HEAT_DEFAULTS, HEAT_FLOOR, MOST_TONE, MOST_HARDNESS,
+  HEAT_DEFAULTS, MOST_TONE, MOST_HARDNESS,
   harmonicsReading,
 } from '../../plugins/saturation/shape.js';
+import { SERIES_FLOOR } from '../../lib/harmonics.js';
 import { distance } from '../../gap.js';
 import { HIT, NEAR, MISS, onScale, toStep, pick } from './scoring.js';
 
@@ -637,7 +638,7 @@ export const HEAT_WORK = {
       cells: [
         {
           state: there && clean ? HIT : there || off <= close * 2 ? NEAR : MISS,
-          text: mine.even <= HEAT_FLOOR ? 'no even harmonics at all'
+          text: mine.even <= SERIES_FLOOR ? 'no even harmonics at all'
             : there ? 'the warmth is there'
             : `${off.toFixed(1)} dB too ${mine.even > want ? 'much' : 'little'} warmth`,
         },

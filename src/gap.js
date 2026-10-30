@@ -18,7 +18,7 @@ import { decayGap } from './lib/response.js';
 import { repeatGap, wanderGap, duckGap } from './plugins/delay/line.js';
 import { stereoGap } from './plugins/stereo/field.js';
 import { coherenceGap } from './plugins/stereo/coherence.js';
-import { heatGap } from './plugins/saturation/shape.js';
+import { seriesGap } from './lib/harmonics.js';
 import { loudnessGap } from './lib/loudness.js';
 import { levelsGap } from './mix/levels.js';
 import { crestGap } from './analysis/dynamics.js';
@@ -69,7 +69,7 @@ const GAPS = {
   // filtered twice. Measured, every static widener reads above 0.84 and the
   // only kind that moves reads 0.19 to 0.73, against a floor of 0.03.
   coherence: coherenceGap,
-  harmonics: heatGap,
+  harmonics: seriesGap,
   loudness: loudnessGap,
   levels: levelsGap,
   crest: crestGap,
@@ -93,7 +93,7 @@ export const KINDS = Object.keys(GAPS);
  * never measured - and a plausible wrong number is worse than an error,
  * because nothing downstream can tell.
  *
- * **Pairwise only for `harmonics`.** `heatGap`'s masking floor is derived from
+ * **Pairwise only for `harmonics`.** `seriesGap`'s masking floor is derived from
  * both readings at once, so its `off` values are not on a common scale and
  * three of them cannot be ranked against each other. Everything else here is
  * a proper distance.

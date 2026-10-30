@@ -5,6 +5,12 @@
     node.js     the AudioWorklet, built by stringifying shape.js
     player.js   auditioning it
 
+The probe, the series and the comparator are no longer here. They moved to
+`lib/harmonics.js` when the limiter grew a clipper, because a plugin may not
+import another plugin and the alternative was a second probe measuring the
+same thing a second way. What is left is the part that is the saturator's:
+the curve, the oversampled round trip, and the core being probed.
+
 The folder is Saturation and the symbols are `HEAT_`, which is not an
 oversight. Saturation is the device; heat is what it makes - the face has a
 button that says "only the heat". The device is named by the folder, what it
