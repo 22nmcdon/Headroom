@@ -24,8 +24,10 @@ import {
 } from './brief.js';
 import { EQ_REST } from '../sketch/knobs.js';
 import { readMix } from './render.js';
-import { markMix, mixAdvice, READING_NAMES } from './score.js';
+import { markMix, mixAdvice, READING_NAMES, HIT, MISS } from './score.js';
 import { anchorOf, matchTrim, staleFor, gainOfTrim } from './monitor.js';
+import { chainChoices, arrangementOf, chainMix, CHAIN_ON } from './chain.js';
+import { renderPicker, syncPicker } from '../learn/bench/picker.js';
 import { makeStage } from '../sketch/stage.js';
 import { roundSeed } from '../learn/game.js';
 import { recordMix, mixStats } from '../learn/stats.js';
@@ -94,6 +96,10 @@ export class MixPage {
     this.reference = null;
     this.measuring = false;
 
+    // What has been picked on a round that is answered by naming it, which is
+    // not a mix and is not kept on the desk.
+    this.picked = null;
+
     this.build();
     this.wire();
     this.deal();
@@ -140,6 +146,14 @@ export class MixPage {
           <button class="link-btn" type="button" data-rematch hidden>Measure it again</button>
         </p>
 
+        <!-- A round that is answered by naming it rather than by matching it.
+             The desk is hidden for those, because there is nothing on it that
+             would help: see mix/chain.js for why an order cannot be submitted
+             against. -->
+        <div class="mix-naming" data-naming hidden>
+          <div class="picker" data-picker></div>
+        </div>
+
         <div class="strips" data-strips></div>
 
         <!-- Its own section rather than three more dials on every strip.
@@ -162,7 +176,7 @@ export class MixPage {
         <div class="mix-foot">
           <span class="action-group">
             <button class="link-btn" type="button" data-show>Show me</button>
-            <button class="link-btn" type="button" data-flat>Back to flat</button>
+            <button class="link-btn" type="button" data-flat hidden>Back to flat</button>
             <button class="link-btn" type="button" data-again>Another one</button>
           </span>
           <button class="submit-btn" type="button" data-submit>Submit the mix</button>
@@ -177,6 +191,9 @@ export class MixPage {
       record: $('[data-record]'),
       play: $('[data-play]'),
       pos: $('[data-pos]'),
+      flat: $('[data-flat]'),
+      naming: $('[data-naming]'),
+      picker: $('[data-picker]'),
       strips: $('[data-strips]'),
       tone: $('[data-tone]'),
       toneStrips: $('[data-tone-strips]'),
@@ -209,6 +226,7 @@ export class MixPage {
     this.parts.strips.addEventListener('input', (e) => this.moved(e));
     this.parts.strips.addEventListener('click', (e) => this.pressed(e));
     this.parts.toneStrips.addEventListener('input', (e) => this.toned(e));
+    this.parts.picker.addEventListener('click', (e) => this.named(e));
   }
 
   /* --- a round ------------------------------------------------------------- */
@@ -237,10 +255,23 @@ export class MixPage {
       + `${this.whichPairs()}${this.round.piece.name}, four bars, going round.`;
     this.parts.result.hidden = true;
     this.parts.advice.hidden = true;
-    this.parts.submit.disabled = false;
-    this.parts.submit.textContent = 'Submit the mix';
+    this.parts.submit.disabled = this.naming;
+    this.parts.submit.textContent = this.naming ? 'Say what it is' : 'Submit the mix';
+
+    // A naming round's two sides are the part with the chain and without it,
+    // so the switch says that rather than "yours" and "the one to match" -
+    // there is no mix of yours on this one.
+    const [near, far] = this.el.querySelectorAll('[data-ab]');
+    near.textContent = this.naming ? 'Plain' : 'Yours';
+    far.textContent = this.naming ? 'With it on' : 'The one to match';
+
+    // There is no desk to put back on a naming round.
+    this.parts.flat.hidden = this.naming;
+
+    this.picked = null;
 
     this.drawDesk();
+    this.drawNaming();
     this.drawRecord();
     this.drawMatch();
     this.push();
@@ -289,7 +320,10 @@ export class MixPage {
    */
   start() {
     const mix = flatMix();
-    if (!this.colours.length) return mix;
+    // A naming round's near side is the part with nothing on it, which is what
+    // `flatMix` already is - and the inserts go on the far side only, out of
+    // `chainMix`.
+    if (this.naming || !this.colours.length) return mix;
     return Object.fromEntries(STEM_IDS.map((id) => [id, {
       ...mix[id], inserts: ['eq'], settings: { eq: { ...EQ_REST } },
     }]));
@@ -300,6 +334,9 @@ export class MixPage {
 
   /** Which stems this tier lets you colour, and in which band. */
   get colours() { return colouring(this.tier); }
+
+  /** Whether this round is answered by naming it rather than by matching it. */
+  get naming() { return !!MIX_TIERS[this.tier]?.names; }
 
   /**
    * What the stage should be playing: a mix, with the monitoring on top.
@@ -319,11 +356,44 @@ export class MixPage {
 
   /** The whole desk: the strips, and the tone of them when a round asks. */
   drawDesk() {
-    this.drawStrips();
+    this.parts.strips.hidden = this.naming;
+    this.parts.strips.innerHTML = this.naming ? '' : this.strips();
 
-    const wanted = this.colours.length > 0;
+    const wanted = !this.naming && this.colours.length > 0;
     this.parts.tone.hidden = !wanted;
     this.parts.toneStrips.innerHTML = wanted ? this.toneStrips() : '';
+
+    // The drums' fader is the one thing on this desk that does not move. Said
+    // on the strip rather than left as a disabled control nobody can explain.
+    const anchor = this.parts.strips.querySelector(`[data-stem="${ANCHOR}"] .strip-db`);
+    if (anchor) anchor.title = 'The drums are the level everything else is set against.';
+  }
+
+  /**
+   * The chips, on the round that is answered with one.
+   *
+   * Drawn with the same picker the drills use, which lives in `learn/bench`
+   * and knows nothing about a tool or a game - hand it slots and what is
+   * picked and it draws them. The alternative was a second set of chips in
+   * this file that looked like those ones until somebody restyled one of them.
+   */
+  drawNaming() {
+    this.parts.naming.hidden = !this.naming;
+    if (!this.naming) { this.parts.picker.textContent = ''; return; }
+
+    renderPicker(this.parts.picker, this.slots(), { order: this.picked }, {
+      write: (el, text) => { el.textContent = text; },
+    });
+  }
+
+  /** What a naming round asks, in the shape the picker takes. */
+  slots() {
+    return [{
+      id: 'order',
+      kind: 'choice',
+      label: `What is on the ${STEMS.find((stem) => stem.id === CHAIN_ON)?.name.toLowerCase()}`,
+      options: chainChoices(),
+    }];
   }
 
   /**
@@ -383,8 +453,8 @@ export class MixPage {
     return 'reference';
   }
 
-  drawStrips() {
-    this.parts.strips.innerHTML = STEMS.map((stem) => {
+  strips() {
+    return STEMS.map((stem) => {
       const set = this.mine[stem.id];
       const anchored = stem.id === ANCHOR;
       const state = this.monitor[stem.id];
@@ -425,11 +495,6 @@ export class MixPage {
           </div>
         </div>`;
     }).join('');
-
-    // The drums' fader is the one thing on this desk that does not move. Said
-    // on the strip rather than left as a disabled control nobody can explain.
-    const anchor = this.parts.strips.querySelector(`[data-stem="${ANCHOR}"] .strip-db`);
-    if (anchor) anchor.title = 'The drums are the level everything else is set against.';
   }
 
   moved(event) {
@@ -538,7 +603,15 @@ export class MixPage {
     return this.building;
   }
 
-  /** The piece with whichever mix is being listened to on it. */
+  /**
+   * The piece with whichever mix is being listened to on it.
+   *
+   * On a naming round there is no mix of your own, so the near side is the
+   * same mix with nothing on the part at all. Which is the comparison that
+   * answers the question: what the chain is doing is the difference between
+   * those two, and nobody can hear what a compressor is doing to a kit without
+   * hearing the kit without it.
+   */
   dressed() {
     const mix = this.listening === 'theirs' ? this.round.brief.target : this.mine;
     return dress(this.round.piece, this.monitored(mix));
@@ -593,6 +666,73 @@ export class MixPage {
     this.parts.pos.textContent = stage?.playing
       ? `${((stage.bar - 1) % 4) + 1}.${Math.min(4, Math.floor((stage.tick % stage.transport.perBar) / 480) + 1)}`
       : '1.1';
+  }
+
+  /* --- naming it ------------------------------------------------------------ */
+
+  named(event) {
+    const button = event.target.closest('[data-option]');
+    if (!button || this.over) return;
+
+    this.picked = button.dataset.option;
+    syncPicker(this.parts.picker, this.slots(), { order: this.picked });
+    this.parts.submit.disabled = false;
+  }
+
+  /**
+   * One guess, and then the round is over.
+   *
+   * Not because guessing is wicked but because there are four answers: a round
+   * you can submit against until it passes is a round that can be finished by
+   * pressing a button four times, and what that teaches is how to press a
+   * button. See `chain.js`.
+   */
+  sayIt({ shown = false } = {}) {
+    if (this.over || (!this.picked && !shown)) return;
+
+    const want = this.round.brief.naming.order;
+    const right = !shown && this.picked === want;
+    const how = arrangementOf(want);
+
+    this.attempts += 1;
+    this.over = true;
+
+    this.parts.result.hidden = false;
+    this.parts.result.innerHTML = `
+      <p class="eyebrow">${right ? 'That is it' : (shown ? 'Here it is' : 'Not that one')}</p>
+      <div class="marks">
+        <div class="mark" data-mark="${right ? HIT : MISS}">
+          <span class="mark-name">What was on it</span>
+          <span class="mark-off">${how.symbol}</span>
+          <span class="mark-where">${how.name}</span>
+        </div>
+      </div>
+      <p class="fine">Both are nonlinear, so they do not commute: a compressor
+         after a saturator is reacting to peaks that have already been rounded
+         off, and one before it is deciding how loud everything gets coloured.</p>`;
+
+    this.parts.advice.hidden = false;
+    this.parts.advice.textContent = right
+      ? 'That is what was on it.'
+      : `It was ${how.symbol.toLowerCase()} — ${how.name}. Listen again with the`
+        + ' A/B: the question is what happens to the loudest hits.';
+
+    // Being shown is never a solve, which is the rule the drills keep as well:
+    // what the record is for is what you can hear, and nobody can hear a
+    // button that says "show me".
+    if (shown) this.attempts = Math.max(1, this.attempts);
+
+    this.parts.submit.disabled = true;
+    this.parts.submit.textContent = right ? 'That is it' : 'Shown';
+
+    recordMix({
+      tier: this.tier,
+      attempts: this.attempts,
+      solved: right,
+      worst: want,
+      label: how.symbol,
+    });
+    this.drawRecord();
   }
 
   /* --- matching the levels -------------------------------------------------- */
@@ -671,15 +811,32 @@ export class MixPage {
     this.parts.match.textContent = this.measuring ? 'Measuring…' : 'Match loudness';
     this.parts.rematch.hidden = !stale;
 
-    this.parts.matchNote.textContent = this.measuring
-      ? 'Rendering both of them, which takes a moment.'
-      : this.matching
-        ? (stale
-          ? `The reference is playing at your level, but ${stale}.`
-          : 'The reference is playing at your level, so what is left to hear is '
-            + 'the mix. Switch it off to hear whether the whole thing is in the right place.')
-        : 'Louder sounds better, so two mixes at two levels cannot be compared. '
-          + 'This trims the reference to your level.';
+    // Two rounds, two sentences. On a naming round there is no mix of yours,
+    // so what is being matched is the part with the chain on it against the
+    // same part without - and on that round the match is not a convenience:
+    // saturation makes things louder, so an unmatched A/B would answer the
+    // question with the level.
+    const said = () => {
+      if (this.measuring) return 'Rendering both of them, which takes a moment.';
+      if (!this.matching) {
+        return 'Louder sounds better, so two mixes at two levels cannot be compared. '
+          + (this.naming
+            ? 'This trims the part with the chain on it to the plain one.'
+            : 'This trims the reference to your level.');
+      }
+      if (stale) {
+        return this.naming
+          ? `The chain is playing at the level of the plain part, but ${stale}.`
+          : `The reference is playing at your level, but ${stale}.`;
+      }
+      return this.naming
+        ? 'The chain is playing at the level of the plain part, so what is left to hear '
+          + 'is what it did. Switch it off and the louder one wins.'
+        : 'The reference is playing at your level, so what is left to hear is '
+          + 'the mix. Switch it off to hear whether the whole thing is in the right place.';
+    };
+
+    this.parts.matchNote.textContent = said();
   }
 
   /* --- marking ------------------------------------------------------------- */
@@ -699,6 +856,7 @@ export class MixPage {
   }
 
   async submit() {
+    if (this.naming) { this.sayIt(); return; }
     if (this.busy || this.over) return;
     this.busy = true;
     this.parts.submit.disabled = true;
@@ -766,6 +924,12 @@ export class MixPage {
 
   /** The answer, on the faders, with the round closed. */
   reveal() {
+    if (this.naming) {
+      this.picked = this.round.brief.naming.order;
+      syncPicker(this.parts.picker, this.slots(), { order: this.picked });
+      this.sayIt({ shown: true });
+      return;
+    }
     this.mine = Object.fromEntries(STEM_IDS.map((id) => [id, { ...this.round.brief.target[id] }]));
     this.over = true;
     this.drawDesk();

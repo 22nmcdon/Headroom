@@ -27,6 +27,9 @@ import {
 } from '../src/mix/share.js';
 import { roomGap, roomOf, inARoom, ROOM_AXIS, ROOM_FLOOR } from '../src/mix/room.js';
 import {
+  CHAIN_ORDERS, CHAIN_IDS, CHAIN_ON, chainMix, arrangementOf,
+} from '../src/mix/chain.js';
+import {
   sumOf, mixLoudness, staleFor, matchTrim, anchorOf, gainOfTrim, MATCH_LIMIT,
 } from '../src/mix/monitor.js';
 import { distance } from '../src/gap.js';
@@ -1048,4 +1051,94 @@ test('front to back is marked on the room and the shares, and not on the parts',
   // Measured, a fader move reads the same on `levels` and on `share`, so both
   // would be one mistake reported twice. See the note over the tolerances.
   assert.equal(tolerance.levels, undefined);
+});
+
+/* --- what is on it --------------------------------------------------------- */
+
+test('the four arrangements are four different chains, and both orders are there', () => {
+  assert.equal(CHAIN_ORDERS.length, 4);
+  assert.equal(new Set(CHAIN_IDS).size, 4);
+
+  const chains = CHAIN_ORDERS.map((one) => one.inserts.join('>'));
+  assert.ok(chains.includes('compression'), 'there is no compressor on its own');
+  assert.ok(chains.includes('saturation'), 'there is no saturator on its own');
+  assert.ok(chains.includes('compression>saturation'), 'one of the two orders is missing');
+  assert.ok(chains.includes('saturation>compression'), 'one of the two orders is missing');
+
+  // Four, because the round is answered by naming it: two would be a coin
+  // toss and one guess is all anybody gets. Every one of them also has to say
+  // what it is, since that is the chip somebody reads.
+  for (const how of CHAIN_ORDERS) {
+    assert.ok(how.symbol && how.symbol.length <= 12, `${how.id} has no readable symbol`);
+    assert.ok(how.name && how.name.length > 8, `${how.id} does not say what it is`);
+  }
+});
+
+test('every arrangement is gain-staged, and both effects carry settings either way', () => {
+  for (const how of CHAIN_ORDERS) {
+    assert.ok(how.settings.compression, `${how.id} has no compressor settings`);
+    assert.ok(how.settings.saturation, `${how.id} has no saturator settings`);
+
+    // Both, whichever is in the chain, so that the project stamp in render.js
+    // changes when the order does. See chainMix.
+    const staged = how.inserts.includes('compression')
+      ? how.settings.compression.makeup
+      : how.settings.saturation.trim;
+    assert.ok(Number.isFinite(staged), `${how.id} is not gain-staged`);
+  }
+
+  // The one with nothing but the saturator takes its correction on the trim,
+  // and the one with nothing but the compressor on the makeup.
+  assert.ok(arrangementOf('heat').settings.saturation.trim < 0);
+  assert.ok(arrangementOf('comp').settings.compression.makeup > 0);
+});
+
+test('a chain goes on one part and leaves the other three alone', () => {
+  for (const how of CHAIN_ORDERS) {
+    const mix = chainMix(flatMix(), how.id);
+    assert.deepEqual(mix[CHAIN_ON].inserts, how.inserts);
+
+    for (const id of STEM_IDS.filter((one) => one !== CHAIN_ON)) {
+      assert.deepEqual(mix[id].inserts ?? [], [], `${id} was given an insert`);
+      assert.equal(mix[id].gain, STEM_FLAT.gain);
+      assert.equal(mix[id].pan, 0);
+      assert.equal(mix[id].send, 0);
+    }
+  }
+
+  // An unknown arrangement is the first one rather than an exception: a
+  // reveal reads the answer back through this and a round with no chain at all
+  // would be a round about nothing.
+  assert.equal(arrangementOf('nonsense').id, CHAIN_ORDERS[0].id);
+});
+
+test('a naming round picks an arrangement and asks nothing else', () => {
+  const seen = new Set();
+  for (let seed = 1; seed <= 60; seed += 1) {
+    const brief = mixBrief('order', seed * 1013);
+    assert.ok(CHAIN_IDS.includes(brief.naming.order), 'the answer is not an arrangement');
+    seen.add(brief.naming.order);
+
+    assert.deepEqual(brief.target[CHAIN_ON].inserts, arrangementOf(brief.naming.order).inserts);
+    for (const stem of movesIn(brief.target)) {
+      assert.equal(stem.db, 0, `${stem.id} moved a fader on a naming round`);
+      assert.equal(stem.pan, 0);
+      assert.equal(stem.send, 0);
+    }
+  }
+
+  // All four come up, or three of them are unreachable rounds.
+  assert.equal(seen.size, CHAIN_IDS.length, `only ${seen.size} of the four were ever dealt`);
+});
+
+test('a naming round is marked by naming it, so it has no tolerances at all', () => {
+  assert.ok(MIX_TIERS.order.names);
+  assert.equal(MIX_TOLERANCE.order, undefined);
+
+  // And no other tier is: everything else is answered by matching, where a
+  // reading is what says whether you got there.
+  for (const tier of MIX_TIER_IDS.filter((id) => id !== 'order')) {
+    assert.ok(!MIX_TIERS[tier].names, `${tier} is answered by naming and has tolerances`);
+    assert.ok(MIX_TOLERANCE[tier], `${tier} is answered by matching and has none`);
+  }
 });

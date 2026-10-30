@@ -15,6 +15,7 @@ import { mulberry32 } from '../lib/random.js';
 import { toStep } from '../learn/work/scoring.js';
 import { STEM_FLAT, STEMS, STEM_IDS, PIECE_IDS } from './piece.js';
 import { EQ_REST } from '../sketch/knobs.js';
+import { CHAIN_IDS, chainMix } from './chain.js';
 
 /** What a fader, a pan, a send and a tone control move in. Targets sit on these too. */
 export const STEPS = { gain: 0.5, pan: 0.05, send: 0.05, tone: 0.5 };
@@ -121,6 +122,21 @@ export const MIX_TIERS = {
     gain: [0, 0],
     carves: true,
     tone: [3, 7],
+  },
+  // The one round that is answered by naming it rather than by matching it.
+  //
+  // An order has four answers, so a round you could submit against would be a
+  // round you could finish by pressing submit four times. See `chain.js` for
+  // the measurement that says the four are plainly different, and for why the
+  // levels are baked in.
+  order: {
+    label: 'What is on it',
+    blurb: 'One part has a compressor, a saturator, or both. Say which, and which way round.',
+    moves: 0,
+    pans: 0,
+    sends: 0,
+    gain: [0, 0],
+    names: true,
   },
 };
 
@@ -408,6 +424,13 @@ export function mixBrief(tier, seed) {
 
   for (const id of some(rng, MOVABLE, spec.sends)) {
     target[id].send = toStep(between(rng, spec.send) * ROOM_FOR[id], STEPS.send);
+  }
+
+  // A naming round has no settings to find: the answer is which arrangement
+  // is on the part, and the target mix is built from it.
+  if (spec.names) {
+    const id = CHAIN_IDS[Math.floor(rng() * CHAIN_IDS.length)];
+    return { tier, piece, target: chainMix(target, id), spec, naming: { order: id } };
   }
 
   // A distance for each of the two parts that can be at one, and never the

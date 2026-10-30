@@ -10,6 +10,8 @@ The mix exercise: a piece, a brief, and a score for how close the balance is.
     levels.js     how loud each part is, which the master cannot say
     share.js      which part owns which register, which is what masking is
     room.js       how much room there is and what is in it, which is distance
+    chain.js      what is on a part and in what order, which is named rather
+                  than matched
     monitor.js    hearing the two at the same loudness, which is a monitor
                   control and is nowhere near the marking
     page.js       the strips, the transport and the result
@@ -236,3 +238,68 @@ fader moves a part broadband, which shifts all three of its registers by the
 same amount, so `levels` and `share` read 0.38 and 0.38 for a step and 2.25
 and 2.25 for a part at the wrong distance. One mistake, reported twice.
 `share` is the one kept, because it also sees the air.
+
+## What is on it: the round that is answered by naming it
+
+A chain is in series, so its order is audible — and that is not a figure of
+speech. A compressor and a saturator do not commute, because both are
+nonlinear: the compressor decides what to do from how loud the signal is, and
+the saturator changes how loud it is. Put the saturator first and the
+compressor is reacting to peaks that have already been rounded off, so it
+hardly works; put it second and it is colouring whatever the compressor has
+already levelled, so the quiet hits get as much colour as the loud ones.
+
+Measured on the kit, four arrangements of the same two effects, level-matched
+to the plain part, each pair against each other:
+
+    pair                            crest            balance
+    compressor / saturator          12.45 and 8.18   9.53 and 9.53
+    compressor / comp then sat       7.85 and 4.03  10.08 and 12.69
+    compressor / sat then comp       6.74 and 3.46   6.84 and 11.57
+    saturator / comp then sat        4.59 and 4.16   6.49 and 6.20
+    saturator / sat then comp        5.71 and 4.73   6.16 and 5.78
+    comp then sat / sat then comp    1.12 and 0.57   4.14 and 4.63
+
+**But it cannot be asked by matching.** There are four answers, so a round you
+could submit against is a round you could finish by pressing submit four
+times — and a round somebody can brute-force in four goes teaches how to press
+a button. So this one is asked the way the drills ask: hear it, name it, once.
+The desk is not shown, because nothing on it would help. The near side of the
+A/B is the same mix with nothing on that part, which is the comparison that
+answers the question.
+
+**The levels are baked in, and that is the whole reason it is fair.**
+Saturation makes things louder and compression makes them quieter, so with
+both plugins left at their defaults the four arrangements came out 19.6 dB
+apart — a round where the loudest answer is the one with the saturator in it
+is a round answered by loudness. Each arrangement is gain-staged instead, the
+way an engineer gain-stages a chain, with the compressor's makeup and the
+saturator's trim measured per arrangement. That brings the spread to 1.44 dB
+and 1.42 on the two pieces, and `tests/browser/chain.mjs` re-measures it every
+run.
+
+## What was measured and not built: parallel compression
+
+The other half of this module was a parallel-compression round — a heavily
+compressed copy of a part blended under it, with the blend as the answer. It
+is not here, and the reason is a measurement. Blending in a compressed copy
+reads, against the same mix at blend nought:
+
+    blend    loudness   crest   levels   share
+     0.20        0.64    0.55     1.11    1.18
+     0.40        1.26    0.99     2.42    2.61
+     0.60        1.80    1.36     4.01    4.40
+     0.80        2.22    1.59     5.96    6.76
+     1.00        2.50    1.63     8.20    9.82
+
+Which looks markable until you read what is moving. The dominant effect is
+that the part gets quieter — `levels` and `share` are doing all the work, and
+both of those are just the fader. `crest`, the reading that ought to say what
+parallel compression is for, moves 1.63 dB over the whole range on one piece
+and on the other goes 0.19, 0.31, 0.29, 0.07, 0.05: up, then down. Not
+monotonic, which is the same thing the tone tier found when it tried to mark a
+compressor insert by its threshold.
+
+So a parallel round would be marked on the part's level while claiming to be
+about dynamics, and would be solvable with the fader. Left out, with the
+numbers, rather than built on a reading that cannot see it.
