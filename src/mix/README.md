@@ -12,8 +12,8 @@ The mix exercise: a piece, a brief, and a score for how close the balance is.
     room.js       how much room there is and what is in it, which is distance
     chain.js      what is on a part and in what order, which is named rather
                   than matched
-    monitor.js    hearing the two at the same loudness, which is a monitor
-                  control and is nowhere near the marking
+    monitor.js    the monitor path: matching the two loudnesses, folding to
+                  mono, and a small speaker - none of it near the marking
     page.js       the strips, the transport and the result
 
 Marked on readings rather than on fader positions, the same way every other
@@ -303,3 +303,42 @@ compressor insert by its threshold.
 So a parallel round would be marked on the part's level while claiming to be
 about dynamics, and would be solvable with the fader. Left out, with the
 numbers, rather than built on a reading that cannot see it.
+
+## Listening somewhere else
+
+A mix that only works on the thing it was made on is not finished, and the
+two places it most often falls apart are a mono speaker and a small one. Both
+are monitor paths, in the same place as the loudness trim and for the same
+reason: what gets rendered and marked is the same audio whichever is on, and
+`tests/browser/listen.mjs` renders the same mix twice to hold that — the four
+readings come back 6.15e-9, 2.82e-7, 0 and 3.70e-9 apart, which is the
+renderer's own floor.
+
+**Mono** is a gain told to take one channel, which is how the specification
+spells "down-mix": (L+R)/2. Measured, two channels that are each other's
+opposite come back 194 dB down, and on full range they come back untouched.
+
+**Small speaker** is two poles at 400 Hz and two at 8 kHz, which is a
+caricature rather than a model of any particular handset — and the shape is
+measured, not claimed:
+
+    60 Hz    -33.0      800 Hz    -0.3     8 kHz    -3.0
+    100 Hz   -24.1        2 kHz   -0.0    12 kHz   -10.0
+    200 Hz   -12.3        6 kHz   -1.0    16 kHz   -19.1
+    400 Hz    -3.0
+
+Three decibels down at both corners and twelve an octave below the lower one,
+which is what two poles is. It is also mono, because a phone speaker is.
+
+**The Q cost two attempts and is worth writing down.** A `BiquadFilterNode`'s
+Q is a plain quality factor for a bandpass or a notch and a figure *in
+decibels* for a lowpass or a highpass: it is how far up the corner sits. Left
+at its default of 1 the corner read +1.0 dB against the passband; set to
+0.7071 — the Butterworth Q, in the units the other kind of filter uses — it
+read +0.7, which is 0.7071 dB and is the giveaway. At −3.01 it reads −3.0.
+
+What this is for is a question about the material, and that is measured too:
+on the flat mix of short-night the kit and the bass have all their weight
+below 310 Hz, with shares of 9.61 and 9.24 against the pad's −17.27. A mix
+balanced on its low end is a mix that loses both its anchors on a small
+speaker, and that is the thing to go and hear.

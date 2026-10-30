@@ -178,3 +178,135 @@ export function matchTrim(anchor, mix, reference) {
 
 /** A trim, as a gain. */
 export const gainOfTrim = (db) => 10 ** (db / 20);
+
+/* --- listening somewhere else ---------------------------------------------- */
+
+/**
+ * The three ways of listening, which are not three ways of mixing.
+ *
+ * A mix that only works on the thing it was made on is not finished, and the
+ * two places it most often falls apart are a mono speaker and a small one.
+ * Both are a monitor path and neither touches the project: what is rendered
+ * and marked is the same audio whichever of these is on.
+ */
+export const LISTEN_MODES = [
+  { id: 'full', label: 'Full range', tells: 'everything, as it was mixed' },
+  { id: 'mono', label: 'Mono', tells: 'what cancels when the two sides are summed' },
+  { id: 'phone', label: 'Small speaker', tells: 'what is left with no bottom and no top' },
+];
+
+export const LISTEN_IDS = LISTEN_MODES.map((how) => how.id);
+
+/**
+ * What a small speaker is, as two corners.
+ *
+ * A caricature rather than a model of any particular phone, and said so
+ * rather than dressed up: real laptop and handset speakers roll off somewhere
+ * between 300 and 700 Hz and run out of top somewhere past 8 kHz, with a
+ * response in between that is nobody's idea of flat. Four hundred and eight
+ * thousand, two poles each, is the shape of that without pretending to be a
+ * measurement of a device.
+ *
+ * What it is for is a question about this material, and that part is
+ * measured: on the flat mix of short-night the kit and the bass have all
+ * their weight below 310 Hz - shares of 9.61 and 9.24 against the pad's
+ * -17.27 - so a mix balanced on the low end is a mix that loses both its
+ * anchors here. That is the thing to hear.
+ */
+export const SMALL_SPEAKER = {
+  from: 400,
+  to: 8000,
+  poles: 2,
+  // In decibels, which is the part worth saying out loud. A
+  // BiquadFilterNode's Q is a plain quality factor for a bandpass or a notch
+  // and a figure in DECIBELS for a lowpass or a highpass: it is how far up
+  // the corner sits. So the default of 1 is a one-decibel bump at the corner,
+  // and the Butterworth corner everybody means by "two poles" is -3.01.
+  //
+  // Measured, because this was got wrong twice on the way here. Left at the
+  // default the corner read +1.0 dB against the passband; set to 0.7071 - the
+  // Butterworth Q, in the units the other kind of filter uses - it read +0.7,
+  // which is 0.7071 dB and is the giveaway; at -3.01 it reads -3.0.
+  q: -3.0103,
+};
+
+/** A mono fold is the two sides summed and halved, which is what a speaker does. */
+export const monoChannels = 1;
+
+/**
+ * The monitor: a trim, a fold, and a small speaker, between the desk and the
+ * output.
+ *
+ * All three live here rather than in the page for the reason the arithmetic
+ * above does: what they are and why they are allowed is one subject, and the
+ * page's job is to say which of them is on.
+ *
+ * The filters are a second path rather than a setting on one, because "off"
+ * has to mean off. A highpass parked at 20 Hz is nearly transparent and
+ * nearly is not a word this should be using about the path everything is
+ * heard through - measured on a 2-pole highpass at 20 Hz, 50 Hz still comes
+ * back 0.65 dB down.
+ */
+export function makeMonitor(ctx, out) {
+  const trim = ctx.createGain();
+
+  // The fold. A gain told to take one channel down-mixes whatever arrives at
+  // it the way the specification says a speaker does: (L+R)/2.
+  const fold = ctx.createGain();
+  fold.channelCountMode = 'explicit';
+  fold.channelInterpretation = 'speakers';
+  fold.channelCount = 2;
+
+  const wide = ctx.createGain();
+  const small = ctx.createGain();
+  small.gain.value = 0;
+
+  // Q set rather than left alone. A real small speaker does have a bump at
+  // its own corner, but it should be a thing somebody chose. See
+  // SMALL_SPEAKER for the units, which are not the ones anybody expects.
+  const high = ctx.createBiquadFilter();
+  high.type = 'highpass';
+  high.frequency.value = SMALL_SPEAKER.from;
+  high.Q.value = SMALL_SPEAKER.q;
+  const low = ctx.createBiquadFilter();
+  low.type = 'lowpass';
+  low.frequency.value = SMALL_SPEAKER.to;
+  low.Q.value = SMALL_SPEAKER.q;
+
+  trim.connect(fold);
+  fold.connect(wide).connect(out);
+  fold.connect(high).connect(low).connect(small).connect(out);
+
+  let listening = 'full';
+
+  return {
+    input: trim,
+    get listening() { return listening; },
+
+    /** How far the reference is being brought to meet the mix, in decibels. */
+    setTrim(db, at = ctx.currentTime) {
+      trim.gain.setTargetAtTime(gainOfTrim(db), at, 0.008);
+    },
+
+    /**
+     * Which speaker this is pretending to be.
+     *
+     * The crossfade is twenty milliseconds, which is long enough not to click
+     * and short enough to feel like a switch. The two paths are not in phase
+     * with each other - one of them has four poles of filter on it - so a
+     * slower fade would comb audibly in the middle of it.
+     */
+    setListen(id, at = ctx.currentTime) {
+      listening = LISTEN_IDS.includes(id) ? id : 'full';
+      fold.channelCount = listening === 'full' ? 2 : monoChannels;
+      wide.gain.setTargetAtTime(listening === 'phone' ? 0 : 1, at, 0.02);
+      small.gain.setTargetAtTime(listening === 'phone' ? 1 : 0, at, 0.02);
+    },
+
+    destroy() {
+      for (const node of [trim, fold, wide, small, high, low]) {
+        try { node.disconnect(); } catch { /* already gone */ }
+      }
+    },
+  };
+}

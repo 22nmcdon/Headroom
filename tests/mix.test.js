@@ -31,6 +31,7 @@ import {
 } from '../src/mix/chain.js';
 import {
   sumOf, mixLoudness, staleFor, matchTrim, anchorOf, gainOfTrim, MATCH_LIMIT,
+  LISTEN_MODES, LISTEN_IDS, SMALL_SPEAKER,
 } from '../src/mix/monitor.js';
 import { distance } from '../src/gap.js';
 import { MARKED } from '../src/mix/render.js';
@@ -1141,4 +1142,29 @@ test('a naming round is marked by naming it, so it has no tolerances at all', ()
     assert.ok(!MIX_TIERS[tier].names, `${tier} is answered by naming and has tolerances`);
     assert.ok(MIX_TOLERANCE[tier], `${tier} is answered by matching and has none`);
   }
+});
+
+/* --- listening somewhere else ---------------------------------------------- */
+
+test('there are three ways to listen and each says what it is for', () => {
+  assert.deepEqual(LISTEN_IDS, ['full', 'mono', 'phone']);
+  for (const how of LISTEN_MODES) {
+    assert.ok(how.label && how.label.length <= 14, `${how.id} has no readable label`);
+    assert.ok(how.tells && how.tells.length > 20, `${how.id} does not say what it is for`);
+  }
+});
+
+test('a small speaker is two corners, and its Q is in the units it is in', () => {
+  // Both corners are inside the range a mix lives in, or the mode would be
+  // telling nobody anything: 400 Hz is above the kick and the bass, which is
+  // the whole point, and 8 kHz is below the air.
+  assert.ok(SMALL_SPEAKER.from > 200 && SMALL_SPEAKER.from < 1000);
+  assert.ok(SMALL_SPEAKER.to > 4000 && SMALL_SPEAKER.to < 12000);
+
+  // In decibels, and negative, which is the thing that was got wrong twice.
+  // A BiquadFilterNode's Q is a figure in dB for a lowpass or a highpass -
+  // how far up the corner sits - so Butterworth is -3.01 and not 0.7071, and
+  // the default of 1 is a one-decibel bump. See SMALL_SPEAKER.
+  assert.ok(Math.abs(SMALL_SPEAKER.q - 20 * Math.log10(Math.SQRT1_2)) < 0.001);
+  assert.ok(SMALL_SPEAKER.q < 0, 'a Butterworth corner is three decibels down, not up');
 });

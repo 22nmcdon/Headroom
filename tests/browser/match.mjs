@@ -149,7 +149,7 @@ export async function check({ browser, at, say }) {
       await settle();
       seen.push({
         what,
-        gain: view.trim.gain.value,
+        gain: view.speakers.input.gain.value,
         pressed: el.querySelector('[data-match]').getAttribute('aria-pressed'),
         said: note().slice(0, 48),
       });

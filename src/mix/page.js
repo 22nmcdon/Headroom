@@ -25,7 +25,9 @@ import {
 import { EQ_REST } from '../sketch/knobs.js';
 import { readMix } from './render.js';
 import { markMix, mixAdvice, READING_NAMES, HIT, MISS } from './score.js';
-import { anchorOf, matchTrim, staleFor, gainOfTrim } from './monitor.js';
+import {
+  anchorOf, matchTrim, staleFor, makeMonitor, LISTEN_MODES,
+} from './monitor.js';
 import { chainChoices, arrangementOf, chainMix, CHAIN_ON } from './chain.js';
 import { renderPicker, syncPicker } from '../learn/bench/picker.js';
 import { makeStage } from '../sketch/stage.js';
@@ -96,6 +98,10 @@ export class MixPage {
     this.reference = null;
     this.measuring = false;
 
+    // Which speaker this is pretending to be, which survives a new round: it
+    // is a fact about how somebody is listening and not about the round.
+    this.listening_on = 'full';
+
     // What has been picked on a round that is answered by naming it, which is
     // not a mix and is not kept on the desk.
     this.picked = null;
@@ -138,6 +144,16 @@ export class MixPage {
                rather than something the A/B does silently, because what it
                hides is one of the six things you are marked on. -->
           <button class="match-btn" type="button" data-match aria-pressed="false">Match loudness</button>
+
+          <!-- Where you are pretending to listen. A monitor path and nothing
+               else: what gets rendered and marked is the same audio whichever
+               of these is on. -->
+          <div class="ab-switch" role="radiogroup" aria-label="What you are listening on">
+            ${LISTEN_MODES.map((how, i) => `
+              <button class="ab-option" type="button" data-listen="${how.id}" role="radio"
+                      aria-checked="${i === 0}" title="${how.tells}">${how.label}</button>`).join('')}
+          </div>
+
           <span class="mix-pos" data-pos>1.1</span>
         </div>
 
@@ -220,6 +236,10 @@ export class MixPage {
 
     for (const button of this.el.querySelectorAll('[data-ab]')) {
       button.addEventListener('click', () => this.hear(button.dataset.ab));
+    }
+
+    for (const button of this.el.querySelectorAll('[data-listen]')) {
+      button.addEventListener('click', () => this.listenOn(button.dataset.listen));
     }
 
     // One listener for the desk, because the strips are redrawn whole.
@@ -592,12 +612,14 @@ export class MixPage {
     if (this.stage) return this.stage;
     if (!this.building) {
       const ctx = this.engine.ensure();
-      // The monitor trim sits between the desk and the output, which is the
-      // only place it can go and be honest: everything the marking reads is
+      // The monitor sits between the desk and the output, which is the only
+      // place it can go and be honest: everything the marking reads is
       // rendered from the project, and the project ends at the stage.
-      this.trim = ctx.createGain();
-      this.trim.connect(this.engine.out);
-      this.building = makeStage(ctx, this.dressed(), { out: this.trim })
+      // `speakers` and not `monitor`: this page already has a `monitor`, and
+      // it is the mute and solo map, which is a different kind of listening.
+      this.speakers = makeMonitor(ctx, this.engine.out);
+      this.speakers.setListen(this.listening_on);
+      this.building = makeStage(ctx, this.dressed(), { out: this.speakers.input })
         .then((stage) => { this.stage = stage; return stage; });
     }
     return this.building;
@@ -745,12 +767,26 @@ export class MixPage {
    * is being decided and a monitor that moved it would be moving the work.
    */
   applyTrim() {
-    if (!this.trim) return;
+    if (!this.speakers) return;
     const db = this.matching && this.listening === 'theirs'
       ? matchTrim(this.anchor, this.mine, this.reference)
       : 0;
-    const at = this.engine.ctx?.currentTime ?? 0;
-    this.trim.gain.setTargetAtTime(gainOfTrim(db), at, 0.01);
+    this.speakers.setTrim(db, this.engine.ctx?.currentTime ?? 0);
+  }
+
+  /**
+   * Which speaker to pretend to be.
+   *
+   * Kept across rounds, unlike the match: a match is a measurement of one
+   * pair of mixes and goes stale with them, where listening on a small
+   * speaker is a thing somebody decided about how they are working.
+   */
+  listenOn(id) {
+    this.listening_on = id;
+    for (const button of this.el.querySelectorAll('[data-listen]')) {
+      button.setAttribute('aria-checked', String(button.dataset.listen === id));
+    }
+    this.speakers?.setListen(id, this.engine.ctx?.currentTime ?? 0);
   }
 
   async toggleMatch() {
@@ -986,7 +1022,7 @@ export class MixPage {
     this.watch(false);
     this.stage?.destroy();
     this.stage = null;
-    try { this.trim?.disconnect(); } catch { /* already gone */ }
-    this.trim = null;
+    this.speakers?.destroy();
+    this.speakers = null;
   }
 }
