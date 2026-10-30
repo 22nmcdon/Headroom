@@ -67,7 +67,7 @@ const NEAR_CHIPS = 1;
  * trim that undoes a fault and the number from the fault itself, which
  * printed "+-1.0 dB".
  */
-const writeTrim = (db) => `${db > 0 ? '+' : ''}${db.toFixed(1)} dB`;
+const writeLevelTrim = (db) => `${db > 0 ? '+' : ''}${db.toFixed(1)} dB`;
 
 /**
  * A stand-in for the loop, for the times the real thing is not to hand.
@@ -297,7 +297,7 @@ export const LEVEL_WORK = {
           // was derived from. Taken off `answer.trim` - which is the trim that
           // UNDOES the fault, so the opposite sign - this printed "+-1.0 dB"
           // for half the rounds.
-          value: writeTrim(-answer.trim),
+          value: writeLevelTrim(-answer.trim),
           how: 'So the trim that undoes it is the opposite of that. A gain is '
              + 'exact: integrated loudness moves by exactly the trim, measured '
              + 'to four decimal places, until a trim deep enough to push blocks '
@@ -372,7 +372,7 @@ export const LEVEL_WORK = {
     }
 
     return {
-      symbol: writeTrim(answer.trim ?? 0),
+      symbol: writeLevelTrim(answer.trim ?? 0),
       name: 'of trim to put it back where it was',
     };
   },
@@ -402,7 +402,7 @@ export const LEVEL_WORK = {
   },
 
   /** What the trim is, said the way the readout says it. */
-  trimOf: writeTrim,
+  trimOf: writeLevelTrim,
 
   /** The range, so a caller can tell whether a fault is reachable. */
   reach: TRIM_RANGE,
