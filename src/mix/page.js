@@ -24,6 +24,7 @@ import {
 import { EQ_REST } from '../sketch/knobs.js';
 import { readMix } from './render.js';
 import { markMix, mixAdvice, READING_NAMES } from './score.js';
+import { anchorOf, matchTrim, staleFor, gainOfTrim } from './monitor.js';
 import { makeStage } from '../sketch/stage.js';
 import { roundSeed } from '../learn/game.js';
 import { recordMix, mixStats } from '../learn/stats.js';
@@ -84,6 +85,14 @@ export class MixPage {
     this.busy = false;
     this.frame = null;
 
+    // The monitor's own state, which is not part of any mix: whether the
+    // reference is being trimmed to your level, the one mix that has been
+    // rendered and read for real, and what the reference measured.
+    this.matching = false;
+    this.anchor = null;
+    this.reference = null;
+    this.measuring = false;
+
     this.build();
     this.wire();
     this.deal();
@@ -118,8 +127,17 @@ export class MixPage {
             <button class="ab-option" type="button" data-ab="mine" role="radio" aria-checked="true">Yours</button>
             <button class="ab-option" type="button" data-ab="theirs" role="radio" aria-checked="false">The one to match</button>
           </div>
+          <!-- The reference, brought down to your level. Its own button
+               rather than something the A/B does silently, because what it
+               hides is one of the six things you are marked on. -->
+          <button class="match-btn" type="button" data-match aria-pressed="false">Match loudness</button>
           <span class="mix-pos" data-pos>1.1</span>
         </div>
+
+        <p class="fine mix-note">
+          <span data-match-note></span>
+          <button class="link-btn" type="button" data-rematch hidden>Measure it again</button>
+        </p>
 
         <div class="strips" data-strips></div>
 
@@ -161,6 +179,9 @@ export class MixPage {
       strips: $('[data-strips]'),
       tone: $('[data-tone]'),
       toneStrips: $('[data-tone-strips]'),
+      match: $('[data-match]'),
+      matchNote: $('[data-match-note]'),
+      rematch: $('[data-rematch]'),
       result: $('[data-result]'),
       advice: $('[data-advice]'),
       submit: $('[data-submit]'),
@@ -176,6 +197,8 @@ export class MixPage {
     on('[data-flat]', 'click', () => { this.mine = this.start(); this.push(); this.drawDesk(); });
     on('[data-show]', 'click', () => this.reveal());
     on('[data-submit]', 'click', () => this.submit());
+    on('[data-match]', 'click', () => this.toggleMatch());
+    on('[data-rematch]', 'click', () => this.measureMatch());
 
     for (const button of this.el.querySelectorAll('[data-ab]')) {
       button.addEventListener('click', () => this.hear(button.dataset.ab));
@@ -200,6 +223,13 @@ export class MixPage {
     this.marked = null;
     this.over = false;
 
+    // A match is a measurement of one particular pair of mixes, and a new
+    // round is a new pair. Carrying the switch over would carry a claim that
+    // is no longer true, so the switch goes off with the anchor.
+    this.matching = false;
+    this.anchor = null;
+    this.reference = null;
+
     this.parts.tier.value = this.tier;
     this.parts.title.textContent = MIX_TIERS[this.tier].label;
     this.parts.brief.textContent = `${MIX_TIERS[this.tier].blurb} `
@@ -211,6 +241,7 @@ export class MixPage {
 
     this.drawDesk();
     this.drawRecord();
+    this.drawMatch();
     this.push();
     this.hear('mine');
   }
@@ -365,6 +396,11 @@ export class MixPage {
     // yours. Anything else is a control that silently does nothing.
     if (this.listening !== 'mine') this.hear('mine');
     else this.push();
+
+    // The trim follows the fader: a match that was measured and then left
+    // behind by the desk is a match in name only. See `monitor.js` for what
+    // following it costs, which is measured and is not nothing.
+    this.applyTrim();
   }
 
   /**
@@ -404,6 +440,12 @@ export class MixPage {
     // you meant to move yours.
     if (this.listening !== 'mine') this.hear('mine');
     else this.push();
+
+    // Unlike a fader, this one the trim cannot follow - a colour move changes
+    // how loud its own part is, which is what the estimate adds up. So the
+    // readout says the match is out of date rather than carrying on.
+    this.applyTrim();
+    this.drawMatch();
   }
 
   pressed(event) {
@@ -425,7 +467,12 @@ export class MixPage {
     if (this.stage) return this.stage;
     if (!this.building) {
       const ctx = this.engine.ensure();
-      this.building = makeStage(ctx, this.dressed(), { out: this.engine.out })
+      // The monitor trim sits between the desk and the output, which is the
+      // only place it can go and be honest: everything the marking reads is
+      // rendered from the project, and the project ends at the stage.
+      this.trim = ctx.createGain();
+      this.trim.connect(this.engine.out);
+      this.building = makeStage(ctx, this.dressed(), { out: this.trim })
         .then((stage) => { this.stage = stage; return stage; });
     }
     return this.building;
@@ -460,6 +507,7 @@ export class MixPage {
     for (const button of this.el.querySelectorAll('[data-ab]')) {
       button.setAttribute('aria-checked', String(button.dataset.ab === which));
     }
+    this.applyTrim();
     this.push();
   }
 
@@ -485,6 +533,93 @@ export class MixPage {
     this.parts.pos.textContent = stage?.playing
       ? `${((stage.bar - 1) % 4) + 1}.${Math.min(4, Math.floor((stage.tick % stage.transport.perBar) / 480) + 1)}`
       : '1.1';
+  }
+
+  /* --- matching the levels -------------------------------------------------- */
+
+  /**
+   * What the monitor is doing, which is nothing unless two things are true.
+   *
+   * The trim only goes on while the reference is the thing being heard. Your
+   * own mix always plays at its own level, because its level is part of what
+   * is being decided and a monitor that moved it would be moving the work.
+   */
+  applyTrim() {
+    if (!this.trim) return;
+    const db = this.matching && this.listening === 'theirs'
+      ? matchTrim(this.anchor, this.mine, this.reference)
+      : 0;
+    const at = this.engine.ctx?.currentTime ?? 0;
+    this.trim.gain.setTargetAtTime(gainOfTrim(db), at, 0.01);
+  }
+
+  async toggleMatch() {
+    if (this.measuring) return;
+    if (this.matching) {
+      this.matching = false;
+      this.applyTrim();
+      this.drawMatch();
+      return;
+    }
+    await this.measureMatch();
+  }
+
+  /**
+   * Both mixes, rendered and read, so the trim is a measurement.
+   *
+   * Two renders, the same two a submit pays for, and it is deliberately not a
+   * submit: nothing is marked, nothing is recorded and the attempt count does
+   * not move. Pressing a monitoring control cannot cost somebody a go.
+   */
+  async measureMatch() {
+    if (this.measuring || this.busy) return;
+    this.measuring = true;
+    this.drawMatch();
+
+    try {
+      const theirs = await this.answerRead();
+      const mine = await readMix(dress(this.round.piece, this.mine), 'yours');
+      this.reference = theirs.loudness.values.integrated;
+      this.anchor = anchorOf(this.mine, mine);
+      this.matching = true;
+    } catch (why) {
+      this.matching = false;
+      this.anchor = null;
+      this.parts.advice.hidden = false;
+      this.parts.advice.textContent = `The levels could not be measured: ${why.message}`;
+    } finally {
+      this.measuring = false;
+      this.applyTrim();
+      this.drawMatch();
+    }
+  }
+
+  /**
+   * What the control says, and the one number it does not say.
+   *
+   * Never the trim. The trim is the difference between your loudness and the
+   * reference's, which is the `loudness` reading this round is marked on - so
+   * printing it would hand over a sixth of the answer in exchange for a
+   * tidier readout. The explanation is there instead, which is the part worth
+   * knowing anyway.
+   */
+  drawMatch() {
+    const stale = this.matching ? staleFor(this.anchor, this.mine) : null;
+
+    this.parts.match.setAttribute('aria-pressed', String(this.matching));
+    this.parts.match.disabled = this.measuring;
+    this.parts.match.textContent = this.measuring ? 'Measuring…' : 'Match loudness';
+    this.parts.rematch.hidden = !stale;
+
+    this.parts.matchNote.textContent = this.measuring
+      ? 'Rendering both of them, which takes a moment.'
+      : this.matching
+        ? (stale
+          ? `The reference is playing at your level, but ${stale}.`
+          : 'The reference is playing at your level, so what is left to hear is '
+            + 'the mix. Switch it off to hear whether the whole thing is in the right place.')
+        : 'Louder sounds better, so two mixes at two levels cannot be compared. '
+          + 'This trims the reference to your level.';
   }
 
   /* --- marking ------------------------------------------------------------- */
@@ -516,6 +651,15 @@ export class MixPage {
       this.attempts += 1;
       this.marked = markMix(mine, theirs, this.tier);
       this.drawResult();
+
+      // A submit has just rendered both of them, so the anchor is free and is
+      // exact. Which is the right way round: by the time somebody is
+      // submitting they are close, and close is where the estimate's error
+      // would have mattered most.
+      this.reference = theirs.loudness.values.integrated;
+      this.anchor = anchorOf(this.mine, mine);
+      this.applyTrim();
+      this.drawMatch();
 
       if (this.marked.solved) {
         this.over = true;
@@ -565,6 +709,8 @@ export class MixPage {
     this.mine = Object.fromEntries(STEM_IDS.map((id) => [id, { ...this.round.brief.target[id] }]));
     this.over = true;
     this.drawDesk();
+    this.applyTrim();
+    this.drawMatch();
     this.push();
 
     this.parts.submit.disabled = true;
@@ -616,5 +762,7 @@ export class MixPage {
     this.watch(false);
     this.stage?.destroy();
     this.stage = null;
+    try { this.trim?.disconnect(); } catch { /* already gone */ }
+    this.trim = null;
   }
 }

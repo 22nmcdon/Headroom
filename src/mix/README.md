@@ -8,6 +8,8 @@ The mix exercise: a piece, a brief, and a score for how close the balance is.
     score.js      the tolerances, the marking, and the advice
     placement.js  where each part sits, which a width reading is blind to
     levels.js     how loud each part is, which the master cannot say
+    monitor.js    hearing the two at the same loudness, which is a monitor
+                  control and is nowhere near the marking
     page.js       the strips, the transport and the result
 
 Marked on readings rather than on fader positions, the same way every other
@@ -81,3 +83,48 @@ while track 2 was called Keys and carried `id: 'kit'` - the sketchpad's
 starter ids, in the starter's order, contradicting what the tracks held.
 Nothing read them, so nothing was broken. What it cost was that a per-stem
 reading had no honest key to file itself under.
+
+## Matching the levels, and the one number the control will not print
+
+Louder sounds better. Put the same mix up by a decibel and a half and people
+report more punch, a better low end and a wider image — about a difference
+they could not name if you asked them what had changed. So an A/B between two
+mixes at two levels compares the levels, with the mixes along for the ride,
+and this exercise hands somebody exactly that: measured, the answer sits 0.19
+to 2.30 LU from the flat mix a round opens on, depending on the tier and the
+seed.
+
+`monitor.js` trims the reference to the level of the mix being worked on. The
+reference, not yours — your level is part of what is being decided, and a
+monitor that moved it would be moving the work. The trim is a GainNode between
+the stage and the engine's output, which is the only place it can go and be
+honest: everything the marking reads is rendered from the project, and the
+project ends at the stage.
+
+**It never prints the trim.** The trim is the difference between your loudness
+and the reference's, which is the `loudness` reading the round is marked on —
+so a readout of it would hand over a sixth of the answer in exchange for a
+tidier display. The note under the bar explains what matching is for instead,
+which is the part worth knowing.
+
+**The estimate is an approximation and says so.** Knowing a mix's loudness
+honestly means rendering it, and a render is 886 ms of main thread with the
+music playing through it, so re-rendering on every fader move would stutter
+the thing the control exists to let you hear. Instead one mix is rendered and
+read for real — on demand, and again free with every submit — and the fader
+moves since are applied to the parts' own loudnesses and added back up as
+energy. Measured against real renders, in decibels off:
+
+    move                      anchored on the answer   anchored on flat
+    one fader by 1 dB                      0.00, 0.00       0.01, 0.01
+    two faders 3 dB apart            0.05, 0.09, 0.12       0.13, 0.13
+    all three by 4 dB                     -0.25, -0.25     -0.16, -0.16
+
+A single fader is exact to a hundredth. Only moving everything at once drifts,
+and then by a quarter of a decibel against the one to two it is removing.
+
+A pan and a send are safe to move afterwards and a tone control is not, which
+is also measured: two parts panned to 0.7 moved the master's loudness by 0.03
+dB and two sends up to 0.6 and 0.4 by 0.19, where a tone move of eight
+decibels on the bass moved it by 1.08. So a colour move says the match is out
+of date rather than carrying on with it.

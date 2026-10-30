@@ -21,6 +21,9 @@ import {
 } from '../src/mix/score.js';
 import { placementOf, placementGap, placementReading, MOST_OFF_CENTRE } from '../src/mix/placement.js';
 import { levelsReading, partsOut } from '../src/mix/levels.js';
+import {
+  sumOf, mixLoudness, staleFor, matchTrim, anchorOf, gainOfTrim, MATCH_LIMIT,
+} from '../src/mix/monitor.js';
 import { distance } from '../src/gap.js';
 import { MARKED } from '../src/mix/render.js';
 import { barTicks, clipAt } from '../src/sketch/project.js';
@@ -582,4 +585,140 @@ test('levels is marked on every tier and is loose where tone is the question', (
   }
   assert.ok(toleranceFor('tone').levels >= 2,
     'and the tone tier should not fail somebody for the EQ it asked for');
+});
+
+/* --- hearing the two at the same level ------------------------------------- */
+
+/**
+ * An anchor, as `anchorOf` makes one, from numbers rather than from a render.
+ *
+ * The real one comes off two offline renders, which these cannot do - what is
+ * being held here is the arithmetic on top of them, and the renders it stands
+ * on are measured in `tests/browser/match.mjs` with the table in
+ * `src/mix/monitor.js`.
+ */
+const anchorAt = (mix, master, parts) => anchorOf(mix, {
+  loudness: { values: { integrated: master } },
+  levels: { values: { parts } },
+});
+
+const SOME_PARTS = { kit: -27.9, bass: -29.7, keys: -31.9, pad: -30.4 };
+
+/** Decibels, to the dust a double leaves behind. */
+const near = (got, want, by = 1e-9) => Math.abs(got - want) < by;
+
+test('the loudness of parts playing together is their energy, not their average', () => {
+  // Two equal parts are three decibels louder than one of them, which is the
+  // one case everybody can check by hand: ten log ten of two is 3.0103.
+  assert.ok(near(sumOf([-20, -20]), -20 + 10 * Math.log10(2)));
+  assert.ok(near(sumOf([-20, -20]), -16.9897, 0.0001));
+  assert.ok(near(sumOf([-20]), -20));
+
+  // And a part twenty decibels down barely counts, which is why a mix's
+  // loudness is not the mean of its parts: the mean of these two is -30.
+  assert.ok(near(sumOf([-20, -40]), -19.957, 0.001));
+});
+
+test('an estimate is exact at the mix it was anchored on', () => {
+  const mix = flatMix();
+  const anchor = anchorAt(mix, -24.9, SOME_PARTS);
+  assert.ok(near(mixLoudness(anchor, mix), -24.9));
+});
+
+test('a fader moves the estimate the way the energy says it should', () => {
+  const flat = flatMix();
+  const anchor = anchorAt(flat, -24.9, SOME_PARTS);
+
+  // Every fader up by the same amount is the whole mix up by that amount,
+  // whatever the parts are, which is the one move with an answer in closed
+  // form.
+  const all = Object.fromEntries(STEM_IDS.map((id) =>
+    [id, { ...flat[id], gain: gainFor(4) }]));
+  assert.ok(near(mixLoudness(anchor, all), -24.9 + 4));
+
+  // And one fader up moves it by less than the fader moved, because the other
+  // three did not move: the kit is the loudest part here, so four decibels on
+  // it is worth more than four on the keys.
+  const kit = { ...flat, kit: { ...flat.kit, gain: gainFor(4) } };
+  const keys = { ...flat, keys: { ...flat.keys, gain: gainFor(4) } };
+  for (const one of [kit, keys]) {
+    const by = mixLoudness(anchor, one) - -24.9;
+    assert.ok(by > 0 && by < 4, `one fader of four moved the mix by ${by.toFixed(2)}`);
+  }
+  assert.ok(mixLoudness(anchor, kit) > mixLoudness(anchor, keys));
+});
+
+test('a pan or a send leaves the estimate alone, because the measurement says to', () => {
+  const flat = flatMix();
+  const anchor = anchorAt(flat, -24.9, SOME_PARTS);
+  const moved = {
+    ...flat,
+    keys: { ...flat.keys, pan: -0.7, send: 0.6 },
+    pad: { ...flat.pad, pan: 0.7, send: 0.4 },
+  };
+
+  assert.ok(near(mixLoudness(anchor, moved), mixLoudness(anchor, flat), 1e-12));
+  assert.equal(staleFor(anchor, moved), null);
+});
+
+test('a colour move puts the match out of date rather than carrying on', () => {
+  const flat = flatMix();
+  for (const id of STEM_IDS) {
+    flat[id].inserts = ['eq'];
+    flat[id].settings = { eq: { ...EQ_REST } };
+  }
+  const anchor = anchorAt(flat, -24.9, SOME_PARTS);
+  assert.equal(staleFor(anchor, flat), null);
+
+  const coloured = {
+    ...flat,
+    bass: { ...flat.bass, settings: { eq: { ...EQ_REST, low: 6 } } },
+  };
+  const why = staleFor(anchor, coloured);
+  assert.ok(why && why.length > 20, `a stale match has to say why, not "${why}"`);
+  assert.ok(staleFor(null, flat), 'nothing measured is not the same as a match');
+});
+
+test('the trim is the difference between the two, and is clamped', () => {
+  const flat = flatMix();
+  const anchor = anchorAt(flat, -24.9, SOME_PARTS);
+
+  // Your mix is a decibel and a half louder than the reference, so the
+  // reference comes up by a decibel and a half to meet it.
+  assert.ok(near(matchTrim(anchor, flat, -26.4), 1.5));
+  assert.ok(near(matchTrim(anchor, flat, -23.4), -1.5));
+  assert.ok(near(matchTrim(anchor, flat, -24.9), 0));
+
+  // Nothing measured means no trim at all, rather than a guess at one.
+  assert.equal(matchTrim(null, flat, -26.4), 0);
+  assert.equal(matchTrim(anchor, flat, null), 0);
+
+  // And a number that could only be a fault is held at the clamp.
+  assert.equal(matchTrim(anchor, flat, -90), MATCH_LIMIT);
+  assert.equal(matchTrim(anchor, flat, 40), -MATCH_LIMIT);
+});
+
+test('a trim of nothing is unity, and the clamp is a gain somebody could hear', () => {
+  assert.equal(gainOfTrim(0), 1);
+  assert.ok(near(gainOfTrim(6), 1.9953, 1e-4));
+  assert.ok(near(gainOfTrim(-6), 0.5012, 1e-4));
+});
+
+test('an anchor is made from the readings a submit already took', () => {
+  const mix = flatMix();
+  const readings = {
+    loudness: { values: { integrated: -24.9 } },
+    levels: { values: { parts: SOME_PARTS } },
+  };
+  const anchor = anchorOf(mix, readings);
+
+  assert.equal(anchor.master, -24.9);
+  assert.deepEqual(anchor.parts, SOME_PARTS);
+  assert.ok(near(mixLoudness(anchor, mix), -24.9));
+
+  // A copy of the mix rather than the mix itself: the desk goes on moving,
+  // and an anchor that moved with it would describe whatever is current and
+  // therefore nothing.
+  mix.bass.gain = gainFor(6);
+  assert.ok(Math.abs(mixLoudness(anchor, mix) - -24.9) > 0.5);
 });

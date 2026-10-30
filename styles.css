@@ -2911,6 +2911,32 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
   color: var(--cream);
 }
 
+/* The monitor trim. An option on the bar rather than a knob on the desk,
+   because it changes what you hear and nothing about the mix. */
+.match-btn {
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 5px 12px;
+  font-family: var(--sans);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--text-soft);
+}
+.match-btn:hover { color: var(--blush-deep); }
+.match-btn[aria-pressed="true"] {
+  background: var(--charcoal);
+  border-color: var(--charcoal);
+  color: var(--cream);
+}
+.match-btn[disabled] { opacity: 0.6; }
+
+/* What that button is for, which takes a sentence - so it goes under the bar
+   rather than beside the button, where it would set the bar's width. */
+.mix-note { margin: 10px 0 0; max-width: 62ch; }
+.mix-note .link-btn { margin-left: 6px; }
+
 /* Four strips. Side by side where there is room, stacked where there is not -
    a desk is wide, and a phone is the one place it cannot be. */
 .strips {
