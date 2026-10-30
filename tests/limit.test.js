@@ -9,6 +9,11 @@ import assert from 'node:assert/strict';
 
 import { makeLimiter, LIMIT_AHEAD, CEILING_DB } from '../src/lib/limiter.js';
 import { mulberry32 } from '../src/lib/random.js';
+import { truePeakOf, peakPhases } from '../src/lib/loudness.js';
+import { limiterSource } from '../src/lib/limiter-node.js';
+
+/** How far a buffer's reconstruction goes over the ceiling, in dB. */
+const truePeakAbove = (samples) => truePeakOf(samples) - CEILING_DB;
 
 const RATE = 48000;
 const ROOF = 10 ** (CEILING_DB / 20);
@@ -181,5 +186,125 @@ test('a ceiling of its own is honoured', () => {
     const out = through(SIGNALS['hits over a sustained bed'](), { ceiling });
     assert.ok(peakOf(out) <= roof + 1e-6,
       `asked for ${ceiling} dB, got ${(20 * Math.log10(peakOf(out))).toFixed(2)}`);
+  }
+});
+
+/* --- the ceiling an encoder sees ------------------------------------------ */
+
+/**
+ * Material that ends in silence, because a true peak read off a buffer that
+ * stops mid-waveform is measuring the truncation rather than the signal.
+ *
+ * This cost four wrong hypotheses before the test signals were looked at
+ * instead of the code: a 750 Hz tone whose last samples were still climbing
+ * read 0.89 dB over a ceiling the limiter was in fact holding exactly, and
+ * the ringing of the reconstruction past the cut was all of it. Real audio
+ * ends in silence; test material has to be made to.
+ */
+function faded(samples, fade = 512) {
+  const out = Float32Array.from(samples);
+  for (let i = 0; i < fade && i < out.length / 2; i += 1) {
+    const w = i / fade;
+    out[i] *= w;
+    out[out.length - 1 - i] *= w;
+  }
+  return out;
+}
+
+test('the sample ceiling is not a true-peak ceiling, and by a long way', () => {
+  // Why the mode exists. The samples are held exactly either way - that is
+  // what the tests above are for - and the waveform between them is not.
+  // Measured, as how far over a -1 dBFS ceiling each kind goes:
+  //
+  //     material        sample-peak mode   true-peak mode
+  //     square 997 Hz         1.854           -0.000
+  //     clicks                0.830           -0.000
+  //     hits                  3.173            0.000
+  //     noise                 3.451            0.003
+  const noise = mulberry32(7);
+  const n = RATE;
+  const raw = new Float32Array(n);
+  for (let i = 0; i < n; i += 1) raw[i] = (noise() * 2 - 1) * 3;
+  const material = faded(raw);
+
+  const loose = truePeakAbove(through(material));
+  const tight = truePeakAbove(through(material, { truePeak: true }));
+
+  assert.ok(loose > 2, `the sample detector should be well over on noise, and read ${loose.toFixed(3)}`);
+  assert.ok(tight < 0.05, `the true-peak detector should hold it, and read ${tight.toFixed(3)}`);
+});
+
+test('the true-peak ceiling holds on everything, including between the samples', () => {
+  const noise = mulberry32(31);
+  const n = RATE / 2;
+  const kinds = {
+    'square at 997': (i) => Math.sign(Math.sin((2 * Math.PI * 997 * i) / RATE)) * 2,
+    'clicks': (i) => ((i % 2400 < 3) ? (i % 2 ? -1 : 1) * 3 : 0),
+    'noise': () => (noise() * 2 - 1) * 3,
+    'a sine right up at 9250': (i) => Math.sin((2 * Math.PI * 9250 * i) / RATE) * 3,
+  };
+
+  for (const [name, make] of Object.entries(kinds)) {
+    const raw = new Float32Array(n);
+    for (let i = 0; i < n; i += 1) raw[i] = make(i);
+    const out = through(faded(raw), { truePeak: true });
+
+    // The samples, as ever.
+    for (let i = 0; i < out.length; i += 1) {
+      assert.ok(Math.abs(out[i]) <= ROOF + 1e-6,
+        `${name} put a sample ${(20 * Math.log10(Math.abs(out[i]) / ROOF)).toFixed(3)} dB over`);
+    }
+    // And the waveform they describe.
+    const over = truePeakAbove(out);
+    assert.ok(over < 0.05, `${name} reconstructs ${over.toFixed(3)} dB over the ceiling`);
+  }
+});
+
+test('the phases are not all the same length, which is how this failed first', () => {
+  // The detector used phase zero's thirteen taps for all four, so the last tap
+  // of the other three read `undefined`, every sum came out NaN, and
+  // `NaN > loudest` is false - so the detector contributed exactly nothing and
+  // said nothing about it. The symptom was a true-peak mode that measured
+  // identically to the sample-peak one.
+  const lengths = peakPhases().map((phase) => phase.length);
+  assert.deepEqual(lengths, [13, 12, 12, 12],
+    'a 49-tap prototype splits four ways unevenly, and the detector has to allow for it');
+});
+
+test('the audio thread gets the same limiter, true peak and all', () => {
+  // The seam the delay's worklet already paid for once: a part or a constant
+  // left off the list fails inside a blob on the audio thread, where a stack
+  // trace is a line number. So the worklet's own source is run here and its
+  // limiter is held against this one, sample for sample.
+  const source = limiterSource();
+  assert.ok(source.includes('makeLimiter'), 'the audio thread needs the limiter');
+  assert.ok(source.includes('LIMIT_PHASES'),
+    'and the interpolator, as numbers rather than as the function that builds them');
+  assert.ok(!source.includes('peakPhases('),
+    'calling that function there would close over a PHASES the worklet never built');
+
+  const theirs = new Function(`${source.replace(/class HeadroomLimiter[\s\S]*$/, '')}; return makeLimiter;`)();
+
+  const noise = mulberry32(55);
+  const n = 8192;
+  const raw = new Float32Array(n);
+  for (let i = 0; i < n; i += 1) raw[i] = (noise() * 2 - 1) * 3;
+  const material = faded(raw);
+
+  for (const truePeak of [false, true]) {
+    const mine = through(material, { truePeak });
+    const other = (() => {
+      const limiter = theirs(RATE, { truePeak });
+      const out = Float32Array.from(material);
+      for (let at = 0; at < out.length; at += 128) {
+        limiter.block([out.subarray(at, Math.min(at + 128, out.length))]);
+      }
+      return out;
+    })();
+
+    for (let i = 0; i < n; i += 1) {
+      assert.ok(Math.abs(mine[i] - other[i]) < 1e-12,
+        `the two limiters parted company at sample ${i} with truePeak ${truePeak}`);
+    }
   }
 });

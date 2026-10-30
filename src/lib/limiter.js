@@ -1,3 +1,5 @@
+import { peakPhases } from './loudness.js';
+
 // A ceiling that is actually a ceiling.
 //
 // The sketch has had a safety limiter since it had a bus, and it was a
@@ -41,11 +43,39 @@
 // construction rather than by calibration, and `tests/limit.test.js` holds it
 // to no sample over the ceiling on every signal it can think of.
 //
-// This is sample peak and not true peak. What the ceiling is protecting is the
-// converter, and a converter holds samples; inter-sample peaks matter to a
-// lossy encoder downstream and there is no encoder downstream of a sketch.
-// Catching those means detecting on a four-times-oversampled signal, which is
-// four times the work for a thing nothing here would hear.
+// Sample peak by default, and true peak when asked. What the sketch's own
+// ceiling protects is the converter, and a converter holds samples; that is
+// the whole job there and the cheap detector does it exactly.
+//
+// A master does have an encoder downstream, and for that the sample peak is
+// not a ceiling at all. Measured, as how far over a -1 dBFS ceiling the
+// waveform those samples describe actually goes:
+//
+//     material        sample-peak mode   true-peak mode
+//     sine 997 Hz           0.002            0.000
+//     sine 9250 Hz          0.001            0.000
+//     clicks                0.830           -0.000
+//     square 997 Hz         1.854           -0.000
+//     hits                  3.173            0.000
+//     noise                 3.451            0.003
+//
+// Three and a half decibels over on noise, and nearly two on something as
+// ordinary as a square wave. The true-peak mode holds it: 0.003 dB at worst
+// there, and 0.000 across a sine sweep from 500 Hz to 20 kHz in 250 Hz steps.
+//
+// It detects on the four-times-oversampled signal using the same polyphase
+// interpolator the loudness meter measures with - shared rather than rebuilt,
+// because a limiter calibrated against a different filter than the meter is a
+// limiter that misses by however much the two differ.
+//
+// One trap in measuring any of this, which cost four wrong hypotheses before
+// the signals were looked at rather than the code. A true peak read off a
+// buffer that stops mid-waveform is measuring the truncation: the
+// reconstruction of an abrupt cut rings past the end, and on a 750 Hz tone
+// whose last samples were still climbing it read 0.89 dB over a ceiling the
+// limiter was holding exactly. The material above fades in and out over 512
+// samples for that reason. Real audio ends in silence; test material has to
+// be made to.
 
 /**
  * How far ahead it looks, in seconds.
@@ -70,6 +100,38 @@ export const CEILING_DB = -1;
 export const LIMIT_RELEASE = 0.05;
 
 /**
+ * The detector's own lag, and why it does not need compensating.
+ *
+ * The interpolator's phase zero is a single unit tap at its centre, so the
+ * reconstruction it reports at step i is of input sample i - PEAK_LAG, six
+ * samples back. The gain request therefore arrives six steps late. It does
+ * not matter: the audio is held for the whole lookahead, 240 samples at five
+ * milliseconds and 48 kHz, so a request made at step i still lands 234 steps
+ * before the sample it is for comes out. What it does mean is that the last
+ * six samples of a stream never have their reconstruction looked at, which is
+ * an eighth of a millisecond at the very end of the audio and is why this is
+ * a note rather than a correction.
+ */
+export const DETECTOR_LAG = 'absorbed by the lookahead';
+
+/**
+ * The interpolator, as numbers rather than as the function that builds them.
+ *
+ * An exported non-function value, which is exactly what `limiter-node.js`
+ * sweeps up into the worklet's prelude - so the audio thread gets the same
+ * filter the meter uses with no list for anybody to forget. Calling
+ * `peakPhases()` from inside the stringified limiter would not work: the
+ * worklet has never run the module that builds `PHASES`, and the chain that
+ * does - a prototype length, a centre, a window, a sinc - is four more things
+ * to carry across and keep in step.
+ *
+ * Plain arrays rather than the Float64Arrays it hands back, because the
+ * prelude writes these as JSON and a typed array serialises as an object with
+ * numeric keys rather than as a list.
+ */
+export const LIMIT_PHASES = peakPhases().map((phase) => Array.from(phase));
+
+/**
  * A brickwall limiter, one block at a time.
  *
  * `channels` are read and written in place, which is what an audio callback
@@ -77,7 +139,7 @@ export const LIMIT_RELEASE = 0.05;
  * channels independently would move the image every time it worked.
  */
 export function makeLimiter(rate, { lookahead = LIMIT_AHEAD, ceiling = CEILING_DB,
-  release = LIMIT_RELEASE } = {}) {
+  release = LIMIT_RELEASE, truePeak = false } = {}) {
   const ahead = Math.max(1, Math.round(lookahead * rate));
   const roof = 10 ** (ceiling / 20);
   const up = Math.exp(-1 / Math.max(1, release * rate));
@@ -103,6 +165,20 @@ export function makeLimiter(rate, { lookahead = LIMIT_AHEAD, ceiling = CEILING_D
   const asked = new Float64Array(hold).fill(1);
   let at = 0;
 
+  // The true-peak detector: one short history a channel, and the same phases
+  // the meter uses. Built only when asked, because the sketch's own limiter
+  // runs on every sketch and should pay nothing for a mode it does not use.
+  // The ring is as long as the longest phase. The phases are NOT all the same
+  // length - a 49-tap prototype splits four ways as 13, 12, 12, 12 - and the
+  // first version used phase zero's 13 for all of them, so the last tap of the
+  // other three read `undefined`, every sum came out NaN, and `NaN > loudest`
+  // is false. The detector contributed exactly nothing and said nothing about
+  // it, which is how a silent comparison fails.
+  const phases = truePeak ? LIMIT_PHASES : null;
+  const taps = phases ? Math.max(...phases.map((phase) => phase.length)) : 0;
+  const recent = [];
+  let recentAt = 0;
+
   // The box average of that minimum, kept as a running sum.
   const box = new Float64Array(ahead).fill(1);
   let boxAt = 0;
@@ -118,6 +194,7 @@ export function makeLimiter(rate, { lookahead = LIMIT_AHEAD, ceiling = CEILING_D
 
     block(channels) {
       while (held.length < channels.length) held.push(new Float32Array(ahead));
+      if (phases) while (recent.length < channels.length) recent.push(new Float64Array(taps));
 
       const span = channels[0].length;
       for (let i = 0; i < span; i += 1) {
@@ -128,6 +205,29 @@ export function makeLimiter(rate, { lookahead = LIMIT_AHEAD, ceiling = CEILING_D
           const v = channels[c][i];
           const mag = v < 0 ? -v : v;
           if (mag > loudest) loudest = mag;
+        }
+
+        // And, when the ceiling has to hold for an encoder, the loudest the
+        // waveform gets BETWEEN the samples as well. Every phase of every
+        // channel, because the peak can be in any of them and the gain is
+        // shared across all of them anyway.
+        if (phases) {
+          for (let c = 0; c < channels.length; c += 1) recent[c][recentAt] = channels[c][i];
+          for (let c = 0; c < channels.length; c += 1) {
+            const history = recent[c];
+            for (let p = 0; p < phases.length; p += 1) {
+              const tap = phases[p];
+              let sum = 0;
+              for (let k = 0; k < tap.length; k += 1) {
+                let from = recentAt - k;
+                if (from < 0) from += taps;
+                sum += tap[k] * history[from];
+              }
+              const mag = sum < 0 ? -sum : sum;
+              if (mag > loudest) loudest = mag;
+            }
+          }
+          recentAt = (recentAt + 1) % taps;
         }
 
         asked[at] = loudest > roof ? roof / loudest : 1;

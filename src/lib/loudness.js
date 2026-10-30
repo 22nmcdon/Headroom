@@ -278,9 +278,6 @@ export function loudnessRange(channels, rate, over = null) {
 // Four times, which is the least BS.1770 will accept at these rates. Named
 // for the peak because the saturator oversamples too, eight times, for a
 // different reason - and one flattened scope holds both names.
-// Four times, which is the least BS.1770 will accept at these rates. Named
-// for the peak because the saturator oversamples too, eight times, for a
-// different reason - and one flattened scope holds both names.
 export const PEAK_OVERSAMPLE = 4;
 
 /**
@@ -323,6 +320,22 @@ function interpolator() {
 }
 
 const PHASES = interpolator();
+
+/**
+ * The same phases, for anything that has to find a peak between samples
+ * rather than measure one after the fact.
+ *
+ * The limiter wants them: a ceiling meant for a converter can be held on the
+ * samples, and a ceiling meant for an encoder cannot, because the encoder
+ * reconstructs the waveform between them. Shared rather than rebuilt so the
+ * thing that limits and the thing that reports agree about where the peak is -
+ * a limiter calibrated against a different interpolator than the meter is a
+ * limiter that misses by however much the two filters differ.
+ */
+export const peakPhases = () => PHASES;
+
+/** How far behind the input the interpolator's output sits, in samples. */
+export const PEAK_LAG = PEAK_DELAY;
 
 /**
  * How far under the sample peak a sample has to be before it is skipped.
