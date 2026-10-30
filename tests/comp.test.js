@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 
 import { signalRms, makeBiquad, setBiquad, runBiquad } from '../src/lib/dsp.js';
 import {
-  staticGain, compressorCore, runCompressor, runStereo, analyse, analyseStereo, autoGain,
+  staticGain, expandGain, compressorCore, runCompressor, runStereo,
+  analyse, analyseStereo, autoGain,
   COMP_DEFAULTS, COMP_LIMITS, optoCell, MOST_OPTO,
 } from '../src/plugins/compressor/dsp.js';
 import { workletSource } from '../src/plugins/compressor/node.js';
@@ -981,4 +982,271 @@ test('the makeup gain a stereo pass reports is over both sides', () => {
   assert.ok(Math.abs(both.makeup - leftOnly.makeup) > 0.5,
     `a quiet left channel should not set the makeup for the pair: ${both.makeup.toFixed(2)} `
     + `against ${leftOnly.makeup.toFixed(2)}`);
+});
+
+/* --- the same core, the other way up -------------------------------------- */
+
+/** A tone that wobbles across a level, which is what a gate has to sit still through. */
+function wobble(hz, aboutDb, swingDb, seconds = 2) {
+  const n = Math.round(RATE * seconds);
+  const out = new Float32Array(n);
+  for (let i = 0; i < n; i += 1) {
+    const at = i / RATE;
+    const db = aboutDb + swingDb * Math.sin(2 * Math.PI * 7 * at);
+    out[i] = Math.sin(2 * Math.PI * hz * at) * 10 ** (db / 20);
+  }
+  return out;
+}
+
+/** A signal through the core, with the reduction it applied beside it. */
+function graded(signal, settings) {
+  const core = compressorCore(RATE);
+  core.set({ ...COMP_DEFAULTS, ...settings });
+  const out = new Float32Array(signal.length);
+  const gr = new Float32Array(signal.length);
+  for (let i = 0; i < signal.length; i += 1) {
+    out[i] = core.step(signal[i], 0);
+    gr[i] = core.reduction;
+  }
+  return { out, gr };
+}
+
+const GATE = {
+  shape: 'expand', threshold: -30, ratio: 8, knee: 0, range: 40,
+  attack: 1, release: 100, hold: 0, hysteresis: 0,
+};
+
+test('the expander curve is the compressor\'s mirrored about the threshold', () => {
+  // Above the threshold it does nothing; below it, every decibel down becomes
+  // `ratio` decibels down. Which is the definition, and is worth asserting
+  // against the arithmetic rather than against a table.
+  for (const input of [-10, -20, -39.9]) {
+    assert.equal(expandGain(input, -40, 2, 0), 0, `${input} dB is over the threshold`);
+  }
+
+  for (const input of [-45, -50, -60]) {
+    const out = input + expandGain(input, -40, 2, 0);
+    const want = -40 + (input + 40) * 2;
+    assert.ok(Math.abs(out - want) < 1e-9, `${input} dB in should come out at ${want}`);
+  }
+
+  // And the knee meets both lines where it says it does: it leaves 1:1 at
+  // threshold + knee/2 and arrives on the expansion line at threshold - knee/2.
+  assert.ok(Math.abs(expandGain(-37, -40, 2, 6)) < 1e-12, 'the knee starts at +knee/2');
+  assert.ok(Math.abs(expandGain(-43, -40, 2, 6) - (-3)) < 1e-9, 'and lands on the line at -knee/2');
+});
+
+test('a gate opens on a burst and closes after it', () => {
+  const signal = burst(500, 0.5, 200, 200, 1200);
+  // Not silence either side: a floor at -50 dBFS, because what a gate is for
+  // is a signal with something underneath it.
+  for (let i = 0; i < signal.length; i += 1) {
+    if (signal[i] === 0) signal[i] = Math.sin((2 * Math.PI * 500 * i) / RATE) * 10 ** (-50 / 20);
+  }
+
+  const { gr } = graded(signal, GATE);
+  const at = (ms) => gr[Math.round((RATE * ms) / 1000)];
+
+  assert.ok(at(300) > -0.1, `open during the burst, read ${at(300).toFixed(2)}`);
+  assert.ok(at(1100) < -35, `closed well after it, read ${at(1100).toFixed(2)}`);
+  // And the floor is the range rather than silence, which is the difference
+  // between a gate and a gate you can hear closing.
+  assert.ok(at(1100) > -GATE.range - 0.1, 'and no deeper than the range allows');
+});
+
+test('the gate\'s attack opens it and its release closes it, which is the mirror', () => {
+  // A compressor's reduction rises when the signal gets louder, so its attack
+  // governs the rise. A gate's rises when the signal gets QUIETER, so the same
+  // smoother unchanged would put "attack" on the closing - backwards from
+  // every gate ever made. Measured here at the 63% convention the compressor's
+  // own knobs are stated in.
+  const signal = burst(500, 0.5, 200, 400, 1400);
+  for (let i = 0; i < signal.length; i += 1) {
+    if (signal[i] === 0) signal[i] = Math.sin((2 * Math.PI * 500 * i) / RATE) * 10 ** (-50 / 20);
+  }
+  const from = Math.round(RATE * 0.2);
+  const ends = Math.round(RATE * 0.6);
+
+  const reach = (gr, at, start, target) => {
+    const want = start + (target - start) * 0.63;
+    for (let i = at; i < gr.length; i += 1) {
+      if ((target > start && gr[i] >= want) || (target < start && gr[i] <= want)) {
+        return ((i - at) / RATE) * 1000;
+      }
+    }
+    return null;
+  };
+
+  // Measured: 1 ms opens in 0.85, 5 in 4.21, 20 in 16.19 - the same slight
+  // under-read the compressor's attack has, and for the same reason.
+  for (const [attack, least, most] of [[1, 0.4, 1.6], [5, 3, 6], [20, 13, 22]]) {
+    const { gr } = graded(signal, { ...GATE, attack });
+    const open = reach(gr, from, -GATE.range, 0);
+    assert.ok(open !== null && open > least && open < most,
+      `attack ${attack} ms opened in ${open === null ? 'never' : open.toFixed(2)}`);
+  }
+
+  // And the release closes it, reading true to within a couple of percent:
+  // 50 ms measured 50.7, 200 measured 199.8, 500 measured 498.1.
+  for (const release of [50, 200, 500]) {
+    const { gr } = graded(signal, { ...GATE, release, hold: 0 });
+    const shut = reach(gr, ends, 0, -GATE.range);
+    assert.ok(shut !== null && Math.abs(shut - release) < release * 0.1,
+      `release ${release} ms closed in ${shut === null ? 'never' : shut.toFixed(1)}`);
+  }
+});
+
+test('the hold keeps the gate open for as long as it says', () => {
+  const signal = burst(500, 0.5, 200, 200, 1200);
+  for (let i = 0; i < signal.length; i += 1) {
+    if (signal[i] === 0) signal[i] = Math.sin((2 * Math.PI * 500 * i) / RATE) * 10 ** (-50 / 20);
+  }
+  const ends = Math.round(RATE * 0.4);
+
+  for (const hold of [0, 50, 200]) {
+    const { gr } = graded(signal, { ...GATE, hold, release: 20 });
+    let began = null;
+    for (let i = ends; i < gr.length; i += 1) {
+      if (gr[i] < -0.5) { began = ((i - ends) / RATE) * 1000; break; }
+    }
+    assert.ok(began !== null && Math.abs(began - hold) < 3,
+      `hold ${hold} ms started closing after ${began === null ? 'never' : began.toFixed(1)}`);
+  }
+});
+
+test('hysteresis stops a gate chattering on something hovering at its threshold', () => {
+  // The measurement that found a real bug. The trigger used to read this
+  // sample's magnitude, which for a tone falls to zero twice a cycle - so it
+  // flipped at the signal's own frequency and the hysteresis did nothing at
+  // all. Measured at every setting from 0 to 12 dB: 28 openings in two
+  // seconds, identically. It reads a held level now.
+  const signal = wobble(500, -30, 2);
+
+  const flips = (gr) => {
+    let count = 0;
+    let open = gr[0] > -6;
+    for (let i = 1; i < gr.length; i += 1) {
+      const now = gr[i] > -6;
+      if (now !== open) { count += 1; open = now; }
+    }
+    return count;
+  };
+
+  const none = graded(signal, { ...GATE, release: 50, hysteresis: 0 });
+  assert.ok(flips(none.gr) > 10, `without hysteresis it should chatter, read ${flips(none.gr)}`);
+
+  for (const hysteresis of [3, 6, 12]) {
+    const { gr } = graded(signal, { ...GATE, release: 50, hysteresis });
+    assert.equal(flips(gr), 0, `${hysteresis} dB of hysteresis should hold it still`);
+  }
+});
+
+test('the gain platform is left out of an expander, because it would pull it shut', () => {
+  const signal = burst(500, 0.5, 200, 200, 1200);
+  for (let i = 0; i < signal.length; i += 1) {
+    if (signal[i] === 0) signal[i] = Math.sin((2 * Math.PI * 500 * i) / RATE) * 10 ** (-50 / 20);
+  }
+  const plain = graded(signal, { ...GATE, auto: false });
+  const auto = graded(signal, { ...GATE, auto: true });
+  for (let i = 0; i < signal.length; i += 97) {
+    assert.ok(Math.abs(plain.gr[i] - auto.gr[i]) < 1e-9, `auto changed the gate at sample ${i}`);
+  }
+});
+
+/* --- the de-esser's half -------------------------------------------------- */
+
+test('a split band adds back up to the signal, so doing nothing does nothing', () => {
+  // Whatever the crossover is set to. The halves are `low` and `x - low`, so
+  // the reconstruction is exact by construction rather than by design -
+  // measured at 8.7e-12 dB, which is the arithmetic and not a filter.
+  const signal = burst(500, 0.3, 0, 500, 500);
+  for (const crossover of [1000, 6000, 12000]) {
+    const { out } = graded(signal, {
+      split: true, crossover, threshold: 0, ratio: 1, makeup: 0,
+    });
+    let worst = 0;
+    for (let i = 2000; i < signal.length; i += 1) worst = Math.max(worst, Math.abs(out[i] - signal[i]));
+    assert.ok(worst < 1e-9, `a ${crossover} Hz split was not a wire: ${worst.toExponential(2)}`);
+  }
+});
+
+test('a split de-esser ducks the top and leaves the voice, where a broadband one cannot', () => {
+  // The whole difference between a de-esser and a compressor with a filtered
+  // sidechain: the second one ducks the entire record every time somebody says
+  // an S. Measured, with the detector high-passed at 5 kHz and a 6 kHz split:
+  //
+  //     tone      broadband   split
+  //      200 Hz      0.00      0.00
+  //     1000 Hz      0.00      0.00
+  //     8000 Hz    -14.03     -9.33
+  //    12000 Hz    -14.00    -12.88
+  const DEESS = { threshold: -24, ratio: 6, knee: 3, attack: 1, release: 60, scHigh: 5000 };
+  const tone = (hz) => burst(hz, 0.5, 0, 500, 500);
+  const peakFrom = (samples, at) => {
+    let peak = 0;
+    for (let i = at; i < samples.length; i += 1) peak = Math.max(peak, Math.abs(samples[i]));
+    return 20 * Math.log10(peak + 1e-12);
+  };
+
+  // The sibilance band comes down nearly as far split as broadband.
+  const high = tone(12000);
+  const wide = graded(high, { ...DEESS, split: false });
+  const split = graded(high, { ...DEESS, split: true, crossover: 6000 });
+  const dry = peakFrom(high, 12000);
+  assert.ok(peakFrom(split.out, 12000) - dry < -10,
+    'the top should come down whichever way the gain is applied');
+  assert.ok(peakFrom(wide.out, 12000) - dry < -10);
+
+  // And the voice does not, which is only true of the split one. A tone under
+  // the crossover is untouched by the split and ducked by the broadband
+  // version whenever anything above it sets the detector off - so the test
+  // puts both through at once.
+  const both = new Float32Array(high.length);
+  const low = tone(400);
+  for (let i = 0; i < both.length; i += 1) both[i] = low[i] * 0.6 + high[i] * 0.5;
+
+  const wideBoth = graded(both, { ...DEESS, split: false });
+  const splitBoth = graded(both, { ...DEESS, split: true, crossover: 6000 });
+
+  // Read the low band out of each by the same one-pole the split uses.
+  const lowOf = (samples) => {
+    const k = 1 - Math.exp((-2 * Math.PI * 400) / RATE);
+    let v = 0;
+    let peak = 0;
+    for (let i = 0; i < samples.length; i += 1) {
+      v += (samples[i] - v) * k;
+      if (i > 12000) peak = Math.max(peak, Math.abs(v));
+    }
+    return 20 * Math.log10(peak + 1e-12);
+  };
+
+  const was = lowOf(both);
+  assert.ok(lowOf(splitBoth.out) - was > -1.5,
+    `the split should leave the low end alone, moved ${(lowOf(splitBoth.out) - was).toFixed(2)} dB`);
+  assert.ok(lowOf(wideBoth.out) - was < -4,
+    `and the broadband one should duck it, moved ${(lowOf(wideBoth.out) - was).toFixed(2)} dB`);
+});
+
+test('the audio thread gets the expander and the split too', () => {
+  const source = workletSource();
+  assert.ok(source.includes('expandGain'), 'the processor needs the curve the other way up');
+
+  const build = new Function(`${source.replace(/class HeadroomCompressor[\s\S]*$/, '')}\nreturn compressorCore;`)();
+  const signal = burst(500, 0.5, 200, 200, 800);
+
+  for (const settings of [GATE, { split: true, crossover: 6000, threshold: -24, ratio: 6 }]) {
+    const mine = graded(signal, settings);
+    const theirs = (() => {
+      const core = build(RATE);
+      core.set({ ...COMP_DEFAULTS, ...settings });
+      const out = new Float32Array(signal.length);
+      for (let i = 0; i < signal.length; i += 1) out[i] = core.step(signal[i], 0);
+      return out;
+    })();
+
+    for (let i = 0; i < signal.length; i += 1) {
+      assert.ok(Math.abs(mine.out[i] - theirs[i]) < 1e-12,
+        `the two cores parted company at sample ${i}`);
+    }
+  }
 });

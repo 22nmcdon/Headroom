@@ -43,6 +43,34 @@ export function staticGain(inputDb, threshold, ratio, knee) {
   return over * ((1 / ratio) - 1);
 }
 
+/**
+ * The same curve the other way up: how many decibels to take off a signal
+ * sitting BELOW the threshold.
+ *
+ * A compressor turns the loud parts down. An expander turns the quiet parts
+ * further down, which sounds like the opposite and is the same arithmetic
+ * mirrored about the threshold - and a gate is an expander with a ratio
+ * steep enough and a range deep enough that "further down" means "gone".
+ *
+ * Returns 0 or less, like its twin, and for the same reason: both are the
+ * gain to apply and neither ever lifts anything.
+ *
+ * The knee is the mirrored parabola. It leaves the 1:1 line at
+ * threshold + knee/2 with slope 1 and arrives on the expansion line at
+ * threshold - knee/2 with slope `ratio` - which is where a compressor's
+ * arrives with slope 1/ratio, and is the whole of the difference.
+ */
+export function expandGain(inputDb, threshold, ratio, knee) {
+  const over = inputDb - threshold;
+
+  if (knee > 0 && 2 * Math.abs(over) <= knee) {
+    return (1 - ratio) * ((over - knee / 2) ** 2) / (2 * knee);
+  }
+
+  if (over >= 0) return 0;
+  return over * (ratio - 1);
+}
+
 /** Where every knob starts, and the whole of what a setting is. */
 export const COMP_DEFAULTS = {
   threshold: -18,
@@ -64,6 +92,16 @@ export const COMP_DEFAULTS = {
   scHigh: 20,       // detector high-pass corner
   scLow: 20000,     // detector low-pass corner
   listen: false,    // monitor the detector's own signal
+  // Which way up the curve is: 'compress' turns the loud parts down,
+  // 'expand' turns the quiet parts further down. A gate is the second with a
+  // steep ratio and a deep range, which is why there is no third value here.
+  shape: 'compress',
+  hold: 0,          // ms the gate stays open after the signal drops, expand only
+  hysteresis: 0,    // dB lower the close threshold sits than the open one
+  // The de-esser's half: duck only the band the detector is listening to
+  // rather than the whole signal.
+  split: false,
+  crossover: 6000,  // Hz the split happens at
 };
 
 /** The longest lookahead any of this offers, in seconds. */
@@ -92,6 +130,9 @@ export const COMP_LIMITS = {
   rmsTime: [0.5, 50],
   peakReduction: [0, 1],
   range: [0, 60],
+  hold: [0, 500],
+  hysteresis: [0, 24],
+  crossover: [1000, 12000],
 };
 
 /**
@@ -377,6 +418,7 @@ export function compressorCore(rate) {
     detector: 'peak', sidechain: false, scHigh: 20, scLow: 20000, listen: false,
     rmsTime: 12, auto: false, range: 60,
     family: 'modern', peakReduction: 0.5, optoMode: 'compress',
+    shape: 'compress', hold: 0, hysteresis: 0, split: false, crossover: 6000,
   };
 
   // One channel's worth of detector: its own sidechain filters and its own
@@ -399,6 +441,45 @@ export function compressorCore(rate) {
   let platform = 0; // the slow release underneath it, when auto is on
   const cell = optoCell(rate);
   let lastOut = 0;  // the loudest the output was one sample back, unsigned
+
+  // The expander's own two pieces of memory. A gate that only looked at the
+  // level this sample would chatter on anything hovering at its threshold and
+  // would cut the tail off every note it let through.
+  let openNow = false;  // which side of the hysteresis the trigger is on
+  let holdLeft = 0;     // samples left of the hold, counted down
+  let sensed = 0;       // the level, peak-held, for the trigger alone
+
+  // The de-esser's crossover: three one-poles in cascade, a channel.
+  //
+  // The split is `low` and `x - low`, so the two halves add back up to the
+  // input exactly and a de-esser doing nothing does nothing, whatever the
+  // crossover is set to. Measured, that reconstruction holds to 8.7e-12 dB at
+  // any order.
+  //
+  // What the order decides is the shape of the shelf when the halves ARE
+  // scaled differently, and it is not a free choice. A biquad low-pass
+  // reconstructs perfectly at unity and fights the scaled high half as soon
+  // as it does not: ducking 14 dB with a 6 kHz biquad split came out 21 dB
+  // down at 12 kHz, because the low half's phase lag partly cancels the high
+  // one. Cascaded one-poles have no resonance to lag, so the sum stays
+  // monotonic. Asked for 14 dB on the top half at a 6 kHz crossover:
+  //
+  //      tone     1 pole   2 poles   3 poles
+  //      500 Hz    -0.03    -0.06    -0.09
+  //     2000 Hz    -0.42    -0.83    -1.32
+  //     4000 Hz    -1.54    -2.75    -4.77
+  //     6000 Hz    -2.81    -5.04    -7.92
+  //    12000 Hz    -5.03    -9.68   -12.88
+  //    16000 Hz    -5.97   -10.05   -12.85
+  //
+  // One pole is six decibels an octave and barely reaches the amount it was
+  // asked for anywhere; three gets within a decibel of it above the crossover
+  // while still leaving 500 Hz alone to a tenth of a decibel. Which is what a
+  // de-esser has to do: take the sibilance down and leave the voice.
+  const BAND_POLES = 3;
+  const lowL = new Float64Array(BAND_POLES);
+  const lowR = new Float64Array(BAND_POLES);
+  let bandCoef = 0;
 
   // The audio is delayed against the detector, so that a compressor with
   // lookahead is already pulling down by the time the transient arrives.
@@ -424,6 +505,7 @@ export function compressorCore(rate) {
       setBiquad(unit.hp, 'highpass', state.scHigh, rate);
       setBiquad(unit.lp, 'lowpass', state.scLow, rate);
     }
+    bandCoef = 1 - Math.exp((-2 * Math.PI * state.crossover) / rate);
   }
 
   /**
@@ -545,15 +627,57 @@ export function compressorCore(rate) {
       }
 
       const db = 20 * Math.log10(level + 1e-9);
+      const expanding = state.shape === 'expand';
+
+      // Which side of the trigger the signal is on, for an expander with
+      // hysteresis: it opens at the threshold and does not close again until
+      // the level has fallen a further `hysteresis` decibels. A Schmitt
+      // trigger, and the reason is the thing it is for - a snare's tail
+      // hovering at the threshold with no hysteresis chatters, opening and
+      // closing on the ripple of its own decay.
+      if (expanding) {
+        // On a held level, not on this sample's. The raw magnitude of a tone
+        // falls to zero twice a cycle, so a trigger reading it flips at the
+        // signal's own frequency and the hysteresis it is meant to provide
+        // does nothing at all - measured, a gate on a tone wobbling two
+        // decibels across its threshold opened and closed 28 times in two
+        // seconds at every hysteresis setting from 0 to 12 dB. Same trap the
+        // detector note above describes, one stage further on.
+        sensed = level > sensed ? level : releaseCoef * sensed;
+        const heldDb = 20 * Math.log10(sensed + 1e-9);
+        const closeAt = state.threshold - state.hysteresis;
+        if (heldDb > state.threshold) openNow = true;
+        else if (heldDb < closeAt) openNow = false;
+      }
+
       // Positive decibels of reduction, which is the sign the ballistics want:
       // `max` has to mean "more reduction" for the release stage to hold a
       // peak rather than drop it.
       // Capped at the range, which is the only control here that says when to
       // stop rather than how hard to work. The target is clamped rather than
       // the gain, so the ballistics arrive at the limit at the attack's own
-      // rate instead of hitting a wall.
-      const wanted = Math.min(state.range,
-        -staticGain(db, state.threshold, state.ratio, state.knee));
+      // rate instead of hitting a wall. For an expander the range is the
+      // floor: how far down "closed" is, which is the difference between a
+      // gate and a gate you can hear closing.
+      let wanted = expanding
+        ? Math.min(state.range, -expandGain(
+          db,
+          openNow ? state.threshold - state.hysteresis : state.threshold,
+          state.ratio, state.knee,
+        ))
+        : Math.min(state.range,
+          -staticGain(db, state.threshold, state.ratio, state.knee));
+
+      // The hold, which is an expander's alone. While the signal is above the
+      // threshold the timer is reloaded; once it drops, the gate stays fully
+      // open until the timer runs out and only then starts closing. Without
+      // it the release is doing two jobs - how long to wait and how fast to
+      // go - and a release long enough to keep a tail is a release too slow
+      // to shut anything out.
+      if (expanding) {
+        if (db > state.threshold) holdLeft = Math.round(state.hold * 0.001 * rate);
+        else if (holdLeft > 0) { holdLeft -= 1; wanted = 0; }
+      }
 
       // Smooth decoupled, after Giannoulis, Massberg and Reiss. The release
       // stage catches the peak on the sample it arrives - that is what the
@@ -566,13 +690,28 @@ export function compressorCore(rate) {
       // time plus the attack's, because the attack stage is still running on
       // the way back up. That is the known cost of this form and it is a
       // better one than a hidden sixteen milliseconds.
-      letGo = Math.max(wanted, releaseCoef * letGo + (1 - releaseCoef) * wanted);
+      // Mirrored for an expander, and the mirror is what makes the knobs read
+      // the way every gate on earth labels them. A compressor's reduction goes
+      // UP when the signal gets louder, so its attack governs the rise; a
+      // gate's goes up when the signal gets QUIETER, so the same arithmetic
+      // unchanged would put "attack" on the closing and "release" on the
+      // opening - backwards from the panel and from the ear.
+      //
+      // `min` rather than `max`: the fast stage now catches the moment the
+      // signal arrives and lets the reduction go at once, and the slow stage
+      // is the one that puts it back.
+      letGo = expanding
+        ? Math.min(wanted, releaseCoef * letGo + (1 - releaseCoef) * wanted)
+        : Math.max(wanted, releaseCoef * letGo + (1 - releaseCoef) * wanted);
 
       // The gain platform: a second release that charges only while reduction
       // is being held and drains over seconds when it is not. It charges
       // toward whichever of the two is smaller, so a single peak - which the
       // fast path has already let go of - cannot build one.
-      if (state.auto) {
+      // The gain platform is a compressor's idea and has no meaning under an
+      // expander: there is no held reduction for it to charge from, and
+      // letting it run would be a second release pulling the gate shut.
+      if (state.auto && !expanding) {
         const toward = Math.min(wanted, letGo);
         platform = toward > platform
           ? chargeCoef * platform + (1 - chargeCoef) * toward
@@ -602,10 +741,35 @@ export function compressorCore(rate) {
 
       const fall = 10 ** (-held / 20);
       const dim = 10 ** (state.makeup / 20);
+
+      // Split, for the de-esser: the reduction goes on the band the detector
+      // is listening to and the rest of the signal walks past untouched. That
+      // is the difference between a de-esser and a compressor with a filtered
+      // sidechain - the second one ducks the whole record every time somebody
+      // says an S.
+      //
+      // The two halves add back up to the input, so at no reduction this is a
+      // wire however the crossover is set. Which it has to be: a de-esser
+      // doing nothing has to do nothing.
+      let wetL = dryL * fall;
+      let wetR = dryR * fall;
+      if (state.split) {
+        let lowOnL = dryL;
+        let lowOnR = dryR;
+        for (let p = 0; p < BAND_POLES; p += 1) {
+          lowL[p] += (lowOnL - lowL[p]) * bandCoef;
+          lowR[p] += (lowOnR - lowR[p]) * bandCoef;
+          lowOnL = lowL[p];
+          lowOnR = lowR[p];
+        }
+        wetL = lowOnL + (dryL - lowOnL) * fall;
+        wetR = lowOnR + (dryR - lowOnR) * fall;
+      }
+
       // Dry is the delayed signal rather than the live one, so the parallel
       // path stays in step with the compressed one instead of phasing it.
-      this.left = (dryL * (1 - state.mix) + dryL * fall * state.mix) * dim;
-      this.right = (dryR * (1 - state.mix) + dryR * fall * state.mix) * dim;
+      this.left = (dryL * (1 - state.mix) + wetL * state.mix) * dim;
+      this.right = (dryR * (1 - state.mix) + wetR * state.mix) * dim;
     },
 
     /**
