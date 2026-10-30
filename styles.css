@@ -2269,6 +2269,48 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
   .band-mono { display: none; }
 }
 
+/* --- what a service will do with it ------------------------------------- */
+
+.analysis-delivery { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.delivery-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+.delivery-rows { display: flex; flex-direction: column; gap: 5px; }
+.delivery-row {
+  display: grid;
+  grid-template-columns: 104px 78px 78px 78px 1fr;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--line);
+}
+.delivery-name { color: var(--text); }
+/* The source mark, which is the only thing on the row that is not about this
+   file. Quiet on purpose: it matters when somebody asks where a figure came
+   from and not before. */
+.delivery-mark { color: var(--text-soft); font-style: normal; opacity: 0.7; }
+.delivery-move, .delivery-read { color: var(--text); }
+.delivery-verdict { color: var(--text-soft); }
+/* Red is kept for a target this file actually fails - over a ceiling, or off
+   a standard's number. Everything else on the row is information, including
+   the line about playing quieter than the target, which is a choice rather
+   than a fault. */
+.delivery-row.is-off .delivery-verdict { color: var(--rust); }
+
+@media (max-width: 560px) {
+  .delivery-row {
+    grid-template-columns: 1fr 70px 70px;
+    row-gap: 2px;
+  }
+  .delivery-name { grid-column: 1 / -1; }
+  .delivery-verdict { grid-column: 1 / -1; }
+}
+
 /* --- the guided path ----------------------------------------------------- */
 
 /* What a first visit gets instead of a modal: one line, in the page, with

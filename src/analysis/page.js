@@ -19,6 +19,7 @@ import { widthReading } from './width.js';
 import { STEREO_BANDS } from '../plugins/stereo/field.js';
 import { readyCanvas } from '../lib/panel.js';
 import { distance } from '../gap.js';
+import { Delivery, DELIVERY_FINE } from './delivery.js';
 
 /** The material this app can make, for when there is no file to hand. */
 const OWN = [
@@ -141,10 +142,17 @@ export class AnalysisPage {
         <h3 class="subhead">How wide it is</h3>
         <p class="fine">Band by band, and what a fold to mono would take off the bottom.</p>
         <div class="analysis-bands" id="analysisBands"></div>
+
+        <h3 class="subhead">What a service will do with it</h3>
+        <p class="fine">${DELIVERY_FINE}</p>
+        <div class="analysis-delivery" id="analysisDelivery"></div>
       </div>`;
 
     this.spectrum = this.el.querySelector('#analysisSpectrum');
     this.time = this.el.querySelector('#analysisTime');
+    this.delivery = new Delivery(this.el.querySelector('#analysisDelivery'), {
+      engine: this.engine,
+    });
   }
 
   wire() {
@@ -171,6 +179,7 @@ export class AnalysisPage {
     if (!which) {
       this.slots[id] = null;
       this.names[id] = '';
+      this.delivery.put(id, null, null, '');
       this.show();
       return;
     }
@@ -214,8 +223,14 @@ export class AnalysisPage {
     // what is happening appears after it has finished happening.
     requestAnimationFrame(() => setTimeout(() => {
       if (this.gone) return;
-      this.slots[id] = readAll(channelsOf(buffer), buffer.sampleRate, name);
+      const read = readAll(channelsOf(buffer), buffer.sampleRate, name);
+      this.slots[id] = read;
       this.names[id] = name;
+      // The buffer goes with the reading now. It used to be dropped here,
+      // which was right while nothing on this page could play - the delivery
+      // panel can, and a table describing audio the page no longer has would
+      // be a demonstration nobody can hear.
+      this.delivery.put(id, buffer, read.loudness.values, name);
       this.show();
     }, 0));
   }
@@ -236,6 +251,7 @@ export class AnalysisPage {
     this.note(this.say());
     this.figures();
     this.bands();
+    this.delivery.show();
     this.draw();
   }
 
@@ -477,6 +493,9 @@ export class AnalysisPage {
 
   destroy() {
     this.gone = true;
+    // Before the markup goes, or the transport is left holding nodes that
+    // feed the output from a page nobody can see.
+    this.delivery?.destroy();
     window.removeEventListener('resize', this.resize);
     this.el.textContent = '';
   }
