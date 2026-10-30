@@ -19,7 +19,7 @@ import { repeatGap, wanderGap, duckGap } from './plugins/delay/line.js';
 import { stereoGap } from './plugins/stereo/field.js';
 import { coherenceGap } from './plugins/stereo/coherence.js';
 import { heatGap } from './plugins/saturation/shape.js';
-import { loudnessGap } from './analysis/loudness.js';
+import { loudnessGap } from './lib/loudness.js';
 import { crestGap } from './analysis/dynamics.js';
 import { balanceGap } from './analysis/balance.js';
 import { widthGap } from './analysis/width.js';

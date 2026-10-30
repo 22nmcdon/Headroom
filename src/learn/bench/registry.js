@@ -17,6 +17,7 @@ import { PANNING_TOOL } from '../../tools/panning.js';
 import { REVERB_TOOL } from '../../tools/reverb.js';
 import { DELAY_TOOL } from '../../tools/delay.js';
 import { SATURATION_TOOL } from '../../tools/saturation.js';
+import { LEVEL_TOOL } from '../../tools/level.js';
 
 import { EQ_WORK } from '../work/eq.js';
 import { COMP_WORK } from '../work/compression.js';
@@ -24,6 +25,7 @@ import { STEREO_WORK } from '../work/panning.js';
 import { VERB_WORK } from '../work/reverb.js';
 import { ECHO_WORK } from '../work/delay.js';
 import { HEAT_WORK } from '../work/saturation.js';
+import { LEVEL_WORK } from '../work/level.js';
 
 import { notesFor } from '../notes/index.js';
 
@@ -42,6 +44,7 @@ export const TOOLS = {
   reverb: assemble(REVERB_TOOL, VERB_WORK),
   delay: assemble(DELAY_TOOL, ECHO_WORK),
   saturation: assemble(SATURATION_TOOL, HEAT_WORK),
+  level: assemble(LEVEL_TOOL, LEVEL_WORK),
 };
 
 export const TOOL_IDS = Object.keys(TOOLS);

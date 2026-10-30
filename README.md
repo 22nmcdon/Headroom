@@ -43,6 +43,7 @@ pill survives changing tool, so a run of all six drills is one click each.
 
 | Mode | What you work with | Exercises | The drill |
 | --- | --- | --- | --- |
+| **Level** | **a trim and a loudness meter** — one gain, integrated and short-term LUFS, true peak, sample peak, range and PLR, and an instant A/B against the untreated loop | **Match** a level that somebody moved | **How much louder**: a doubling ladder from half a decibel to eight |
 | **EQ** | **a channel EQ** — six bands you drag over a live spectrum, with the loop running | **Match** a target move · **Fix** a sample with a resonance in it | **Name the move**: which octave, and boosted or cut |
 | **Compression** | **a compressor** — threshold, ratio, attack, release, knee, lookahead, a filtered sidechain and a key input | **Match** a target compressor · **Even out** a loop whose hits are all over the place · **Duck** one thing under another | **How much is it doing**: 0 to 12 dB of reduction, level-matched |
 | **Stereo** | **an imager** — mid/side width in three bands, two movable crossovers, a mono-maker, a bass width shuffler, five ways of making side out of middle, balance, dual pan or rotation, a width lean, and mono and side monitoring, read in seven bands from 30 Hz to 20 kHz | **Place** a sound · **Match** a target image · **Rescue** a low end somebody spread too wide to survive mono | **Where is it**: seven places across the field |
@@ -260,7 +261,7 @@ that doing it right is audible rather than merely scored:
 
 ## What's here
 
-- **All six tools above**, each with three tiers and two or three exercises,
+- **All seven tools above**, each with three tiers and two or three exercises,
   and every one usable on **your own audio** — there is an *Open a file* button
   on every plugin.
 - **Notes on each tool**: four sections apiece on what it is *for*, rather than
@@ -274,7 +275,7 @@ that doing it right is audible rather than merely scored:
 - **An identification drill on every tool**, on three tiers each, with the
   question, the chips and the tolerances all set by measurement rather than by
   taste — see below.
-- **A guided path**: the six tools in a teaching order, three steps each —
+- **A guided path**: the seven tools in a teaching order, three steps each —
   read what it is for, be asked one question about it, then build one — and
   then one last step that is not about a single tool at all: mix something.
   Nothing is locked. The path marks what is next; the next thing is a
@@ -322,7 +323,7 @@ that doing it right is audible rather than merely scored:
   then silence, and *1× then next, 1× then back to 1* alternates for as long
   as you let it. Recordings live in this browser's IndexedDB beside the
   sketch, because four bars of audio is a hundred times what localStorage is
-  for. The six tools are the inserts. It keeps itself in this
+  for. The tools are the inserts. It keeps itself in this
   browser as you work, and there are two ways out: a **Type 1 MIDI file** of
   the scene you are on, looped to four bars, with a track per part and the
   drums on channel 10 — so it opens in Logic named and in the right places —
@@ -576,8 +577,9 @@ src/fx/             what more than one tool needs: FFT, impulse response
 src/notes/          what each tool is for, in prose, for the person using it
 src/read.js         the reading envelope: what a measurement is, and of what
 src/gap.js          comparing two readings without knowing their kind
-src/analysis/       the other half: loudness, crest, balance, width, and the
-                    page that shows them
+src/analysis/       the other half: crest, balance, width, and the page that
+                    shows them; the loudness reading moved to lib/ when the
+                    level tool turned out to need it too
 src/tools/          one file per tool: what it is, and how to open one
 src/work/           one file per tool: the exercises over it, and the marking
 src/bench/          the registry, the session, the picker, the attempt log,

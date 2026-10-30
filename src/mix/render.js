@@ -15,7 +15,7 @@ import { makeStage } from '../sketch/stage.js';
 import { Transport } from '../sketch/transport.js';
 import { barTicks } from '../sketch/project.js';
 import { PPQ } from '../sketch/midi.js';
-import { loudnessReading } from '../analysis/loudness.js';
+import { loudnessReading } from '../lib/loudness.js';
 import { crestReading } from '../analysis/dynamics.js';
 import { balanceReading } from '../analysis/balance.js';
 import { widthReading } from '../analysis/width.js';

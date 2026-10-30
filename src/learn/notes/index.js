@@ -4,6 +4,7 @@ import { STEREO_NOTES } from './stereo.js';
 import { VERB_NOTES } from './verb.js';
 import { ECHO_NOTES } from './echo.js';
 import { HEAT_NOTES } from './heat.js';
+import { LEVEL_NOTES } from './level.js';
 
 // The written half of the tool.
 //
@@ -25,6 +26,7 @@ export const NOTES = {
   reverb: VERB_NOTES,
   delay: ECHO_NOTES,
   saturation: HEAT_NOTES,
+  level: LEVEL_NOTES,
 };
 
 export const notesFor = (tool) => NOTES[tool] ?? null;

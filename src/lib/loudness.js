@@ -14,9 +14,17 @@
 // K-weighting to put +0.691 dB on a kilohertz - which is what the filters
 // below do, and the reason the offset is that particular number.
 //
-// The prose on what any of it is FOR is not here yet; this is the arithmetic.
+// The prose on what any of it is FOR is in src/learn/notes/level.js.
+//
+// This lived in src/analysis until a second caller turned up. The level tool
+// reads its output exactly this way - the whole point of that tool is that it
+// measures level the way the world does rather than its own way - and a
+// plugin may import lib and its own folder and nothing else, which is a rule
+// `tests/seams.test.js` enforces and which caught this the moment the import
+// was written. Shared arithmetic belongs here; the analysis page's own
+// reading of a file is still its own.
 
-import { readingOf, stampOf } from '../lib/read.js';
+import { readingOf, stampOf } from './read.js';
 
 /** The absolute gate, in LUFS: below this a block is silence. */
 export const ABSOLUTE_GATE = -70;
@@ -393,8 +401,20 @@ export function samplePeakOf(samples) {
  * `of.axis` carries the rate and the block length, because a short-term
  * series measured over three seconds cannot be compared with one measured
  * over four and nothing else would say so.
+ *
+ * `state` is what the reading is of, for a caller that has settings. On the
+ * analysis page there are none - a file is a file - so the default is the
+ * shape of the audio itself. The level tool does have settings, and a reading
+ * taken before its trim moved has to read as stale rather than current, which
+ * is a comparison against this stamp and nothing else.
+ *
+ * `tool` is who is asking, and it is in the envelope rather than assumed
+ * because two tools now ask. It has no effect on comparing two readings -
+ * `comparable` goes on the kind and the axis - so a level reading and an
+ * analysis reading of the same audio are the same reading, which is correct:
+ * they are.
  */
-export function loudnessReading(channels, rate, { source = null } = {}) {
+export function loudnessReading(channels, rate, { source = null, state = null, tool = 'analysis' } = {}) {
   const weighted = channels.map((channel) => kWeight(channel, rate));
   // The running totals, once. Every block of every length comes off these.
   const running = weighted.map(squaresOf);
@@ -404,10 +424,10 @@ export function loudnessReading(channels, rate, { source = null } = {}) {
   const over = shortBlocks(weighted, rate, running);
 
   return readingOf({
-    tool: 'analysis',
+    tool,
     kind: 'loudness',
     of: {
-      state: stampOf({ channels: channels.length, rate }),
+      state: stampOf(state ?? { channels: channels.length, rate }),
       source,
       axis: { kind: 'time', ms: BLOCK_STEP_MS, block: BLOCK_MS, short: SHORT_MS, rate },
     },

@@ -12,7 +12,7 @@
 // two readings side by side - so the second slot costs a dropdown and buys
 // the only thing that makes the first one actionable.
 
-import { loudnessReading } from './loudness.js';
+import { loudnessReading } from '../lib/loudness.js';
 import { crestReading } from './dynamics.js';
 import { balanceReading, THIRDS, THIRD_NAMES, TILT } from './balance.js';
 import { widthReading } from './width.js';

@@ -1,6 +1,6 @@
 # plugins
 
-Six devices. Each folder holds one, and the folder is named for the product
+Seven devices. Each folder holds one, and the folder is named for the product
 rather than for the nickname the code uses - see `saturation/README.md` for
 why `HEAT_` stayed.
 
@@ -10,6 +10,11 @@ A device is usually four files:
     <maths>.js  the arithmetic, over plain arrays, with no Web Audio in it
     node.js     the AudioWorklet wrapper, where there is one
     player.js   auditioning it against a loop
+
+`level/` has no `node.js` and never will: its processing is one multiply, so a
+GainNode and the arithmetic are the same thing without anybody arranging it.
+It is the only face here where the meters are the instrument rather than a
+readout beside one.
 
 ## What goes on a face, and what does not
 

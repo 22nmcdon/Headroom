@@ -13,6 +13,16 @@ import {
 } from '../src/learn/bench/path.js';
 import { TOOL_IDS, TOOLS } from '../src/learn/bench/registry.js';
 
+/**
+ * The tool the path opens on, taken from the order rather than typed in.
+ *
+ * These tests are about "the first step" and not about any one tool, and
+ * three of them said `eq:read` until the curriculum put level in front of it.
+ * A reorder is a decision somebody makes in path.js; it should not read here
+ * as a broken path.
+ */
+const FIRST = TEACHING_ORDER.find((id) => TOOL_IDS.includes(id));
+
 /** Nothing played, nothing read. */
 const nobody = { solvesOf: () => 0, hasRead: () => false };
 
@@ -93,7 +103,7 @@ test('nothing done points at the first step and nothing else', () => {
   const state = progress(nobody);
   assert.equal(state.done, 0);
   assert.equal(state.finished, false);
-  assert.equal(state.next.id, 'eq:read');
+  assert.equal(state.next.id, `${FIRST}:read`);
   assert.ok(state.steps.every((s) => !s.done));
 });
 
@@ -120,8 +130,8 @@ test('a step is done at three solves, and not at two', () => {
 
 test('reading is done by reading, not by playing', () => {
   const played = progress({ solvesOf: () => 99, hasRead: () => false });
-  assert.equal(played.steps.find((s) => s.id === 'eq:read').done, false);
-  assert.equal(played.next.id, 'eq:read', 'and it is still the next thing');
+  assert.equal(played.steps.find((s) => s.id === `${FIRST}:read`).done, false);
+  assert.equal(played.next.id, `${FIRST}:read`, 'and it is still the next thing');
 
   // And the rounds after it are done, because nothing is gated - somebody who
   // went straight to the tool gets the credit for it.
@@ -138,13 +148,14 @@ test('the work step counts work and the drill step counts drills', () => {
 
   assert.equal(onlyDrills.steps.find((s) => s.id === 'eq:drill').done, true);
   assert.equal(onlyDrills.steps.find((s) => s.id === 'eq:work').done, false);
-  assert.equal(onlyDrills.next.id, 'eq:work');
+  assert.equal(onlyDrills.next.id, `${FIRST}:work`);
 });
 
 test('skipping ahead is credited, and still points you back', () => {
   // The decision worth arguing about. Somebody who went and solved the delay
   // first has the delay marked done - the work happened - and is still shown
-  // the EQ as next, because the order is the only thing the path is for.
+  // the first step as next, because the order is the only thing the path is
+  // for.
   const skipped = progress({
     solvesOf: (tool) => (tool === 'delay' ? 9 : 0),
     hasRead: (tool) => tool === 'delay',
@@ -153,7 +164,7 @@ test('skipping ahead is credited, and still points you back', () => {
   for (const step of skipped.steps.filter((s) => s.tool === 'delay')) {
     assert.equal(step.done, true, `${step.id} was done and should be marked done`);
   }
-  assert.equal(skipped.next.id, 'eq:read');
+  assert.equal(skipped.next.id, `${FIRST}:read`);
   assert.equal(skipped.done, 3);
 });
 
@@ -168,9 +179,13 @@ test('a step cannot be un-done by a bad round', () => {
 });
 
 test('the line underneath says where somebody is', () => {
+  const total = steps().length;
   assert.match(where(progress(nobody)), /Start at the top/);
+  // Three steps done out of however many the curriculum has, which is three
+  // a tool plus the mix - so the number moves whenever a tool is added and is
+  // counted here rather than typed in.
   assert.match(where(progress({ solvesOf: (t) => (t === 'eq' ? 9 : 0), hasRead: (t) => t === 'eq' })),
-    /3 of 19 done/);
+    new RegExp(`3 of ${total} done`));
 });
 
 test('the mix step is done after one match, not three', () => {

@@ -18,7 +18,7 @@ import {
   kWeighting, kWeight, integrated, shortTerm, loudnessRange,
   truePeakOf, samplePeakOf, loudnessReading, loudnessGap,
   ABSOLUTE_GATE, BLOCK_MS,
-} from '../src/analysis/loudness.js';
+} from '../src/lib/loudness.js';
 import { distance } from '../src/gap.js';
 
 const RATE = 48000;

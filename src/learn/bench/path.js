@@ -19,14 +19,22 @@ import { TOOL_IDS, toolOf } from './registry.js';
 /**
  * The tools, in the order somebody would be taught them.
  *
- * EQ first because every other tool is easier to hear once you can say where
- * in the spectrum something is. Compression second because level over time is
- * the other axis everything moves on. Then the two that put a sound somewhere
- * - stereo, then reverb - then delay, which is a reverb you can count, and
- * saturation last, because what it adds was not in the recording at all and
- * that is a stranger idea than any of the others.
+ * Level first, and it went in at the front rather than the back because every
+ * mixing curriculum surveyed puts it there and the reason is structural
+ * rather than pedagogical: louder sounds better, so every A/B anybody makes
+ * about any other tool is partly an A/B about level until they can take the
+ * level out of it. A decibel is enough to swing a judgement. Starting
+ * anywhere else means teaching five comparisons that are quietly
+ * contaminated.
+ *
+ * Then EQ, because every tool after it is easier to hear once you can say
+ * where in the spectrum something is. Compression third because level over
+ * time is the other axis everything moves on. Then the two that put a sound
+ * somewhere - stereo, then reverb - then delay, which is a reverb you can
+ * count, and saturation last, because what it adds was not in the recording
+ * at all and that is a stranger idea than any of the others.
  */
-export const TEACHING_ORDER = ['eq', 'compression', 'panning', 'reverb', 'delay', 'saturation'];
+export const TEACHING_ORDER = ['level', 'eq', 'compression', 'panning', 'reverb', 'delay', 'saturation'];
 
 /**
  * How many solves finish a step.
@@ -46,8 +54,8 @@ export const PATH_TIER = 'easy';
  * How many mixes finish the last step.
  *
  * One, not three. A mix round is four parts and several submits, and the
- * point of it here is not drilling - it is the moment where the six tools
- * stop being six exercises and become one job. Doing that once is the
+ * point of it here is not drilling - it is the moment where the tools stop
+ * being a list of exercises and become one job. Doing that once is the
  * thing; doing it three times is a different suggestion.
  */
 export const ENOUGH_MIXES = 1;
@@ -57,9 +65,10 @@ export const ENOUGH_MIXES = 1;
  *
  * Not derived from the label, which gives "read what a compression is for"
  * and "build it on the eq". A tool's name on a pill and its name in a
- * sentence are different words, and there are only six of them.
+ * sentence are different words, and there are only seven of them.
  */
 const CALLED = {
+  level: { reading: 'what a decibel is worth', building: 'the trim' },
   eq: { reading: 'what an EQ is for', building: 'the EQ' },
   compression: { reading: 'what a compressor is for', building: 'the compressor' },
   panning: { reading: 'what width actually is', building: 'the imager' },
