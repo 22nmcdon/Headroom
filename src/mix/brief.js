@@ -77,6 +77,29 @@ export const MIX_TIERS = {
     gain: [0, 0],
     tone: [3, 8],
   },
+  // The one tier whose fault is in the material rather than in the brief.
+  //
+  // Nothing is put wrong. The four parts arrive flat and two pairs of them
+  // are already in each other's way - measured on the flat mix of
+  // short-night, the kick and the bass read 23.6 and 23.1 dB at 125 Hz, half
+  // a decibel apart, and everything the kick does below 160 the bass is doing
+  // too. The answer is the carve that makes room, and the round is to find
+  // how much.
+  //
+  // Which is also why it is marked on `share` and not on `balance`: the
+  // problem does not exist in the sum. By the time the master is read, 23.6
+  // and 23.1 have been added together and what is left is a low end. See
+  // `share.js`.
+  carve: {
+    label: 'Making room',
+    blurb: 'Nothing is in the wrong place. Two pairs of parts are in the same place.',
+    moves: 0,
+    pans: 0,
+    sends: 0,
+    gain: [0, 0],
+    carves: true,
+    tone: [3, 7],
+  },
 };
 
 export const MIX_TIER_IDS = Object.keys(MIX_TIERS);
@@ -183,6 +206,76 @@ export const TONE_BANDS = { bass: 'low', keys: 'mid', pad: 'mid' };
  */
 export const TONE_LEAST = 3;
 
+/**
+ * Which part is in whose way, and in which register.
+ *
+ * Measured rather than picked, on both pieces, as each part's share of each
+ * register against the mean of the parts (see `share.js`):
+ *
+ *     short-night        low     mid    high        late-room      low     mid    high
+ *     kit               9.61   -3.35   13.41        kit          10.67   -8.19   15.24
+ *     bass              9.24  -11.61  -20.42        bass          7.26   -2.28  -14.67
+ *     keys             -1.58    6.04   -8.52        keys          2.72   -1.07  -17.73
+ *     pad             -17.27    8.93   15.53        pad          -20.65   11.54   17.16
+ *
+ * Two pairs stand out and they are the same two on both pieces. The kick and
+ * the bass are within three and a half decibels of each other in the low on
+ * both - on short-night, within a third of one - which is the oldest problem
+ * in mixing. The pad sits above the keys in the mid by three decibels on one
+ * piece and twelve on the other, which is the next oldest.
+ *
+ * The masker is what moves, never the part being masked, and that is the
+ * lesson rather than a simplification: the thing to reach for is the control
+ * on whatever is covering the sound you cannot hear, not the control on the
+ * sound you cannot hear. A boost on the buried part puts two things in one
+ * place louder.
+ *
+ * Which band each masker moves in is `TONE_BANDS`, already, and not by luck -
+ * it is the band that stem lives in, which is the same question.
+ */
+export const CARVES = [
+  { masker: 'bass', masked: 'kit', band: 'low' },
+  { masker: 'pad', masked: 'keys', band: 'mid' },
+];
+
+/**
+ * What each part is called in the brief's own sentence, and its possessive.
+ *
+ * The possessive travels with the name rather than being worked out from it,
+ * for the reason the plural verb does in `score.js`: the keys are plural, so
+ * it is the keys' way and not the keys's way, and guessing at that from a
+ * four-item table is harder than writing the four down. The kit is the kick
+ * here because that is what is being covered - a bass guitar is not in the
+ * way of a hi-hat.
+ */
+export const CARVE_NAMES = {
+  kit: { name: 'kick', own: "kick's" },
+  bass: { name: 'bass', own: "bass's" },
+  keys: { name: 'keys', own: "keys'" },
+  pad: { name: 'pad', own: "pad's" },
+};
+
+/**
+ * The smallest carve a round is allowed to ask for, and the largest.
+ *
+ * Three decibels for the reason every other floor here is three decibels:
+ * measured, the `share` reading moves 0.48 dB for every decibel of the bass's
+ * low shelf and 0.19 for every decibel of the pad's bell, so a two decibel
+ * carve on the pad reads 0.38 and the tolerance is 0.4 - a round asking for
+ * one would arrive already solved. Seven at the top because the controls stop
+ * being a carve and start being a hole: eight decibels off the bass below 120
+ * is a mix with no bottom rather than a mix with room in it.
+ */
+export const CARVE_LEAST = 3;
+
+/** Which stems a round lets you colour, and in which band. */
+export function colouring(tier) {
+  const spec = MIX_TIERS[tier] ?? MIX_TIERS.easy;
+  if (spec.carves) return CARVES.map(({ masker, band }) => ({ id: masker, band }));
+  if (spec.tones) return TONED.map((id) => ({ id, band: TONE_BANDS[id] }));
+  return [];
+}
+
 /** How far off flat a stem's tone is, in decibels, or zero. */
 export function toneIn(set) {
   const eq = set?.settings?.eq;
@@ -224,6 +317,21 @@ export function mixBrief(tier, seed) {
 
   for (const id of some(rng, MOVABLE, spec.sends)) {
     target[id].send = toStep(between(rng, spec.send) * ROOM_FOR[id], STEPS.send);
+  }
+
+  // A carve: the masker in each pair pulled out of the way, which is a cut
+  // and never a boost. The sign is not random the way the tone tier's is -
+  // there is a right direction here and the round is only about how far.
+  if (spec.carves) {
+    for (const id of STEM_IDS) {
+      target[id].inserts = ['eq'];
+      target[id].settings = { eq: { ...EQ_REST } };
+    }
+    for (const { masker, band } of CARVES) {
+      target[masker].settings.eq[band] = worthIt(
+        rng, [-spec.tone[1], -spec.tone[0]], CARVE_LEAST, STEPS.tone,
+      );
+    }
   }
 
   // Tone, when the tier asks for it. The insert goes on every stem and not

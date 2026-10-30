@@ -84,8 +84,16 @@ export function balanceOf(channels, rate, frequencies = THIRDS) {
   return Object.fromEntries(frequencies.map((hz, i) => [hz, raw[i] - mean]));
 }
 
-/** Every channel added together, which is what a spectrum is taken of. */
-function summed(channels) {
+/**
+ * Every channel added together, which is what a spectrum is taken of.
+ *
+ * Exported because `mix/share.js` takes a spectrum of each stem and had a
+ * copy of this for a while. Two implementations of "both channels together"
+ * is how two readings end up claiming the same axis having computed it two
+ * different ways, which is the thing `comparable()` exists to catch and
+ * cannot, because the copies agreed.
+ */
+export function summed(channels) {
   if (channels.length === 1) return channels[0];
 
   const length = Math.min(...channels.map((channel) => channel.length));

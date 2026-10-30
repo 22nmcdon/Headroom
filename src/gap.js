@@ -23,6 +23,7 @@ import { modGap } from './plugins/modulation/trace.js';
 import { seriesGap } from './lib/harmonics.js';
 import { loudnessGap } from './lib/loudness.js';
 import { levelsGap } from './mix/levels.js';
+import { shareGap } from './mix/share.js';
 import { crestGap } from './analysis/dynamics.js';
 import { balanceGap } from './analysis/balance.js';
 import { widthGap } from './analysis/width.js';
@@ -86,6 +87,11 @@ const GAPS = {
   harmonics: seriesGap,
   loudness: loudnessGap,
   levels: levelsGap,
+  // Which part owns which register, which is the one reading that can say
+  // two parts are in the same place. See `mix/share.js` for the measurement
+  // that says they are: on the flat mix of short-night the kick and the bass
+  // are within half a decibel of each other at 125 Hz.
+  share: shareGap,
   crest: crestGap,
   balance: balanceGap,
   width: widthGap,

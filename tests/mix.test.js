@@ -13,6 +13,7 @@ import {
 import {
   mixBrief, flatMix, movesIn, gainFor, dbOf, STEPS, MOVABLE, ANCHOR,
   MIX_TIERS, MIX_TIER_IDS, ROOM_FOR, LEAST, TONE_BANDS, TONE_LEAST, toneIn,
+  TONED, CARVES, CARVE_LEAST, colouring,
 } from '../src/mix/brief.js';
 import { EQ_REST } from '../src/sketch/knobs.js';
 import {
@@ -21,6 +22,9 @@ import {
 } from '../src/mix/score.js';
 import { placementOf, placementGap, placementReading, MOST_OFF_CENTRE } from '../src/mix/placement.js';
 import { levelsReading, partsOut } from '../src/mix/levels.js';
+import {
+  REGISTERS, REGISTER_IDS, registerOf, shareGap, sharesOut, SHARE_AXIS, SHARE_FLOOR,
+} from '../src/mix/share.js';
 import {
   sumOf, mixLoudness, staleFor, matchTrim, anchorOf, gainOfTrim, MATCH_LIMIT,
 } from '../src/mix/monitor.js';
@@ -282,6 +286,17 @@ const payload = (kind, off) => {
       shape: Object.fromEntries(STEM_IDS.map((id, i) => [id, i === 1 ? off : 0])),
     };
   }
+  if (kind === 'share') {
+    // One part out in one register, which is the shape a carve makes. The
+    // rest sit at nought, which is their own mean - above the floor, so that
+    // every cell is compared rather than passed over.
+    return {
+      parts: Object.fromEntries(STEM_IDS.map((id) => [id, { low: -20, mid: -20, high: -20 }])),
+      shares: Object.fromEntries(STEM_IDS.map((id, i) => [id, {
+        low: i === 1 ? off : 0, mid: 0, high: 0,
+      }])),
+    };
+  }
   return { whole: 0, bands: Object.fromEntries(STEREO_BANDS.map((band, i) => [band.id, i === 3 ? off : 0])) };
 };
 
@@ -289,6 +304,7 @@ const axisFor = (kind) => {
   if (kind === 'crest') return { kind: 'whole' };
   if (kind === 'balance') return { kind: 'thirds', ids: THIRDS };
   if (kind === 'levels') return { kind: 'stems', ids: STEM_IDS };
+  if (kind === 'share') return SHARE_AXIS;
   return BANDS;
 };
 
@@ -300,17 +316,29 @@ test('a reading inside its tolerance is a hit, outside twice it is a miss', () =
   assert.equal(markReading('loudness', loud(-14), loud(-17), tolerance).mark, MISS);
 });
 
-test('every marked reading has a name and a tolerance at every tier', () => {
-  for (const kind of MARKED) {
-    assert.ok(READING_NAMES[kind], `${kind} has no name`);
-    for (const tier of Object.keys(MIX_TOLERANCE)) {
-      assert.ok(MIX_TOLERANCE[tier][kind] > 0, `${kind} has no tolerance at ${tier}`);
+test('a tier is marked on the readings it has tolerances for, and they all have names', () => {
+  for (const [tier, tolerance] of Object.entries(MIX_TOLERANCE)) {
+    for (const [kind, allowed] of Object.entries(tolerance)) {
+      assert.ok(MARKED.includes(kind), `${tier} has a tolerance for ${kind}, which is not marked`);
+      assert.ok(READING_NAMES[kind], `${kind} has no name`);
+      assert.ok(allowed > 0, `${kind} has no tolerance at ${tier}`);
     }
+  }
+
+  // And nothing is measured that nothing is marked on: a seventh reading
+  // taken off every render and used by no tier would be a render nobody asked
+  // for.
+  for (const kind of MARKED) {
+    const used = Object.values(MIX_TOLERANCE).some((tolerance) => tolerance[kind] > 0);
+    assert.ok(used, `${kind} is read and no tier is marked on it`);
   }
 });
 
-test('the tolerances tighten as the tier does', () => {
-  for (const kind of MARKED) {
+test('the three graded tiers tighten, reading by reading', () => {
+  // The three that are the same job at three difficulties. `tone` and `carve`
+  // are different jobs rather than harder ones, so they are not in this line
+  // and are not required to sit anywhere on it.
+  for (const kind of Object.keys(MIX_TOLERANCE.easy)) {
     assert.ok(MIX_TOLERANCE.easy[kind] > MIX_TOLERANCE.medium[kind], kind);
     assert.ok(MIX_TOLERANCE.medium[kind] > MIX_TOLERANCE.hard[kind], kind);
   }
@@ -721,4 +749,148 @@ test('an anchor is made from the readings a submit already took', () => {
   // therefore nothing.
   mix.bass.gain = gainFor(6);
   assert.ok(Math.abs(mixLoudness(anchor, mix) - -24.9) > 0.5);
+});
+
+/* --- making room ----------------------------------------------------------- */
+
+/** A share reading's shape, from numbers rather than from a render. */
+const shares = (per) => ({
+  kind: 'share',
+  ready: true,
+  of: { state: 'x', source: 'test', axis: SHARE_AXIS },
+  values: {
+    parts: Object.fromEntries(STEM_IDS.map((id) => [id, { low: -20, mid: -20, high: -20 }])),
+    shares: Object.fromEntries(STEM_IDS.map((id) => [id, { low: 0, mid: 0, high: 0, ...per[id] }])),
+  },
+});
+
+test('the three registers meet where the three tone controls do, and cover everything', () => {
+  assert.deepEqual(REGISTER_IDS, ['low', 'mid', 'high']);
+
+  // The edges are the geometric means of neighbouring controls: 120 and 800
+  // meet at 310, 800 and 6000 at 2191, which rounds to the 2200 in the table.
+  assert.ok(Math.abs(REGISTERS[0].to - Math.sqrt(120 * 800)) < 2);
+  assert.ok(Math.abs(REGISTERS[1].to - Math.sqrt(800 * 6000)) < 10);
+  assert.equal(REGISTERS[2].to, Infinity);
+
+  // And nothing falls between them, which is the point of putting the edges
+  // there rather than around each control: a part could otherwise be moved
+  // without the reading moving.
+  for (const hz of [10, 25, 309, 310, 311, 2199, 2200, 20000]) {
+    assert.ok(REGISTER_IDS.includes(registerOf(hz).id), `${hz} is in no register`);
+  }
+  assert.equal(registerOf(309).id, 'low');
+  assert.equal(registerOf(310).id, 'mid');
+  assert.equal(registerOf(2200).id, 'high');
+});
+
+test('the share gap names the part and the register, not a frequency', () => {
+  const flat = shares({});
+  const heavy = shares({ bass: { low: 2.5 } });
+  const gap = shareGap(heavy, flat);
+
+  assert.ok(Math.abs(gap.off - 2.5) < 1e-9);
+  assert.equal(gap.detail.part, 'bass');
+  assert.equal(gap.where, REGISTERS[0].label);
+  assert.equal(shareGap(flat, flat).off, 0);
+});
+
+test('a part too far down in a register is not compared there', () => {
+  // The measurement behind the floor: a shelf move on a part shifts the
+  // part's whole level a little, and in a register where it has nothing that
+  // shift is all that is being read. See SHARE_FLOOR.
+  const buried = { low: SHARE_FLOOR - 4, mid: 6, high: 0 };
+  const a = shares({ pad: buried });
+  const b = shares({ pad: { ...buried, low: buried.low - 3 } });
+
+  assert.equal(shareGap(a, b).off, 0);
+
+  // Above the floor on either side and it counts, so a part that becomes
+  // audible in a register is not passed over for having been quiet before.
+  const audible = shares({ pad: { ...buried, low: SHARE_FLOOR + 1 } });
+  assert.ok(Math.abs(shareGap(audible, a).off) > 4);
+});
+
+test('the advice names a part and a register, which is an instruction', () => {
+  const marked = markMix(
+    { ...master(), share: shares({ bass: { low: 2.5 } }) },
+    { ...master(), share: shares({}) },
+    'carve',
+  );
+  const said = mixAdvice(marked);
+
+  assert.match(said, /bass/);
+  assert.match(said, /310/);
+  assert.match(said, /too much/);
+
+  // And the parts that are right are not named, however wrong one is.
+  for (const id of ['kit', 'keys', 'pad']) assert.ok(!said.includes(id), said);
+});
+
+test('making room asks for cuts on the maskers and nothing else at all', () => {
+  for (let seed = 1; seed <= 40; seed += 1) {
+    const { target } = mixBrief('carve', seed * 977);
+    const movers = CARVES.map((pair) => pair.masker);
+
+    for (const stem of movesIn(target)) {
+      assert.equal(stem.db, 0, `${stem.id} moved a fader on a carve round`);
+      assert.equal(stem.pan, 0, `${stem.id} moved off centre on a carve round`);
+      assert.equal(stem.send, 0, `${stem.id} went into the room on a carve round`);
+
+      if (!movers.includes(stem.id)) {
+        assert.equal(stem.tone, null, `${stem.id} was coloured and is not a masker`);
+        continue;
+      }
+
+      // A carve is a cut. Not a convention: the lesson is that the control to
+      // reach for is the one on whatever is covering the sound, and a boost
+      // on a masker is that lesson backwards.
+      assert.ok(stem.tone, `${stem.id} is a masker and was not carved`);
+      assert.ok(stem.tone.db <= -CARVE_LEAST,
+        `${stem.id} was carved by ${stem.tone.db}, which is not a cut of at least ${CARVE_LEAST}`);
+      assert.ok(stem.tone.db >= -MIX_TIERS.carve.tone[1]);
+      assert.equal(stem.tone.band, CARVES.find((pair) => pair.masker === stem.id).band);
+      assert.equal(toStep(stem.tone.db, STEPS.tone), stem.tone.db);
+    }
+  }
+});
+
+test('the part being masked is never the part that moves', () => {
+  const live = colouring('carve');
+  for (const { masker, masked } of CARVES) {
+    assert.ok(live.some((one) => one.id === masker), `${masker} cannot be carved`);
+    assert.ok(!live.some((one) => one.id === masked), `${masked} can be coloured and is the one covered`);
+  }
+});
+
+test('every tier says which stems it colours, and the other three colour none', () => {
+  assert.deepEqual(colouring('easy'), []);
+  assert.deepEqual(colouring('medium'), []);
+  assert.deepEqual(colouring('hard'), []);
+  assert.equal(colouring('tone').length, TONED.length);
+  assert.equal(colouring('carve').length, CARVES.length);
+
+  // And every band a tier offers is one the stem lives in, which is the same
+  // table both tiers take it from.
+  for (const tier of MIX_TIER_IDS) {
+    for (const { id, band } of colouring(tier)) {
+      assert.equal(band, TONE_BANDS[id], `${tier} colours ${id} somewhere it does not live`);
+    }
+  }
+});
+
+test('making room is marked on who owns which register, and not on the parts', () => {
+  const tolerance = toleranceFor('carve');
+  assert.ok(tolerance.share > 0);
+  assert.equal(tolerance.levels, undefined);
+
+  // Which means the result has six rows rather than seven, and one of them is
+  // the share.
+  const marked = markMix(
+    { ...master(), share: shares({}) },
+    { ...master(), share: shares({}) },
+    'carve',
+  );
+  assert.deepEqual(marked.readings.map((reading) => reading.kind),
+    ['loudness', 'balance', 'placement', 'width', 'crest', 'share']);
 });

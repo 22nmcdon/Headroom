@@ -21,6 +21,7 @@ import { balanceReading } from '../analysis/balance.js';
 import { widthReading } from '../analysis/width.js';
 import { placementReading } from './placement.js';
 import { levelsReading } from './levels.js';
+import { shareReading } from './share.js';
 import { renderStems } from '../sketch/stems.js';
 import { stampOf } from '../lib/read.js';
 
@@ -90,7 +91,17 @@ export const channelsIn = (buffer) =>
  * answer - and leaves the advice unable to say which part the energy belongs
  * to. "There is too much around 120 Hz" is true and is not an instruction.
  */
-export const MARKED = ['loudness', 'balance', 'placement', 'width', 'crest', 'levels'];
+/**
+ * Every reading a mix can be marked on, in the order they are shown.
+ *
+ * Not every tier is marked on all of them: `markMix` takes the list from the
+ * tier's own tolerances, so a reading a tier has no tolerance for is not
+ * reported. That is how `share` arrived without re-marking the four tiers
+ * that came before it - a carve is the only round that asks about which part
+ * owns which register, and on a round of faders and pans the same reading
+ * says what `levels` already said.
+ */
+export const MARKED = ['loudness', 'balance', 'placement', 'width', 'crest', 'levels', 'share'];
 
 /**
  * Everything worth saying about a master, in five readings.
@@ -138,6 +149,10 @@ export async function readMix(project, source, { bars = 4, rate = RATE, tail = T
   return {
     ...readMaster(master, source),
     levels: levelsReading(stems, rate, { source }),
+    // Off the same render as the levels, so the seventh reading costs
+    // nothing: the stems pass taps every track in one go and both of these
+    // are arithmetic over what it hands back.
+    share: shareReading(stems, rate, { source }),
   };
 }
 

@@ -19,7 +19,7 @@
 import { pieceOf, dress, STEMS, STEM_IDS } from './piece.js';
 import {
   mixBrief, flatMix, movesIn, gainFor, dbOf, STEPS, TRIM,
-  MIX_TIERS, MIX_TIER_IDS, ANCHOR, TONE_BANDS, TONED,
+  MIX_TIERS, MIX_TIER_IDS, ANCHOR, TONE_BANDS, colouring, CARVES, CARVE_NAMES,
 } from './brief.js';
 import { EQ_REST } from '../sketch/knobs.js';
 import { readMix } from './render.js';
@@ -233,7 +233,7 @@ export class MixPage {
     this.parts.tier.value = this.tier;
     this.parts.title.textContent = MIX_TIERS[this.tier].label;
     this.parts.brief.textContent = `${MIX_TIERS[this.tier].blurb} `
-      + `${this.round.piece.name}, four bars, going round.`;
+      + `${this.whichPairs()}${this.round.piece.name}, four bars, going round.`;
     this.parts.result.hidden = true;
     this.parts.advice.hidden = true;
     this.parts.submit.disabled = false;
@@ -244,6 +244,27 @@ export class MixPage {
     this.drawMatch();
     this.push();
     this.hear('mine');
+  }
+
+  /**
+   * Which parts are in each other's way, on the round that is about that.
+   *
+   * Said out loud rather than left to be worked out. Hearing that two parts
+   * are fighting is a skill and it is not this round's skill: what is being
+   * practised is how much to take out, and a round that hid which pair it
+   * meant would be two exercises stacked, failed on the first.
+   */
+  whichPairs() {
+    if (!MIX_TIERS[this.tier]?.carves) return '';
+    // "In the way of" rather than "over", because measured they are not over:
+    // on short-night the bass's share of the low is 9.24 and the kick's is
+    // 9.61, which is the same place rather than on top of it, and that is
+    // exactly the problem.
+    const say = ({ masker, masked }) =>
+      `the ${CARVE_NAMES[masker].name} is in the ${CARVE_NAMES[masked].own} way`;
+    const said = CARVES.map(say).join(' and ');
+    return `${said[0].toUpperCase()}${said.slice(1)} — cut what is covering, `
+      + 'not what is covered. ';
   }
 
   /**
@@ -258,7 +279,7 @@ export class MixPage {
    */
   start() {
     const mix = flatMix();
-    if (!MIX_TIERS[this.tier]?.tones) return mix;
+    if (!this.colours.length) return mix;
     return Object.fromEntries(STEM_IDS.map((id) => [id, {
       ...mix[id], inserts: ['eq'], settings: { eq: { ...EQ_REST } },
     }]));
@@ -266,6 +287,9 @@ export class MixPage {
 
   /** What the faders say, as a mix. */
   get mix() { return this.mine; }
+
+  /** Which stems this tier lets you colour, and in which band. */
+  get colours() { return colouring(this.tier); }
 
   /**
    * What the stage should be playing: a mix, with the monitoring on top.
@@ -287,7 +311,7 @@ export class MixPage {
   drawDesk() {
     this.drawStrips();
 
-    const wanted = !!MIX_TIERS[this.tier]?.tones;
+    const wanted = this.colours.length > 0;
     this.parts.tone.hidden = !wanted;
     this.parts.toneStrips.innerHTML = wanted ? this.toneStrips() : '';
   }
@@ -301,9 +325,11 @@ export class MixPage {
    * the column rather than left as three disabled sliders nobody can explain.
    */
   toneStrips() {
+    const live = (id, band) => this.colours.some((one) => one.id === id && one.band === band);
+
     return STEMS.map((stem) => {
       const eq = this.mine[stem.id]?.settings?.eq ?? EQ_REST;
-      const toned = TONED.includes(stem.id);
+      const toned = this.colours.some((one) => one.id === stem.id);
 
       const band = (id) => `
         <label class="tone-band">
@@ -311,16 +337,31 @@ export class MixPage {
           <input type="range" data-tone-band="${id}" data-stem="${stem.id}"
                  min="-12" max="12" step="${STEPS.tone}" value="${eq[id] ?? 0}"
                  aria-label="${stem.name}, ${BAND_NAMES[id].toLowerCase()} at ${BAND_AT[id]}"
-                 ${toned && TONE_BANDS[stem.id] === id ? '' : 'disabled'}>
+                 ${live(stem.id, id) ? '' : 'disabled'}>
           <span class="tone-read" data-tone-read="${id}">${writeTone(eq[id] ?? 0)}</span>
         </label>`;
 
       return `
         <div class="tone-strip" data-tone-stem="${stem.id}">
-          <span class="tone-name">${stem.name}${toned ? '' : ' <span class="fine">· reference</span>'}</span>
+          <span class="tone-name">${stem.name}${toned ? '' : ` <span class="fine">· ${this.whyFixed(stem.id)}</span>`}</span>
           ${['low', 'mid', 'high'].map(band).join('')}
         </div>`;
     }).join('');
+  }
+
+  /**
+   * Why a column's sliders are not live, said on the column.
+   *
+   * A disabled control with no explanation is worse than no control, and the
+   * two tiers that show this desk have two different reasons: on a tone round
+   * the kit is the reference everything else is heard against, and on a carve
+   * round the part being masked is not the part to reach for - the whole
+   * lesson is that you move what is covering the sound, not the sound.
+   */
+  whyFixed(id) {
+    if (!MIX_TIERS[this.tier]?.carves) return 'reference';
+    const pair = CARVES.find((one) => one.masked === id);
+    return pair ? 'the one being covered' : 'not in the way';
   }
 
   drawStrips() {

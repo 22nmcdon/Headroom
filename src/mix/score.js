@@ -41,6 +41,7 @@ import { HIT, NEAR, MISS } from '../learn/work/scoring.js';
 import { distance } from '../gap.js';
 import { MARKED } from './render.js';
 import { partsOut } from './levels.js';
+import { sharesOut, REGISTERS } from './share.js';
 
 /** What each reading is called where somebody has to read it. */
 export const READING_NAMES = {
@@ -50,6 +51,7 @@ export const READING_NAMES = {
   width: { label: 'How wide', unit: 'dB' },
   crest: { label: 'How dynamic', unit: 'dB' },
   levels: { label: 'The parts against each other', unit: 'dB' },
+  share: { label: 'Who owns which register', unit: 'dB' },
 };
 
 /** Inside this, on every reading, and the mix is the mix. */
@@ -69,6 +71,23 @@ export const MIX_TOLERANCE = {
   // has to sit between those two or a round at the floor arrives solved. See
   // TONE_BANDS in brief.js for the whole table.
   tone: { loudness: 1.2, balance: 0.5, placement: 1.0, width: 5.5, crest: 1.4, levels: 2.5 },
+  // Making room is marked on `share` and has no `levels` entry at all, which
+  // is a thing a tier can now say: a reading a tier has no tolerance for is
+  // not reported. The tone tier's 2.5 was a tolerance written loose enough
+  // never to fire, and a reading that never fires is a row in the result
+  // nobody can learn anything from.
+  //
+  // 0.4 is measured. The `share` reading moves 0.48 dB for every decibel of
+  // the bass's low shelf and 0.19 for every decibel of the pad's bell, so the
+  // allowance is about four fifths of a decibel on the first carve and two on
+  // the second - and the flat mix a round opens on reads 1.66 to 2.48 from
+  // the answer, which is four to six times out.
+  //
+  // The other five sit where the easy tier has them, and `balance` in
+  // particular is deliberately looser than `share`: a decibel of carve error
+  // moves the master's balance by about 0.6, so a tighter one would fail the
+  // same miss twice and point at a frequency rather than at a part.
+  carve: { loudness: 1.2, balance: 1.8, placement: 1.0, width: 5.5, crest: 1.4, share: 0.4 },
 };
 
 /**
@@ -130,6 +149,9 @@ const NAMED = {
   pad: { name: 'pad', is: 'is' },
 };
 
+/** What each register is called inside a sentence. */
+const REGISTER_SAID = Object.fromEntries(REGISTERS.map((band) => [band.id, band.label]));
+
 /** Close is twice the tolerance, as everywhere else in this app. */
 export const NEAR_AT = 2;
 
@@ -160,7 +182,13 @@ export function markReading(kind, mine, theirs, tolerance) {
  */
 export function markMix(mine, theirs, tier) {
   const tolerance = toleranceFor(tier);
-  const readings = MARKED.map((kind) => markReading(kind, mine[kind], theirs[kind], tolerance));
+  const readings = MARKED
+    // A tier is marked on the readings it has a tolerance for and no others.
+    // Which is not a shortcut: `share` tells which part owns which register,
+    // and on a round of faders and pans it says what `levels` says in other
+    // words - two readings of one mistake, failed twice.
+    .filter((kind) => tolerance[kind] !== undefined)
+    .map((kind) => markReading(kind, mine[kind], theirs[kind], tolerance));
 
   return {
     readings,
@@ -195,6 +223,20 @@ export function mixAdvice(marked) {
       return `The image is ${worst.detail?.wider > 0 ? 'wider' : 'narrower'} than it should be${where}.`;
     case 'crest':
       return 'The peaks sit differently against the body of it — usually a level, not a pan.';
+    case 'share': {
+      // The one reading that can name a part AND a register, so it names
+      // both. "There is too much around 120 Hz" is true of the sum and is not
+      // an instruction; "there is too much bass below 310 Hz" is a control to
+      // reach for.
+      const out = sharesOut(worst, worst.allowed).slice(0, 2);
+      if (!out.length) return 'One part is taking up more room than it should.';
+      const say = ({ id, band, by }) => {
+        const part = NAMED[id] ?? { name: id };
+        return `too ${by > 0 ? 'much' : 'little'} ${part.name} ${REGISTER_SAID[band]}`;
+      };
+
+      return `There is ${out.map(say).join(', and ')}.`;
+    }
     case 'levels': {
       // The one reading that can name a fader, so it does. Two at a time at
       // most: a line that lists four parts is a line nobody reads, and the

@@ -8,6 +8,7 @@ The mix exercise: a piece, a brief, and a score for how close the balance is.
     score.js      the tolerances, the marking, and the advice
     placement.js  where each part sits, which a width reading is blind to
     levels.js     how loud each part is, which the master cannot say
+    share.js      which part owns which register, which is what masking is
     monitor.js    hearing the two at the same loudness, which is a monitor
                   control and is nowhere near the marking
     page.js       the strips, the transport and the result
@@ -15,7 +16,7 @@ The mix exercise: a piece, a brief, and a score for how close the balance is.
 Marked on readings rather than on fader positions, the same way every other
 mode here marks on what came out rather than on what was set.
 
-## Five readings of the master, and one of the parts
+## Five readings of the master, and two of the parts
 
 The five read the sum, which is right: two sets of moves that come out
 sounding the same are the same answer. What it leaves is advice that cannot
@@ -128,3 +129,59 @@ is also measured: two parts panned to 0.7 moved the master's loudness by 0.03
 dB and two sends up to 0.6 and 0.4 by 0.19, where a tone move of eight
 decibels on the bass moved it by 1.08. So a colour move says the match is out
 of date rather than carrying on with it.
+
+## Making room, and the fault that is in the material
+
+Every other tier puts something wrong and asks for it to be put right. This
+one puts nothing wrong. Measured on the flat mix the round opens on, as each
+part's share of each register against the mean of the parts:
+
+    short-night        low     mid    high        late-room      low     mid    high
+    kit               9.61   -3.35   13.41        kit          10.67   -8.19   15.24
+    bass              9.24  -11.61  -20.42        bass          7.26   -2.28  -14.67
+    keys             -1.58    6.04   -8.52        keys          2.72   -1.07  -17.73
+    pad             -17.27    8.93   15.53        pad          -20.65   11.54   17.16
+
+The kick and the bass are within three and a half decibels of each other in
+the low on both pieces — on short-night, within a third of one. At 125 Hz they
+read 23.6 and 23.1. Everything the kick does down there the bass is doing too,
+so whichever is louder at any instant is the only one anybody hears, and the
+answer is the carve that makes room.
+
+**`balance` cannot see it**, and that is why `share.js` exists. By the time
+the master is read, 23.6 and 23.1 have been added together and what is left is
+a low end — a perfectly reasonable one. `levels.js` cannot see it either: it
+reads each part, but broadband, so a bass that is the right loudness and all
+of it below 160 Hz reads correct. What is missing is each part's own spread.
+
+**The masker moves, never the part being masked.** The buried part's tone
+controls are off and the column says why: the thing to reach for is the
+control on whatever is covering the sound you cannot hear, not the control on
+the sound you cannot hear. A boost on the buried part puts two things in one
+place louder.
+
+**The floor is a measurement that looked like a bug.** Cutting the pad's high
+shelf moved the pad's reading in the *low* register, and cutting the keys' low
+shelf moved the keys' reading in the *high* — both a register the control does
+not touch, and both reading the same number on two different pieces of music,
+which is not what a measurement of two different pieces does. Those are
+registers where the part has almost nothing (the pad's share of the low is
+−17 dB), so what the spectrum reports there is not the part but what leaks in
+from the part's own loud bands. Twelve decibels below the average part is
+where the comparison stops, which is also the honest line for what the reading
+is for: a part that far down is neither masking nor masked, because nobody can
+hear it there.
+
+**The tolerance is 0.4 and it is measured.** The reading moves 0.48 dB per
+decibel of the bass's low shelf and 0.19 per decibel of the pad's bell, so the
+allowance is about four fifths of a decibel on the first carve and two on the
+second. `tests/browser/carve.mjs` prints the justification every run: flat
+reads 1.82 to 2.97 from the answer and fails, the answer passes, half a
+decibel of slip is forgiven, and two decibels off the first carve or three off
+the second is not.
+
+**A tier is marked on the readings it has tolerances for.** `carve` has no
+`levels` entry at all, because an EQ move changes the part's own loudness and
+marking that would be marking the carve twice. The tone tier's way of saying
+the same thing was a tolerance written loose enough never to fire, which is a
+row in the result nobody can learn anything from.
