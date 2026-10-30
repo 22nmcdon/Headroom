@@ -19,61 +19,11 @@
 // composing a chain report out of these would inherit a 240,000-element array
 // and a shape nothing else in the app has.
 
-import { analyse, analyseStereo, meanFrames } from './dsp.js';
+import { analyse, analyseStereo } from './dsp.js';
 import { readingOf, stampOf } from '../../lib/read.js';
-
-/** How long a frame is. The number the scoring was already calibrated on. */
-export const FRAME_MS = 5;
-
-/**
- * The channels of whatever was handed over, as an array.
- *
- * One buffer or a list of them, because a reading is taken over mono material
- * everywhere except the one path where somebody loads their own stereo file.
- * A list of one is the mono case and is stamped and measured as such, so
- * nothing had to change at the callers that were already right.
- *
- * Not `channelsOf`, which the analysis page owns, and not `channelsIn`, which
- * the mix render owns - the bundler flattens every module into one scope and
- * refuses a duplicate, which is how both of those were found rather than by
- * remembering them.
- */
-const overChannels = (material) => (Array.isArray(material) ? material : [material]);
-
-/**
- * Which audio this is a reading over, cheaply.
- *
- * Two reduction readings can only be compared if they were taken over the same
- * material - the whole measurement is what these settings did to this loop.
- * Nothing carried that before, so a comparison across two different loops
- * returned a number rather than an error, which is the worst way to be wrong.
- *
- * Length and a strided checksum rather than a real hash: this runs on every
- * measurement and it only has to tell two loops apart, not resist anybody.
- *
- * Each channel is weighted by its own position, so a pair is told apart from
- * either side of itself and from the same pair the other way round - which
- * matters, because a stereo reading and a reading of its left channel are
- * genuinely different measurements: one is driven by the louder of the two
- * and the other by the left alone. A pair of identical channels is stamped as
- * the pair it is rather than as the mono signal it contains; what a stamp
- * describes is the material the measurement was taken over, and guessing at
- * equivalence is how the false comparisons this exists to refuse get back in.
- */
-export function materialStamp(material) {
-  const channels = overChannels(material);
-  const first = channels[0];
-  if (!first?.length) return 'none';
-
-  const stride = Math.max(1, Math.floor(first.length / 64));
-  let sum = 0;
-  for (let c = 0; c < channels.length; c += 1) {
-    const samples = channels[c];
-    if (!samples?.length) continue;
-    for (let i = 0; i < samples.length; i += stride) sum += samples[i] * (i + 1) * (c + 1);
-  }
-  return `${first.length}:${sum.toFixed(3)}`;
-}
+import {
+  FRAME_MS, overChannels, materialStamp, meanFrames,
+} from '../../lib/reduce.js';
 
 /**
  * One pass of the compressor over the material, framed - and the per-sample

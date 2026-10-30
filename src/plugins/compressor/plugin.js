@@ -4,7 +4,7 @@ import { CompPlayer } from './player.js';
 import { dialOf, offDial, sizeOf, readyCanvas, watchSize, span } from '../../lib/panel.js';
 import { dressKnobs } from '../../lib/knob.js';
 import { vuFace, aimVu, VU_DEEPEST } from '../../lib/meter.js';
-import { FRAME_MS, materialStamp } from './reading.js';
+import { FRAME_MS, materialStamp } from '../../lib/reduce.js';
 import { notReady, stampOf } from '../../lib/read.js';
 
 /**

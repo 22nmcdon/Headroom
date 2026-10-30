@@ -5,13 +5,14 @@ import { stampOf, readingOf, notReady, isCurrent, comparable, gapOf } from '../s
 import { distance, KINDS } from '../src/gap.js';
 import { curveReading, curveGap, JUDGED_HZ } from '../src/plugins/eq/filters.js';
 import {
-  reductionReading, reductionGap, FRAME_MS, materialStamp, NOTHING_TO_SAY, leanUnit,
+  reductionReading, reductionGap, NOTHING_TO_SAY, leanUnit,
 } from '../src/plugins/compressor/reading.js';
+import { FRAME_MS, materialStamp, meanFrames } from '../src/lib/reduce.js';
 import { decayReading, decayTimes, decayProfile, monoOf } from '../src/lib/response.js';
 import { stereoReading } from '../src/plugins/stereo/field.js';
 import { harmonicsReading, HEAT_DEFAULTS } from '../src/plugins/saturation/shape.js';
 import { makeImpulse, VERB_DEFAULTS, roomProfile } from '../src/plugins/reverb/ir.js';
-import { COMP_DEFAULTS, analyse, meanFrames } from '../src/plugins/compressor/dsp.js';
+import { COMP_DEFAULTS, analyse } from '../src/plugins/compressor/dsp.js';
 import { STEREO_DEFAULTS } from '../src/plugins/stereo/field.js';
 import { mulberry32 } from '../src/lib/random.js';
 

@@ -805,18 +805,3 @@ export function peakEnvelope(samples, rate, frameMs = 5) {
 
   return out;
 }
-
-/** A signal averaged into frames - for reading a gain-reduction trace. */
-export function meanFrames(samples, rate, frameMs = 5) {
-  const span = Math.max(1, Math.round((frameMs / 1000) * rate));
-  const out = new Float32Array(Math.ceil(samples.length / span));
-
-  for (let f = 0; f < out.length; f += 1) {
-    const end = Math.min(samples.length, (f + 1) * span);
-    let sum = 0;
-    for (let i = f * span; i < end; i += 1) sum += samples[i];
-    out[f] = sum / Math.max(1, end - f * span);
-  }
-
-  return out;
-}

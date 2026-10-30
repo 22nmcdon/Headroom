@@ -1,5 +1,6 @@
 import { COMP_DEFAULTS, analyse, runCompressor } from '../../plugins/compressor/dsp.js';
-import { reductionReading, materialStamp } from '../../plugins/compressor/reading.js';
+import { reductionReading } from '../../plugins/compressor/reading.js';
+import { materialStamp } from '../../lib/reduce.js';
 import { distance } from '../../gap.js';
 import { writeTime, writeRatio } from '../../plugins/compressor/plugin.js';
 import { HIT, NEAR, MISS, onScale, logPick, toStep, pick } from './scoring.js';
