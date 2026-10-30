@@ -1,8 +1,11 @@
 # plugins
 
-Seven devices. Each folder holds one, and the folder is named for the product
-rather than for the nickname the code uses - see `saturation/README.md` for
-why `HEAT_` stayed.
+Eight devices in eight folders, and ten tools: the gate and the de-esser are
+the compressor's core with a second face on it rather than folders of their
+own, because a gate is the same curve mirrored and a de-esser is the same
+compressor aimed at a band - see `compressor/README.md`. Each folder is named
+for the product rather than for the nickname the code uses - see
+`saturation/README.md` for why `HEAT_` stayed.
 
 A device is usually four files:
 

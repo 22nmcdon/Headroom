@@ -96,6 +96,28 @@ export function wrongGuess(puzzle, nth = 0) {
       return { decay: 7 + nth * 0.2, preDelay: 4, mix: 0.9, damping: 1, early: 0 };
     }
 
+    if (puzzle.mode === 'gate') {
+      // A gate left alone: the threshold below anything in the loop, so it
+      // never closes. Measured, that reads at least 6.38 dB of reduction away
+      // from any target this mode makes, which fails every tier by more than
+      // the whole near band - and a different threshold each time so no two
+      // attempts are the same guess.
+      return {
+        shape: 'expand', threshold: -60 + nth, ratio: 1, range: 0,
+        attack: 1, hold: 0, release: 120, hysteresis: 0,
+      };
+    }
+
+    if (puzzle.mode === 'deess') {
+      // A de-esser switched off: the threshold above everything in the voice,
+      // so the detector never fires. Reads 2.15 dB or worse from every target
+      // this mode makes, against a tolerance of 0.9 at its loosest.
+      return {
+        shape: 'compress', split: true, crossover: 6500, scHigh: 6500,
+        threshold: 0 - nth * 0.5, ratio: 1, range: 0, attack: 1, release: 60,
+      };
+    }
+
     if (puzzle.mode === 'limiter') {
       // The limiter left alone, which is the honest wrong answer and is
       // measured to fail every tier: the targets ask for at least six

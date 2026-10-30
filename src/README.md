@@ -5,8 +5,10 @@ One folder per piece, and the pieces point one way.
     main.js       the entry
     gap.js        comparing two readings without knowing what kind they are,
                   which needs every comparator and so sits above everything
-    plugins/      the six devices: eq, compressor, saturation, stereo,
-                  delay, reverb
+    plugins/      the eight devices: eq, compressor, saturation, stereo,
+                  delay, reverb, level, limiter - and the gate and the
+                  de-esser, which are the compressor's core with a second
+                  face on it rather than folders of their own
     learn/        everything that asks a question - the exercises, the
                   marking, the written explanations, the session
     tools/        opening a plugin with no round to justify it
@@ -30,8 +32,8 @@ between two folders should be a decision, not an import somebody typed.
 
 ## Checking it
 
-`npm test` is arithmetic: 543 assertions, no browser, no dependencies, runs on
-a bare checkout. `npm run check:browser` is the other half - the app in a real
+`npm test` is arithmetic: no browser, no dependencies, runs on a bare
+checkout. `npm run check:browser` is the other half - the app in a real
 Chromium, at 430, 932 and 1280 - and it is where every layout fault and every
 class-name-in-a-string has been caught. It needs playwright, which is this
 project's one dev dependency and ships in nothing; without it the checks skip

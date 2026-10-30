@@ -32,6 +32,8 @@ export async function check({ browser, at, say }) {
     Reverb: 'verb',
     Delay: 'echo',
     Saturation: 'heat',
+    Gate: 'gate',
+    'De-esser': 'deess',
   };
 
   /** Clicks a tool and waits for that tool's own face to be the one there. */

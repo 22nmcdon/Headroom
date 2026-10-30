@@ -9,6 +9,8 @@ import {
 } from '../src/plugins/compressor/dsp.js';
 import { workletSource } from '../src/plugins/compressor/node.js';
 import { COMP_WORK as compression } from '../src/learn/work/compression.js';
+import { GATE_WORK as gate } from '../src/learn/work/gate.js';
+import { ESS_WORK as deess } from '../src/learn/work/deess.js';
 import { mulberry32 } from '../src/lib/random.js';
 import { engraveNote } from '../src/lib/engrave.js';
 
@@ -1249,4 +1251,131 @@ test('the audio thread gets the expander and the split too', () => {
         `the two cores parted company at sample ${i}`);
     }
   }
+});
+
+/* --- what the two new tools ask for --------------------------------------- */
+
+const IDLE_GATE = {
+  shape: 'expand', threshold: -60, ratio: 1, range: 0,
+  attack: 1, hold: 0, release: 120, hysteresis: 0,
+};
+
+const BYPASSED_DEESSER = {
+  shape: 'compress', split: true, crossover: 6500, scHigh: 6500,
+  threshold: 0, ratio: 1, range: 0, attack: 1, release: 60,
+};
+
+/** Forty targets of one tier, built the way a round builds them. */
+const targetsOf = (work, tier, exercise, n = 40) => {
+  const settings = { exercise };
+  const out = [];
+  for (let i = 0; i < n; i += 1) {
+    const rng = mulberry32(0x51ed + i * 977);
+    out.push({
+      tier, settings, ...work.makePuzzle(rng, tier, settings),
+    });
+  }
+  return out;
+};
+
+test('a gate left alone is never an answer, on any target the mode makes', () => {
+  for (const tier of ['easy', 'medium', 'hard']) {
+    for (const puzzle of targetsOf(gate, tier, 'match')) {
+      const score = gate.score(IDLE_GATE, puzzle);
+      assert.ok(!score.correct,
+        `${tier} accepted an open gate against ${JSON.stringify(puzzle.answer)}`);
+      // And not even close. A round that calls a bypass a near miss is a
+      // round teaching the opposite of what it is for; the tolerances are
+      // set from the measurement that keeps this true - see GATE_NEAR_ENOUGH.
+      for (const cell of score.cells) {
+        assert.equal(cell.state, 'miss',
+          `${tier} read an open gate as ${cell.state} at ${score.error.toFixed(2)} dB out`);
+      }
+    }
+  }
+});
+
+test('a gate target asks for a threshold the room loop can answer', () => {
+  for (const tier of ['easy', 'medium', 'hard']) {
+    for (const { answer } of targetsOf(gate, tier, 'match')) {
+      // The measured band: under -32 the gate never shuts on this material
+      // and over -21 it is shut on the ghost notes too, and from there
+      // upwards nothing changes.
+      assert.ok(answer.threshold >= -29 && answer.threshold <= -22,
+        `${tier} asked for a threshold of ${answer.threshold}`);
+      // And 24 dB at least, because a shallower gate reads too close to no
+      // gate at all.
+      assert.ok(answer.range >= 24 && answer.range <= 40,
+        `${tier} asked for ${answer.range} dB of range`);
+    }
+  }
+});
+
+test('the depth drill changes one thing between its rungs, and it is the depth', () => {
+  const drill = gate.exercises.drill;
+  const shapes = gate.slots('medium', { exercise: 'drill' })[0].options
+    .map(({ id }) => drill.startOf({ tier: 'medium', answer: { depth: id } }));
+
+  for (const settings of shapes) {
+    for (const [key, value] of Object.entries(shapes[0])) {
+      if (key === 'range') continue;
+      assert.deepEqual(settings[key], value, `${key} moved between two rungs of the drill`);
+    }
+  }
+
+  const ranges = shapes.map((s) => s.range);
+  assert.deepEqual(ranges, [...ranges].sort((a, b) => a - b), 'the rungs climb');
+  assert.ok(ranges[0] >= 3, 'nothing under three decibels, which nobody can hear');
+  assert.ok(ranges[ranges.length - 1] <= 40,
+    'and nothing over forty, where the gaps stop changing');
+});
+
+test('a de-esser switched off is never an answer either', () => {
+  for (const tier of ['easy', 'medium', 'hard']) {
+    for (const puzzle of targetsOf(deess, tier, 'match')) {
+      const score = deess.score(BYPASSED_DEESSER, puzzle);
+      assert.ok(!score.correct,
+        `${tier} accepted a bypass against ${JSON.stringify(puzzle.answer)}`);
+      for (const cell of score.cells) {
+        assert.equal(cell.state, 'miss',
+          `${tier} read a bypass as ${cell.state} at ${score.error.toFixed(2)} dB out`);
+      }
+    }
+  }
+});
+
+test('a de-esser target never asks for more range than the detector will use', () => {
+  for (const tier of ['easy', 'medium', 'hard']) {
+    for (const { answer } of targetsOf(deess, tier, 'match')) {
+      // Above about 12 dB the range stops meaning anything on this voice:
+      // measured, 16 dB of range and 12 are the same processor to 0.00 dB.
+      assert.ok(answer.range >= 6 && answer.range <= 12,
+        `${tier} asked for ${answer.range} dB of range`);
+      // And the crossover stays where the sibilance is, or the detector has
+      // nothing to hear and the round's answer is a bypass.
+      assert.ok(answer.crossover >= 4000 && answer.crossover <= 7000,
+        `${tier} aimed the crossover at ${answer.crossover} Hz`);
+      assert.equal(answer.scHigh, answer.crossover,
+        'the detector has to follow the crossover or the crossover is unmarked');
+    }
+  }
+});
+
+test('the aim drill offers one difference that is not the depth', () => {
+  const drill = deess.exercises.drill;
+  const band = drill.startOf({ tier: 'medium', answer: { aim: 'band' } });
+  const whole = drill.startOf({ tier: 'medium', answer: { aim: 'whole' } });
+  const none = drill.startOf({ tier: 'medium', answer: { aim: 'none' } });
+
+  assert.notEqual(band.split, whole.split, 'the two that act differ in where they act');
+  for (const [key, value] of Object.entries(band)) {
+    if (key === 'split') continue;
+    assert.deepEqual(whole[key], value, `${key} moved between the band and the whole signal`);
+  }
+
+  // And the one that does nothing has to do nothing: a threshold over the top
+  // of the material, so the detector never fires.
+  const signal = burst(7000, 0.5, 100, 200, 500);
+  const quiet = analyse(signal, RATE, { ...COMP_DEFAULTS, ...none });
+  assert.ok(quiet.deepest < 0.01, `the bypass reduced by ${quiet.deepest.toFixed(2)} dB`);
 });
