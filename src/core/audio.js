@@ -43,6 +43,51 @@ export const dbToGain = (db) => 10 ** (db / 20);
  * noise buffer at a random speed - which is what stops eight hats in a row
  * sounding like one hat eight times.
  */
+/**
+ * The vowel, as three resonances.
+ *
+ * Roughly an "ah": a first formant around 700 Hz, a second around 1200 and a
+ * third near 2600. The exact numbers are a vowel chart's and the point of
+ * having three rather than two is that two sounds like a filter sweep and
+ * three sounds like a mouth.
+ */
+const FORMANTS = [
+  { hz: 700, q: 6, gain: 1.0 },
+  { hz: 1220, q: 8, gain: 0.5 },
+  { hz: 2600, q: 9, gain: 0.22 },
+];
+
+/** And the sibilant: where an S lives, how wide it is, and how long. */
+const ESS_HZ = 7000;
+const ESS_Q = 0.9;
+const ESS_LENGTH = 0.085;
+
+/**
+ * What a close mic hears between the hits: the room, the bleed and the hum.
+ *
+ * Built for the gate, and it had to be. Measured, the `drums` bed is digital
+ * silence for more than half of its length - in ten millisecond frames its
+ * median level reads -180 dBFS - so a gate over it is deciding how much
+ * quieter to make nothing. The threshold, which is the control a gate is
+ * about, read 4.34 dB of reduction away from an open gate at -44 and 4.68 at
+ * -20: a quarter of a decibel of marking over twenty-four decibels of knob.
+ *
+ * So there is a second drum bed with a floor under it. Noise rolled off at
+ * four kilohertz is the room; a tone at the snare's shell pitch is the bleed
+ * that never quite stops ringing; and the ghost notes are what makes the
+ * threshold a decision rather than a formality - set it above them and the
+ * gate takes them out with the room.
+ *
+ * Measured on the rendered loop: the hits peak at -10.3 dBFS, the ghosts at
+ * -27.6, and the floor between them sits at -43.9. Which is the band the
+ * gate's rounds place a threshold in.
+ */
+const ROOM_NOISE = 0.014;
+const ROOM_TONE_HZ = 180;
+const ROOM_TONE = 0.0045;
+const ROOM_ROLLOFF = 4000;
+const GHOST_LEVEL = 0.13;
+
 const KIT = {
   kick: { thump: 92, to: 44, decay: 0.24, level: 1.0 },
   snare: { hz: 1900, q: 0.8, decay: 0.16, level: 2.9 },
@@ -181,6 +226,93 @@ export class Engine {
     this.keep({ gain, endsAt: at + duration, stop: (when) => osc.stop(when) });
   }
 
+  /**
+   * One syllable of a voice that does not exist: an ess, then a vowel.
+   *
+   * There was no sibilant material in this app and a de-esser cannot be heard
+   * on material that has none. Everything else here is tones and drums - the
+   * hats are the only thing with any energy above five kilohertz, and ducking
+   * a hi-hat is a different thing from ducking an S both musically and in
+   * what it teaches.
+   *
+   * So: a vowel is a sawtooth through three parallel bandpass formants, which
+   * is the oldest way of faking one and is enough to sound like a voice at
+   * the wrong end of a telephone. An ess is a short band of noise at seven
+   * kilohertz in front of it. Nobody will mistake it for singing; what it has
+   * to be is a signal whose sibilance sits where sibilance sits, and that it
+   * is.
+   *
+   * `ess` is how loud the sibilant is against the vowel, and it is what makes
+   * the material a problem worth solving: at 1 it peaks about where the vowel
+   * does while carrying almost all of its energy above five kilohertz, which
+   * is exactly the thing a de-esser is for and exactly the thing a broadband
+   * compressor handles by ducking the whole voice.
+   */
+  syllable(at, { midi = 52, ess = 1, duration = 0.34, dest = null, level = 1 } = {}) {
+    const target = dest || this.master;
+
+    if (ess > 0) {
+      const source = this.ctx.createBufferSource();
+      source.buffer = this.noiseBuffer();
+      source.playbackRate.value = 1 + Math.random() * 0.06;
+
+      const band = this.ctx.createBiquadFilter();
+      band.type = 'bandpass';
+      band.frequency.value = ESS_HZ;
+      band.Q.value = ESS_Q;
+
+      // Up, held, and away. The hold is what makes it a fricative rather
+      // than a click, and it is what a de-esser needs: measured, with the
+      // ess decaying from its peak the moment it reached it, a detector
+      // listening above six kilohertz was over its threshold for long enough
+      // to ask for a third of a decibel on average - so a de-esser taking
+      // four decibels off read 0.83 dB away from one switched off, and every
+      // tolerance the exercise could have had would have accepted the bypass.
+      const gain = this.ctx.createGain();
+      const peak = Math.max(0.001, 0.42 * ess * level);
+      gain.gain.setValueAtTime(0.0001, at);
+      gain.gain.exponentialRampToValueAtTime(peak, at + 0.012);
+      gain.gain.setValueAtTime(peak, at + ESS_LENGTH * 0.7);
+      gain.gain.exponentialRampToValueAtTime(0.0001, at + ESS_LENGTH);
+
+      source.connect(band).connect(gain).connect(target);
+      source.start(at, Math.random());
+      const endsAt = at + ESS_LENGTH + 0.05;
+      source.stop(endsAt);
+      this.keep({ gain, endsAt, stop: (when) => source.stop(when) });
+    }
+
+    // The vowel starts while the ess is still going, which is what a
+    // consonant into a vowel does - they overlap rather than queue.
+    const from = at + (ess > 0 ? ESS_LENGTH * 0.7 : 0);
+    const osc = this.ctx.createOscillator();
+    osc.type = 'sawtooth';
+    osc.frequency.value = midiToFreq(midi);
+
+    const body = this.ctx.createGain();
+    const peak = 0.5 * level;
+    body.gain.setValueAtTime(0.0001, from);
+    body.gain.linearRampToValueAtTime(peak, from + 0.03);
+    body.gain.setValueAtTime(peak, from + duration * 0.6);
+    body.gain.exponentialRampToValueAtTime(0.0001, from + duration);
+    osc.connect(body);
+
+    for (const formant of FORMANTS) {
+      const band = this.ctx.createBiquadFilter();
+      band.type = 'bandpass';
+      band.frequency.value = formant.hz;
+      band.Q.value = formant.q;
+      const gain = this.ctx.createGain();
+      gain.gain.value = formant.gain;
+      body.connect(band).connect(gain).connect(target);
+    }
+
+    const endsAt = from + duration + 0.05;
+    osc.start(from);
+    osc.stop(endsAt);
+    this.keep({ gain: body, endsAt, stop: (when) => osc.stop(when) });
+  }
+
   /** One piece of the kit. */
   drum(piece, at, { level = 1, dest = null } = {}) {
     const recipe = KIT[piece];
@@ -270,7 +402,9 @@ export class Engine {
    * that a move anywhere in the spectrum has something to act on. `instrument`
    * is the piano alone, which is the easier source to hear a move in because
    * there is less going on and nothing masking it. `drums` is transients only,
-   * for anything being judged on how it handles them.
+   * for anything being judged on how it handles them, and `room` is the same
+   * kit with ghost notes and a floor under it, for anything being judged on
+   * what it does to the quiet - see `ROOM_NOISE`.
    */
   playBed(kind, { seconds = 4, dest = null, at = null, bpm = 96, uneven = 0, spread = false } = {}) {
     this.ensure();
@@ -279,6 +413,8 @@ export class Engine {
     const bars = Math.ceil(seconds / (beat * 4));
     const chord = [48, 55, 60, 64, 67]; // Cm-ish spread: root, fifth, octave, third
     const bass = [36, 36, 43, 41];
+    // What the voice sings: four notes of the same scale, in a speaking range.
+    const SUNG = [55, 57, 55, 50];
 
     // Where each part sits, when the bed is being laid out across a field
     // rather than stacked in the middle. The bass is the interesting one: a
@@ -315,15 +451,44 @@ export class Engine {
           continue;
         }
 
+        // A phrase of eight syllables a bar, three in four with an ess on the
+        // front. The ones without are there so that a de-esser can be heard
+        // leaving something alone as well as taking something down - a loop
+        // where every syllable hisses is a loop where a broadband compressor
+        // looks as good as a de-esser.
+        //
+        // Eight rather than four, which is three and a bit syllables a second
+        // and is how fast people actually talk. At four a bar the sibilance
+        // was sparse enough that what a de-esser did to the loop as a whole
+        // was down in the noise of the reading that marks it.
+        if (kind === 'voice') {
+          const say = (bar * 8 + step) % 4;
+          this.syllable(when, {
+            midi: SUNG[say],
+            ess: say === 2 ? 0 : 1,
+            duration: beat * 0.42,
+            dest: to(0),
+            level: swing,
+          });
+          continue;
+        }
+
         if (kind !== 'instrument') {
           if (step === 0 || step === 5) this.drum('kick', when, { dest: to(FIELD.kick), level: swing });
           if (step === 2 || step === 6) this.drum('snare', when, { dest: to(FIELD.snare), level: swing });
-          if (kind !== 'drums') {
+          if (kind !== 'drums' && kind !== 'room') {
             this.drum('hat', when, { dest: to(step % 2 ? FIELD.hat : -FIELD.hat * 0.7), level: swing * (step % 2 ? 0.5 : 0.8) });
           }
         }
 
-        if (kind === 'drums') continue;
+        // Ghost notes, on the steps the backbeat leaves empty. A drummer's
+        // left hand, and the thing a threshold set by eye takes out without
+        // anybody noticing until the part sounds square.
+        if (kind === 'room' && step !== 0 && step !== 2 && step !== 5 && step !== 6) {
+          this.drum('snare', when, { dest: to(FIELD.snare), level: swing * GHOST_LEVEL });
+        }
+
+        if (kind === 'drums' || kind === 'room') continue;
 
         // The piano lands on the beat; the bass walks under it.
         if (step % 4 === 0) {
@@ -352,7 +517,50 @@ export class Engine {
       }
     }
 
+    if (kind === 'room') this.bleed(start, seconds, dest);
+
     return { start, seconds: bars * beat * 4 };
+  }
+
+  /**
+   * The floor under the `room` bed: the room itself, and the bleed.
+   *
+   * It stops exactly where the loop does rather than running into the tail,
+   * and that is deliberate. `renderLoop` folds whatever is still ringing past
+   * the splice back over the beginning, which is right for a decaying chord
+   * and wrong for a continuous floor - two independent passes of noise laid
+   * over each other is three decibels more floor for the first second and a
+   * half of every pass, and a gate's threshold sitting in that step would
+   * behave differently at the top of the loop than at the bottom.
+   */
+  bleed(at, seconds, dest = null) {
+    const target = dest || this.master;
+    const endsAt = at + seconds;
+
+    const source = this.ctx.createBufferSource();
+    source.buffer = this.noiseBuffer();
+    source.loop = true;
+
+    const roll = this.ctx.createBiquadFilter();
+    roll.type = 'lowpass';
+    roll.frequency.value = ROOM_ROLLOFF;
+
+    const gain = this.ctx.createGain();
+    gain.gain.value = ROOM_NOISE;
+    source.connect(roll).connect(gain).connect(target);
+    source.start(at);
+    source.stop(endsAt);
+    this.keep({ gain, endsAt, stop: (when) => source.stop(when) });
+
+    const osc = this.ctx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.value = ROOM_TONE_HZ;
+    const hum = this.ctx.createGain();
+    hum.gain.value = ROOM_TONE;
+    osc.connect(hum).connect(target);
+    osc.start(at);
+    osc.stop(endsAt);
+    this.keep({ gain: hum, endsAt, stop: (when) => osc.stop(when) });
   }
 
   /**
