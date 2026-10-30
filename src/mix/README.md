@@ -9,6 +9,7 @@ The mix exercise: a piece, a brief, and a score for how close the balance is.
     placement.js  where each part sits, which a width reading is blind to
     levels.js     how loud each part is, which the master cannot say
     share.js      which part owns which register, which is what masking is
+    room.js       how much room there is and what is in it, which is distance
     monitor.js    hearing the two at the same loudness, which is a monitor
                   control and is nowhere near the marking
     page.js       the strips, the transport and the result
@@ -185,3 +186,53 @@ the second is not.
 marking that would be marking the carve twice. The tone tier's way of saying
 the same thing was a tolerance written loose enough never to fire, which is a
 row in the result nobody can learn anything from.
+
+## Front to back, and the room that says who is in it
+
+Distance has four classic cues — quieter, duller, more reverb, and the
+reflections arriving sooner after the direct sound. The fourth is not a
+per-part control here: there is one reverb and everything shares it, so its
+pre-delay is a property of the room rather than of any part in it, and moving
+it moves everybody at once. That is a different question (how big is the room)
+from this one (how far back is this part).
+
+The other three are measured, and `DEPTHS` sets them in proportion, because
+that is the lesson: far away is quieter AND duller AND wetter, all at once. A
+part that is only quiet is a part that is turned down; a part that is only wet
+is a part with an effect on it.
+
+**A shared reverb cannot be divided up, so the room is read whole** — and it
+turns out to say who is in it anyway. Measured, the return's own spread across
+the three registers with one part sent to it at a time:
+
+    what is in it        low     mid    high
+    the keys           12.89   14.26  -27.15
+    the pad            -8.88   13.73   -4.85
+    the bass           28.42    2.12  -30.55
+
+Three completely different rooms, 22.30 dB apart in colour, and mixtures land
+in between in proportion. So putting the right amount of reverb on the wrong
+part is a thing this reading catches and nothing else does: `width` reads the
+same two mixes 9.94 apart and cannot say which part moved.
+
+**Only the pad loses air, and that is a measurement.** Rolling the top off is
+a distance cue only where there is top to lose, and as each part's share of
+the register above 2.2 kHz the four read kit 13.41, pad 15.53, keys −8.52,
+bass −20.42. Two have a top end and one of those is the reference. On the keys
+a high shelf is not an air control at all — six decibels off it moves that
+part's loudness by 0.50 dB and its share of the top by the same, which is a
+fader with extra steps.
+
+**The air had to be pushed to be worth marking.** At −3 and −7 dB a learner
+could leave it flat and still pass: seven decibels off the pad's top reads
+0.54 where the tolerance has to forgive a step of fader at 0.38. So the back
+of the room rolls off twelve, which reads 0.72 and cannot be ignored. Twelve
+is also where the slider stops, so there was nowhere further to go — if the
+pad had less top end than it has, this tier would have no air cue and would
+have to say so.
+
+**`levels` is left out again, and this time because it is a duplicate.** A
+fader moves a part broadband, which shifts all three of its registers by the
+same amount, so `levels` and `share` read 0.38 and 0.38 for a step and 2.25
+and 2.25 for a part at the wrong distance. One mistake, reported twice.
+`share` is the one kept, because it also sees the air.

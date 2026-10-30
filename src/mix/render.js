@@ -22,6 +22,7 @@ import { widthReading } from '../analysis/width.js';
 import { placementReading } from './placement.js';
 import { levelsReading } from './levels.js';
 import { shareReading } from './share.js';
+import { roomReading } from './room.js';
 import { renderStems } from '../sketch/stems.js';
 import { stampOf } from '../lib/read.js';
 
@@ -101,7 +102,9 @@ export const channelsIn = (buffer) =>
  * owns which register, and on a round of faders and pans the same reading
  * says what `levels` already said.
  */
-export const MARKED = ['loudness', 'balance', 'placement', 'width', 'crest', 'levels', 'share'];
+export const MARKED = [
+  'loudness', 'balance', 'placement', 'width', 'crest', 'levels', 'share', 'room',
+];
 
 /**
  * Everything worth saying about a master, in five readings.
@@ -153,6 +156,10 @@ export async function readMix(project, source, { bars = 4, rate = RATE, tail = T
     // nothing: the stems pass taps every track in one go and both of these
     // are arithmetic over what it hands back.
     share: shareReading(stems, rate, { source }),
+    // And the room, off the same render again: the stems pass taps the send
+    // return alongside the tracks, so how far back everything is costs one
+    // more pass over an array that has already been rendered.
+    room: roomReading(stems, rate, { source }),
   };
 }
 

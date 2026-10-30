@@ -13,7 +13,7 @@ import {
 import {
   mixBrief, flatMix, movesIn, gainFor, dbOf, STEPS, MOVABLE, ANCHOR,
   MIX_TIERS, MIX_TIER_IDS, ROOM_FOR, LEAST, TONE_BANDS, TONE_LEAST, toneIn,
-  TONED, CARVES, CARVE_LEAST, colouring,
+  TONED, CARVES, CARVE_LEAST, colouring, DEPTHS, AT_A_DISTANCE, AIRY, TRIM,
 } from '../src/mix/brief.js';
 import { EQ_REST } from '../src/sketch/knobs.js';
 import {
@@ -25,6 +25,7 @@ import { levelsReading, partsOut } from '../src/mix/levels.js';
 import {
   REGISTERS, REGISTER_IDS, registerOf, shareGap, sharesOut, SHARE_AXIS, SHARE_FLOOR,
 } from '../src/mix/share.js';
+import { roomGap, roomOf, inARoom, ROOM_AXIS, ROOM_FLOOR } from '../src/mix/room.js';
 import {
   sumOf, mixLoudness, staleFor, matchTrim, anchorOf, gainOfTrim, MATCH_LIMIT,
 } from '../src/mix/monitor.js';
@@ -117,6 +118,10 @@ test('the drums never move, at any tier or seed', () => {
 test('each tier moves what it says it moves, and nothing else', () => {
   for (const tier of MIX_TIER_IDS) {
     const spec = MIX_TIERS[tier];
+    // A distance round sets its faders and sends from DEPTHS rather than from
+    // the ranges `moves` and `sends` drive, so those counts say nothing about
+    // it. What it does move is held two tests down.
+    if (spec.depths) continue;
     let worstPan = 0;
     let worstSend = 0;
 
@@ -160,6 +165,12 @@ test('every move the answer makes is one the controls can make', () => {
 
 test('a move is never too small to be a move', () => {
   for (const tier of MIX_TIER_IDS) {
+    // Except on a distance round, where what has to be worth hearing is the
+    // step between two distances and not the step from flat. The table is
+    // three decibels apart at the fader, which reads 2.25 against a tolerance
+    // of 0.6 - the floor here is about a single move being inside its own
+    // tolerance, and a distance is never a single move.
+    if (MIX_TIERS[tier].depths) continue;
     for (let seed = 0; seed < 60; seed += 1) {
       for (const stem of movesIn(mixBrief(tier, seed * 17).target)) {
         assert.ok(stem.db === 0 || Math.abs(stem.db) >= LEAST, `${stem.name} moved by ${stem.db} dB`);
@@ -870,10 +881,19 @@ test('every tier says which stems it colours, and the other three colour none', 
   assert.equal(colouring('tone').length, TONED.length);
   assert.equal(colouring('carve').length, CARVES.length);
 
-  // And every band a tier offers is one the stem lives in, which is the same
-  // table both tiers take it from.
+  assert.equal(colouring('depth').length, AIRY.length);
+
+  // And every band a tier offers is one the stem lives in. For the two tiers
+  // about colour that is `TONE_BANDS`, the one band each stem has its weight
+  // in; for a distance round it is the top shelf, which is air, and only on
+  // the part that has a top end to lose.
   for (const tier of MIX_TIER_IDS) {
     for (const { id, band } of colouring(tier)) {
+      if (MIX_TIERS[tier].depths) {
+        assert.equal(band, 'high', `${tier} rolls the air off somewhere that is not the top`);
+        assert.ok(AIRY.includes(id), `${tier} takes air off ${id}, which has none to take`);
+        continue;
+      }
       assert.equal(band, TONE_BANDS[id], `${tier} colours ${id} somewhere it does not live`);
     }
   }
@@ -893,4 +913,139 @@ test('making room is marked on who owns which register, and not on the parts', (
   );
   assert.deepEqual(marked.readings.map((reading) => reading.kind),
     ['loudness', 'balance', 'placement', 'width', 'crest', 'share']);
+});
+
+/* --- front to back --------------------------------------------------------- */
+
+/** A room reading's shape, from numbers rather than from a render. */
+const aRoom = (howMuch, shape = {}) => ({
+  kind: 'room',
+  ready: true,
+  of: { state: 'x', source: 'test', axis: ROOM_AXIS },
+  values: {
+    howMuch,
+    bands: {},
+    shape: { low: 0, mid: 0, high: 0, ...shape },
+  },
+});
+
+test('a distance is three things at once, and the three are in proportion', () => {
+  // Quieter, duller and wetter, and ordered: there is no distance in this
+  // table that is louder and further away than its neighbour.
+  for (let i = 1; i < DEPTHS.length; i += 1) {
+    assert.ok(DEPTHS[i].gain < DEPTHS[i - 1].gain, `${DEPTHS[i].id} is not quieter`);
+    assert.ok(DEPTHS[i].send > DEPTHS[i - 1].send, `${DEPTHS[i].id} is not wetter`);
+    assert.ok(DEPTHS[i].air < DEPTHS[i - 1].air, `${DEPTHS[i].id} is not duller`);
+  }
+
+  // The front is where the kit already is, so a part up front is a part with
+  // no room on it at all rather than a part with a little.
+  assert.equal(DEPTHS[0].send, 0);
+  assert.equal(DEPTHS[0].air, 0);
+
+  // And every one of them is a setting the controls can reach.
+  for (const how of DEPTHS) {
+    assert.equal(toStep(how.gain, STEPS.gain), how.gain, how.id);
+    assert.equal(toStep(how.send, STEPS.send), how.send, how.id);
+    assert.equal(toStep(how.air, STEPS.tone), how.air, how.id);
+    assert.ok(how.gain >= TRIM.low && how.gain <= TRIM.high, how.id);
+    assert.ok(how.air >= -12, `${how.id} asks for more air than the slider has`);
+  }
+});
+
+test('only the parts with the whole room to move in are placed, and only one has air', () => {
+  for (const id of AT_A_DISTANCE) assert.equal(ROOM_FOR[id], 1, id);
+  for (const id of STEM_IDS.filter((one) => !AT_A_DISTANCE.includes(one))) {
+    assert.ok(ROOM_FOR[id] < 1, `${id} has the room to move in and is not placed`);
+  }
+
+  // The anchor is never placed: something has to be the front.
+  assert.ok(!AT_A_DISTANCE.includes(ANCHOR));
+  for (const id of AIRY) assert.ok(AT_A_DISTANCE.includes(id), `${id} has air and is not placed`);
+});
+
+test('a distance round puts the two placed parts at two different distances', () => {
+  for (let seed = 1; seed <= 40; seed += 1) {
+    const { target } = mixBrief('depth', seed * 7919);
+
+    const at = AT_A_DISTANCE.map((id) => {
+      const how = DEPTHS.find((one) => Math.abs(one.send * ROOM_FOR[id] - target[id].send) < 1e-9
+        && Math.abs(one.gain - dbOf(target[id].gain)) < 1e-9);
+      assert.ok(how, `${id} is at no distance in the table`);
+      return how.id;
+    });
+    assert.notEqual(at[0], at[1], 'both parts at one distance is a round with no front to back');
+
+    // And nothing else moved: not the anchor, not the bass, nothing off centre.
+    for (const stem of movesIn(target)) {
+      assert.equal(stem.pan, 0, `${stem.id} went off centre on a distance round`);
+      if (AT_A_DISTANCE.includes(stem.id)) continue;
+      assert.equal(stem.db, 0, `${stem.id} moved and is not placed`);
+      assert.equal(stem.send, 0, `${stem.id} went into the room and is not placed`);
+      assert.equal(stem.tone, null, `${stem.id} was coloured and is not placed`);
+    }
+
+    // The air lands on the top shelf, which is the band the reveal reads back.
+    for (const id of AIRY) {
+      const tone = movesIn(target).find((stem) => stem.id === id)?.tone;
+      if (tone) assert.equal(tone.band, 'high', 'air is the top shelf and nothing else');
+    }
+  }
+});
+
+test('the room says how much there is apart from what is in it', () => {
+  // Twice as much reverb is six decibels more of it and the same colour.
+  const quiet = aRoom(-18, { low: 12, mid: 14, high: -27 });
+  const loud = aRoom(-12, { low: 12, mid: 14, high: -27 });
+  assert.ok(Math.abs(roomGap(loud, quiet).off - 6) < 1e-9);
+  assert.equal(roomGap(loud, quiet).where, 'how much room there is');
+  assert.ok(roomGap(loud, quiet).detail.wetter > 0);
+
+  // The same amount of it with something else in it is the other reading.
+  const other = aRoom(-18, { low: -9, mid: 14, high: -5 });
+  const gap = roomGap(other, quiet);
+  assert.ok(Math.abs(gap.off) > 20, 'two different rooms read as the same room');
+  assert.notEqual(gap.where, 'how much room there is');
+  assert.equal(roomGap(quiet, quiet).off, 0);
+});
+
+test('a room nobody is in is compared on how much, and not on its colour', () => {
+  // Because there is no colour to it: a silent return's three registers are
+  // three floors, and their shape is whatever the arithmetic did with them.
+  const dry = aRoom(-Infinity, { low: 40, mid: -80, high: 9 });
+  const wet = aRoom(-18, { low: 12, mid: 14, high: -27 });
+
+  const gap = roomGap(dry, wet);
+  assert.equal(gap.where, 'how much room there is');
+  assert.ok(Number.isFinite(gap.off), 'a dry mix reads as an infinity');
+  // Unsigned, as every gap in this app is: which way round it is lives in the
+  // detail, where the advice reads it.
+  assert.ok(Math.abs(gap.off - Math.abs(ROOM_FLOOR - -18)) < 1e-9);
+  assert.ok(gap.detail.wetter < 0, 'a dry mix is not drier than a wet one');
+
+  // And two dry mixes are the same mix, whatever their floors say.
+  assert.equal(roomGap(dry, aRoom(-Infinity, { low: -3 })).off, 0);
+  assert.equal(inARoom(-Infinity), false);
+  assert.equal(inARoom(ROOM_FLOOR - 1), false);
+  assert.equal(inARoom(-20), true);
+});
+
+test('the advice about a room says which of the two things is wrong', () => {
+  const near = { ...master(), share: shares({}), room: aRoom(-18, { low: 12, mid: 14, high: -27 }) };
+  const wetter = { ...near, room: aRoom(-12, { low: 12, mid: 14, high: -27 }) };
+  const wrong = { ...near, room: aRoom(-18, { low: -9, mid: 14, high: -5 }) };
+
+  assert.match(mixAdvice(markMix(wetter, near, 'depth')), /more room/);
+  assert.match(mixAdvice(markMix(wrong, near, 'depth')), /wrong colour/);
+  assert.match(mixAdvice(markMix(wrong, near, 'depth')), /wrong distance/);
+  assert.equal(mixAdvice(markMix(near, near, 'depth')), 'That is the mix.');
+});
+
+test('front to back is marked on the room and the shares, and not on the parts', () => {
+  const tolerance = toleranceFor('depth');
+  assert.ok(tolerance.room > 0);
+  assert.ok(tolerance.share > 0);
+  // Measured, a fader move reads the same on `levels` and on `share`, so both
+  // would be one mistake reported twice. See the note over the tolerances.
+  assert.equal(tolerance.levels, undefined);
 });

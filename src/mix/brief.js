@@ -90,6 +90,28 @@ export const MIX_TIERS = {
   // problem does not exist in the sum. By the time the master is read, 23.6
   // and 23.1 have been added together and what is left is a low end. See
   // `share.js`.
+  // Front to back, which on this desk is three controls and not four.
+  //
+  // Distance has four classic cues - quieter, duller, more reverb, and the
+  // reflections arriving sooner after the direct sound - and the fourth one
+  // is not a per-part control here. There is one reverb and everything shares
+  // it, so its pre-delay is a property of the room rather than of any part in
+  // it; moving it moves everybody at once, which is a different question (how
+  // big is the room) from this one (how far back is this part).
+  //
+  // The other three are measured. A send of 0.3 on the keys puts the return
+  // 14.84 dB under the mix and 0.5 puts it at 10.53, so the room reads the
+  // send to a third of a decibel; a fader is `levels`; and the air comes off
+  // `share`'s top register. See DEPTHS and AIRY.
+  depth: {
+    label: 'Front to back',
+    blurb: 'Everything is where it should be left to right. Two parts are at the wrong distance.',
+    moves: 0,
+    pans: 0,
+    sends: 0,
+    gain: [0, 0],
+    depths: true,
+  },
   carve: {
     label: 'Making room',
     blurb: 'Nothing is in the wrong place. Two pairs of parts are in the same place.',
@@ -271,18 +293,31 @@ export const CARVE_LEAST = 3;
 /** Which stems a round lets you colour, and in which band. */
 export function colouring(tier) {
   const spec = MIX_TIERS[tier] ?? MIX_TIERS.easy;
+  if (spec.depths) return AIRY.map((id) => ({ id, band: 'high' }));
   if (spec.carves) return CARVES.map(({ masker, band }) => ({ id: masker, band }));
   if (spec.tones) return TONED.map((id) => ({ id, band: TONE_BANDS[id] }));
   return [];
 }
 
-/** How far off flat a stem's tone is, in decibels, or zero. */
-export function toneIn(set) {
+/**
+ * Which band of a stem is off flat, and by how much, or nothing.
+ *
+ * The band comes from the settings rather than from `TONE_BANDS`, which it
+ * used to, and that was wrong the moment a second tier moved a stem somewhere
+ * else: a distance round rolls the top off the pad, and the table says the
+ * pad's band is the mid, so the reveal read out a mid move that had not
+ * happened. One band a stem is still true of any one round - no round moves
+ * two bands of one part - and the first one found is that band.
+ */
+export function toneAt(set) {
   const eq = set?.settings?.eq;
-  if (!eq) return 0;
-  for (const band of ['low', 'mid', 'high']) if (eq[band]) return eq[band];
-  return 0;
+  if (!eq) return null;
+  for (const band of ['low', 'mid', 'high']) if (eq[band]) return { band, db: eq[band] };
+  return null;
 }
+
+/** How far off flat a stem's tone is, in decibels, or zero. */
+export const toneIn = (set) => toneAt(set)?.db ?? 0;
 
 /** Which stems a tone round is allowed to colour. */
 export const TONED = STEM_IDS.filter((id) => id in TONE_BANDS);
@@ -297,6 +332,62 @@ export const TONED = STEM_IDS.filter((id) => id in TONE_BANDS);
  * quarter of the room, and the parts that really do move get all of it.
  */
 export const ROOM_FOR = { bass: 0.25, keys: 1, pad: 1, kit: 0 };
+
+/**
+ * Three distances, as what each one does to a part.
+ *
+ * A distance rather than three independent numbers, and that is the lesson:
+ * far away is quieter AND duller AND wetter, all at once and in proportion.
+ * One of them alone does not read as distance - a part that is only quiet is
+ * a part that is turned down, and a part that is only wet is a part with an
+ * effect on it.
+ *
+ * The amounts are chosen so that neighbouring distances are plainly
+ * different, and every one of the three was set from a measurement. The room:
+ * nothing at the front, 18.3 dB under the mix at a step back and 11.4 at the
+ * back, which is seven decibels between neighbours against a tolerance of two.
+ * The faders: three decibels apart, which reads 2.25 against a tolerance of
+ * 0.7.
+ *
+ * The air is the one that had to be pushed. At -3 and -7 it was so weak that
+ * a learner could leave it flat and still pass: seven decibels off the pad's
+ * top read 0.54 where the tolerance has to forgive a step of fader at 0.38.
+ * So the back of the room rolls off twelve decibels rather than seven, which
+ * reads 0.72 and cannot be ignored. That is not a number bent to fit a test -
+ * air absorption over distance really does take the top off that hard, and
+ * the alternative was a control on the face that made no difference to the
+ * answer. Twelve is also where the slider stops, so there was nowhere further
+ * to go: if the pad had less top end than it has, this tier would have no air
+ * cue in it and would have to say so.
+ */
+export const DEPTHS = [
+  { id: 'front', label: 'up front', gain: 1.5, send: 0, air: 0 },
+  { id: 'middle', label: 'a step back', gain: -1.5, send: 0.2, air: -5 },
+  { id: 'back', label: 'at the back', gain: -4.5, send: 0.45, air: -12 },
+];
+
+export const DEPTH_IDS = DEPTHS.map((how) => how.id);
+
+/**
+ * Which parts a distance round moves, and which of them can lose any air.
+ *
+ * The two that have the whole room to move in: `ROOM_FOR` gives the bass a
+ * quarter of it and the kit none, and a quarter of the room is not a distance.
+ * The kit is the reference here for the reason its fader is one everywhere
+ * else - something has to be the thing the others are heard against, and a
+ * round where every part floats front to back is a round with no front in it.
+ *
+ * Only the pad loses air, and that is a measurement rather than a
+ * simplification. Rolling the top off a part is a distance cue only where
+ * there is top to lose, and measured as each part's share of the register
+ * above 2.2 kHz, the four read: kit 13.41, pad 15.53, keys -8.52, bass
+ * -20.42. Two of them have a top end and one of those two is the reference.
+ * On the keys a high shelf is not an air control at all - measured, six
+ * decibels off it moves that part's loudness by 0.50 dB and its share of the
+ * top by the same, which is a fader with extra steps.
+ */
+export const AT_A_DISTANCE = STEM_IDS.filter((id) => ROOM_FOR[id] === 1);
+export const AIRY = ['pad'];
 
 /** One round: a piece, and the mix it is supposed to end up as. */
 export function mixBrief(tier, seed) {
@@ -317,6 +408,24 @@ export function mixBrief(tier, seed) {
 
   for (const id of some(rng, MOVABLE, spec.sends)) {
     target[id].send = toStep(between(rng, spec.send) * ROOM_FOR[id], STEPS.send);
+  }
+
+  // A distance for each of the two parts that can be at one, and never the
+  // same distance twice: two parts at one distance is a round with no front
+  // to back in it at all, which is the only thing this tier is about.
+  if (spec.depths) {
+    for (const id of STEM_IDS) {
+      target[id].inserts = ['eq'];
+      target[id].settings = { eq: { ...EQ_REST } };
+    }
+
+    const picked = some(rng, DEPTH_IDS, AT_A_DISTANCE.length);
+    AT_A_DISTANCE.forEach((id, at) => {
+      const how = DEPTHS.find((one) => one.id === picked[at]);
+      target[id].gain = gainFor(toStep(how.gain, STEPS.gain));
+      target[id].send = toStep(how.send * ROOM_FOR[id], STEPS.send);
+      if (AIRY.includes(id)) target[id].settings.eq.high = toStep(how.air, STEPS.tone);
+    });
   }
 
   // A carve: the masker in each pair pulled out of the way, which is a cut
@@ -363,7 +472,7 @@ export const flatMix = () => Object.fromEntries(STEM_IDS.map((id) => [id, { ...S
 /** What the answer actually moved, for the reveal. */
 export const movesIn = (mix) => STEMS
   .map((stem) => {
-    const db = toneIn(mix[stem.id]);
+    const tone = toneAt(mix[stem.id]);
     return {
       id: stem.id,
       name: stem.name,
@@ -373,6 +482,6 @@ export const movesIn = (mix) => STEMS
       // `null` rather than a zero, so a reveal can tell a stem that was left
       // alone from one whose tone move happened to be nothing - which cannot
       // happen, because of the floor, and would be worth seeing if it did.
-      tone: db === 0 ? null : { band: TONE_BANDS[stem.id], db },
+      tone,
     };
   });

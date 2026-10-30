@@ -52,6 +52,7 @@ export const READING_NAMES = {
   crest: { label: 'How dynamic', unit: 'dB' },
   levels: { label: 'The parts against each other', unit: 'dB' },
   share: { label: 'Who owns which register', unit: 'dB' },
+  room: { label: 'How far back things are', unit: 'dB' },
 };
 
 /** Inside this, on every reading, and the mix is the mix. */
@@ -88,6 +89,36 @@ export const MIX_TOLERANCE = {
   // moves the master's balance by about 0.6, so a tighter one would fail the
   // same miss twice and point at a frequency rather than at a part.
   carve: { loudness: 1.2, balance: 1.8, placement: 1.0, width: 5.5, crest: 1.4, share: 0.4 },
+  // Front to back is marked on the room, on the parts, and on the air.
+  //
+  // `room` is the one doing the work, and 2.0 is measured. A send is a plain
+  // gain, so a step of it is worth more at the quiet end: from 0.20 to 0.25
+  // the return comes up 1.94 dB, where from 0.45 to 0.50 it comes up 0.92. So
+  // the tolerance has to forgive the larger of those, and it still refuses a
+  // part at the wrong distance - 0.20 against 0.45 is 6.94 dB - by a factor of
+  // three and a half.
+  //
+  // `share` does two jobs here and `levels` is left out, because measured
+  // they are the same number. A fader moves a part broadband, which shifts
+  // all three of its registers by the same amount, so the two read 0.38 and
+  // 0.38 for a step and 2.25 and 2.25 for a part at the wrong distance -
+  // one mistake, reported twice. `share` is the one kept because it also
+  // sees the air, which `levels` cannot.
+  //
+  // 0.6 is what that costs, and it is measured from both ends. Forgiven: a
+  // step of fader at 0.38, and three decibels of air at 0.09. Failed: the air
+  // left flat at 0.72, and a part at the wrong distance at 2.25. The margin
+  // is deliberately wider on the first pair than the second - a learner who
+  // slips a step should never be failed for it, where one who ignores a
+  // control only has to be caught.
+  //
+  // The air is the weakest of the three cues and nothing about this material
+  // makes it otherwise: only two parts have a top end to lose and one of them
+  // is the reference. See DEPTHS in brief.js for what that cost.
+  depth: {
+    loudness: 1.2, balance: 1.8, placement: 1.0, width: 5.5, crest: 1.4,
+    share: 0.6, room: 2.0,
+  },
 };
 
 /**
@@ -232,10 +263,25 @@ export function mixAdvice(marked) {
       if (!out.length) return 'One part is taking up more room than it should.';
       const say = ({ id, band, by }) => {
         const part = NAMED[id] ?? { name: id };
-        return `too ${by > 0 ? 'much' : 'little'} ${part.name} ${REGISTER_SAID[band]}`;
+        // "Of the keys" rather than a bare name, because two of the four are
+        // plural and "too little keys" reads as a typo - the same problem the
+        // `is`/`are` in NAMED was written for, and the same answer.
+        return `too ${by > 0 ? 'much' : 'little'} of the ${part.name} ${REGISTER_SAID[band]}`;
       };
 
       return `There is ${out.map(say).join(', and ')}.`;
+    }
+    case 'room': {
+      // Two different things to say and the gap knows which it is: how much
+      // room there is, or what is in it. The second is the one no other
+      // reading can say at all - a room with the right amount of reverb and
+      // the wrong parts in it is a mix where something is at the wrong
+      // distance, and `width` can only report that the image moved.
+      if (worst.where === 'how much room there is') {
+        return `There is ${worst.detail?.wetter > 0 ? 'more' : 'less'} room than there should be.`;
+      }
+      return `The room is the wrong colour — too ${worst.detail?.colour > 0 ? 'much' : 'little'} `
+        + `${worst.where} in it, so something is at the wrong distance.`;
     }
     case 'levels': {
       // The one reading that can name a fader, so it does. Two at a time at

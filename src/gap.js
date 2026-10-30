@@ -24,6 +24,7 @@ import { seriesGap } from './lib/harmonics.js';
 import { loudnessGap } from './lib/loudness.js';
 import { levelsGap } from './mix/levels.js';
 import { shareGap } from './mix/share.js';
+import { roomGap } from './mix/room.js';
 import { crestGap } from './analysis/dynamics.js';
 import { balanceGap } from './analysis/balance.js';
 import { widthGap } from './analysis/width.js';
@@ -92,6 +93,11 @@ const GAPS = {
   // that says they are: on the flat mix of short-night the kick and the bass
   // are within half a decibel of each other at 125 Hz.
   share: shareGap,
+  // How much room there is and what is in it. One reverb is shared by
+  // everything, so this cannot be divided up part by part - what it can do is
+  // say what colour the room is, which turns out to be the same question. See
+  // `mix/room.js`.
+  room: roomGap,
   crest: crestGap,
   balance: balanceGap,
   width: widthGap,

@@ -20,6 +20,7 @@ import { pieceOf, dress, STEMS, STEM_IDS } from './piece.js';
 import {
   mixBrief, flatMix, movesIn, gainFor, dbOf, STEPS, TRIM,
   MIX_TIERS, MIX_TIER_IDS, ANCHOR, TONE_BANDS, colouring, CARVES, CARVE_NAMES,
+  AT_A_DISTANCE,
 } from './brief.js';
 import { EQ_REST } from '../sketch/knobs.js';
 import { readMix } from './render.js';
@@ -255,6 +256,15 @@ export class MixPage {
    * meant would be two exercises stacked, failed on the first.
    */
   whichPairs() {
+    // Distance is three things at once and that is the whole of it, so the
+    // round says so. Which is not giving the answer away: it says what makes
+    // something sound far off, not which part is far off or by how much.
+    if (MIX_TIERS[this.tier]?.depths) {
+      const still = STEM_IDS.filter((id) => !AT_A_DISTANCE.includes(id))
+        .map((id) => `the ${CARVE_NAMES[id].name}`).join(' and ');
+      return 'Further away is quieter, duller and more in the room — all three at once. '
+        + `${still[0].toUpperCase()}${still.slice(1)} stay where they are. `;
+    }
     if (!MIX_TIERS[this.tier]?.carves) return '';
     // "In the way of" rather than "over", because measured they are not over:
     // on short-night the bass's share of the low is 9.24 and the kick's is
@@ -359,9 +369,18 @@ export class MixPage {
    * lesson is that you move what is covering the sound, not the sound.
    */
   whyFixed(id) {
-    if (!MIX_TIERS[this.tier]?.carves) return 'reference';
-    const pair = CARVES.find((one) => one.masked === id);
-    return pair ? 'the one being covered' : 'not in the way';
+    if (MIX_TIERS[this.tier]?.carves) {
+      const pair = CARVES.find((one) => one.masked === id);
+      return pair ? 'the one being covered' : 'not in the way';
+    }
+    // On a distance round the kit is still the reference, and the other two
+    // are silent for a different reason: rolling the top off is a distance
+    // cue only where there is top to lose. Measured as each part's share of
+    // the register above 2.2 kHz, the keys read -8.52 and the bass -20.42.
+    if (MIX_TIERS[this.tier]?.depths) {
+      return id === ANCHOR ? 'reference' : 'no top end to lose';
+    }
+    return 'reference';
   }
 
   drawStrips() {

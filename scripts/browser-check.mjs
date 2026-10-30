@@ -10,7 +10,7 @@
 import { serve, launch } from '../tests/browser/harness.mjs';
 
 const CHECKS = ['faces', 'inserts', 'chain', 'tracks', 'wide', 'shape', 'knobs', 'decks',
-  'eq-curve', 'stereo', 'tone', 'order', 'sampler', 'sides', 'align', 'modulation', 'match', 'carve'];
+  'eq-curve', 'stereo', 'tone', 'order', 'sampler', 'sides', 'align', 'modulation', 'match', 'carve', 'depth'];
 
 const asked = process.argv.slice(2).filter((a) => !a.startsWith('-'));
 const wanted = asked.length ? CHECKS.filter((c) => asked.includes(c)) : CHECKS;
