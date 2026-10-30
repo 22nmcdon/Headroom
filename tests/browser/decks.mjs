@@ -20,7 +20,9 @@ export const name = 'decks';
 /** The widths the fault was found across, plus the three the others use. */
 const WIDTHS = [360, 390, 430, 500, 600, 700, 820, 932, 1024, 1280, 1440];
 
-const TOOLS = ['EQ', 'Compression', 'Stereo', 'Reverb', 'Delay', 'Saturation'];
+const TOOLS = [
+  'EQ', 'Compression', 'Stereo', 'Reverb', 'Delay', 'Saturation', 'Level', 'Limiter',
+];
 
 /**
  * Was a row of one avoidable?

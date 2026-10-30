@@ -18,6 +18,7 @@ import { REVERB_TOOL } from '../../tools/reverb.js';
 import { DELAY_TOOL } from '../../tools/delay.js';
 import { SATURATION_TOOL } from '../../tools/saturation.js';
 import { LEVEL_TOOL } from '../../tools/level.js';
+import { LIMITER_TOOL } from '../../tools/limiter.js';
 
 import { EQ_WORK } from '../work/eq.js';
 import { COMP_WORK } from '../work/compression.js';
@@ -26,6 +27,7 @@ import { VERB_WORK } from '../work/reverb.js';
 import { ECHO_WORK } from '../work/delay.js';
 import { HEAT_WORK } from '../work/saturation.js';
 import { LEVEL_WORK } from '../work/level.js';
+import { CEIL_WORK } from '../work/limiter.js';
 
 import { notesFor } from '../notes/index.js';
 
@@ -45,6 +47,7 @@ export const TOOLS = {
   delay: assemble(DELAY_TOOL, ECHO_WORK),
   saturation: assemble(SATURATION_TOOL, HEAT_WORK),
   level: assemble(LEVEL_TOOL, LEVEL_WORK),
+  limiter: assemble(LIMITER_TOOL, CEIL_WORK),
 };
 
 export const TOOL_IDS = Object.keys(TOOLS);

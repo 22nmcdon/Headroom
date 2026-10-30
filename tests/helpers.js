@@ -96,6 +96,16 @@ export function wrongGuess(puzzle, nth = 0) {
       return { decay: 7 + nth * 0.2, preDelay: 4, mix: 0.9, damping: 1, early: 0 };
     }
 
+    if (puzzle.mode === 'limiter') {
+      // The limiter left alone, which is the honest wrong answer and is
+      // measured to fail every tier: the targets ask for at least six
+      // decibels of reduction and a limiter doing nothing reads 2.5 dB of
+      // reduction apart or worse. A different ceiling each time so no two
+      // attempts are the same guess, and all of them far too high to reach
+      // material that peaks several decibels under it.
+      return { drive: 0, ceiling: -1 - nth * 0.1, release: 50, output: 0, peak: 'true' };
+    }
+
     if (puzzle.mode === 'saturation') {
       // Barely touched, and perfectly symmetric. Slamming it was the first
       // version of this and it was not wrong enough: at the top of the drive

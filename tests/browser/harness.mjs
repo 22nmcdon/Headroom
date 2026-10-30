@@ -127,11 +127,13 @@ export async function shot(page, name) {
   await page.screenshot({ path: `${into}/${name}.png` });
 }
 
-/** The six faces, by the class each one wears. */
-export const FACES = '.eq, .comp, .heat, .stereo, .echo, .verb';
+/** Every face, by the class each one wears. */
+export const FACES = '.eq, .comp, .heat, .stereo, .echo, .verb, .level, .limiter';
 
 /** And their names on the strip. */
-export const TOOLS = ['EQ', 'Compression', 'Stereo', 'Reverb', 'Delay', 'Saturation'];
+export const TOOLS = [
+  'EQ', 'Compression', 'Stereo', 'Reverb', 'Delay', 'Saturation', 'Level', 'Limiter',
+];
 
 /** The three shapes the app has to work in. */
 export const SIZES = [

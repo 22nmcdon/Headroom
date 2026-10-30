@@ -5,6 +5,7 @@ import { VERB_NOTES } from './verb.js';
 import { ECHO_NOTES } from './echo.js';
 import { HEAT_NOTES } from './heat.js';
 import { LEVEL_NOTES } from './level.js';
+import { CEIL_NOTES } from './limiter.js';
 
 // The written half of the tool.
 //
@@ -27,6 +28,7 @@ export const NOTES = {
   delay: ECHO_NOTES,
   saturation: HEAT_NOTES,
   level: LEVEL_NOTES,
+  limiter: CEIL_NOTES,
 };
 
 export const notesFor = (tool) => NOTES[tool] ?? null;

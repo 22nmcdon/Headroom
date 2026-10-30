@@ -31,10 +31,18 @@ import { TOOL_IDS, toolOf } from './registry.js';
  * where in the spectrum something is. Compression third because level over
  * time is the other axis everything moves on. Then the two that put a sound
  * somewhere - stereo, then reverb - then delay, which is a reverb you can
- * count, and saturation last, because what it adds was not in the recording
- * at all and that is a stranger idea than any of the others.
+ * count, and saturation after that, because what it adds was not in the
+ * recording at all and that is a stranger idea than any of the others.
+ *
+ * The limiter is last, and that is where it belongs twice over: it is the end
+ * of the chain, and its lesson is the only one here that is about cost rather
+ * than about sound. Deciding how much loudness is worth giving up a mix's
+ * dynamics for is not a judgement anybody can make before they can hear what
+ * the dynamics were doing.
  */
-export const TEACHING_ORDER = ['level', 'eq', 'compression', 'panning', 'reverb', 'delay', 'saturation'];
+export const TEACHING_ORDER = [
+  'level', 'eq', 'compression', 'panning', 'reverb', 'delay', 'saturation', 'limiter',
+];
 
 /**
  * How many solves finish a step.
@@ -75,6 +83,7 @@ const CALLED = {
   reverb: { reading: 'what a room does to a sound', building: 'the reverb' },
   delay: { reading: 'what a delay is for', building: 'the delay' },
   saturation: { reading: 'what saturation adds', building: 'the saturator' },
+  limiter: { reading: 'what loudness costs', building: 'the limiter' },
 };
 
 /**
@@ -168,6 +177,6 @@ export function progress({ solvesOf, hasRead }) {
 /** Where somebody is, in a line. */
 export function where(state) {
   if (state.finished) return 'You have been through all of it. The path is a starting order, not a ceiling.';
-  if (!state.done) return 'Six tools, three steps each, and then all six at once. Start at the top.';
+  if (!state.done) return 'Eight tools, three steps each, and then all of them at once. Start at the top.';
   return `${state.done} of ${state.total} done.`;
 }
