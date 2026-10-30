@@ -275,7 +275,7 @@ apart — a round where the loudest answer is the one with the saturator in it
 is a round answered by loudness. Each arrangement is gain-staged instead, the
 way an engineer gain-stages a chain, with the compressor's makeup and the
 saturator's trim measured per arrangement. That brings the spread to 1.44 dB
-and 1.42 on the two pieces, and `tests/browser/chain.mjs` re-measures it every
+and 1.42 on the two pieces, and `tests/browser/arrange.mjs` re-measures it every
 run.
 
 ## What was measured and not built: parallel compression

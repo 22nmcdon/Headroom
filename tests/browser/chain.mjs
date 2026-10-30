@@ -1,199 +1,126 @@
-// What is on it: that the four arrangements are four different sounds, that
-// they come back at the same level, and that naming one is a round you can
-// play.
+// The side chain: that keying a compressor from another track actually moves
+// its needle, and that muting the key track stops it.
 //
-// A browser check because all of it is a claim about rendered audio. Two
-// nonlinear effects not commuting is arithmetic nobody can do on paper, and
-// the gain staging that makes the four comparable was measured rather than
-// derived - the compressor's makeup and the saturator's trim are numbers in
-// `src/mix/chain.js` that came off a render, and a change to either plugin
-// would quietly make them wrong. This re-measures both every run.
-//
-// The last part drives the page, because a round that cannot be answered is
-// not a round: a chip that does not register, a submit that stays disabled,
-// or a guess that is never recorded would all leave the four arrangements
-// perfectly measured and the exercise unplayable.
+// Moved in from a scratchpad, where it ran when somebody remembered to run
+// it. See harness.mjs for why that is the same as not having it.
 
-import { open } from './harness.mjs';
+import { open, shot, FACES, TOOLS, SIZES } from './harness.mjs';
 
 export const name = 'chain';
 
-/**
- * How far apart the four have to be, and how level.
- *
- * The first two are the measured floor of what "plainly different" means
- * here: the closest pair of the six reads 1.12 dB on crest and 4.14 on
- * balance on short-night, so anything that drops the closest pair under half a
- * decibel of dynamics or one of tone has stopped being four arrangements.
- *
- * The third is the gain staging. 2.5 dB of spread between the loudest
- * arrangement and the quietest is what the measured trims leave behind on
- * these two pieces, and the point of holding it is that the round must not be
- * answerable by loudness - which it would be at the 19.6 dB the plugins' own
- * defaults give.
- */
-const APART = { crest: 0.5, balance: 1.0 };
-const LEVEL = 2.5;
-
 export async function check({ browser, at, say }) {
   const problems = [];
-  const { page, noise } = await open(browser, at, { view: 'mix' });
-  problems.push(...noise);
-
-  const out = await page.evaluate(async () => {
-    const { flatMix } = await import('./src/mix/brief.js');
-    const { pieceOf, dress, PIECE_IDS } = await import('./src/mix/piece.js');
-    const { RATE } = await import('./src/mix/render.js');
-    const { renderStems } = await import('./src/sketch/stems.js');
-    const { CHAIN_ORDERS, CHAIN_ON, chainMix } = await import('./src/mix/chain.js');
-    const { crestReading } = await import('./src/analysis/dynamics.js');
-    const { balanceReading } = await import('./src/analysis/balance.js');
-    const { integrated, kWeight } = await import('./src/lib/loudness.js');
-    const { distance } = await import('./src/gap.js');
-
-    const lufs = (channels) => integrated(
-      channels.map((channel) => kWeight(channel, RATE)), RATE,
-    ).lufs;
-
-    const tapOf = async (piece, mix) => {
-      const stems = await renderStems(dress(piece, mix), 0, { rate: RATE });
-      return stems.find((stem) => stem.kind === 'track' && stem.id === CHAIN_ON).channels;
-    };
-
-    const pieces = [];
-    for (const id of PIECE_IDS) {
-      const piece = pieceOf(id);
-      const plain = await tapOf(piece, flatMix());
-      const at = lufs(plain);
-
-      const each = [];
-      for (const how of CHAIN_ORDERS) {
-        const channels = await tapOf(piece, chainMix(flatMix(), how.id));
-        const level = lufs(channels);
-        // Level-matched before reading, because a level difference is not a
-        // difference anybody is being asked to hear - and the whole point of
-        // the trims is that there should not be one left.
-        const lift = 10 ** ((at - level) / 20);
-        const matched = channels.map((channel) => Float32Array.from(channel, (x) => x * lift));
-        each.push({
-          id: how.id,
-          symbol: how.symbol,
-          level: level - at,
-          crest: crestReading(matched, RATE, { source: 'c' }),
-          balance: balanceReading(matched, RATE, { source: 'c' }),
-        });
-      }
-
-      const pairs = [];
-      for (let i = 0; i < each.length; i += 1) {
-        for (let j = i + 1; j < each.length; j += 1) {
-          pairs.push({
-            pair: `${each[i].symbol} / ${each[j].symbol}`,
-            crest: distance(each[i].crest, each[j].crest).off,
-            balance: distance(each[i].balance, each[j].balance).off,
-          });
-        }
-      }
-
-      pieces.push({
-        piece: id,
-        levels: each.map(({ symbol, level }) => ({ symbol, level })),
-        spread: Math.max(...each.map((one) => one.level)) - Math.min(...each.map((one) => one.level)),
-        pairs,
-      });
-    }
-
-    return pieces;
-  });
-
-  for (const row of out) {
-    say(`${row.piece}: the four arrangements on the part that carries them\n`);
-    say('  arrangement     against plain');
-    for (const one of row.levels) {
-      say(`  ${one.symbol.padEnd(14)} ${one.level.toFixed(2).padStart(13)} dB`);
-    }
-    say(`  spread: ${row.spread.toFixed(2)} dB, against ${LEVEL} allowed\n`);
-    say('  pair                          crest   balance');
-    for (const pair of row.pairs) {
-      say(`  ${pair.pair.padEnd(28)} ${pair.crest.toFixed(2).padStart(6)} ${pair.balance.toFixed(2).padStart(9)}`);
-    }
-    say('');
-
-    if (row.spread > LEVEL) {
-      problems.push(`${row.piece}: the four arrangements are ${row.spread.toFixed(2)} dB apart,`
-        + ' so the round can be answered by loudness');
-    }
-    for (const pair of row.pairs) {
-      if (pair.crest < APART.crest && pair.balance < APART.balance) {
-        problems.push(`${row.piece}: ${pair.pair} are ${pair.crest.toFixed(2)} dB apart on crest`
-          + ` and ${pair.balance.toFixed(2)} on balance, which is the same sound twice`);
-      }
-    }
-  }
-
-  /* --- and the round itself ------------------------------------------------ */
-
-  await page.selectOption('[data-tier]', 'order');
+  const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
+  page.on('pageerror', (e) => problems.push(`pageerror: ${e.message}`));
+  page.on('console', (m) => { if (m.type() === 'error') problems.push(`console: ${m.text()}`); });
+  await page.goto(at, { waitUntil: 'networkidle' });
+  await page.waitForTimeout(350);
+  await page.evaluate(() => { localStorage.clear(); });
+  await page.reload({ waitUntil: 'networkidle' });
+  await page.waitForTimeout(350);
+  await page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
+  await page.click('[data-view="sketch"]');
   await page.waitForTimeout(350);
 
-  const played = await page.evaluate(async () => {
-    const pick = document.querySelector('[data-picker]');
-    const chips = [...pick.querySelectorAll('[data-option]')];
-    const submit = document.querySelector('[data-submit]');
+  // Notes on the Kit (track 2) and the Bass (track 1), so there is a kick to
+  // duck under and a bass to duck.
+  for (const [cell, steps] of [['2:0', [0, 8, 16, 24]], ['1:0', [0, 2, 4, 6, 8, 10, 12, 14]]]) {
+    await page.click(`[data-cell="${cell}"]`);
+    await page.waitForTimeout(450);
+    const all = await page.$$('.step');
+    for (const i of steps) await all[i]?.click();
+    await page.waitForTimeout(250);
+    await page.evaluate(() => document.querySelector('[data-back]')?.click());
+    await page.waitForTimeout(250);
+  }
 
-    const before = {
-      chips: chips.length,
-      submitAt: submit.textContent.trim(),
-      disabled: submit.disabled,
-      strips: !document.querySelector('[data-strips]').hidden,
-      sides: [...document.querySelectorAll('[data-ab]')].map((one) => one.textContent.trim()),
-    };
+  // A compressor on the Bass, opened.
+  await page.click('.grid-track:nth-of-type(2) .track-name, .track-name >> nth=1');
+  await page.waitForTimeout(400);
+  say('track open:', await page.$eval('.editor-title', (e) => e.textContent.trim()));
+  await page.click('[data-insert="compression"]');
+  await page.waitForTimeout(500);
+  await page.click('[data-open-plugin="compression"]');
+  await page.waitForTimeout(1200);
 
-    chips[0].click();
-    await new Promise((ok) => setTimeout(ok, 50));
-    const picked = {
-      pressed: chips[0].getAttribute('aria-pressed'),
-      disabled: submit.disabled,
-    };
-
-    submit.click();
-    await new Promise((ok) => setTimeout(ok, 150));
-
-    const said = {
-      result: !document.querySelector('[data-result]').hidden,
-      advice: document.querySelector('[data-advice]').textContent.trim(),
-      submitAt: submit.textContent.trim(),
-      disabled: submit.disabled,
-      // A second press must change nothing: one guess is the whole point.
-      marks: document.querySelectorAll('[data-mark]').length,
-    };
-
-    submit.click();
-    await new Promise((ok) => setTimeout(ok, 150));
-    said.marksAfterSecond = document.querySelectorAll('[data-mark]').length;
-
-    return { before, picked, said };
+  const picker = await page.evaluate(() => {
+    const sel = document.querySelector('#compKeyFrom');
+    return sel ? { shown: Boolean(sel.offsetParent), options: [...sel.options].map((o) => o.textContent.trim()) } : null;
   });
+  say('key picker:', JSON.stringify(picker));
+  if (!picker?.shown) problems.push('the key picker is not on the panel');
+  if (!picker?.options.includes('Kit')) problems.push('the kit is not on offer as a key');
 
-  say('  playing it\n');
-  say(`  chips: ${played.before.chips}`);
-  say(`  the desk: ${played.before.strips ? 'shown' : 'hidden'}`);
-  say(`  the switch says: ${played.before.sides.join(' / ')}`);
-  say(`  the button says: "${played.before.submitAt}", ${played.before.disabled ? 'disabled' : 'live'}`);
-  say(`  after a chip: pressed ${played.picked.pressed}, button ${played.picked.disabled ? 'disabled' : 'live'}`);
-  say(`  after saying it: "${played.said.submitAt}", ${played.said.marks} mark shown`);
-  say(`  it said: "${played.said.advice}"`);
+  await page.selectOption('#compKeyFrom', { label: 'Kit' });
+  await page.waitForTimeout(600);
+  const stored = await page.evaluate(() => {
+    const raw = JSON.parse(localStorage.getItem('headroom.sketch.v1') ?? '{}');
+    return raw.tracks?.map((t) => [t.id, t.settings?.compression?.keyFrom ?? null]);
+  });
+  say('stored keys:', JSON.stringify(stored));
+  if (!stored?.some(([, k]) => k === 'kit')) problems.push('the key source was not stored');
 
-  if (played.before.chips !== 4) problems.push(`the round offered ${played.before.chips} chips, not four`);
-  if (played.before.strips) problems.push('the desk is shown on a round that cannot be answered with it');
-  if (!played.before.disabled) problems.push('the round could be answered before anything was picked');
-  if (played.picked.pressed !== 'true') problems.push('a chip did not register as picked');
-  if (played.picked.disabled) problems.push('picking a chip left the round unanswerable');
-  if (!played.said.result) problems.push('saying it showed no result');
-  if (played.said.advice.length < 20) problems.push('saying it said nothing worth reading');
-  if (!played.said.disabled) problems.push('the round took a second guess, which is four tries at four answers');
-  if (played.said.marksAfterSecond !== played.said.marks) problems.push('a second press changed the result');
+  // Play it and watch the reduction, which should now be pumping on the kick.
+  await page.click('[data-play]');
+  await page.waitForTimeout(300);
+  await page.click('[data-scene-go="0"]');
+  await page.waitForTimeout(2500);
+  const pumping = await page.evaluate(async () => {
+    const canvas = document.querySelector('#compTrace');
+    const c = canvas.getContext('2d');
+    const hash = () => {
+      const d = c.getImageData(0, 0, canvas.width, canvas.height).data;
+      let h = 0;
+      for (let i = 0; i < d.length; i += 53) h = (h * 31 + d[i]) | 0;
+      return h;
+    };
+    const seen = new Set();
+    for (let i = 0; i < 14; i += 1) { seen.add(hash()); await new Promise((r) => setTimeout(r, 90)); }
+    // And how deep the needle is swinging.
+    const swings = [];
+    for (let i = 0; i < 20; i += 1) {
+      const t = document.querySelector('#compVu [data-needle]')?.getAttribute('transform') ?? '';
+      swings.push(Math.abs(parseFloat(t.replace('rotate(', '')) || 0));
+      await new Promise((r) => setTimeout(r, 70));
+    }
+    return { pictures: seen.size, deepest: Math.max(...swings).toFixed(1), read: document.querySelector('#compRead')?.textContent.trim() };
+  });
+  say('with the kit keying it:', JSON.stringify(pumping));
+  if (pumping.pictures < 3) problems.push('the reduction never moved with a key feeding it');
+  if (Number(pumping.deepest) < 2) problems.push(`the needle barely left zero (${pumping.deepest} degrees)`);
+  await shot(page, `chain.png`);
 
-  await page.close();
+  // Decisive: the kit muted should take the ducking with it, because the key
+  // is tapped after that track's fader.
+  const swing = async () => page.evaluate(async () => {
+    const swings = [];
+    for (let i = 0; i < 24; i += 1) {
+      const t = document.querySelector('#compVu [data-needle]')?.getAttribute('transform') ?? '';
+      swings.push(Math.abs(parseFloat(t.replace('rotate(', '')) || 0));
+      await new Promise((r) => setTimeout(r, 70));
+    }
+    return Number(Math.max(...swings).toFixed(1));
+  });
+  await page.evaluate(() => {
+    // The Kit's mute, from the grid behind the panel.
+    const kit = [...document.querySelectorAll('.grid-track')].find((t) => /Kit/.test(t.textContent));
+    kit?.querySelector('[data-mute]')?.click();
+  });
+  await page.waitForTimeout(900);
+  const muted = await swing();
+  await page.evaluate(() => {
+    const kit = [...document.querySelectorAll('.grid-track')].find((t) => /Kit/.test(t.textContent));
+    kit?.querySelector('[data-mute]')?.click();
+  });
+  await page.waitForTimeout(900);
+  const back = await swing();
+  say('kit muted / unmuted, deepest swing:', muted, '/', back);
+  say('state:', await page.evaluate(() => ({
+    pos: document.querySelector('[data-pos]')?.textContent.trim(),
+    play: document.querySelector('[data-play]')?.textContent.trim(),
+    mutes: [...document.querySelectorAll('[data-mute]')].map((b) => `${b.closest('.grid-track')?.textContent.trim().split('\n')[0]}:${b.getAttribute('aria-pressed')}`),
+  })));
+  if (!(muted < 2)) problems.push(`muting the kit did not stop the ducking (${muted} degrees)`);
+  if (!(back > 4)) problems.push(`unmuting the kit did not bring it back (${back} degrees)`);
   return problems;
 }

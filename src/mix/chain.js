@@ -50,7 +50,7 @@
 // chain: the compressor's makeup and the saturator's trim are set per
 // arrangement so that all four come back at the level of the plain part. The
 // numbers are measured, they are in `CHAIN_ORDERS` beside each arrangement,
-// and `tests/browser/chain.mjs` re-measures the spread every run.
+// and `tests/browser/arrange.mjs` re-measures the spread every run.
 
 import { COMP_DEFAULTS } from '../plugins/compressor/dsp.js';
 import { HEAT_DEFAULTS } from '../plugins/saturation/shape.js';
