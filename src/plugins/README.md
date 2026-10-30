@@ -1,6 +1,6 @@
 # plugins
 
-Nine devices in nine folders, and eleven tools: the gate and the de-esser are
+Ten devices in ten folders, and twelve tools: the gate and the de-esser are
 the compressor's core with a second face on it rather than folders of their
 own, because a gate is the same curve mirrored and a de-esser is the same
 compressor aimed at a band - see `compressor/README.md`. Each folder is named
@@ -23,6 +23,13 @@ gain and a sum are three things the graph already does correctly.
 Those two are also the faces where the meters are the instrument rather than a
 readout beside one: a level tool without its meters is a volume knob, and an
 alignment tool without its correlation display is a delay you cannot aim.
+
+`modulation/` is the opposite case, and says why at length in its own README:
+three of its six devices could be built from the graph's own parts, and the
+version the graph would give you is audibly worse on the one family it matters
+for. It is also the only folder holding six products at once, for the reason
+`compressor/` holds three - they are one device with the oscillator pointed
+somewhere else.
 
 ## What goes on a face, and what does not
 

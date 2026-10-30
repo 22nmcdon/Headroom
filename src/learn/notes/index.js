@@ -9,6 +9,7 @@ import { CEIL_NOTES } from './limiter.js';
 import { GATE_NOTES } from './gate.js';
 import { DEESS_NOTES } from './deess.js';
 import { ALIGN_NOTES } from './align.js';
+import { MOD_NOTES } from './modulation.js';
 
 // The written half of the tool.
 //
@@ -35,6 +36,7 @@ export const NOTES = {
   gate: GATE_NOTES,
   deess: DEESS_NOTES,
   align: ALIGN_NOTES,
+  modulation: MOD_NOTES,
 };
 
 export const notesFor = (tool) => NOTES[tool] ?? null;

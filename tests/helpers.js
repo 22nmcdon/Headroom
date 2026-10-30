@@ -118,6 +118,18 @@ export function wrongGuess(puzzle, nth = 0) {
       };
     }
 
+    if (puzzle.mode === 'modulation') {
+      // The right effect with the oscillator standing still, which is the
+      // honest wrong answer: a round that accepted no modulation at all would
+      // be a round about nothing. Measured, it reads at least 21.9 per cent
+      // of full travel from any target this mode makes, against a tolerance
+      // of 5.0 at its loosest. The rate moves a little each time so no two
+      // attempts are the same guess.
+      return {
+        ...puzzle.answer, depth: 0, rate: 1 + nth * 0.1, sync: 'free',
+      };
+    }
+
     if (puzzle.mode === 'align') {
       // The pair left exactly as it arrived, which is the honest wrong answer
       // and the one the tolerances are set to refuse: measured, an unaligned

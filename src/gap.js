@@ -19,6 +19,7 @@ import { repeatGap, wanderGap, duckGap } from './plugins/delay/line.js';
 import { stereoGap } from './plugins/stereo/field.js';
 import { coherenceGap } from './plugins/stereo/coherence.js';
 import { alignGap } from './plugins/align/pair.js';
+import { modGap } from './plugins/modulation/trace.js';
 import { seriesGap } from './lib/harmonics.js';
 import { loudnessGap } from './lib/loudness.js';
 import { levelsGap } from './mix/levels.js';
@@ -76,6 +77,12 @@ const GAPS = {
   // event did to each other, and the only readings it can sensibly be put
   // beside are other readings of the same pair.
   align: alignGap,
+  // An oscillator's own path, as a fraction of how far it could have gone.
+  // The one reading here that is not of any audio: what a modulation does to
+  // a signal is different for each of the three families and no single probe
+  // sees all of them, so what is compared is the thing they share. See
+  // `plugins/modulation/trace.js` for the measurements behind that.
+  modulation: modGap,
   harmonics: seriesGap,
   loudness: loudnessGap,
   levels: levelsGap,

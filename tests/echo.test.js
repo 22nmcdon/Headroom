@@ -2,9 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  ECHO_DEFAULTS, DIVISIONS, SYNC_DIVISIONS, MOST_FEEDBACK, LONGEST_TIME,
+  ECHO_DEFAULTS, MOST_FEEDBACK, LONGEST_TIME,
   SHORTEST_TIME, MOST_OFFSET, PING_FROM, HEAD_PATTERNS,
-  makeEcho, repeatsOf, echoProfile, timeOf, nearestDivision, repeatsReading,
+  makeEcho, repeatsOf, echoProfile, repeatsReading,
   MACHINES, machineTone, BBD_STAGES, MACHINE_FLOOR, MACHINE_CEILING, echoCore,
   wanderReading, WANDER_BANDS, echoTail,
   duckReading, duckTrack, DUCK_FRAMES, DUCK_SECONDS, DUCK_PHRASES,
@@ -16,6 +16,7 @@ import {
 import { echoSource } from '../src/plugins/delay/node.js';
 import { distance } from '../src/gap.js';
 import { comparable } from '../src/lib/read.js';
+import { DIVISIONS, SYNC_DIVISIONS, timeOf, nearestDivision } from '../src/lib/tempo.js';
 import { mulberry32 } from '../src/lib/random.js';
 import { NEAR, MISS } from '../src/learn/work/scoring.js';
 import {

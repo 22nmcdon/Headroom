@@ -35,6 +35,7 @@ export async function check({ browser, at, say }) {
     Gate: 'gate',
     'De-esser': 'deess',
     Align: 'align',
+    Modulation: 'modulation',
   };
 
   /** Clicks a tool and waits for that tool's own face to be the one there. */

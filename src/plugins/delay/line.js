@@ -5,7 +5,6 @@ import {
   LONGEST_TAIL, decayProfile, decayTimes, wetDryImpulse, monoOf,
 } from '../../lib/response.js';
 import { readingOf, stampOf } from '../../lib/read.js';
-import { LOOP_BEAT } from '../../lib/tempo.js';
 
 // A delay, written down: the response one click gets, where the repeats land,
 // and how far two of them are apart.
@@ -26,48 +25,6 @@ export {
   MOST_FEEDBACK, MOST_OFFSET, sidesOf, echoCore,
   WOW_RATE, FLUTTER_RATE, MOST_WOW, MOST_FLUTTER, CHANGE_MODES, MOST_DUCK,
 } from './dsp.js';
-/**
- * The note values a delay is set to, as fractions of a beat.
- *
- * Spread out on purpose. Every adjacent pair here is at least a third apart,
- * so telling one from the next is a question about the music rather than a
- * question about a stopwatch - a dotted eighth and a quarter triplet are only
- * twelve per cent apart, which is a difference you can measure and not one
- * anybody names by ear.
- */
-export const DIVISIONS = [
-  { id: 'quarter', label: '1/4', beats: 1 },
-  { id: 'dotted8', label: 'dotted 1/8', beats: 0.75 },
-  { id: 'eighth', label: '1/8', beats: 0.5 },
-  { id: 'triplet8', label: '1/8 triplet', beats: 1 / 3 },
-  { id: 'sixteenth', label: '1/16', beats: 0.25 },
-];
-
-/** The ones a sync menu offers, which can afford to be finer than the ear. */
-export const SYNC_DIVISIONS = [
-  { id: 'free', label: 'Free', beats: null },
-  { id: 'quarter', label: '1/4', beats: 1 },
-  { id: 'dotted8', label: 'dotted 1/8', beats: 0.75 },
-  { id: 'quartertrip', label: '1/4 triplet', beats: 2 / 3 },
-  { id: 'eighth', label: '1/8', beats: 0.5 },
-  { id: 'dotted16', label: 'dotted 1/16', beats: 0.375 },
-  { id: 'triplet8', label: '1/8 triplet', beats: 1 / 3 },
-  { id: 'sixteenth', label: '1/16', beats: 0.25 },
-];
-
-/** A note value, in milliseconds of this track. */
-export const timeOf = (beats) => beats * LOOP_BEAT * 1000;
-
-/** The note value nearest a time, and how far off it is. */
-export function nearestDivision(ms, among = SYNC_DIVISIONS) {
-  let best = null;
-  for (const division of among) {
-    if (division.beats === null) continue;
-    const off = Math.abs(Math.log2(ms / timeOf(division.beats)));
-    if (!best || off < best.off) best = { division, off };
-  }
-  return best;
-}
 
 /**
  * The repeats, as samples.

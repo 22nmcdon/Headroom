@@ -1,12 +1,13 @@
 import {
-  ECHO_DEFAULTS, DIVISIONS, SYNC_DIVISIONS,
-  echoProfile, timeOf, nearestDivision,
+  ECHO_DEFAULTS, echoProfile,
   HEAD_PATTERNS, repeatsReading, headsOf, wanderReading,
 } from '../../plugins/delay/line.js';
 import { decayReading } from '../../lib/response.js';
 import { distance } from '../../gap.js';
 import { writeMs } from '../../lib/panel.js';
-import { LOOP_BEAT } from '../../lib/tempo.js';
+import {
+  LOOP_BEAT, DIVISIONS, SYNC_DIVISIONS, timeOf, nearestDivision,
+} from '../../lib/tempo.js';
 import { HIT, NEAR, MISS, onScale, logPick, toStep, pick } from './scoring.js';
 
 /**

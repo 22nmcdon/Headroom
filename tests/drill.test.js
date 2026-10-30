@@ -381,7 +381,8 @@ test('the stereo drill counts places on the field, not on the chips', () => {
 /* --- the delay drill: which note ----------------------------------------- */
 
 test('the delay drill sets the time its division asks for', async () => {
-  const { DIVISIONS, timeOf, ECHO_DEFAULTS } = await import('../src/plugins/delay/line.js');
+  const { ECHO_DEFAULTS } = await import('../src/plugins/delay/line.js');
+  const { DIVISIONS, timeOf } = await import('../src/lib/tempo.js');
   const drill = TOOLS.delay.exercises.drill;
 
   for (const tier of ['easy', 'medium', 'hard']) {

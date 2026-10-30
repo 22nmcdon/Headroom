@@ -22,7 +22,7 @@ const WIDTHS = [360, 390, 430, 500, 600, 700, 820, 932, 1024, 1280, 1440];
 
 const TOOLS = [
   'EQ', 'Compression', 'Stereo', 'Reverb', 'Delay', 'Saturation', 'Level', 'Limiter',
-  'Gate', 'De-esser', 'Align',
+  'Gate', 'De-esser', 'Align', 'Modulation',
 ];
 
 /**

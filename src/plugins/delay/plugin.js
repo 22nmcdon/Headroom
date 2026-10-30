@@ -1,9 +1,10 @@
 import {
-  ECHO_DEFAULTS, SYNC_DIVISIONS, makeEcho, timeOf, nearestDivision,
+  ECHO_DEFAULTS, makeEcho,
   ECHO_LIMITS, PING_FROM, HEAD_PATTERNS, MACHINES, machineTone, CHANGE_MODES,
 } from './line.js';
 import { echoTail } from './line.js';
 import { LiveEcho } from './node.js';
+import { SYNC_DIVISIONS, timeOf, nearestDivision } from '../../lib/tempo.js';
 import {
   RESPONSE_BANDS, DECAY_FLOOR, decayProfile, decayTimes, wetDryImpulse, decayReading, decayAxis
 } from '../../lib/response.js';

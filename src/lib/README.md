@@ -17,15 +17,22 @@ What more than one of the folders above needs, and nothing else.
     meter.js     the moving-coil meter
     player.js    the shared half of auditioning a loop
     worklet.js   installing an AudioWorklet, and the fallback
-    tempo.js     the grid every loop in this app is cut to
+    tempo.js     the grid every loop in this app is cut to, and the note
+                 values a delay and a modulation are set in
     engrave.js   writing note names
     random.js    seeded randomness, so a puzzle is a function of its seed
 
-Four of these arrived the same way and for the same reason. `loudness.js`
+Five of these arrived the same way and for the same reason. `loudness.js`
 moved here from `analysis/` when the level tool turned up; `reduce.js` and
 `harmonics.js` were the compressor's and the saturator's until the limiter and
-its clipper needed the same axis. A plugin may import `lib/` and its own
-folder and nothing else, so the choice each time was to move the shared half
+its clipper needed the same axis; and the note values were the delay's until
+the modulation suite needed to name a rate in them - a tremolo at 1.6 Hz on a
+96 bpm loop is a quarter note, and that is the only way anybody wants to be
+told it - so `DIVISIONS`, `SYNC_DIVISIONS`, `timeOf` and `nearestDivision`
+came down here and `rateFor` was written beside them. One list, so the delay's
+division drill and the modulation's are asking about the same five things
+rather than about two tables that agree today. A plugin may import `lib/` and
+its own folder and nothing else, so the choice each time was to move the shared half
 down or to write a second copy - and a second copy is worse than either
 arrangement, because two readings would then claim the same axis having
 computed it two ways and `comparable()` would wave them through.
