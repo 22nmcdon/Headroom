@@ -87,6 +87,45 @@ export const CEIL_NOTES = {
         + 'master is a different job, so the default here is the other way round.',
     },
     {
+      heading: 'Normalisation, and why the loudness war is over',
+      body: 'Every service a record is played on measures its loudness and applies a gain '
+        + 'so that it plays at the same level as everything else. Spotify normalises to '
+        + '-14 LUFS; Apple\'s Sound Check is reported at -16; YouTube and the rest are '
+        + 'around -14 too. A master delivered at -8 LUFS is not played at -8. It is turned '
+        + 'down six decibels and played at -14, exactly like a master that arrived at -14.\n\n'
+        + 'So the thing people spent twenty years fighting over cannot be won any more. '
+        + 'What a loud master buys you is not loudness — the service takes that straight '
+        + 'back — it is everything it spent getting there. Normalisation is a gain, and a '
+        + 'gain moves the peak and the loudness together, so the gap between them survives '
+        + 'untouched. The squashed master and the open one play at the same volume and the '
+        + 'squashed one is flatter. That is the whole trade, and it is now a trade with '
+        + 'nothing on one side of it.\n\n'
+        + 'There are two real exceptions and both are worth knowing. Some services only '
+        + 'turn things down — a master quieter than their target is simply left quiet next '
+        + 'to everything else, and that is loudness given away for nothing. And a service '
+        + 'that turns a quiet master UP takes its true peak up with it: six decibels of '
+        + 'lift on a master peaking at -1 dBTP puts the waveform five decibels over full '
+        + 'scale, which is why the ones that do it have a limiter of their own in the way.',
+    },
+    {
+      heading: 'What a delivery spec actually asks for',
+      body: 'Two numbers, and they are different kinds of number. The loudness is a target '
+        + 'to land on — and at a normalising service it barely matters, because they are '
+        + 'going to move you to it anyway. The true-peak ceiling is a limit, and it is the '
+        + 'one that is really being asked of you: it is there so that what happens after '
+        + 'you — the encode, the conversion, the gain the service applies — does not end '
+        + 'up over full scale.\n\n'
+        + 'Spotify\'s is conditional and worth copying exactly: keep the true peak under '
+        + '-1 dBTP, and under -2 if the master is louder than -14 LUFS. The reasoning is '
+        + 'the arithmetic above. A loud master is about to be turned down and then encoded, '
+        + 'and a lossy encoder reconstructs a waveform the samples only imply, which can '
+        + 'overshoot where the samples did not.\n\n'
+        + 'Broadcast works the other way round. EBU R 128 asks for -23 LUFS with a -1 dBTP '
+        + 'ceiling and expects the file to arrive on the number rather than be moved to '
+        + 'it, which is why it has a tolerance and the streaming services do not. For most '
+        + 'material that is reached by turning down rather than by limiting at all.',
+    },
+    {
       heading: 'The release, and why down is instant',
       body: 'A limiter\'s gain goes down immediately and comes back slowly, and the '
         + 'asymmetry is not a choice. Down is already paid for: the lookahead has made room '

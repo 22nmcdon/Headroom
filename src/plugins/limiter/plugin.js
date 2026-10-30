@@ -178,7 +178,7 @@ export class LimiterPlugin {
             </select>
           </label>
           <button class="ab-btn" type="button" data-ceil="match">Match</button>
-          <span class="eq-hint">match the level before you judge it — a limiter that made it louder will always seem to have helped</span>
+          <span class="eq-hint" id="ceilHint">match the level before you judge it — a limiter that made it louder will always seem to have helped</span>
         </div>
       </div>`;
 
@@ -488,6 +488,43 @@ export class LimiterPlugin {
     this.drawSpend(c, ink, width, height, Math.max(
       10 + (rows.length + 1) * line + 10, height - 32,
     ));
+    this.drawAsked(c, ink, width, height - 56, after);
+  }
+
+  /**
+   * What the round asked for, against what came out.
+   *
+   * Only on a delivery round, where there is a spec to be held to. Two
+   * conditions and both have to hold, so both are drawn and each is coloured
+   * on its own - a master on the number that is over the ceiling has got one
+   * of the two right and should be able to see which.
+   */
+  drawAsked(c, ink, width, top, after) {
+    const asked = this.asked();
+    if (!asked || top < 14) return;
+
+    const off = after.lufs - asked.lufs;
+    const over = after.peak - asked.peak;
+
+    c.textAlign = 'left';
+    c.fillStyle = ink.soft;
+    c.fillText(`${asked.service ?? 'Asked'} wants`, 2, top);
+
+    c.textAlign = 'right';
+    // Said as a direction rather than as a signed number. "-7.1" against a
+    // target is a figure half the people reading it will take the wrong way
+    // round, and this is the one line on the face that has to be read fast.
+    c.fillStyle = Math.abs(off) < 0.5 ? ink.sage : ink.gold;
+    c.fillText(
+      `${asked.lufs.toFixed(1)} LUFS · ${Math.abs(off) < 0.05 ? 'on it'
+        : `${Math.abs(off).toFixed(1)} ${off > 0 ? 'over' : 'under'}`}`,
+      Math.round(width * 0.68), top,
+    );
+    c.fillStyle = over <= 0 ? ink.sage : ink.rust;
+    c.fillText(
+      `${asked.peak.toFixed(1)} dBTP · ${over > 0 ? `${over.toFixed(2)} over` : 'under'}`,
+      width - 4, top,
+    );
   }
 
   /**
@@ -627,6 +664,40 @@ export class LimiterPlugin {
    */
   setTarget(settings) {
     this.target = settings ?? null;
+    this.writeSpec();
+    this.draw();
+  }
+
+  /**
+   * The brief, where the hint usually is.
+   *
+   * A delivery round hands over two numbers - a loudness and a ceiling - and
+   * those are the brief rather than the answer, so they go on the face. The
+   * knob fields of a target are never drawn, which is the distinction: a spec
+   * is what you were asked for and the knob positions are what you worked
+   * out. A target with no `lufs` on it is a matching round, and that one has
+   * nothing to say here.
+   */
+  writeSpec() {
+    const hint = this.el.querySelector('#ceilHint');
+    if (!hint) return;
+
+    // The opening line, kept the first time so it can be put back. Read off
+    // the element rather than held as a constant, so the two cannot drift.
+    if (this.opening === undefined) this.opening = hint.textContent;
+
+    const asked = this.asked();
+    hint.textContent = asked
+      ? `${asked.service ?? 'The brief'}: ${asked.lufs.toFixed(1)} LUFS, `
+        + `true peak under ${asked.peak.toFixed(1)} dBTP`
+      : this.opening;
+  }
+
+  /** What the round asked for, or null. */
+  asked() {
+    const target = this.target;
+    if (!Number.isFinite(target?.lufs) || !Number.isFinite(target?.peak)) return null;
+    return target;
   }
 
   /**

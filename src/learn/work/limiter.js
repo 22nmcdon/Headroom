@@ -23,8 +23,10 @@
 // module, not a face's exercise.
 
 import {
-  CEIL_DEFAULTS, CEIL_DRIVE, ceilingReading, driveFor, matchOut,
+  CEIL_DEFAULTS, CEIL_DRIVE, CEIL_OUTPUT, ceilingReading, driveFor, matchOut, runCeiling,
 } from '../../plugins/limiter/ceiling.js';
+import { integrated, kWeight, truePeakOf } from '../../lib/loudness.js';
+import { TARGETS, targetOfId, ceilingAsked } from '../../lib/targets.js';
 import { distance } from '../../gap.js';
 import { materialStamp } from '../../lib/reduce.js';
 import { stampOf } from '../../lib/read.js';
@@ -60,6 +62,45 @@ import { mulberry32 } from '../../lib/random.js';
  * roughly right.
  */
 const CEIL_CLOSE = { easy: 1.5, medium: 1.0, hard: 0.6 };
+
+/**
+ * How close a delivered master has to land on its target, in LU.
+ *
+ * A judgement rather than a measurement, and unusually for this app it says
+ * so. Loudness moves by exactly the output trim - a gain is exact - and the
+ * trim steps in tenths, so what the arithmetic can resolve is 0.1 LU and
+ * everything above that is a decision about what is worth caring about.
+ *
+ * Set from the same place the level tool's are: the published difference
+ * limen for level is about 1 dB on music, so easy sits comfortably above it,
+ * medium at it, and hard below it. Hard is reachable because the meter is on
+ * screen - this is not an ear test, it is a "can you hit a number" test, and
+ * the skill it stands for is that a delivery spec is a number and not a
+ * feeling.
+ */
+const CEIL_LANDED = { easy: 1.5, medium: 0.8, hard: 0.4 };
+
+/**
+ * How far over a ceiling still counts as under it, in dB.
+ *
+ * The ceiling has no tolerance - over is over - and this is not one. It is
+ * the measurement's own floor. A limiter holding a ceiling exactly produces
+ * audio whose true peak reads a hair above it, because the samples are
+ * float32 and the reconstruction is arithmetic on them. Measured across
+ * drives of 6 to 18 dB and ceilings of -0.1, -1 and -2:
+ *
+ *     ceiling   true peak out       over
+ *       -1.0     -0.999999725    2.8e-7
+ *       -2.0     -1.999999716    2.8e-7
+ *       -0.1     -0.099999739    2.6e-7
+ *
+ * So the worst is three ten-millionths of a decibel, and the margin here is
+ * three orders of magnitude above that and three below anything that could
+ * matter. Without it, the correct answer to every delivery round - a master
+ * sitting exactly on the ceiling, which is what a limiter is for - is marked
+ * as a miss, which is how this was found.
+ */
+const CEIL_PEAK_SLACK = 1e-4;
 
 /**
  * How much reduction a target asks for, in decibels.
@@ -320,6 +361,117 @@ function ceilDepthOf(puzzle, settings) {
   return ceilRead(ceilMaterial(puzzle), settings).values.deepest;
 }
 
+/**
+ * Which delivery targets a round may ask for, per tier.
+ *
+ * Named services rather than bare numbers, because the skill being practised
+ * is "a client asked for a Spotify master" and not "put this at -14". The
+ * figures and their provenance live in `lib/targets.js`, which is the one
+ * place in this app where a number is somebody's policy rather than a
+ * measurement.
+ *
+ * Easy is one target and it is the one everybody has heard of. Medium adds
+ * Apple's, which is two decibels quieter and wants a different drive for the
+ * same material. Hard adds the two that are not normalisers at all: YouTube,
+ * where being under the target is not fixed for you, and R 128 at -23, which
+ * on this loop is reached by turning DOWN - a round that cannot be won by
+ * pushing harder, which is the point of including it.
+ */
+const CEIL_SERVICES = {
+  easy: ['spotify'],
+  medium: ['spotify', 'apple'],
+  hard: ['spotify', 'apple', 'youtube', 'r128'],
+};
+
+/** What a master of this loop reads, in the two figures a spec is written in. */
+function ceilMasterOf(material, settings) {
+  const pass = runCeiling(material.left, material.right, settings, material.rate);
+  const weighted = [pass.left, pass.right].map((channel) => kWeight(channel, material.rate));
+  return {
+    integrated: integrated(weighted, material.rate).lufs,
+    truePeak: Math.max(truePeakOf(pass.left), truePeakOf(pass.right)),
+  };
+}
+
+/**
+ * Settings that land this loop on this target.
+ *
+ * Not a formula, because there is not one: under the knee a decibel of drive
+ * is a decibel of loudness exactly, and past it the limiter is giving some of
+ * that back, by an amount that depends on where the music peaks. So it is
+ * solved the way a person would - push, measure, correct by the error - and
+ * the correction converges because the curve is smooth and monotone.
+ *
+ * Measured on the probe, chasing -14 LUFS from -20.41: the first guess is
+ * 5.6 dB of drive and lands 0.26 LU short, the second lands within 0.02, and
+ * the third is exact to the measurement. Four rounds is slack.
+ *
+ * The output trim finishes the job, and only downward - it is after the
+ * ceiling, so lifting with it would break the one promise the limiter makes.
+ * Which is also why a target quieter than the loop needs no drive at all:
+ * that whole round is the trim.
+ */
+function ceilDeliverFor(material, target) {
+  const asked = (lufs) => ceilingAsked(target, lufs);
+
+  // The ceiling first, because everything else is measured through it. A
+  // provisional one off the loop's own loudness, replaced once there is a
+  // master to read - Spotify's ceiling depends on how loud you ended up.
+  const dry = ceilMasterOf(material, { ...CEIL_DEFAULTS, drive: 0, output: 0 });
+  let settings = { ...CEIL_DEFAULTS, ceiling: asked(target.lufs), drive: 0, output: 0 };
+
+  let drive = Math.max(CEIL_DRIVE[0], Math.min(CEIL_DRIVE[1], target.lufs - dry.integrated));
+  let got = dry;
+
+  for (let round = 0; round < 4; round += 1) {
+    settings = { ...settings, drive, output: 0 };
+    got = ceilMasterOf(material, settings);
+    const off = target.lufs - got.integrated;
+    if (Math.abs(off) < 0.05) break;
+    const next = Math.max(CEIL_DRIVE[0], Math.min(CEIL_DRIVE[1], drive + off));
+    if (next === drive) break;
+    drive = next;
+  }
+
+  // Whatever is left over comes off with the trim, which can only go down -
+  // so this closes the gap when the drive overshot or when the target was
+  // always below the loop, and does nothing when the drive fell short.
+  const over = got.integrated - target.lufs;
+  const output = Math.max(CEIL_OUTPUT[0], Math.min(CEIL_OUTPUT[1], -over));
+
+  return { ...settings, drive, output };
+}
+
+/**
+ * The spec a delivery round is working to, as the tool is handed it.
+ *
+ * Carries `lufs` and `peak` - the two numbers a brief is written in - beside
+ * the ordinary settings. The face draws those two and never the knob fields,
+ * which is the whole distinction: a spec is the brief and the knob positions
+ * are the answer.
+ *
+ * Solving the round happens here too, because this is the first call the
+ * bench makes after it has pinned the material and the drive that hits -14
+ * LUFS depends entirely on what the loop was.
+ */
+function ceilSpecOf(puzzle) {
+  const target = targetOfId(puzzle.answer?.service) ?? TARGETS[0];
+  if (!CEIL_SETTLED.has(puzzle.answer)) {
+    const solved = ceilDeliverFor(ceilMaterial(puzzle), target);
+    Object.assign(puzzle.answer, solved);
+    CEIL_SETTLED.add(puzzle.answer);
+  }
+
+  const reached = ceilMasterOf(ceilMaterial(puzzle), puzzle.answer);
+  return {
+    ...CEIL_DEFAULTS,
+    ceiling: ceilingAsked(target, reached.integrated),
+    lufs: target.lufs,
+    peak: ceilingAsked(target, reached.integrated),
+    service: target.name,
+  };
+}
+
 export const CEIL_EXERCISES = {
   match: {
     id: 'match',
@@ -328,6 +480,14 @@ export const CEIL_EXERCISES = {
     other: 'Target',
     faultOf: () => null,
     targetOf: ceilSettle,
+  },
+  deliver: {
+    id: 'deliver',
+    label: 'Master it to a target',
+    source: 'mix',
+    other: 'Untreated',
+    faultOf: () => null,
+    targetOf: ceilSpecOf,
   },
   drill: {
     id: 'drill',
@@ -411,9 +571,21 @@ export const CEIL_WORK = {
   exercises: CEIL_EXERCISES,
 
   tiers: {
-    easy: { label: 'Easy', blurb: 'Six or eight decibels, release left alone', guesses: 3 },
-    medium: { label: 'Medium', blurb: 'Up to ten, and the release moves', guesses: 4 },
-    hard: { label: 'Hard', blurb: 'Up to twelve, and the release is fast or slow', guesses: 4 },
+    easy: {
+      label: 'Easy',
+      blurb: 'Moderate amounts, one delivery target, the release left alone',
+      guesses: 3,
+    },
+    medium: {
+      label: 'Medium',
+      blurb: 'More to take off, two targets, and the release moves',
+      guesses: 4,
+    },
+    hard: {
+      label: 'Hard',
+      blurb: 'Up to twelve decibels, four targets, and one of them is reached by turning down',
+      guesses: 4,
+    },
   },
 
   /** Answered on the plugin, except in the drill, which asks with chips. */
@@ -437,6 +609,14 @@ export const CEIL_WORK = {
     if (settings.exercise === 'drill') {
       const offered = CEIL_LADDER[tier] ?? CEIL_LADDER.medium;
       return { answer: { amount: pick(rng, offered) } };
+    }
+
+    if (settings.exercise === 'deliver') {
+      const offered = CEIL_SERVICES[tier] ?? CEIL_SERVICES.medium;
+      // The rest of the answer is filled in by `ceilSpecOf`, once the bench
+      // has pinned the loop: the drive that hits -14 LUFS is a property of
+      // the music and there is no music yet.
+      return { answer: { ...CEIL_DEFAULTS, service: pick(rng, offered) } };
     }
 
     const amounts = CEIL_AMOUNTS[tier] ?? CEIL_AMOUNTS.medium;
@@ -464,6 +644,7 @@ export const CEIL_WORK = {
     const exercise = puzzle.settings?.exercise ?? 'match';
 
     if (exercise === 'drill') return scoreHowMuch(guess, puzzle);
+    if (exercise === 'deliver') return this.scoreDeliver(guess, puzzle);
 
     const material = ceilMaterial(puzzle);
     const target = ceilSettle(puzzle);
@@ -523,6 +704,79 @@ export const CEIL_WORK = {
   },
 
   /**
+   * Did it land on the number, and did it stay under the ceiling?
+   *
+   * Two conditions and both have to hold, which is what a delivery spec is.
+   * A master at exactly -14 LUFS that peaks at -0.4 dBTP has not met
+   * Spotify's spec and a master 0.2 LU out that respects the ceiling has
+   * nearly met it - so the loudness is the number being marked and the peak
+   * is a gate on it rather than a second score.
+   *
+   * The ceiling is read off what YOU ended up at, not off what was asked
+   * for. Spotify wants -1 dBTP from a master quieter than -14 LUFS and -2
+   * from one louder, so overshooting the loudness target quietly tightens
+   * the ceiling by a decibel - which is a real trap and worth walking into
+   * once.
+   */
+  scoreDeliver(guess, puzzle) {
+    const { tier } = puzzle;
+    const material = ceilMaterial(puzzle);
+    const spec = ceilSpecOf(puzzle);
+    const target = targetOfId(puzzle.answer?.service) ?? TARGETS[0];
+
+    const got = ceilMasterOf(material, { ...CEIL_DEFAULTS, ...guess });
+    const off = got.integrated - target.lufs;
+    const asked = ceilingAsked(target, got.integrated);
+    const over = got.truePeak - asked;
+
+    const close = CEIL_LANDED[tier];
+    const landed = Math.abs(off) <= close;
+    const held = over <= CEIL_PEAK_SLACK;
+    const mark = landed && held ? HIT
+      : (Math.abs(off) <= close * 2.5 && held) ? NEAR : MISS;
+
+    return {
+      correct: landed && held,
+      error: Math.abs(off),
+      cells: [
+        { state: landed ? mark : MISS, text: `${got.integrated.toFixed(1)} LUFS` },
+        {
+          state: held ? mark : MISS,
+          text: held
+            ? `${got.truePeak.toFixed(1)} dBTP, under ${asked.toFixed(1)}`
+            : `${over.toFixed(2)} dB over the ${asked.toFixed(1)} dBTP ceiling`,
+          narrow: true,
+        },
+      ],
+      why: [
+        {
+          label: `What ${target.name} asks for`,
+          value: `${target.lufs.toFixed(1)} LUFS, ${asked.toFixed(1)} dBTP`,
+          how: target.says,
+        },
+        {
+          label: 'What you delivered',
+          value: `${got.integrated.toFixed(1)} LUFS, ${got.truePeak.toFixed(1)} dBTP`,
+          how: landed
+            ? 'On the number. Read off the audio that came out of the limiter '
+              + 'rather than off the knobs, so any route that lands there counts.'
+            : `${Math.abs(off).toFixed(1)} LU too ${off > 0 ? 'loud' : 'quiet'}. `
+              + 'The output trim moves loudness by exactly itself, so the last '
+              + 'decibel is a trim rather than more drive.',
+        },
+        {
+          label: 'Allowed',
+          value: `${close.toFixed(1)} LU`,
+          how: 'Set from the published difference limen for level - about a '
+             + 'decibel on music - rather than from what the measurement can '
+             + 'resolve, which is a tenth of one. The ceiling has no tolerance '
+             + 'at all: over is over.',
+        },
+      ],
+    };
+  },
+
+  /**
    * What to say when somebody is stuck.
    *
    * The first rung is the technique, because for this tool the technique is
@@ -550,6 +804,21 @@ export const CEIL_WORK = {
       ];
     }
 
+    if (exercise === 'deliver') {
+      const target = targetOfId(answer?.service) ?? TARGETS[0];
+      const spec = ceilSpecOf(puzzle);
+      return [
+        'Two numbers have to be true at once: the loudness and the ceiling. '
+          + 'Set the ceiling first and leave it there - it is the one that '
+          + 'cannot be negotiated - then go looking for the loudness.',
+        `${target.name} wants ${target.lufs.toFixed(1)} LUFS with the peak under `
+          + `${spec.peak.toFixed(1)} dBTP. The drive gets you most of the way; the `
+          + 'last decibel is the output trim, which moves loudness by exactly itself.',
+        `About ${writeCeilDrive(answer.drive ?? 0)} of drive and `
+          + `${writeCeilDrive(answer.output ?? 0)} on the output lands it on this loop.`,
+      ];
+    }
+
     const gr = -ceilDepthOf(puzzle, ceilSettle(puzzle));
     const release = answer.release ?? CEIL_DEFAULTS.release;
     return [
@@ -571,6 +840,14 @@ export const CEIL_WORK = {
 
     if (exercise === 'drill') {
       return { symbol: writeCeilGR(answer.amount), name: 'at its deepest' };
+    }
+
+    if (exercise === 'deliver') {
+      const target = targetOfId(answer?.service) ?? TARGETS[0];
+      return {
+        symbol: `${target.lufs.toFixed(1)} LUFS`,
+        name: `for ${target.name}, under ${ceilingAsked(target, target.lufs).toFixed(1)} dBTP`,
+      };
     }
 
     return {
@@ -599,6 +876,10 @@ export const CEIL_WORK = {
     const { answer } = puzzle;
     if (exercise === 'drill') {
       return { key: `ceil-${answer.amount}`, label: `${writeCeilGR(answer.amount)} of limiting` };
+    }
+    if (exercise === 'deliver') {
+      const target = targetOfId(answer?.service) ?? TARGETS[0];
+      return { key: `deliver-${target.id}`, label: `delivering to ${target.name}` };
     }
     return { key: 'ceil-match', label: 'matching an amount of limiting' };
   },

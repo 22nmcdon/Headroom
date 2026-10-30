@@ -123,7 +123,13 @@ this exact limiter on it as a safety ceiling, and a limiter is a master-bus
 device by habit. A per-track one is still a real thing somebody would want,
 and it wants the insert's live-tap half rather than anything in this folder.
 
-And the delivery targets: get this to -14 LUFS with the peak under -1 dBTP.
-That wants a table of what each service asks for, a date on that table, and
-the loudness-matched preview that shows what a service does to a master which
-ignored it. It belongs with the Loudness and Master module.
+The delivery targets are no longer missing, and they are not in this folder:
+`lib/targets.js` holds them and `learn/work/limiter.js` has the exercise that
+masters to one. A plugin does not know about Spotify, which is the same seam
+that keeps a face from knowing what a round is.
+
+What the face does know is a brief. A delivery target handed to `setTarget`
+carries a loudness and a ceiling beside the ordinary settings, and those two
+are drawn - the knob fields never are. A spec is what you were asked for and
+the knob positions are what you worked out, and the face has to be able to
+tell them apart.
