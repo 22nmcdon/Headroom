@@ -13,8 +13,11 @@ import assert from 'node:assert/strict';
 
 import {
   CEIL_DEFAULTS, CEIL_DRIVE, CEIL_OUTPUT, CEIL_RANGE,
-  runCeiling, ceilingCost, ceilingReading, driveFor, matchOut,
+  runCeiling, ceilingCost, ceilingReading, ceilingHarmonics, driveFor, matchOut,
 } from '../src/plugins/limiter/ceiling.js';
+import { harmonicsReading } from '../src/plugins/saturation/shape.js';
+import { HEAT_DEFAULTS } from '../src/plugins/saturation/shape.js';
+import { HARMONICS } from '../src/lib/harmonics.js';
 import { reductionReading } from '../src/plugins/compressor/reading.js';
 import { COMP_DEFAULTS } from '../src/plugins/compressor/dsp.js';
 import { comparable } from '../src/lib/read.js';
@@ -397,4 +400,147 @@ test('a target is settled against the loop it is actually heard on', () => {
 
   assert.ok(Math.abs((asked[1] - asked[0]) - 6) < 0.05,
     `half the level should want six more decibels of drive, wanted ${(asked[1] - asked[0]).toFixed(3)}`);
+});
+
+/* --- the other way of holding it ------------------------------------------ */
+
+test('a limiter is transparent to a steady tone and a clipper cannot be', () => {
+  // The reading that separates the two modes, and it separates them
+  // completely. A limiter's gain settles on a steady tone and what comes out
+  // is the same wave, quieter; a clipper is cutting the shape of the wave, and
+  // the shape is the series.
+  const material = bedWithHits();
+  const hard = { ...CEIL_DEFAULTS, drive: 12 };
+
+  const limited = ceilingHarmonics(material, RATE, { ...hard, mode: 'limit' }).values;
+  const clipped = ceilingHarmonics(material, RATE, { ...hard, mode: 'clip' }).values;
+
+  // Measured: -121.9 dB, which is the arithmetic's own noise floor and not a
+  // harmonic series. A display of that would be a display of nothing, drawn
+  // convincingly, which is why the face shows it only when something is
+  // cutting the waveform.
+  assert.ok(limited.thd < -100, `the limiter added ${limited.thd.toFixed(1)} dB`);
+  assert.ok(clipped.thd > -30, `the clipper should be obvious, read ${clipped.thd.toFixed(1)}`);
+  assert.ok(clipped.harmonics[3] > -25, 'with a third harmonic to show for it');
+  assert.ok(clipped.harmonics[2] < -100, 'and no even ones, because the cut is symmetric');
+});
+
+test('at no drive the tool is not distorting anything and says so', () => {
+  const material = bedWithHits();
+  for (const mode of ['limit', 'clip', 'both']) {
+    const quiet = ceilingHarmonics(material, RATE, { ...CEIL_DEFAULTS, mode }).values;
+    assert.ok(quiet.thd < -100, `${mode} at no drive read ${quiet.thd.toFixed(1)} dB`);
+  }
+});
+
+test('the harmonic reading compares with the saturator\'s', () => {
+  // The point of moving the probe into lib. Both are `kind: 'harmonics'` on
+  // the same axis, so "is this clipper adding more than that saturator" is a
+  // question with an answer.
+  const material = bedWithHits();
+  const mine = ceilingHarmonics(material, RATE, { ...CEIL_DEFAULTS, mode: 'clip', drive: 12 });
+  const theirs = harmonicsReading(RATE, { ...HEAT_DEFAULTS, drive: 12 });
+
+  assert.equal(comparable(mine, theirs), null,
+    `they should compare and do not: ${comparable(mine, theirs)}`);
+  assert.ok(Number.isFinite(distance(mine, theirs).off));
+});
+
+test('the clipper gets louder than the limiter at the same drive', () => {
+  // Which is the whole reason anybody reaches for one. The limiter is holding
+  // the peak down with a gain, and the gain is on everything; the clipper only
+  // takes the tips off.
+  const material = bedWithHits();
+  const read = (mode) => ceilingCost(
+    material,
+    runCeiling(material.left, material.right, { ...CEIL_DEFAULTS, mode, drive: 14 }, RATE),
+    RATE,
+  ).after;
+
+  const limited = read('limit');
+  const clipped = read('clip');
+  assert.ok(clipped.lufs > limited.lufs + 1,
+    `clipping came out ${(clipped.lufs - limited.lufs).toFixed(2)} LU louder, wanted more than 1`);
+
+  // And it is over the ceiling for it, which is the price: a clipper is not a
+  // ceiling, and `lib/limiter.js` measures by how much.
+  assert.ok(clipped.peak > -1, `the clipper should overshoot, read ${clipped.peak.toFixed(2)}`);
+  assert.ok(Math.abs(limited.peak + 1) < 0.01, 'where the limiter holds exactly');
+});
+
+test('the knee is measured from the ceiling, wherever the ceiling is', () => {
+  // A knee is a distance below the ceiling, not an absolute level, so moving
+  // the ceiling has to move the bend with it. Checked on what it does rather
+  // than on where the output lands: a clipper's output does not land on its
+  // ceiling at all - band-limiting the cut puts the overshoot back, by up to
+  // three and a half decibels, which `lib/limiter.js` measures.
+  const material = bedWithHits();
+
+  // The same push relative to the ceiling in both cases, which is the only
+  // way to ask the question: the probe is a -12 dBFS sine, so a drive of
+  // ceiling + 14 puts it two decibels over whatever the ceiling is. Pushed by
+  // an absolute amount instead, a signal five decibels past a six-decibel
+  // knee has saturated the curve and reads as a hard cut again - which is how
+  // the first version of this test asked the wrong thing.
+  const seen = [-3, -1].map((ceiling) => {
+    const at = (knee) => ceilingHarmonics(
+      material, RATE,
+      { ...CEIL_DEFAULTS, mode: 'clip', ceiling, knee, drive: ceiling + 14 },
+    ).values;
+
+    const hard = at(0);
+    const soft = at(6);
+    assert.ok(soft.harmonics[7] < hard.harmonics[7] - 3,
+      `at a ${ceiling} dB ceiling the knee did not round the corner off: `
+      + `${hard.harmonics[7].toFixed(1)} to ${soft.harmonics[7].toFixed(1)}`);
+    return soft;
+  });
+
+  // And the two ceilings give the same series, which is what "measured from
+  // the ceiling" means: a knee is a distance below it and not a level.
+  //
+  // Only the harmonics that are there. A symmetric cut makes no even ones at
+  // all, so those bins hold the arithmetic's noise floor - measured, around
+  // -277 dB - and two noise floors agreeing to a decibel is not a thing to
+  // ask for.
+  for (const m of HARMONICS) {
+    if (seen[0].harmonics[m] < -80 && seen[1].harmonics[m] < -80) continue;
+    assert.ok(Math.abs(seen[0].harmonics[m] - seen[1].harmonics[m]) < 1,
+      `the ${m}th harmonic moved with the ceiling: `
+      + `${seen[0].harmonics[m].toFixed(1)} against ${seen[1].harmonics[m].toFixed(1)}`);
+  }
+});
+
+test('the three answers the drill offers are three different things', () => {
+  // Held as a measurement rather than as a claim about ears. All three are
+  // level-matched against the loop, so loudness is not the cue; what differs
+  // is how far each has moved the signal and what it left behind.
+  const material = bedWithHits();
+  const seen = {};
+
+  for (const held of ['none', 'limit', 'clip']) {
+    const puzzle = { answer: { held }, tier: 'medium', settings: { exercise: 'held' }, material };
+    const settings = CEIL_WORK.exercises.held.startOf(puzzle);
+    const pass = runCeiling(material.left, material.right, settings, RATE);
+    const cost = ceilingCost(material, pass, RATE);
+
+    let deepest = 0;
+    for (let i = 0; i < pass.gr.length; i += 1) if (pass.gr[i] < deepest) deepest = pass.gr[i];
+    seen[held] = { deepest, match: cost.match, settings };
+
+    assert.ok(Math.abs(cost.match) < 0.05,
+      `${held} is not level-matched: ${cost.match.toFixed(3)} LU apart`);
+  }
+
+  // Nothing at all: no reduction, and the drive stopped short of the knee.
+  assert.equal(seen.none.deepest, 0);
+  // A limiter: a gain that moved.
+  assert.ok(seen.limit.deepest < -1,
+    `the limiter should be working, read ${seen.limit.deepest.toFixed(2)} dB`);
+  // A clipper: no gain at all, ever.
+  assert.equal(seen.clip.deepest, 0);
+  // And the clipper is pushed harder than the one that is doing nothing, so
+  // "no reduction" cannot be the whole of the cue.
+  assert.ok(seen.clip.settings.drive > seen.none.settings.drive + 2,
+    'the clipper should be pushed well past the knee');
 });

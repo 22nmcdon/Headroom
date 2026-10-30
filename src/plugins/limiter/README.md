@@ -108,13 +108,36 @@ stamped as `'none'`. Every reading matched every other one, and two readings
 over completely different loops compared happily. A test caught it, which is
 the only reason it is not still true.
 
-## What is not here
+## Two ways of holding a ceiling, and they cost different things
 
-The clipper. A hard clipper is the other way of making something loud - no
-lookahead, no release, just a line the waveform is not allowed to cross - and
-what it costs is distortion rather than dynamics, which is a different lesson
-and wants the saturator's harmonic reading rather than this folder's reduction
-one.
+`Held by` picks between them and the third option is the real one. A limiter
+looks ahead and moves a gain, and spends dynamics. A clipper cuts the waveform,
+and spends harmonics. The pair is what a mastering chain actually is, and it is
+not a compromise between the two - a clipper on its own is not a ceiling at all.
+
+Measured in `lib/limiter.js`: hard clipping at -1 dB lets drum hits out 3.46 dB
+over and noise 3.59, because band-limiting a clipped waveform restores the
+overshoot the cut took out. Through a clipper into a limiter the same signals
+come out at -0.000 dB over.
+
+And the reason to reach for one, measured on the bed with hits at the same
+drive: the clipper came out 3.2 LU louder than the limiter, because the limiter
+is holding the peak down with a gain and a gain is on everything.
+
+The left bay follows the mode, because in clip mode there is no gain reduction
+to draw - a clipper has no gain. It shows the harmonic series instead, which is
+the thing that replaced it, and the even bars sitting on the floor are the
+picture of a symmetric cut: cutting both halves of a wave the same way cannot
+make an even harmonic.
+
+The probe behind that display is a fixed -12 dBFS sine, shared with the
+saturator through `lib/harmonics.js`. So it answers "what would this setting do
+to a tone", which is a property of the transfer curve and not a measurement of
+the loop - at a drive where the material's peaks are just clipping and the
+probe tone is not, it reads nothing. That is the same thing the saturator's
+display has always been and it is worth knowing which question it is answering.
+
+## What is not here
 
 A track insert. `core/effects.js` does not offer one and `sketch/insert.js`
 has no tap for this face to read, which is the same place the level tool was

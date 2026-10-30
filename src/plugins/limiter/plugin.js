@@ -1,7 +1,9 @@
 import {
-  CEIL_DEFAULTS, CEIL_DRIVE, CEIL_OUTPUT, CEIL_PEAKS, CEIL_RANGE, CEIL_RELEASE,
-  ceilingReading, ceilingCost, matchOut,
+  CEIL_DEFAULTS, CEIL_DRIVE, CEIL_KNEE, CEIL_OUTPUT, CEIL_PEAKS, CEIL_RANGE,
+  CEIL_RELEASE, CEIL_SHAPES,
+  ceilingReading, ceilingCost, ceilingHarmonics, matchOut,
 } from './ceiling.js';
+import { HARMONICS, SERIES_FLOOR } from '../../lib/harmonics.js';
 import { CeilingPlayer } from './player.js';
 import { notReady, stampOf } from '../../lib/read.js';
 import { dialOf, offDial, readyCanvas, watchSize, span, writeMs } from '../../lib/panel.js';
@@ -64,6 +66,13 @@ const CEIL_KNOBS = [
     ...span(CEIL_RELEASE),
     step: 1,
     write: writeMs,
+  },
+  {
+    id: 'knee',
+    name: 'Knee',
+    ...span(CEIL_KNEE),
+    step: 0.5,
+    write: (v) => (v > 0 ? `${v.toFixed(1)} dB` : 'hard'),
   },
   {
     id: 'output',
@@ -159,7 +168,7 @@ export class LimiterPlugin {
 
         <div class="stereo-display">
           <div class="plugin-bay">
-            <span class="panel-name">Gain reduction</span>
+            <span class="panel-name" id="ceilLeftName">Gain reduction</span>
             <div class="plugin-panel"><canvas id="ceilTrace"></canvas></div>
           </div>
           <div class="plugin-bay">
@@ -171,6 +180,12 @@ export class LimiterPlugin {
         <div class="plugin-controls" id="ceilKnobs"></div>
 
         <div class="stereo-routing">
+          <label class="field">
+            <span class="field-label">Held by</span>
+            <select id="ceilMode">
+              ${CEIL_SHAPES.map((m) => `<option value="${m.id}">${m.label}</option>`).join('')}
+            </select>
+          </label>
           <label class="field">
             <span class="field-label">Ceiling for</span>
             <select id="ceilPeak">
@@ -188,6 +203,8 @@ export class LimiterPlugin {
     if (sample) sample.value = this.player.source;
     const peak = this.el.querySelector('#ceilPeak');
     if (peak) peak.value = this.settings.peak ?? 'true';
+    const mode = this.el.querySelector('#ceilMode');
+    if (mode) mode.value = this.settings.mode ?? CEIL_DEFAULTS.mode;
 
     this.buildKnobs();
     this.wire();
@@ -236,6 +253,11 @@ export class LimiterPlugin {
       this.settings.peak = e.target.value;
       this.changed();
     });
+    this.el.querySelector('#ceilMode')?.addEventListener('change', (e) => {
+      if (!this.interactive) return;
+      this.settings.mode = e.target.value;
+      this.changed();
+    });
     this.el.querySelector('#ceilSource')
       ?.addEventListener('change', (e) => this.setSource(e.target.value));
     this.el.querySelector('#ceilFile')
@@ -264,6 +286,17 @@ export class LimiterPlugin {
     }
     const peak = this.el.querySelector('#ceilPeak');
     if (peak) peak.value = this.settings.peak ?? 'true';
+    const mode = this.el.querySelector('#ceilMode');
+    if (mode) mode.value = this.settings.mode ?? CEIL_DEFAULTS.mode;
+
+    // Two of the five knobs only mean something in one mode each, and a knob
+    // that does nothing is worse than one that is not there: it invites an
+    // explanation of why turning it changed nothing. A clipper has no gain to
+    // let go of, and a limiter has no corner to round off.
+    const shape = this.settings.mode ?? CEIL_DEFAULTS.mode;
+    this.el.querySelector('#ceil-release')?.toggleAttribute('disabled', shape === 'clip');
+    this.el.querySelector('#ceil-knee')?.toggleAttribute('disabled', shape === 'limit');
+
     dressKnobs(this.el);
   }
 
@@ -319,6 +352,14 @@ export class LimiterPlugin {
     // has already been rendered once, and rendering it twice would double the
     // most expensive thing on the face.
     this.cost = ceilingCost(material, done.audio, material.rate);
+
+    // What it added to a steady tone, which is the other currency. Only when
+    // something is cutting the waveform: a limiter's series is its own
+    // numerical noise floor - measured, -122 dB at twelve decibels of drive -
+    // and a display of that would be a display of nothing, drawn convincingly.
+    this.series = (this.settings.mode ?? CEIL_DEFAULTS.mode) === 'limit'
+      ? null
+      : ceilingHarmonics(material, material.rate, this.settings).values;
   }
 
   read() {
@@ -341,9 +382,78 @@ export class LimiterPlugin {
 
   draw() {
     const ink = ceilPalette(this.el);
-    this.drawTrace(ink);
+    if ((this.settings.mode ?? CEIL_DEFAULTS.mode) === 'clip') this.drawSeries(ink);
+    else this.drawTrace(ink);
     this.drawCost(ink);
     this.writeReadout();
+
+    const name = this.el.querySelector('#ceilLeftName');
+    if (name) {
+      name.textContent = (this.settings.mode ?? CEIL_DEFAULTS.mode) === 'clip'
+        ? 'What it added' : 'Gain reduction';
+    }
+  }
+
+  /**
+   * The harmonic series, as bars.
+   *
+   * What a clipper costs, in the only unit it costs anything in. There is no
+   * gain reduction to draw in this mode - a clipper has no gain - so the bay
+   * shows the thing that replaced it rather than an empty trace, which is
+   * also the clearest way to say that the two modes are not two settings of
+   * one device.
+   *
+   * Odd harmonics stand taller than even ones here on every setting, and that
+   * is the shape of a symmetric curve rather than a choice: cutting both
+   * halves of a wave the same way cannot make an even harmonic. Which is why
+   * a clipper sounds like something going wrong where a biased saturator
+   * sounds like the note getting richer.
+   */
+  drawSeries(ink) {
+    const stage = readyCanvas(this.trace);
+    if (!stage) return;
+    const { c, width, height } = stage;
+
+    c.font = '9.5px system-ui, sans-serif';
+    c.strokeStyle = ink.grid;
+    c.lineWidth = 1;
+    c.textAlign = 'right';
+    c.fillStyle = ink.soft;
+
+    const plot = Math.max(40, width - 30);
+    const barY = (db) => ((Math.max(SERIES_FLOOR, Math.min(0, db)) - 0)
+      / (SERIES_FLOOR - 0)) * height;
+
+    for (let db = 0; db > SERIES_FLOOR; db -= 20) {
+      const y = barY(db);
+      c.beginPath(); c.moveTo(0, y); c.lineTo(plot, y); c.stroke();
+      c.fillText(`${db}`, plot + 24, Math.max(9, y + 10));
+    }
+
+    if (!this.series) {
+      c.textAlign = 'left';
+      c.fillStyle = ink.soft;
+      c.fillText(this.role === 'insert' ? 'play the sketch' : 'press play', 6, height - 6);
+      return;
+    }
+
+    const slot = plot / HARMONICS.length;
+    const base = barY(SERIES_FLOOR);
+    HARMONICS.forEach((m, i) => {
+      const level = Math.max(SERIES_FLOOR, this.series.harmonics[m]);
+      const top = barY(level);
+      const x = i * slot + slot * 0.2;
+      // Odd in ink, even in the quieter colour. A symmetric cut makes only
+      // odd ones, so the even bars sitting at the floor is the picture of
+      // the mode working as described.
+      c.fillStyle = m % 2 ? ink.blush : ink.sage;
+      c.globalAlpha = 0.75;
+      c.fillRect(x, top, slot * 0.6, Math.max(1, base - top));
+      c.globalAlpha = 1;
+      c.fillStyle = ink.soft;
+      c.textAlign = 'center';
+      c.fillText(`${m}`, x + slot * 0.3, height - 2);
+    });
   }
 
   drawTrace(ink) {
@@ -457,6 +567,10 @@ export class LimiterPlugin {
       ['deepest', '', figure(values?.deepest ?? 0), 'dB'],
       ['average', '', figure(values?.average ?? 0), 'dB'],
     ];
+
+    // The other currency, and only where it is being spent. A limiter's own
+    // row here would read -122 and mean nothing.
+    if (this.series) rows.push(['distortion', '', figure(this.series.thd), 'dB']);
 
     const line = Math.min(18, (height - 50) / (rows.length + 1));
     // Proportional rather than fixed offsets from the right edge, because

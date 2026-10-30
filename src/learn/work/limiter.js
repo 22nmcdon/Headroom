@@ -172,6 +172,55 @@ const CEIL_LADDER = {
 /** And how far out still counts as close, in chips. */
 const CEIL_NEAR = 1;
 
+/**
+ * What might be holding the ceiling, as the drill asks it.
+ *
+ * Three rather than two, and the third is the important one. A drive below
+ * the point where the material's own peak reaches the ceiling does nothing
+ * at all - the loudness follows it decibel for decibel and nothing is
+ * limited or cut - so once the level is matched that answer is the bypass
+ * exactly. Hearing that a processor is doing nothing is the first thing this
+ * tool teaches and the only one of the three that is a lesson about the
+ * knobs rather than about the sound.
+ *
+ * `both` is deliberately not offered. Measured at matched loudness it sits
+ * two decibels of gain reduction away from the clipper with the same
+ * distortion on the probe, which is a coin toss dressed as an ear test -
+ * the same reason the compressor's drill leaves out its auto release.
+ */
+const CEIL_HELD = [
+  { id: 'none', label: 'Just turned up', symbol: 'turned up' },
+  { id: 'limit', label: 'A limiter', symbol: 'limiter' },
+  { id: 'clip', label: 'A clipper', symbol: 'clipper' },
+];
+
+/**
+ * How much louder the drill makes the loop, per tier, in LU.
+ *
+ * Measured from the loop's own loudness, and it has to be well past the knee
+ * or the three answers are the same answer. On the probe, which peaks 5.76 dB
+ * under the ceiling, a push of four decibels reads identically in all three
+ * modes because none of them is doing anything yet - which is the trap this
+ * table exists to avoid and is how the first version of it was wrong.
+ *
+ * Past the knee they separate. How far the output has moved from the loop at
+ * matched loudness, as energy:
+ *
+ *     push    turned up    limiter    clipper
+ *     7.5       -93.8       -26.5      -26.1
+ *     9.5       -93.8       -17.7      -25.1
+ *    12.0       -93.8       -13.2      -22.6
+ *
+ * Which is the measurement behind the tiers and one thing worth knowing from
+ * it: the limiter moves MORE of the signal than the clipper does and sounds
+ * like less. Gain modulation touches every sample; clipping touches only the
+ * peaks, and what it puts there is harmonics, which are conspicuous out of
+ * all proportion to their energy.
+ *
+ * So easy pushes hardest. The gentler the push, the closer the three get.
+ */
+const CEIL_PUSH = { easy: 12, medium: 9.5, hard: 7.5 };
+
 /** A drive, written the way the face writes one. */
 const writeCeilDrive = (db) => `${db > 0 ? '+' : ''}${db.toFixed(1)} dB`;
 
@@ -238,6 +287,63 @@ const ceilKeptProbe = () => {
 };
 
 const ceilMaterial = (puzzle) => puzzle?.material ?? ceilKeptProbe();
+
+/**
+ * The drive that makes this loop this much louder, in this mode.
+ *
+ * The same shape as the delivery solve and for the same reason: there is no
+ * formula. Under the knee a decibel of drive is a decibel of loudness
+ * exactly; past it the mode is giving some of it back, and how much depends
+ * on the mode and on where the music peaks. Push, measure, correct by the
+ * error.
+ */
+function ceilDriveToLufs(material, settings, wantLufs) {
+  const dry = ceilMasterOf(material, { ...settings, drive: 0, output: 0 });
+  let drive = Math.max(CEIL_DRIVE[0], Math.min(CEIL_DRIVE[1], wantLufs - dry.integrated));
+
+  for (let round = 0; round < 5; round += 1) {
+    const got = ceilMasterOf(material, { ...settings, drive, output: 0 });
+    const off = wantLufs - got.integrated;
+    if (Math.abs(off) < 0.05) break;
+    const next = Math.max(CEIL_DRIVE[0], Math.min(CEIL_DRIVE[1], drive + off));
+    if (next === drive) break;
+    drive = next;
+  }
+  return drive;
+}
+
+/**
+ * The settings behind one of the three answers.
+ *
+ * All three are level-matched against the bypass, which is the whole
+ * instrument: a limiter and a clipper pushed to the same loudness differ in
+ * what they did to get there, and nothing else. Without the match the drill
+ * asks which side is louder.
+ *
+ * "Just turned up" is a drive stopped half a decibel short of where the
+ * ceiling starts to bite, which is measured rather than guessed - `driveFor`
+ * asked for a hair of reduction gives the knee back. Once matched it is the
+ * bypass exactly, and noticing that is the answer.
+ */
+function ceilHeldSettings(puzzle) {
+  const material = ceilMaterial(puzzle);
+  const held = puzzle.answer?.held ?? 'limit';
+  const push = CEIL_PUSH[puzzle.tier] ?? CEIL_PUSH.medium;
+
+  const base = { ...CEIL_DEFAULTS, mode: held === 'none' ? 'limit' : held };
+
+  let drive;
+  if (held === 'none') {
+    drive = Math.max(0, driveFor(material, material.rate, base, 0.01) - 0.5);
+  } else {
+    const dry = ceilMasterOf(material, { ...base, drive: 0, output: 0 });
+    drive = ceilDriveToLufs(material, base, dry.integrated + push);
+  }
+
+  const settings = { ...base, drive, output: 0 };
+  settings.output = matchOut(material, material.rate, settings);
+  return settings;
+}
 
 /**
  * The settings the drill puts on the tool.
@@ -489,6 +595,28 @@ export const CEIL_EXERCISES = {
     faultOf: () => null,
     targetOf: ceilSpecOf,
   },
+  held: {
+    id: 'held',
+    label: 'What is holding the ceiling?',
+    drill: true,
+    ask: 'What is holding this loop\'s ceiling?',
+    lede: 'Nothing to dial here. The loop has been made louder and the level '
+        + 'has been put back, so what is left to hear is how it was done - or '
+        + 'whether anything was done at all.',
+    opening: 'Play it, flip to the bypass, then say what is on it.',
+    tierBlurbs: {
+      easy: 'Pushed hard, so whatever is happening is obvious',
+      medium: 'Pushed to nine and a half decibels louder',
+      hard: 'Pushed gently, where the three are closest',
+    },
+    source: 'mix',
+    other: 'Bypass',
+    faultOf: () => null,
+    targetOf: () => ({ ...CEIL_DEFAULTS }),
+    startOf: (puzzle) => ceilHeldSettings(puzzle),
+    cleanOf: () => ({ ...CEIL_DEFAULTS }),
+    restores: true,
+  },
   drill: {
     id: 'drill',
     label: 'How much is it limiting?',
@@ -511,6 +639,61 @@ export const CEIL_EXERCISES = {
     restores: true,
   },
 };
+
+/**
+ * Naming what is on it, which is right or it is not.
+ *
+ * No scale and no partial credit, unlike the amount drill next door. Three
+ * answers that are not on a line: a clipper is not "more" of a limiter and a
+ * limiter is not "more" of nothing. Marking one of them as close to another
+ * would be inventing an order the thing being judged does not have.
+ */
+function scoreHeld(state, puzzle) {
+  const { answer } = puzzle;
+  const mine = CEIL_HELD.find((h) => h.id === state.held);
+  const wanted = CEIL_HELD.find((h) => h.id === answer.held) ?? CEIL_HELD[1];
+  const right = state.held === answer.held;
+
+  return {
+    correct: right,
+    cells: [
+      { state: right ? HIT : MISS, text: mine?.label ?? '—' },
+      {
+        state: right ? HIT : MISS,
+        text: right ? 'that is what is on it' : `it was ${wanted.symbol}`,
+        narrow: true,
+      },
+    ],
+    why: [
+      {
+        label: 'What was on it',
+        value: wanted.label,
+        how: answer.held === 'none'
+          ? 'Nothing. The drive stopped half a decibel short of where the '
+            + 'ceiling starts to bite, so the loop was turned up and nothing '
+            + 'else - and with the level put back it is the bypass exactly.'
+          : answer.held === 'limit'
+            ? 'A gain, moved ahead of the peaks it is for. What it spends is '
+              + 'dynamics: the loud moments come down and everything between '
+              + 'them is left where it was, which is what pumping is when it '
+              + 'is taken too far.'
+            : 'The waveform cut at the ceiling. What it spends is harmonics - '
+              + 'odd ones, going up the series - because a corner on a wave is '
+              + 'a discontinuity in its slope.',
+      },
+      {
+        label: 'How to tell',
+        value: 'the level is already matched',
+        how: 'So loudness is not the cue. Measured on this loop at nine and a '
+           + 'half decibels of push, the limiter moves the signal 17.7 dB '
+           + 'below itself and the clipper 25.1 - the limiter changes MORE of '
+           + 'it and sounds like less, because gain modulation touches every '
+           + 'sample while clipping only touches the peaks and leaves '
+           + 'harmonics there.',
+      },
+    ],
+  };
+}
 
 /** Naming an amount, which is marked on the chip and not on the audio. */
 function scoreHowMuch(state, puzzle) {
@@ -590,6 +773,14 @@ export const CEIL_WORK = {
 
   /** Answered on the plugin, except in the drill, which asks with chips. */
   slots(tier, settings) {
+    if (settings?.exercise === 'held') {
+      return [{
+        id: 'held',
+        kind: 'choice',
+        label: 'What is on it',
+        options: CEIL_HELD.map(({ id, label, symbol }) => ({ id, label, symbol })),
+      }];
+    }
     if (settings?.exercise !== 'drill') return [];
 
     const offered = CEIL_LADDER[tier] ?? CEIL_LADDER.medium;
@@ -606,6 +797,10 @@ export const CEIL_WORK = {
   },
 
   makePuzzle(rng, tier, settings) {
+    if (settings.exercise === 'held') {
+      return { answer: { held: pick(rng, CEIL_HELD.map((h) => h.id)) } };
+    }
+
     if (settings.exercise === 'drill') {
       const offered = CEIL_LADDER[tier] ?? CEIL_LADDER.medium;
       return { answer: { amount: pick(rng, offered) } };
@@ -644,6 +839,7 @@ export const CEIL_WORK = {
     const exercise = puzzle.settings?.exercise ?? 'match';
 
     if (exercise === 'drill') return scoreHowMuch(guess, puzzle);
+    if (exercise === 'held') return scoreHeld(guess, puzzle);
     if (exercise === 'deliver') return this.scoreDeliver(guess, puzzle);
 
     const material = ceilMaterial(puzzle);
@@ -804,6 +1000,26 @@ export const CEIL_WORK = {
       ];
     }
 
+    if (exercise === 'held') {
+      const wanted = CEIL_HELD.find((h) => h.id === answer.held) ?? CEIL_HELD[1];
+      return [
+        'The level is already matched, so forget about loudness. Flip to the '
+          + 'bypass in short bursts and listen to the hits rather than to the '
+          + 'whole thing: whatever is happening is happening to them.',
+        answer.held === 'none'
+          ? 'Listen for whether anything is happening at all. One of the three '
+            + 'answers is that nothing is, and with the level put back that one '
+            + 'is the bypass exactly.'
+          : answer.held === 'limit'
+            ? 'Something is moving. The quiet parts between the hits are '
+              + 'coming up and going down with them, which is a gain and not a '
+              + 'shape.'
+            : 'Nothing is moving, and the hits have grit on them. That is a '
+              + 'shape being cut rather than a gain being turned.',
+        `It is ${wanted.symbol}, which is what was holding the ceiling.`,
+      ];
+    }
+
     if (exercise === 'deliver') {
       const target = targetOfId(answer?.service) ?? TARGETS[0];
       const spec = ceilSpecOf(puzzle);
@@ -842,6 +1058,11 @@ export const CEIL_WORK = {
       return { symbol: writeCeilGR(answer.amount), name: 'at its deepest' };
     }
 
+    if (exercise === 'held') {
+      const wanted = CEIL_HELD.find((h) => h.id === answer.held) ?? CEIL_HELD[1];
+      return { symbol: wanted.symbol, name: 'was holding the ceiling' };
+    }
+
     if (exercise === 'deliver') {
       const target = targetOfId(answer?.service) ?? TARGETS[0];
       return {
@@ -865,7 +1086,15 @@ export const CEIL_WORK = {
    * the answer.
    */
   heard(guess, puzzle) {
-    if ((puzzle?.settings?.exercise ?? 'match') !== 'drill') return null;
+    const exercise = puzzle?.settings?.exercise ?? 'match';
+
+    if (exercise === 'held') {
+      if (guess?.held === undefined) return null;
+      const said = CEIL_HELD.find((h) => h.id === guess.held);
+      return { key: `held-${guess.held}`, label: said?.symbol ?? guess.held };
+    }
+
+    if (exercise !== 'drill') return null;
     if (guess?.amount === undefined) return null;
     return { key: `ceil-${guess.amount}`, label: `${writeCeilGR(guess.amount)} of limiting` };
   },
@@ -876,6 +1105,10 @@ export const CEIL_WORK = {
     const { answer } = puzzle;
     if (exercise === 'drill') {
       return { key: `ceil-${answer.amount}`, label: `${writeCeilGR(answer.amount)} of limiting` };
+    }
+    if (exercise === 'held') {
+      const wanted = CEIL_HELD.find((h) => h.id === answer.held) ?? CEIL_HELD[1];
+      return { key: `held-${wanted.id}`, label: `hearing ${wanted.symbol}` };
     }
     if (exercise === 'deliver') {
       const target = targetOfId(answer?.service) ?? TARGETS[0];

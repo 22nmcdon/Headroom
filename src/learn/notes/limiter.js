@@ -87,6 +87,59 @@ export const CEIL_NOTES = {
         + 'master is a different job, so the default here is the other way round.',
     },
     {
+      heading: 'The other way: cut the waveform',
+      body: 'A clipper holds the same ceiling by a completely different method. No '
+        + 'lookahead, no gain, no release, no state at all — just a line the signal is '
+        + 'not allowed to cross. Where a limiter turns the loud moments down, a clipper '
+        + 'cuts their tops off and leaves everything else exactly where it was.\n\n'
+        + 'What it costs is harmonics rather than dynamics. The corner a cut puts on a '
+        + 'waveform is a discontinuity in the slope, and a discontinuity in the slope is '
+        + 'an odd harmonic series going up for ever. Measured here on a tone pushed two '
+        + 'decibels into the ceiling: a third harmonic 15 dB below the note, a seventh 31 '
+        + 'dB below, and no even harmonics at all — cutting both halves of a wave the '
+        + 'same way cannot make one. That is why a clipper sounds like something going '
+        + 'wrong rather than like the note getting richer, which is the job of the '
+        + 'saturator next door.\n\n'
+        + 'The reason to reach for one is that it buys loudness more cheaply. Pushed to '
+        + 'the same drive on the same loop, the clipper came out three decibels louder '
+        + 'than the limiter — the limiter is holding the peak down with a gain and a gain '
+        + 'is on everything, where the clipper only takes the tips off. On transient '
+        + 'material a decibel or two of clipping before a limiter is close to free, and it '
+        + 'is what nearly every loud record is doing.',
+    },
+    {
+      heading: 'Why a clipper is not actually a ceiling',
+      body: 'This is the part that surprises people, and it is not a flaw in any '
+        + 'particular clipper. Cut a waveform at a line and then band-limit it — which '
+        + 'every converter, encoder and sample-rate conversion does — and the peak comes '
+        + 'back. The corners the cut made contain content above half the sample rate; '
+        + 'filtering that back out restores the overshoot the cut had taken away.\n\n'
+        + 'Measured here, hard clipping at −1 dB and then reading what came out: a steady '
+        + 'tone 0.12 dB over, single-sample clicks 3.14 dB over, drum hits 3.46, noise '
+        + '3.59. Three and a half decibels above the line it was told not to cross.\n\n'
+        + 'Which is exactly why a mastering chain is a clipper into a limiter rather than '
+        + 'one or the other. The clipper takes the transient tips off cheaply so the '
+        + 'limiter has less to do and moves its gain less; the limiter holds the ceiling '
+        + 'the clipper cannot. Through both, the same four signals come out at −0.000 dB '
+        + 'over, every time.',
+    },
+    {
+      heading: 'Aliasing, and why clipping runs faster than the signal',
+      body: 'A harmonic above half the sample rate does not disappear. It folds back '
+        + 'down to a frequency with no musical relationship to anything in the signal, '
+        + 'and that inharmonic fizz is what people are describing when they say digital '
+        + 'clipping sounds nasty. It is not the clipping — it is the fold-back.\n\n'
+        + 'So the clipper here interpolates the signal up to four times the rate, cuts it '
+        + 'there, and filters it back down. How much that buys depends entirely on where '
+        + 'the music is. Measured, as how much inharmonic energy is left behind against '
+        + 'the tone: at 440 Hz, −58.7 dB at the signal\'s own rate against −70.5 '
+        + 'oversampled; at four kilohertz, −29.5 against −48.1; at ten kilohertz, −13.8 '
+        + 'against −39.1.\n\n'
+        + 'Fourteen decibels below the note, on frequencies that have nothing to do with '
+        + 'it, is not subtle. Anything bright is where a clipper that does not oversample '
+        + 'falls apart, and it is the single thing to check when comparing two of them.',
+    },
+    {
       heading: 'Normalisation, and why the loudness war is over',
       body: 'Every service a record is played on measures its loudness and applies a gain '
         + 'so that it plays at the same level as everything else. Spotify normalises to '

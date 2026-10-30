@@ -16,6 +16,9 @@
 import {
   makeLimiter, CEILING_DB, LIMIT_RELEASE, LIMIT_AHEAD,
 } from '../../lib/limiter.js';
+import {
+  spectrumThrough, seriesOf, PROBE_BIN, HARMONIC_AXIS,
+} from '../../lib/harmonics.js';
 import { integrated, kWeight, truePeakOf } from '../../lib/loudness.js';
 import { readingOf, stampOf } from '../../lib/read.js';
 import { FRAME_MS, materialStamp, meanFrames } from '../../lib/reduce.js';
@@ -96,6 +99,44 @@ export const CEIL_RELEASE = [10, 500];
 export const CEIL_OUTPUT = [-24, 0];
 
 /**
+ * How the ceiling is held.
+ *
+ * Not a preference between two implementations of the same thing - they cost
+ * different currencies. A limiter looks ahead and moves a gain, and what it
+ * spends is dynamics: the loud moments come down and the peak-to-loudness
+ * ratio with them. A clipper cuts the waveform, and what it spends is
+ * harmonics: the corner it puts on a wave is a discontinuity in the slope,
+ * and a discontinuity in the slope is an odd series going up for ever.
+ *
+ * Both exists because a clipper on its own is not a ceiling. Measured in
+ * `lib/limiter.js`: hard clipping at -1 dB lets transient material out three
+ * and a half decibels over, because band-limiting a clipped waveform puts
+ * back the overshoot the clipping took out. A mastering chain is a clipper
+ * into a limiter for exactly that reason, and the pair holds the ceiling to
+ * -0.000 dB on everything the tests can think of.
+ */
+export const CEIL_SHAPES = [
+  { id: 'limit', label: 'Limiter' },
+  { id: 'clip', label: 'Clipper' },
+  { id: 'both', label: 'Clip → limit' },
+];
+
+/**
+ * How far below the ceiling a clipper starts bending, in decibels.
+ *
+ * Zero is a straight cut, which is what hard clipping means and makes the
+ * most of the high harmonics - the ones that sound like breakage rather than
+ * like thickness. Measured on a sine two decibels into the ceiling, the
+ * seventh harmonic falls from -31.6 dB to -42.1 across this range while the
+ * third barely moves, which is the whole of what a knee is for.
+ *
+ * Twelve at the top, because past that the bend starts so far below the
+ * ceiling that it is a saturator rather than a clipper - and there is a
+ * saturator next door with seven curves and a harmonic display of its own.
+ */
+export const CEIL_KNEE = [0, 12];
+
+/**
  * Which peak the ceiling is a ceiling for.
  *
  * The default is the true one, which is the opposite of the sketchpad's own
@@ -115,6 +156,8 @@ export const CEIL_DEFAULTS = {
   release: LIMIT_RELEASE * 1000,
   output: 0,
   peak: 'true',
+  mode: 'limit',
+  knee: 0,
 };
 
 /**
@@ -134,6 +177,10 @@ export function ceilingFor(rate, settings) {
     release: heldTo(settings.release ?? CEIL_RELEASE[0], CEIL_RELEASE) / 1000,
     truePeak: (settings.peak ?? 'true') === 'true',
     lookahead: LIMIT_AHEAD,
+    mode: CEIL_SHAPES.some((shape) => shape.id === settings.mode)
+      ? settings.mode
+      : CEIL_DEFAULTS.mode,
+    knee: heldTo(settings.knee ?? 0, CEIL_KNEE),
   });
 }
 
@@ -174,6 +221,46 @@ export function runCeiling(left, right, settings, rate) {
   }
 
   return { left: outL, right: outR, gr };
+}
+
+/**
+ * What the chain does to a steady tone: the harmonic series.
+ *
+ * The reading that separates the two modes, and it separates them completely.
+ * A limiter is transparent to a steady tone however hard it is pushed - the
+ * gain settles and what comes out is the same wave, quieter - so the series
+ * is empty. A clipper cannot be: it is cutting the shape of the wave, and the
+ * shape is the series.
+ *
+ * The whole chain is probed, drive and output trim included, because that is
+ * what the knobs are set to and what the ear is hearing. At no drive the tool
+ * is not distorting anything and the reading says so.
+ *
+ * `kind: 'harmonics'` on the saturator's axis, deliberately: "what did this
+ * add to a sine" is one question however the thing answering it is built, and
+ * `distance` can now put a clipper's series beside a saturator's.
+ */
+export function ceilingHarmonics(material, rate, settings, { source = null } = {}) {
+  const drive = 10 ** (heldTo(settings.drive ?? 0, CEIL_DRIVE) / 20);
+  const out = 10 ** (heldTo(settings.output ?? 0, CEIL_OUTPUT) / 20);
+  const limiter = ceilingFor(rate, settings);
+
+  // One sample at a time, which is what a probe is. A block of one is not a
+  // special case for anything above - the lookahead and the rings carry
+  // between calls either way.
+  const one = new Float32Array(1);
+  const step = (x) => {
+    one[0] = x * drive;
+    limiter.block([one]);
+    return one[0] * out;
+  };
+
+  return readingOf({
+    tool: 'limiter',
+    kind: 'harmonics',
+    of: { state: stampOf(settings), source, axis: HARMONIC_AXIS },
+    values: seriesOf(spectrumThrough(step, PROBE_BIN), PROBE_BIN),
+  });
 }
 
 /**
