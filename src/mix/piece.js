@@ -164,8 +164,18 @@ export function pieceOf(id) {
 
   const bars = barTicks(project) * HOW_LONG;
 
+  // The id as well as the name, which it did not used to be. A new project
+  // opens on the sketchpad's starter tracks and this overwrote each one's
+  // name and instrument while leaving its id alone, so track 0 was called
+  // Drums and carried `id: 'piano'` and track 2 was called Keys and carried
+  // `id: 'kit'` - the starter's ids, in the starter's order, contradicting
+  // what the tracks now held. Nothing read them, so nothing was broken; what
+  // it cost was that a per-stem reading had no honest key to file itself
+  // under, which is what this is for.
   STEMS.forEach((stem, index) => {
-    project = setTrack(project, index, { ...STEM_FLAT, name: stem.name, instrument: stem.instrument });
+    project = setTrack(project, index, {
+      ...STEM_FLAT, id: stem.id, name: stem.name, instrument: stem.instrument,
+    });
     project = setNotes(project, index, 0, parts[stem.id], bars);
   });
 

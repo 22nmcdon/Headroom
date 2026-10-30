@@ -22,7 +22,7 @@ import {
   MIX_TIERS, MIX_TIER_IDS, ANCHOR, TONE_BANDS, TONED,
 } from './brief.js';
 import { EQ_REST } from '../sketch/knobs.js';
-import { renderMix, readMaster } from './render.js';
+import { readMix } from './render.js';
 import { markMix, mixAdvice, READING_NAMES } from './score.js';
 import { makeStage } from '../sketch/stage.js';
 import { roundSeed } from '../learn/game.js';
@@ -498,7 +498,7 @@ export class MixPage {
   async answerRead() {
     if (!this.round.answer) {
       const theirs = dress(this.round.piece, this.round.brief.target);
-      this.round.answer = readMaster(await renderMix(theirs), 'answer');
+      this.round.answer = await readMix(theirs, 'answer');
     }
     return this.round.answer;
   }
@@ -511,7 +511,7 @@ export class MixPage {
 
     try {
       const theirs = await this.answerRead();
-      const mine = readMaster(await renderMix(dress(this.round.piece, this.mine)), 'yours');
+      const mine = await readMix(dress(this.round.piece, this.mine), 'yours');
 
       this.attempts += 1;
       this.marked = markMix(mine, theirs, this.tier);

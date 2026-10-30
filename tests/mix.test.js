@@ -20,6 +20,8 @@ import {
   READING_NAMES, HIT, NEAR, MISS,
 } from '../src/mix/score.js';
 import { placementOf, placementGap, placementReading, MOST_OFF_CENTRE } from '../src/mix/placement.js';
+import { levelsReading, partsOut } from '../src/mix/levels.js';
+import { distance } from '../src/gap.js';
 import { MARKED } from '../src/mix/render.js';
 import { barTicks, clipAt } from '../src/sketch/project.js';
 import { STEREO_BANDS } from '../src/plugins/stereo/field.js';
@@ -269,12 +271,21 @@ const payload = (kind, off) => {
       bands: Object.fromEntries(STEREO_BANDS.map((band, i) => [band.id, { width: i === 3 ? off : 0, balance: 0 }])),
     };
   }
+  if (kind === 'levels') {
+    // One part out and the rest at the mean, which is the shape a single
+    // fader error makes - see the note over the levels tolerances.
+    return {
+      parts: Object.fromEntries(STEM_IDS.map((id) => [id, -20])),
+      shape: Object.fromEntries(STEM_IDS.map((id, i) => [id, i === 1 ? off : 0])),
+    };
+  }
   return { whole: 0, bands: Object.fromEntries(STEREO_BANDS.map((band, i) => [band.id, i === 3 ? off : 0])) };
 };
 
 const axisFor = (kind) => {
   if (kind === 'crest') return { kind: 'whole' };
   if (kind === 'balance') return { kind: 'thirds', ids: THIRDS };
+  if (kind === 'levels') return { kind: 'stems', ids: STEM_IDS };
   return BANDS;
 };
 
@@ -302,7 +313,7 @@ test('the tolerances tighten as the tier does', () => {
   }
 });
 
-/** Five readings, each a given number of decibels out. */
+/** Every marked reading, each a given number of decibels out. */
 const master = (off = {}) => Object.fromEntries(MARKED.map((kind) => [
   kind,
   kind === 'loudness'
@@ -449,4 +460,126 @@ test('the other tiers have no tone in them at all', () => {
       }
     }
   }
+});
+
+/* --- the parts against each other ----------------------------------------- */
+
+/**
+ * Stems as `renderStems` hands them back, from levels in decibels.
+ *
+ * Built rather than rendered, because what is being tested here is the
+ * arithmetic over the parts and not the graph that made them - a render needs
+ * a browser, and `tests/browser/` is where the graph is held.
+ */
+function stemsAt(levels, rate = 44100) {
+  const seconds = 4;
+  const n = Math.round(rate * seconds);
+  return Object.entries(levels).map(([id, db]) => {
+    const g = 10 ** (db / 20);
+    const channel = new Float32Array(n);
+    for (let i = 0; i < n; i += 1) {
+      // A tone with a swell, so the gating has blocks of different levels to
+      // keep rather than one flat one.
+      const t = i / rate;
+      const swell = 0.7 + 0.3 * Math.sin(2 * Math.PI * 0.4 * t);
+      channel[i] = Math.sin(2 * Math.PI * 440 * t) * 0.3 * swell * g;
+    }
+    return { id, name: id, kind: 'track', channels: [channel, channel], rate };
+  });
+}
+
+test('the parts reading is blind to the overall level and not to the balance', () => {
+  // The whole reason it reads each part against the mean of the parts. How
+  // loud the master is already has a reading of its own, and a mix that is
+  // perfectly balanced two decibels down should fail on that one and pass
+  // here - reading the parts absolutely would fail it twice for one mistake
+  // and point at four parts for a fault that is in none of them.
+  const base = { kit: -20, bass: -22, keys: -24, pad: -26 };
+  const answer = levelsReading(stemsAt(base), 44100);
+
+  const lifted = Object.fromEntries(Object.entries(base).map(([id, db]) => [id, db + 3]));
+  assert.ok(distance(levelsReading(stemsAt(lifted), 44100), answer).off < 0.01,
+    'every fader up by the same amount is the same balance');
+
+  const tilted = { ...base, bass: base.bass + 3 };
+  const gap = distance(levelsReading(stemsAt(tilted), 44100), answer);
+  assert.ok(gap.off > 0.5, 'and one fader up by itself is not');
+  assert.equal(gap.where, 'bass', 'and it says which one');
+  assert.ok(gap.detail.hotter > 0, 'and which way');
+});
+
+test('what a reading of the parts means in faders, which is not one to one', () => {
+  // The thing the first version of this got wrong. Removing the mean is lossy
+  // on purpose, so a reading cannot be turned back into a fader position: any
+  // set of moves and that set plus a constant read the same. What it can do
+  // is grow with the error, and these are the anchors the tolerances are set
+  // from.
+  const base = { kit: -20, bass: -22, keys: -24, pad: -26 };
+  const answer = levelsReading(stemsAt(base), 44100);
+  const off = (moves) => distance(
+    levelsReading(stemsAt({ ...base, ...moves }), 44100), answer,
+  ).off;
+
+  // One part out by a decibel reads three quarters of it, because a quarter
+  // of the move goes into the mean of four.
+  assert.ok(Math.abs(off({ bass: base.bass + 1 }) - 0.75) < 0.02,
+    `one fader by a decibel should read 0.75, and read ${off({ bass: base.bass + 1 }).toFixed(3)}`);
+
+  // Two out the same way read less than one out, which is the part that makes
+  // the one-to-one story false: the mean moves with them.
+  assert.ok(off({ bass: base.bass + 1, pad: base.pad + 1 }) < off({ bass: base.bass + 1 }),
+    'two parts out the same way read less than one does');
+
+  // And two out in opposite directions read the move itself, because the mean
+  // does not shift at all.
+  assert.ok(Math.abs(off({ bass: base.bass + 1, pad: base.pad - 1 }) - 1) < 0.02,
+    'two parts out opposite ways read the move');
+});
+
+test('the advice names the parts rather than a frequency', () => {
+  // The point of having this reading at all. "There is too much around 120 Hz"
+  // is true and is not an instruction; naming the fader is.
+  const base = { kit: -20, bass: -22, keys: -24, pad: -26 };
+  const answer = levelsReading(stemsAt(base), 44100);
+  const mine = levelsReading(stemsAt({ ...base, bass: base.bass + 4 }), 44100);
+
+  const marked = markReading('levels', mine, answer, toleranceFor('easy'));
+  assert.equal(marked.kind, 'levels');
+  assert.equal(marked.where, 'bass');
+
+  const line = mixAdvice({ solved: false, worst: marked });
+  assert.match(line, /bass/, `the advice should name the part: "${line}"`);
+  assert.match(line, /hot/, 'and which way it is out');
+  // Never an absolute fader claim, which is the thing that was wrong before.
+  assert.match(line, /Against the rest/, 'and that the number is relative');
+});
+
+test('a part that is right is never named, however wrong its neighbours are', () => {
+  // What the broken version did: it said "the keys are 2.3 dB too hot" about a
+  // fader nobody had touched, because it scaled the shape error by 4/3 and
+  // called the result a fader position. A part at its target still shows a
+  // shape error when others move - that is the mean shifting - so the advice
+  // must only name parts outside the tolerance, worst first.
+  const base = { kit: -20, bass: -22, keys: -24, pad: -26 };
+  const answer = levelsReading(stemsAt(base), 44100);
+  const mine = levelsReading(stemsAt({ ...base, bass: base.bass + 6 }), 44100);
+  const gap = distance(mine, answer);
+
+  const named = partsOut(gap, toleranceFor('easy').levels).map((p) => p.id);
+  assert.ok(named.includes('bass'), 'the one that moved is named');
+  assert.equal(named[0], 'bass', 'and it is named first, as the worst');
+});
+
+test('levels is marked on every tier and is loose where tone is the question', () => {
+  // A tone round gives the levels right and asks for EQ, and an EQ boost
+  // changes the stem's whole loudness - measured, a flat tone round reads 1.60
+  // and 1.76 from its answer on levels alone. So the tone tier's tolerance is
+  // loose enough never to fire, which is marking the tone move once rather
+  // than twice.
+  assert.ok(MARKED.includes('levels'), 'the parts are marked');
+  for (const tier of ['easy', 'medium', 'hard']) {
+    assert.ok(toleranceFor(tier).levels <= 0.8, `${tier} should hold the parts to something`);
+  }
+  assert.ok(toleranceFor('tone').levels >= 2,
+    'and the tone tier should not fail somebody for the EQ it asked for');
 });

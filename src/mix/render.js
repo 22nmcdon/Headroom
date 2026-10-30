@@ -20,6 +20,8 @@ import { crestReading } from '../analysis/dynamics.js';
 import { balanceReading } from '../analysis/balance.js';
 import { widthReading } from '../analysis/width.js';
 import { placementReading } from './placement.js';
+import { levelsReading } from './levels.js';
+import { renderStems } from '../sketch/stems.js';
 import { stampOf } from '../lib/read.js';
 
 /** Long enough for the tails, short enough that a round is not a wait. */
@@ -79,8 +81,16 @@ export async function renderMix(project, { bars = 4, rate = RATE, tail = TAIL } 
 export const channelsIn = (buffer) =>
   Array.from({ length: buffer.numberOfChannels }, (_, i) => buffer.getChannelData(i));
 
-/** The readings a mix is marked on, in the order they are shown. */
-export const MARKED = ['loudness', 'balance', 'placement', 'width', 'crest'];
+/**
+ * The readings a mix is marked on, in the order they are shown.
+ *
+ * `levels` is last and is the only one not taken on the master, because it is
+ * the only one that can name a fader. The other five read the sum, which is
+ * right - two sets of moves that come out sounding the same are the same
+ * answer - and leaves the advice unable to say which part the energy belongs
+ * to. "There is too much around 120 Hz" is true and is not an instruction.
+ */
+export const MARKED = ['loudness', 'balance', 'placement', 'width', 'crest', 'levels'];
 
 /**
  * Everything worth saying about a master, in five readings.
@@ -93,6 +103,44 @@ export const MARKED = ['loudness', 'balance', 'placement', 'width', 'crest'];
  * different renders can never be compared by accident - `comparable` refuses
  * them on the axis, and the source says which is which when it does.
  */
+/**
+ * Everything a mix is marked on: the five off the master, and the parts.
+ *
+ * Two renders, and the cost is real - measured, 1947 ms one after the other
+ * against 886 for the master alone, and running them together saves nothing
+ * because two offline renders of the same project contend completely (1934 ms
+ * together). So a submit roughly doubles.
+ *
+ * It could be one render. The stems pass taps every track in one go, and
+ * tapping the limiter's output alongside them would give all six readings for
+ * the price of one. That was built and then taken out again, because the two
+ * renders do not produce the same master and the difference is not small:
+ *
+ *     renderMix     632023 samples, first sound at 2867, energy -30.168
+ *     stems tap     627613 samples, first sound at  221, energy -29.512
+ *
+ * Both causes are in this file and in `sketch/stems.js` rather than in the
+ * graph - `renderMix` adds a tenth of a second to the context and calls
+ * `stage.play()`, which starts a breath after zero, where the stems pass
+ * calls `play(0)` and does not. Alignable, almost certainly. Not aligned
+ * here, because the five master readings carry tolerances in `score.js` that
+ * were measured on this exact signal, and a near-miss at aligning them would
+ * silently re-mark every tier rather than fail.
+ *
+ * Neither reading needs the other's render to be valid: each side of a
+ * comparison goes through the same path as the other, which is what a
+ * comparison needs.
+ */
+export async function readMix(project, source, { bars = 4, rate = RATE, tail = TAIL } = {}) {
+  const master = await renderMix(project, { bars, rate, tail });
+  const stems = await renderStems(project, 0, { bars, rate, tail });
+
+  return {
+    ...readMaster(master, source),
+    levels: levelsReading(stems, rate, { source }),
+  };
+}
+
 export function readMaster(buffer, source) {
   const channels = channelsIn(buffer);
   const { sampleRate } = buffer;

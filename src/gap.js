@@ -20,6 +20,7 @@ import { stereoGap } from './plugins/stereo/field.js';
 import { coherenceGap } from './plugins/stereo/coherence.js';
 import { heatGap } from './plugins/saturation/shape.js';
 import { loudnessGap } from './lib/loudness.js';
+import { levelsGap } from './mix/levels.js';
 import { crestGap } from './analysis/dynamics.js';
 import { balanceGap } from './analysis/balance.js';
 import { widthGap } from './analysis/width.js';
@@ -70,6 +71,7 @@ const GAPS = {
   coherence: coherenceGap,
   harmonics: heatGap,
   loudness: loudnessGap,
+  levels: levelsGap,
   crest: crestGap,
   balance: balanceGap,
   width: widthGap,

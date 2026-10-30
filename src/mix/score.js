@@ -40,6 +40,7 @@
 import { HIT, NEAR, MISS } from '../learn/work/scoring.js';
 import { distance } from '../gap.js';
 import { MARKED } from './render.js';
+import { partsOut } from './levels.js';
 
 /** What each reading is called where somebody has to read it. */
 export const READING_NAMES = {
@@ -48,13 +49,14 @@ export const READING_NAMES = {
   placement: { label: 'Where things sit', unit: 'dB' },
   width: { label: 'How wide', unit: 'dB' },
   crest: { label: 'How dynamic', unit: 'dB' },
+  levels: { label: 'The parts against each other', unit: 'dB' },
 };
 
 /** Inside this, on every reading, and the mix is the mix. */
 export const MIX_TOLERANCE = {
-  easy: { loudness: 1.2, balance: 1.8, placement: 1.0, width: 5.5, crest: 1.4 },
-  medium: { loudness: 0.7, balance: 1.0, placement: 0.6, width: 2.8, crest: 0.8 },
-  hard: { loudness: 0.35, balance: 0.55, placement: 0.3, width: 1.4, crest: 0.45 },
+  easy: { loudness: 1.2, balance: 1.8, placement: 1.0, width: 5.5, crest: 1.4, levels: 0.8 },
+  medium: { loudness: 0.7, balance: 1.0, placement: 0.6, width: 2.8, crest: 0.8, levels: 0.5 },
+  hard: { loudness: 0.35, balance: 0.55, placement: 0.3, width: 1.4, crest: 0.45, levels: 0.4 },
   // Tone is marked on `balance` and on nothing else, because nothing else is
   // being asked for: the levels, the placement and the room are given right.
   // So balance is tight and the other four sit where the easy tier has them,
@@ -66,7 +68,66 @@ export const MIX_TOLERANCE = {
   // and 0.57 at three; the floor on a tone move is three, so the tolerance
   // has to sit between those two or a round at the floor arrives solved. See
   // TONE_BANDS in brief.js for the whole table.
-  tone: { loudness: 1.2, balance: 0.5, placement: 1.0, width: 5.5, crest: 1.4 },
+  tone: { loudness: 1.2, balance: 0.5, placement: 1.0, width: 5.5, crest: 1.4, levels: 2.5 },
+};
+
+/**
+ * What the levels tolerances are, and what the number they are in means.
+ *
+ * `levels` reads each part against the mean of the parts, so the overall
+ * level is taken out and what is left is the shape of the balance. That makes
+ * it blind to a gain on every fader at once, which is the point - measured,
+ * moving all four by a step reads 0.000 exactly, and the loudness reading
+ * next door is what catches that.
+ *
+ * It also makes the number NOT a fader position, and the first version of
+ * this got that wrong. It claimed a reading of X meant 4X/3 of fader, on the
+ * strength of a measurement taken with exactly one fader nudged - where that
+ * does hold, because a quarter of a single move goes into the mean. With two
+ * faders out it is false, and the advice built on it said "the keys are 2.3 dB
+ * too hot" about a fader that had not been touched at all. Removing the mean
+ * is lossy on purpose: any set of moves and that set plus a constant read the
+ * same, so no reading of it can name an absolute fader error.
+ *
+ * So the tolerances are in shape-decibels and are anchored on what the
+ * controls can actually express. Measured, against an answer, on a medium
+ * round:
+ *
+ *     one fader out by one step (0.5 dB)      0.375
+ *     one fader out by two steps              0.750
+ *     one fader out by four steps (2 dB)      1.500
+ *     two faders out by a step, same way      0.250
+ *     two faders out by a step, opposite      0.500
+ *     all four out by a step                  0.000
+ *
+ * Which puts 0.8 at "one fader two steps off is forgiven and three is not",
+ * 0.5 at "one step off, or two faders a step apart, and no more", and 0.4 at
+ * "one step and nothing else". A flat mix reads 1.50 to 2.87 from the answer
+ * depending on tier and seed, so no round arrives solved.
+ *
+ * The tone tier is loose at 2.5 and will therefore never fire, which is
+ * deliberate and is not the "a control they were not asked to touch" case
+ * above - it is the opposite. A tone round gives the levels right and asks
+ * for EQ, and an EQ boost of three to eight decibels on one band changes that
+ * stem's whole loudness: measured, a flat tone round reads 1.60 and 1.76 from
+ * its answer on levels alone. Marking that would be marking the tone move
+ * twice, once where it belongs and once here.
+ */
+
+/**
+ * What each part is called in a sentence, with the verb that goes with it.
+ *
+ * Two of the four names are plural and two are not, so one sentence shape
+ * cannot hold them: the first version said "the keys is 2.3 dB too hot",
+ * which reads as a typo. The verb travels with the name rather than being
+ * worked out from it, because that is two words either way and guessing at
+ * English plurals from a four-item table is the harder of the two.
+ */
+const NAMED = {
+  kit: { name: 'kit', is: 'is' },
+  bass: { name: 'bass', is: 'is' },
+  keys: { name: 'keys', is: 'are' },
+  pad: { name: 'pad', is: 'is' },
 };
 
 /** Close is twice the tolerance, as everywhere else in this app. */
@@ -134,6 +195,23 @@ export function mixAdvice(marked) {
       return `The image is ${worst.detail?.wider > 0 ? 'wider' : 'narrower'} than it should be${where}.`;
     case 'crest':
       return 'The peaks sit differently against the body of it — usually a level, not a pan.';
+    case 'levels': {
+      // The one reading that can name a fader, so it does. Two at a time at
+      // most: a line that lists four parts is a line nobody reads, and the
+      // worst one is the one to go and move first.
+      const out = partsOut(worst, worst.allowed).slice(0, 2);
+      if (!out.length) return 'One part is at the wrong level against the others.';
+      // "Against the rest" rather than a bare "too hot", because that is
+      // exactly what the number is: each part against the mean of the parts.
+      // Saying it as an absolute fader error would be the mistake described
+      // over LEVELS tolerances - the mean cannot be un-removed.
+      const say = ({ id, by }) => {
+        const part = NAMED[id] ?? { name: id, is: 'is' };
+        return `the ${part.name} ${part.is} ${Math.abs(by).toFixed(1)} dB `
+          + `too ${by > 0 ? 'hot' : 'low'}`;
+      };
+      return `Against the rest of the parts, ${out.map(say).join(', and ')}.`;
+    }
     default:
       return 'Keep going.';
   }
