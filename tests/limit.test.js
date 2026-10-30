@@ -7,7 +7,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { makeLimiter, LIMIT_AHEAD, CEILING_DB } from '../src/lib/limiter.js';
+import { makeLimiter, LIMIT_AHEAD, LIMIT_RELEASE, CEILING_DB } from '../src/lib/limiter.js';
 import { mulberry32 } from '../src/lib/random.js';
 import { truePeakOf, peakPhases } from '../src/lib/loudness.js';
 import { limiterSource } from '../src/lib/limiter-node.js';
@@ -285,6 +285,14 @@ test('the audio thread gets the same limiter, true peak and all', () => {
 
   const theirs = new Function(`${source.replace(/class HeadroomLimiter[\s\S]*$/, '')}; return makeLimiter;`)();
 
+  // The knobs have to reach the audio thread as well. A `set` that exists in
+  // the module and not in the worklet is a ceiling knob that does nothing,
+  // and it would look like a wiring fault rather than a missing method.
+  assert.equal(typeof theirs(RATE, {}).set, 'function',
+    'the stringified limiter has to carry its setters');
+  assert.ok(source.includes('this.limiter.set('),
+    'and the processor has to call them when a message arrives');
+
   const noise = mulberry32(55);
   const n = 8192;
   const raw = new Float32Array(n);
@@ -307,4 +315,76 @@ test('the audio thread gets the same limiter, true peak and all', () => {
         `the two limiters parted company at sample ${i} with truePeak ${truePeak}`);
     }
   }
+});
+
+/* --- knobs that can be turned while it runs -------------------------------- */
+
+/** Through the limiter in blocks, with a change made part way. */
+function changedHalfway(samples, over, next, span = 128) {
+  const limiter = makeLimiter(RATE, over);
+  const out = new Float32Array(samples.length);
+  const half = Math.round(samples.length / 2 / span) * span;
+  for (let at = 0; at < samples.length; at += span) {
+    if (at === half) limiter.set(next);
+    const block = samples.slice(at, Math.min(at + span, samples.length));
+    limiter.block([block]);
+    out.set(block, at);
+  }
+  return { out, half };
+}
+
+test('a ceiling moved while it runs is held from there on', () => {
+  const signal = SIGNALS['hits over a sustained bed']();
+  const { out, half } = changedHalfway(signal, {}, { ceiling: -9 });
+
+  // From the change plus the lookahead, which is the audio that was already
+  // held when the knob moved and was promised the old ceiling.
+  const limiter = makeLimiter(RATE, {});
+  const after = out.subarray(half + limiter.ahead);
+  const roof = 10 ** (-9 / 20);
+  assert.ok(peakOf(after) <= roof + 1e-6,
+    `asked for -9 dB, got ${(20 * Math.log10(peakOf(after))).toFixed(2)}`);
+
+  // And the first half is still the ceiling it was built with, so the change
+  // is a change rather than a retune of everything.
+  assert.ok(peakOf(out.subarray(0, half)) > roof * 1.5,
+    'the first half should still be at the ceiling it started with');
+});
+
+test('setting a knob is the same as having built it that way', () => {
+  // The two differ in exactly one thing at the moment of the change: the
+  // gain, which the one that was built this way has had at the new ceiling
+  // all along. Everything else - the delay line, the sliding minimum, the box
+  // - turns over inside a lookahead. So they converge at the release rate
+  // rather than agreeing at once, and the comparison starts five time
+  // constants past the change.
+  //
+  // Measured on this signal: 1.8e-1 right at the change, 6.6e-2 one release
+  // later, 2.4e-2 at two, and exactly zero at five - the gain has caught up
+  // and the two are the same machine sample for sample. The tolerance below
+  // is slack rather than needed, so that a change to the release constant
+  // moves the margin rather than breaking the test.
+  const signal = SIGNALS['hits over a sustained bed']();
+  const { out, half } = changedHalfway(signal, {}, { ceiling: -9 });
+  const born = through(signal, { ceiling: -9 });
+
+  const from = half + Math.round(5 * LIMIT_RELEASE * RATE);
+  let worst = 0;
+  for (let i = from; i < signal.length; i += 1) {
+    worst = Math.max(worst, Math.abs(out[i] - born[i]));
+  }
+  assert.ok(worst < 1e-6, `drifted by ${worst.toExponential(2)}`);
+});
+
+test('the true-peak detector can be switched on mid-flight', () => {
+  const signal = faded(SIGNALS['hits over a sustained bed']());
+  const { out, half } = changedHalfway(signal, {}, { truePeak: true });
+
+  const after = faded(Float32Array.from(out.subarray(half + 4 * makeLimiter(RATE, {}).ahead)));
+  assert.ok(truePeakAbove(after) < 0.01,
+    `${truePeakAbove(after).toFixed(3)} dB over once the mode is on`);
+
+  const before = faded(Float32Array.from(out.subarray(0, half)));
+  assert.ok(truePeakAbove(before) > 0.5,
+    `the sample detector should have let the usual ${truePeakAbove(before).toFixed(2)} dB past`);
 });

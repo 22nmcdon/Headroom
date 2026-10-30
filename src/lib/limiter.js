@@ -141,8 +141,17 @@ export const LIMIT_PHASES = peakPhases().map((phase) => Array.from(phase));
 export function makeLimiter(rate, { lookahead = LIMIT_AHEAD, ceiling = CEILING_DB,
   release = LIMIT_RELEASE, truePeak = false } = {}) {
   const ahead = Math.max(1, Math.round(lookahead * rate));
-  const roof = 10 ** (ceiling / 20);
-  const up = Math.exp(-1 / Math.max(1, release * rate));
+
+  // Let rather than const, because three of the four settings can be moved
+  // while this is running and one cannot. The ceiling, the release and which
+  // peak is being watched are all read fresh every sample, so `set` can
+  // change them without resetting anything - which is what a knob being
+  // dragged needs. The lookahead cannot: it is the length of the delay line
+  // and of the sliding minimum, and changing it means new buffers and a
+  // discontinuity in the audio already held in the old ones. So it stays
+  // where it was fixed, at construction.
+  let roof = 10 ** (ceiling / 20);
+  let up = Math.exp(-1 / Math.max(1, release * rate));
 
   // The audio, waiting for the gain to be ready for it.
   const held = [];
@@ -174,8 +183,12 @@ export function makeLimiter(rate, { lookahead = LIMIT_AHEAD, ceiling = CEILING_D
   // other three read `undefined`, every sum came out NaN, and `NaN > loudest`
   // is false. The detector contributed exactly nothing and said nothing about
   // it, which is how a silent comparison fails.
-  const phases = truePeak ? LIMIT_PHASES : null;
-  const taps = phases ? Math.max(...phases.map((phase) => phase.length)) : 0;
+  let phases = truePeak ? LIMIT_PHASES : null;
+  // The ring's length off the phases themselves rather than off whether the
+  // mode is on, so that switching it on mid-flight does not have to resize
+  // anything. It is a number; the arrays behind it are still only allocated
+  // when something asks for the mode.
+  const taps = Math.max(...LIMIT_PHASES.map((phase) => phase.length));
   const recent = [];
   let recentAt = 0;
 
@@ -191,6 +204,28 @@ export function makeLimiter(rate, { lookahead = LIMIT_AHEAD, ceiling = CEILING_D
 
     /** The reduction the limiter is applying right now, in decibels. */
     get reduction() { return 20 * Math.log10(Math.max(gain, 1e-9)); },
+
+    /**
+     * Move the ceiling, the release or the detector, without starting over.
+     *
+     * The sketch's own limiter never calls this - it is set once and left -
+     * but a limiter you can turn the knobs on is a different instrument from
+     * one you cannot, and rebuilding it per step of a dragged control would
+     * mean a new delay line, an empty one, and a click a step.
+     *
+     * Nothing here is ramped. A ceiling that slid into place would be a
+     * ceiling that was briefly somewhere else, and the one promise this file
+     * makes is that no sample comes out above the one it was asked for. The
+     * gain itself still moves smoothly, because the smoothing is downstream
+     * of all three of these.
+     */
+    set(next = {}) {
+      if (next.ceiling !== undefined) roof = 10 ** (next.ceiling / 20);
+      if (next.release !== undefined) {
+        up = Math.exp(-1 / Math.max(1, Math.max(0, next.release) * rate));
+      }
+      if (next.truePeak !== undefined) phases = next.truePeak ? LIMIT_PHASES : null;
+    },
 
     block(channels) {
       while (held.length < channels.length) held.push(new Float32Array(ahead));
