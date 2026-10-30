@@ -251,3 +251,42 @@ test('the tool opens on a trim of nothing', () => {
   assert.ok(LEVEL_DEFAULTS.trim >= TRIM_RANGE[0] && LEVEL_DEFAULTS.trim <= TRIM_RANGE[1]);
   assert.equal(gainOf(0), 1, 'and a trim of nothing is a gain of one');
 });
+
+/* --- what it says about itself -------------------------------------------- */
+
+test('a trim is written with the sign of the number being written', () => {
+  // This went wrong in the obvious way. The "what was done to it" line takes
+  // the fault, which is the opposite of the trim that undoes it, and the
+  // first version took the sign off one value and the digits off the other -
+  // so half the rounds printed "+-1.0 dB". One writer now, and both callers
+  // use it.
+  for (const trim of [-3.4, -1, 1, 2.5]) {
+    const puzzle = { settings: { exercise: 'match' }, answer: { trim }, tier: 'medium' };
+    const shown = LEVEL_WORK.reveal(puzzle).symbol;
+    assert.ok(!/\+-|--/.test(shown), `reveal printed "${shown}"`);
+    assert.equal(shown, `${trim > 0 ? '+' : ''}${trim.toFixed(1)} dB`);
+
+    // And the other direction, which is what the fault was.
+    const done = LEVEL_WORK.trimOf(-trim);
+    assert.ok(!/\+-|--/.test(done), `the fault printed "${done}"`);
+    assert.ok(done.startsWith(trim > 0 ? '-' : '+'),
+      `a trim of ${trim} undoes a fault of the other sign, and read "${done}"`);
+  }
+});
+
+test('every hint rung is a sentence rather than a figure', () => {
+  // The shell's own contract, held here too because the last rung is the one
+  // that gives the answer away and is therefore the one most likely to be
+  // written as a bare number. "It is 4 dB." was eleven characters.
+  for (const [exercise, answer] of [
+    ['drill', { louder: 0.5 }], ['drill', { louder: 1 }], ['drill', { louder: 8 }],
+    ['match', { trim: -3.4 }], ['match', { trim: 1 }],
+  ]) {
+    const ladder = LEVEL_WORK.hints({ settings: { exercise }, answer, tier: 'medium' });
+    assert.ok(ladder.length >= 2, `${exercise} has no ladder`);
+    for (const rung of ladder) {
+      assert.ok(rung.trim().length > 20, `${exercise} has a rung that says nothing: "${rung}"`);
+      assert.ok(!/undefined|NaN|\[object|\+-/.test(rung), `${exercise} has a broken rung: "${rung}"`);
+    }
+  }
+});

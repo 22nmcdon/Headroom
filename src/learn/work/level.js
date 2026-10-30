@@ -60,6 +60,16 @@ const LOUDER_BY = {
 const NEAR_CHIPS = 1;
 
 /**
+ * A trim, written the way the face writes one.
+ *
+ * One writer, because the sign and the number have to come off the same
+ * value. Spelled out twice it was not: one of the two took the sign from the
+ * trim that undoes a fault and the number from the fault itself, which
+ * printed "+-1.0 dB".
+ */
+const writeTrim = (db) => `${db > 0 ? '+' : ''}${db.toFixed(1)} dB`;
+
+/**
  * A stand-in for the loop, for the times the real thing is not to hand.
  *
  * Scoring is a pure function a test can call without an audio context, as it
@@ -283,7 +293,11 @@ export const LEVEL_WORK = {
         },
         {
           label: 'What was done to it',
-          value: `${answer.trim > 0 ? '+' : ''}${(-answer.trim).toFixed(1)} dB`,
+          // The sign comes off the number being printed, not off the one it
+          // was derived from. Taken off `answer.trim` - which is the trim that
+          // UNDOES the fault, so the opposite sign - this printed "+-1.0 dB"
+          // for half the rounds.
+          value: writeTrim(-answer.trim),
           how: 'So the trim that undoes it is the opposite of that. A gain is '
              + 'exact: integrated loudness moves by exactly the trim, measured '
              + 'to four decimal places, until a trim deep enough to push blocks '
@@ -306,6 +320,12 @@ export const LEVEL_WORK = {
    * The first one is the technique rather than the answer, because for this
    * tool the technique is most of it: short flips, and the ear fooled by
    * level is the one that held a level in its head.
+   *
+   * Every rung is a sentence rather than a figure. The last one gives the
+   * answer away, which is what a last rung is for, but "It is 4 dB." was
+   * eleven characters and `tests/game.test.js` refuses a rung under twenty -
+   * rightly, because a hint that is only a number teaches nothing on the way
+   * past.
    */
   hints(puzzle) {
     const exercise = puzzle?.settings?.exercise ?? 'match';
@@ -322,7 +342,9 @@ export const LEVEL_WORK = {
           : db >= 1
             ? 'It is middling: clearly there, but you would have to point at it.'
             : 'It is small - around the edge of what anybody can reliably hear.',
-        `It is ${db} dB.`,
+        `It is ${db} dB - ${db >= 4 ? 'the far end of what this tier offers'
+          : db >= 1 ? 'the middle of what this tier offers'
+          : 'the smallest step this tier offers'}.`,
       ];
     }
 
@@ -332,7 +354,8 @@ export const LEVEL_WORK = {
         + 'listening to either of them for long.',
       `It arrived ${(answer.trim ?? 0) > 0 ? 'quieter' : 'louder'} than it should `
         + 'be, so the trim goes the other way.',
-      `It is about ${size.toFixed(1)} dB out.`,
+      `It is about ${size.toFixed(1)} dB out, so that is the trim to dial in `
+        + `the ${(answer.trim ?? 0) > 0 ? 'positive' : 'negative'} direction.`,
     ];
   },
 
@@ -348,9 +371,8 @@ export const LEVEL_WORK = {
       };
     }
 
-    const trim = answer.trim ?? 0;
     return {
-      symbol: `${trim > 0 ? '+' : ''}${trim.toFixed(1)} dB`,
+      symbol: writeTrim(answer.trim ?? 0),
       name: 'of trim to put it back where it was',
     };
   },
@@ -380,7 +402,7 @@ export const LEVEL_WORK = {
   },
 
   /** What the trim is, said the way the readout says it. */
-  trimOf: (db) => `${db > 0 ? '+' : ''}${db.toFixed(1)} dB`,
+  trimOf: writeTrim,
 
   /** The range, so a caller can tell whether a fault is reachable. */
   reach: TRIM_RANGE,
