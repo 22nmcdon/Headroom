@@ -10,6 +10,11 @@
 // It is also where the numbers in `lib/damage.js` and in the drill's own
 // working come from, so they are re-measured every run rather than quoted
 // from a session that has long since ended.
+//
+// The last section is the crusher's face, which is the same arithmetic with
+// somebody's hand on it: the head readout measures the ladder rather than
+// printing 6.02b + 1.76, so the only way to know it is telling the truth is
+// to turn the knobs and read what it says.
 
 import { open } from './harness.mjs';
 
@@ -202,6 +207,80 @@ export async function check({ browser, at, say }) {
   }
   if (!out.seam.fixed.same) problems.push('a fault to be fixed could be switched off with the A/B');
   if (!out.seam.none.same) problems.push('a round with no fault at all played two different things');
+
+  /* --- and the crusher's own face, which has a knob for the ladder's noise --- */
+
+  await page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
+  await page.click('[data-view="tools"]');
+  await page.waitForTimeout(400);
+  await page.click('.modes button:text-is("Saturation")');
+  await page.waitForSelector('.surface .plugin.heat', { timeout: 8000 });
+  // Opening a tool builds the face and then wires it, so the family button is
+  // on the page a moment before it does anything. Waiting for the knob the
+  // family brings with it is the end of that, rather than a guess at how long
+  // it takes.
+  await page.waitForTimeout(300);
+  await page.click('.surface [data-mode="crush"]');
+  await page.waitForSelector('.surface [data-dial="bits"]', { timeout: 8000 });
+
+  /** Sets a knob the way the face does, and gives back what the head says. */
+  const face = async (id, to) => {
+    if (id) {
+      await page.$eval(`.surface [data-dial="${id}"]`, (dial, value) => {
+        dial.value = String(value);
+        dial.dispatchEvent(new Event('input', { bubbles: true }));
+      }, to);
+      await page.waitForTimeout(260);
+    }
+    return page.evaluate(() => ({
+      read: document.querySelector('#heatRead').textContent,
+      knobs: [...document.querySelectorAll('.surface [data-dial]')].map((d) => d.dataset.dial),
+    }));
+  };
+
+  const start = await face(null);
+  say(`\n  the crusher's deck: ${start.knobs.join(', ')}`);
+  if (!start.knobs.includes('dither')) problems.push('the crusher has no dither knob on its face');
+
+  // The head readout measures the ladder rather than quoting the formula, so
+  // what the knobs say and what it says have to move together.
+  const faces = [];
+  for (const [bits, dither] of [[16, 0], [12, 0], [8, 0], [8, 1], [8, 2], [4, 0]]) {
+    await face('bits', bits);
+    const got = await face('dither', dither);
+    const snr = Number((got.read.match(/(-?[\d.]+) dB to the noise/) ?? [])[1]);
+    faces.push({ bits, dither, snr, read: got.read, says: got.read.includes('dithered') });
+  }
+
+  say('\n  what the head says, against 6.02b + 1.76\n');
+  say('  bits  dither      ideal   the readout   says so');
+  for (const row of faces) {
+    const ideal = 6.02 * row.bits + 1.76;
+    say(`  ${String(row.bits).padStart(4)} ${String(row.dither).padStart(7)} `
+      + `${ideal.toFixed(1).padStart(10)} ${String(row.snr).padStart(13)}   ${row.says ? 'yes' : 'no'}`);
+
+    if (!Number.isFinite(row.snr)) {
+      problems.push(`the crush head said "${row.read}" with no reading in it`);
+      continue;
+    }
+    if (row.dither === 0 && Math.abs(row.snr - ideal) > 1) {
+      problems.push(`${row.bits} bits read ${row.snr} dB on the face against the`
+        + ` ${ideal.toFixed(1)} the arithmetic says`);
+    }
+    if ((row.dither >= 0.05) !== row.says) {
+      problems.push(`dither at ${row.dither} and the head ${row.says ? 'said' : 'did not say'} so`);
+    }
+  }
+
+  // One step of the ladder costs 4.77 dB and two cost 9.7, and the point of
+  // the knob is that the face says so before you turn it. Read to the whole
+  // decibel, which is what the head prints, that comes out 5.0 and 10.0.
+  const snrAt = (bits, dither) => faces.find((r) => r.bits === bits && r.dither === dither)?.snr;
+  const cost = snrAt(8, 0) - snrAt(8, 1);
+  const twice = snrAt(8, 0) - snrAt(8, 2);
+  say(`\n  a step of dither costs ${cost.toFixed(1)} dB on the face, two steps ${twice.toFixed(1)}`);
+  if (!(cost > 3.5 && cost < 6)) problems.push(`a step of dither cost ${cost.toFixed(2)} dB on the face`);
+  if (!(twice > cost)) problems.push('two steps of dither cost no more than one');
 
   problems.push(...noise);
   await page.close();

@@ -1,13 +1,14 @@
 import {
   HEAT_DEFAULTS, MOST_TONE,
   CURVES, CURVE_ORDER, TAPE_SPEEDS,
-  harmonicsOf, harmonicsReading, transferCurve,
+  harmonicsOf, harmonicsReading, transferCurve, crushTo,
   HEAT_LIMITS,
 } from './shape.js';
 import {
   HARMONICS, HARMONIC_AXIS, SERIES_FLOOR, MASKED,
 } from '../../lib/harmonics.js';
 import { notReady, stampOf } from '../../lib/read.js';
+import { snrOf } from '../../lib/damage.js';
 import { HeatPlayer } from './player.js';
 import { dialOf, offDial, readyCanvas, watchSize, span } from '../../lib/panel.js';
 import { dressKnobs } from '../../lib/knob.js';
@@ -118,6 +119,19 @@ const HEAT_KNOBS = [
     ...span(HEAT_LIMITS.hold),
     step: 1,
     write: (v) => (v <= 1 ? 'Every sample' : `1 in ${Math.round(v)}`),
+  },
+  {
+    id: 'dither',
+    name: 'Dither',
+    ...span(HEAT_LIMITS.dither),
+    step: 0.1,
+    // In steps of the ladder rather than in decibels, because that is what
+    // it is: one step of triangular noise is the classic amount, and the
+    // readout says what it costs because that is the whole lesson. Measured
+    // on a sine at eight bits, one step takes the signal-to-noise from 50.0
+    // to 45.1 - four fifths of a bit, bought to stop the error following the
+    // music.
+    write: (v) => (v < 0.05 ? 'Off' : `${v.toFixed(1)} step${v.toFixed(1) === '1.0' ? '' : 's'}`),
   },
   {
     id: 'mix',
@@ -961,9 +975,58 @@ export class HeatPlugin {
     } else if (reading.values) {
       parts.push('measuring…');
     }
+    if (this.settings.mode === 'crush') parts.push(this.howManyBits());
     if (this.settings.listen === 'diff') parts.push('hearing the difference only');
 
     this.el.querySelector('#heatRead').textContent = parts.join(' · ');
+  }
+
+  /**
+   * How far the ladder is above its own noise, measured rather than quoted.
+   *
+   * On a sine and on the quantiser alone, which took two attempts to get
+   * right and the wrong one is worth writing down. Measuring through the
+   * whole shaper - which is what you would reach for, since that is what
+   * anybody hears - reads 45.7 dB at sixteen bits and 45.7 at twelve: the
+   * number is the same for both because it is not measuring either of them.
+   * It is measuring the oversampled round trip, whose filters leave about
+   * 46 dB of their own, and which the saturator is perfectly entitled to
+   * because the harmonics it exists to make are forty decibels louder than
+   * that.
+   *
+   * So this asks the narrower question the knob is actually about: what the
+   * ladder costs. Eight bits reads 50.0 dB against the 49.9 that 6.02b +
+   * 1.76 predicts, and a step of dither takes it to 45.1 - which is the
+   * 4.77 dB that triangular dither is supposed to cost, and the whole reason
+   * the control is there.
+   *
+   * It says nothing about the hold, deliberately. Decimating without a
+   * filter is aliasing rather than noise, it does not sit still, and a
+   * single number for it would be a number that means nothing: through the
+   * whole shaper a hold of four measured 12.4 dB, and what that is is a
+   * different sound rather than a worse ladder.
+   */
+  howManyBits() {
+    const rate = this.engine?.ctx?.sampleRate ?? 48000;
+    // An eighth of a second of it, which is where the length stopped buying
+    // anything. Measured: half a second reads 98.1 at sixteen bits, 74.0 at
+    // twelve, 50.0 at eight, 45.2 with a step of dither and 26.2 at four,
+    // and costs 1.4 ms; an eighth reads all five to a tenth of a decibel and
+    // costs 0.36. The readout is to the whole decibel, and this runs on
+    // every move of every knob on the face, so the shorter one is the one
+    // to run.
+    const n = Math.round(rate / 8);
+    const sine = new Float32Array(n);
+    const rungs = new Float32Array(n);
+    for (let i = 0; i < n; i += 1) {
+      sine[i] = Math.sin((2 * Math.PI * 997 * i) / rate);
+      rungs[i] = crushTo(sine[i], this.settings.bits, this.settings.dither);
+    }
+
+    const snr = snrOf(sine, rungs);
+    if (!Number.isFinite(snr)) return 'nothing is being rounded';
+    const dithered = this.settings.dither >= 0.05;
+    return `${snr.toFixed(0)} dB to the noise${dithered ? ', dithered' : ''}`;
   }
 
   /* ---------- what the round does to it ---------- */

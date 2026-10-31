@@ -95,5 +95,32 @@ export const HEAT_NOTES = {
         + 'crest factor: a sine sits at its peak and a drum loop spends most of its time a '
         + 'long way below one.',
     },
+    {
+      heading: 'Dither: paying a bit to stop the error following the music',
+      body: 'Rounding every sample to the nearest rung of a ladder makes an error, and the '
+        + 'problem with that error is not its size. It is that it is a function of the '
+        + 'signal: a quiet passage gets an error that moves with it, which the ear hears as '
+        + 'the sound going grainy rather than as a hiss underneath it. Fade something out '
+        + 'at eight bits and the tail turns into a staircase and then into silence, several '
+        + 'decibels before it should have gone.\n\n'
+        + 'Adding noise before the rounding takes the error off the signal. One step of the '
+        + 'ladder, made by adding two random draws together, is the amount everybody uses: '
+        + 'a triangular shape rather than a flat one, because a flat one leaves the error’s '
+        + 'loudness still moving with the signal even once the error itself has stopped.\n\n'
+        + 'It costs a bit. Measured on a sine through the crusher:\n\n'
+        + '    bits    no dither   half a step   one step   two steps\n'
+        + '       4         26.2          24.5       21.1        16.3\n'
+        + '       8         50.0          48.3       45.1        40.3\n'
+        + '      12         74.0          72.2       69.3        64.4\n'
+        + '      16         98.1          96.3       93.4        88.5\n\n'
+        + 'One step costs 4.7 dB at sixteen bits and 4.8 at eight, against the 4.77 the '
+        + 'theory says - four fifths of a bit, and the same whatever the ladder, because '
+        + 'it is noise added rather than anything done to the rounding. Four bits is the '
+        + 'one that misses, at 5.1, because there a step of noise is an eighth of the '
+        + 'whole travel. That is the trade the knob is for: '
+        + 'four fifths of a bit of hiss, bought to stop the last few bits turning the quiet '
+        + 'parts to grit. At sixteen bits nobody can hear either; at eight you can hear '
+        + 'both, which is why the control is on a crusher and not on a converter.',
+    },
   ],
 };

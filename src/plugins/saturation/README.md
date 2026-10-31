@@ -26,3 +26,12 @@ Worth knowing before changing anything in `shape.js`:
 - The probe runs the core with that filter **bypassed**, which is not dodging
   it: settled, it is 0.0006 dB at 440 Hz, but unsettled it leaks across every
   bin and buries the aliasing reading. Both halves have a test.
+- The crusher runs **after** the round trip, at the signal's own rate, because
+  the aliasing is the subject and the decimation filter would take it away.
+  That also puts a floor under what you can measure through the whole shaper:
+  sixteen bits and twelve bits both read 45.7 dB of signal to noise end to
+  end, because what that figure is measuring is the filters either side of the
+  curve and not the ladder at all. The saturator is entitled to that floor -
+  the harmonics it exists to make are forty decibels louder - but it is why
+  the head readout measures `crushTo` on a sine by itself, where sixteen bits
+  reads 98 and twelve reads 74.

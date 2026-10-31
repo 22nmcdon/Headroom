@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {
   HEAT_DEFAULTS, HEAT_LATENCY, MOST_TONE,
   shape, shaperCore, runShaper, heatTrim, harmonicsOf, transferCurve, foldback,
-  CURVES, CURVE_ORDER, HEAT_LIMITS, TAPE_SPEEDS, DC_CORNER,
+  CURVES, CURVE_ORDER, HEAT_LIMITS, TAPE_SPEEDS, DC_CORNER, crushTo,
 } from '../src/plugins/saturation/shape.js';
 import {
   HARMONICS, PROBE_BIN, PROBE_LENGTH, PROBE_LEVEL, seriesGap,
@@ -233,6 +233,103 @@ test('crushing makes junk, and more of it the harder it is crushed', () => {
 
   // and holding a sample is the other half of it
   assert.ok(at({ bits: 16, hold: 8 }) > at({ bits: 16, hold: 1 }) + 40, 'holding should make junk too');
+});
+
+test('a step of dither costs a bit and buys a floor that does not follow the music', () => {
+  // The crusher's own dither, which is measured in steps of its own ladder
+  // rather than in decibels, because a step is what it is: one step of
+  // triangular noise is the classic amount and the number everybody's
+  // converter used.
+  assert.ok(CURVES.crush.knobs.includes('dither'), 'the crusher has no dither knob');
+  assert.equal(HEAT_DEFAULTS.dither, 0, 'dither should start off, like every other colour here');
+
+  const sine = new Float32Array(rate);
+  for (let i = 0; i < rate; i += 1) sine[i] = Math.sin((2 * Math.PI * 997 * i) / rate);
+  const ladder = (bits, dither) => {
+    const out = new Float32Array(rate);
+    for (let i = 0; i < rate; i += 1) out[i] = crushTo(sine[i], bits, dither);
+    return snrOf(sine, out);
+  };
+
+  //  bits   6.02b + 1.76   no dither   half a step   one step   two steps
+  //     4           25.8        26.2          24.5       21.1        16.3
+  //     8           49.9        50.0          48.3       45.1        40.3
+  //    12           74.0        74.0          72.2       69.3        64.4
+  //    16           98.1        98.1          96.3       93.4        88.5
+  //
+  // One step sits 4.7 to 5.1 below the bare ladder, against the 4.77
+  // triangular dither is supposed to cost - and the cost is a constant and
+  // not a fraction, which is the point: it is noise added to the signal
+  // rather than anything done to the rounding. The widest of them is four
+  // bits, where a step of noise is an eighth of the whole travel and the
+  // approximation the 4.77 comes from has stopped being a good one.
+  for (const bits of [4, 8, 12, 16]) {
+    const bare = ladder(bits, 0);
+    assert.ok(Math.abs(bare - (6.02 * bits + 1.76)) < 0.5,
+      `${bits} bits undithered read ${bare.toFixed(1)} dB`);
+
+    const cost = bare - ladder(bits, 1);
+    assert.ok(cost > 3.5 && cost < 6, `a step of dither cost ${cost.toFixed(2)} dB at ${bits} bits`);
+    // And half a step costs a good deal less than half of that - 1.7 dB
+    // against 4.8 - so the knob is worth turning to somewhere in between
+    // rather than being a switch with a travel drawn on it.
+    const half = bare - ladder(bits, 0.5);
+    assert.ok(half > 1 && half < cost - 1, `half a step cost ${half.toFixed(2)} dB at ${bits} bits`);
+  }
+
+  // Nothing at all at nought, which is what keeps every other round in this
+  // app repeatable: the crusher is in the marking as well as in the sound.
+  for (let i = 0; i < 2000; i += 1) {
+    assert.equal(crushTo(sine[i], 8, 0), crushTo(sine[i], 8),
+      'dither off is not the same as no dither at all');
+  }
+
+  // The case it is for. A fade at eight bits falls off the bottom of the
+  // ladder and stops - the tail is a staircase and then it is silence - and
+  // a step of dither turns that into noise with the signal still in it.
+  const fade = new Float32Array(rate);
+  for (let i = 0; i < rate; i += 1) {
+    fade[i] = Math.sin((2 * Math.PI * 440 * i) / rate) * (1 - i / rate) * 0.002;
+  }
+  const tailOf = (dither) => Float32Array
+    .from(fade.subarray(Math.round(rate * 0.9)), (x) => crushTo(x, 8, dither));
+  assert.ok(tailOf(0).every((x) => x === 0), 'a fade under half a step survived the ladder');
+  assert.ok(tailOf(1).some((x) => x !== 0), 'dither left the fade to go to silence anyway');
+});
+
+test('the dither is in the audio thread, where it has to be random', () => {
+  // Every other setting here is checked by holding the stringified core
+  // against the module's sample for sample. This one cannot be: noise that
+  // came out the same twice would not be noise. So the claim is the other
+  // way round - two cores built from what the worklet actually runs must
+  // agree exactly with it off and must disagree with it on - which is the
+  // same seam and the only shape of test the thing being tested allows.
+  const source = saturatorSource();
+  const build = new Function(`${source.replace(/class HeadroomSaturator[\s\S]*$/, '')}\nreturn shaperCore;`)();
+
+  const worst = (dither) => {
+    const a = build(rate);
+    const b = build(rate);
+    const settings = { ...HEAT_DEFAULTS, mode: 'crush', bits: 6, dither };
+    a.set(settings);
+    b.set(settings);
+
+    let off = 0;
+    for (let i = 0; i < 20000; i += 1) {
+      const x = Math.sin(i * 0.07) * 0.5 + Math.sin(i * 0.9) * 0.2;
+      a.step(x);
+      b.step(x);
+      off = Math.max(off, Math.abs(a.out - b.out));
+    }
+    return off;
+  };
+
+  assert.equal(worst(0), 0, 'the audio thread is not repeatable with the dither off');
+  // Measured: 6.4e-2, which is two steps of a six bit ladder - two draws of
+  // one step apiece, drawn independently. The two cores in the worklet are
+  // the two channels, so this is also the claim that a dithered stereo
+  // signal gets two different noises rather than one in the middle.
+  assert.ok(worst(1) > 1e-3, 'the dither knob reached the module and not the audio thread');
 });
 
 test('every family has a deck, and the three universal knobs are not in it', () => {
