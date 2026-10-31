@@ -23,6 +23,7 @@ import { placementReading } from './placement.js';
 import { levelsReading } from './levels.js';
 import { shareReading } from './share.js';
 import { roomReading } from './room.js';
+import { rideReading } from './ride.js';
 import { renderStems } from '../sketch/stems.js';
 import { stampOf } from '../lib/read.js';
 
@@ -41,7 +42,9 @@ export const RATE = 44100;
  * loop's second pass does not get a bar's worth of itself booked into the
  * tail.
  */
-export async function renderMix(project, { bars = 4, rate = RATE, tail = TAIL } = {}) {
+export async function renderMix(project, {
+  bars = 4, rate = RATE, tail = TAIL, rides = {},
+} = {}) {
   const Offline = window.OfflineAudioContext || window.webkitOfflineAudioContext;
 
   const perBar = barTicks(project);
@@ -62,7 +65,7 @@ export async function renderMix(project, { bars = 4, rate = RATE, tail = TAIL } 
     value: project.value,
   });
 
-  const stage = await makeStage(ctx, project, { out: ctx.destination, transport });
+  const stage = await makeStage(ctx, project, { out: ctx.destination, transport, rides });
   stage.launchScene(0);
   stage.play();
 
@@ -103,7 +106,7 @@ export const channelsIn = (buffer) =>
  * says what `levels` already said.
  */
 export const MARKED = [
-  'loudness', 'balance', 'placement', 'width', 'crest', 'levels', 'share', 'room',
+  'loudness', 'balance', 'placement', 'width', 'crest', 'levels', 'share', 'room', 'ride',
 ];
 
 /**
@@ -145,9 +148,11 @@ export const MARKED = [
  * comparison goes through the same path as the other, which is what a
  * comparison needs.
  */
-export async function readMix(project, source, { bars = 4, rate = RATE, tail = TAIL } = {}) {
-  const master = await renderMix(project, { bars, rate, tail });
-  const stems = await renderStems(project, 0, { bars, rate, tail });
+export async function readMix(project, source, {
+  bars = 4, rate = RATE, tail = TAIL, rides = {},
+} = {}) {
+  const master = await renderMix(project, { bars, rate, tail, rides });
+  const stems = await renderStems(project, 0, { bars, rate, tail, rides });
 
   return {
     ...readMaster(master, source),
@@ -160,6 +165,10 @@ export async function readMix(project, source, { bars = 4, rate = RATE, tail = T
     // return alongside the tracks, so how far back everything is costs one
     // more pass over an array that has already been rendered.
     room: roomReading(stems, rate, { source }),
+    // And the eighth, off the same taps again: each part's own shape over
+    // the four bars. Read on the parts rather than on the master because on
+    // the master a swell is too small to mark honestly - see `ride.js`.
+    ride: rideReading(stems, rate, { source }),
   };
 }
 
@@ -187,8 +196,13 @@ export function readMaster(buffer, source) {
  * the cache as the first, which on a tone round is the answer being marked
  * against a render of something else.
  */
-export const mixStamp = (project) => stampOf({
+export const mixStamp = (project, rides = {}) => stampOf({
   bpm: project.bpm,
+  // The rides as well, and for the same reason the settings are here: a ride
+  // is not on the project - it is handed to the stage - so two renders of one
+  // project with two different rides on it would stamp the same, and the
+  // second would come back from the cache as the first.
+  rides,
   tracks: project.tracks.map((track) => ({
     gain: track.gain,
     pan: track.pan,

@@ -56,7 +56,7 @@ export function distinct(names) {
  * read by the analysis side as readily as it can be written to disk.
  */
 export async function renderStems(project, scene, {
-  bars = 4, rate = STEM_RATE, tail = STEM_TAIL, takes = new Map(),
+  bars = 4, rate = STEM_RATE, tail = STEM_TAIL, takes = new Map(), rides = {},
 } = {}) {
   const Offline = window.OfflineAudioContext || window.webkitOfflineAudioContext;
 
@@ -95,7 +95,9 @@ export async function renderStems(project, scene, {
   const takeBuffers = new Map();
   for (const [id, buffer] of takes) takeBuffers.set(id, await atRate(ctx, buffer, rate));
 
-  const stage = await makeStage(ctx, project, { out: sink, transport, takes: takeBuffers });
+  const stage = await makeStage(ctx, project, {
+    out: sink, transport, takes: takeBuffers, rides,
+  });
   const merger = ctx.createChannelMerger(pairs * 2);
   merger.connect(ctx.destination);
 

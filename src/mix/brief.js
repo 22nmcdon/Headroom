@@ -124,6 +124,24 @@ export const MIX_TIERS = {
     carves: true,
     tone: [3, 7],
   },
+  // The other half of mixing: the fader that moves while it plays.
+  //
+  // Two parts swell across the four bars, one up and one down, and nothing
+  // else is wrong - the levels, the places and the room are all given right,
+  // so the only thing to hear is what is going somewhere. A swell rather
+  // than a lift in one bar because these pieces have no sections for a lift
+  // to be the chorus of: see `ride.js` for that measurement and for why the
+  // reading is taken on the parts.
+  swell: {
+    label: 'What moves',
+    blurb: 'Nothing is at the wrong level. Two parts are going somewhere.',
+    moves: 0,
+    pans: 0,
+    sends: 0,
+    gain: [0, 0],
+    swells: true,
+    depth: [4, 9],
+  },
   // The whole job: a mix that was right, with one to three things done to it.
   //
   // Two questions in order - what is wrong, and then put it back - and the
@@ -387,6 +405,18 @@ export function mixBrief(tier, seed) {
     target[id].send = toStep(between(rng, spec.send) * ROOM_FOR[id], STEPS.send);
   }
 
+  // Two parts going somewhere, one up and one down. Opposite on purpose:
+  // two parts swelling together is the whole mix getting louder, which is a
+  // fader, and what riding is about is one thing moving against another.
+  if (spec.swells) {
+    const [up, down] = some(rng, MOVABLE, 2);
+    const rides = {
+      [up]: worthIt(rng, spec.depth, SWELL_LEAST, STEPS.gain),
+      [down]: -worthIt(rng, spec.depth, SWELL_LEAST, STEPS.gain),
+    };
+    return { tier, piece, target, spec, rides };
+  }
+
   // Things done to a mix that was right. The target stays the answer - what
   // is being asked for is the mix as it was - and the faults go on the mix
   // the round opens with, which is the one difference from every other tier.
@@ -462,6 +492,18 @@ export function mixBrief(tier, seed) {
 
   return { tier, piece, target, spec };
 }
+
+/**
+ * The smallest swell a round is allowed to ask for.
+ *
+ * Four decibels, and measured like every other floor here. The `ride`
+ * reading puts a swell of depth D at three eighths of D in the outside bars,
+ * so four decibels reads 1.50 against a tolerance of 0.5 - three times out,
+ * which is where every other floor in this file sits. Three decibels would
+ * read 1.13, which is still outside, and two would read 0.75, which is one
+ * step of slip away from passing without being touched.
+ */
+export const SWELL_LEAST = 4;
 
 /** The mix a round starts from: the stems as they arrive, flat and centred. */
 export const flatMix = () => Object.fromEntries(STEM_IDS.map((id) => [id, { ...STEM_FLAT }]));

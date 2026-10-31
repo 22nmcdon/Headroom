@@ -53,6 +53,7 @@ export const READING_NAMES = {
   levels: { label: 'The parts against each other', unit: 'dB' },
   share: { label: 'Who owns which register', unit: 'dB' },
   room: { label: 'How far back things are', unit: 'dB' },
+  ride: { label: 'What moves while it plays', unit: 'dB' },
 };
 
 /** Inside this, on every reading, and the mix is the mix. */
@@ -118,6 +119,18 @@ export const MIX_TOLERANCE = {
   depth: {
     loudness: 1.2, balance: 1.8, placement: 1.0, width: 5.5, crest: 1.4,
     share: 0.6, room: 2.0,
+  },
+  // What moves, which is marked on the one reading that is about time.
+  //
+  // 0.5 is measured. The `ride` reading puts a swell of depth D at three
+  // eighths of D in the outside bars, so a decibel of depth is 0.375 and the
+  // tolerance forgives about one and a third - while the smallest swell a
+  // round asks for, four decibels, reads 1.50 and is three times out. The
+  // other readings sit where the easy tier has them: nothing else is being
+  // asked for, and a swell is deliberately half up and half down so that it
+  // does not also turn the part up.
+  swell: {
+    loudness: 1.2, balance: 1.8, placement: 1.0, width: 5.5, crest: 1.4, ride: 0.5,
   },
   // The capstone, which is the only round marked on everything at once -
   // because it is the only one where anything might have been done.
@@ -285,6 +298,14 @@ export function mixAdvice(marked) {
       };
 
       return `There is ${out.map(say).join(', and ')}.`;
+    }
+    case 'ride': {
+      // The one reading that can say when. Which part and which bar, because
+      // a ride is a fader and a moment, and either on its own is half the
+      // instruction.
+      const who = NAMED[worst.detail?.part] ?? { name: worst.detail?.part ?? 'something', is: 'is' };
+      return `The ${who.name} ${who.is} too far ${worst.detail?.louder > 0 ? 'up' : 'down'}`
+        + ` by ${worst.where} — what moves is going too far, or not far enough.`;
     }
     case 'room': {
       // Two different things to say and the gap knows which it is: how much

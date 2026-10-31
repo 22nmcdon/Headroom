@@ -25,6 +25,7 @@ import { booking, following, queue, resting } from './launch.js';
 import { clipAt, isTake, keyRoutes } from './project.js';
 import { optionsFor, paramsFor } from './knobs.js';
 import { makeLimiterNode } from '../lib/limiter-node.js';
+import { RIDE_STEPS } from '../lib/tempo.js';
 
 /** The shared room. Short and bright: a sketch wants space, not a cathedral. */
 export const SEND_VERB = { decay: 1.4, size: 14, damping: 0.5, preDelay: 12, mix: 1 };
@@ -67,7 +68,7 @@ const optionsOf = (track, takes) => ({
  * and what the tests of this file are.
  */
 export async function makeStage(ctx, project, {
-  out = ctx.destination, transport, takes = new Map(),
+  out = ctx.destination, transport, takes = new Map(), rides = {},
 } = {}) {
   // A safety limiter, so that launching a fourth clip cannot make the output
   // louder than the converter can hold, sitting a decibel under full scale
@@ -141,6 +142,41 @@ export async function makeStage(ctx, project, {
     }
   };
 
+  /**
+   * A fader moved while the music is playing, booked with the notes.
+   *
+   * `riding` is an option rather than part of the project, and that was a
+   * choice about blast radius: a track's shape is a whitelist in
+   * `project.js`, so putting automation on it would mean the save format,
+   * everything that validates a project, and the sketchpad's own panels -
+   * for something only the mix exercise asks for. Handed in, nothing else
+   * changes, and a stage with no rides on it behaves exactly as it did.
+   *
+   * Booked in the same window the notes are, so it is as early as they are
+   * and it survives a clock driven by hand in an offline render, which is
+   * how everything here gets measured.
+   *
+   * A staircase rather than a ramp, and how fine a staircase is
+   * `RIDE_STEPS` in `lib/tempo.js` - where both ends of this can reach it,
+   * since `sketch` may not import `mix` and the exercise lives over there.
+   */
+  const bookRide = (row, spec, from, to) => {
+    const depth = rides[spec.id];
+    if (!depth) return;
+
+    const clip = clipAt(current, current.tracks.indexOf(spec), 0);
+    const loop = clip?.length ?? clock.perBar;
+    const step = Math.max(1, Math.round(clock.perBar / RIDE_STEPS));
+
+    for (let tick = Math.ceil(from / step) * step; tick < to; tick += step) {
+      const through = ((tick % loop) + loop) % loop / loop;
+      row.track.set(
+        { gain: spec.gain * 10 ** ((depth * (through - 0.5)) / 20) },
+        clock.timeOf(tick),
+      );
+    }
+  };
+
   /** Everything a row has booked, stopped. */
   const hush = (row, at = ctx.currentTime) => {
     for (const source of row.sounding) {
@@ -171,6 +207,8 @@ export async function makeStage(ctx, project, {
     };
 
     row.off = playPieces(clock, track, (from, to) => {
+      bookRide(row, spec, from, to);
+
       // Asked before the window is booked, not after: a follow landing
       // inside it has to be queued first so that `booking` splits there -
       // the old clip up to the handover and the new one after it, which is
@@ -306,6 +344,14 @@ export async function makeStage(ctx, project, {
       for (const row of rows.splice(next.tracks.length)) tear(row);
 
       wireKeys();
+    },
+
+    /**
+     * What the faders are doing over time, which the mix exercise changes
+     * while it plays. Takes effect from the next window booked.
+     */
+    setRides(next) {
+      rides = next ?? {};
     },
 
     /** Put a row on a scene, or on nothing. Lands on the next bar line. */

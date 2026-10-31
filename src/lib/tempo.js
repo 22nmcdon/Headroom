@@ -52,6 +52,23 @@ export const SYNC_DIVISIONS = [
   { id: 'sixteenth', label: '1/16', beats: 0.25 },
 ];
 
+/**
+ * How often a fader is moved when it is riding, in steps per bar.
+ *
+ * Here because both ends need it and they are in folders that may not import
+ * each other: `sketch/stage.js` books the steps and `mix/ride.js` is the
+ * exercise and the arithmetic. A grid of sixteen a bar is a tempo fact, which
+ * is what this file is for.
+ *
+ * Sixteen is a step every 156 ms at 96, and a fader is moved with
+ * `setTargetAtTime` at a time constant of 10 ms - so each step is long over
+ * before the next arrives and what comes out is a staircase. A staircase of
+ * about a tenth of a decibel at a time, on a level that is already moving,
+ * against a real ramp that would have meant a new method on the file every
+ * instrument in the app goes through.
+ */
+export const RIDE_STEPS = 16;
+
 /** A note value, in milliseconds of this track. */
 export const timeOf = (beats) => beats * LOOP_BEAT * 1000;
 

@@ -15,6 +15,7 @@ The mix exercise: a piece, a brief, and a score for how close the balance is.
     desk.js       what the controls move in and how far, which is true of the
                   desk whether or not anybody is being asked anything
     faults.js     what somebody did to this mix before you got to it
+    ride.js       a fader that moves while the music is playing
     monitor.js    the monitor path: matching the two loudnesses, folding to
                   mono, and a small speaker - none of it near the marking
     page.js       the strips, the transport and the result
@@ -395,3 +396,53 @@ named. What the record files the round under is the fault that was missed
 rather than the reading that was worst — "the one that catches you out: too
 much room" is worth knowing, where "how wide" is the same sentence about a
 symptom.
+
+## What moves: a fader that does not stay put
+
+Everything else here is a mix — four settings that are true for the whole four
+bars. A ride is the other half of mixing, and until now nothing could ask for
+it, because a project's gain is one number.
+
+**It is a swell and not a lift in one bar**, and that is a fact about the
+material. A three decibel lift of one part in bar three moves the master's own
+bar-by-bar shape by 0.53 dB on one piece and 0.42 on the other — while the
+flat mix's shape already wanders by −0.73 to +0.42 between its own bars,
+because it is music. Four bars of one riff has no sections for a lift to be
+the chorus of. A swell has somewhere to go.
+
+**It is read on the parts, not on the master.** Six decibels of swell against
+seven is 0.07 dB of difference on the master's bar shape, so a tolerance that
+forgave a decibel of depth would be about a fifteenth of one — a tenth of
+anything else in `score.js`, and a number any future change to the material
+would move by more than its own width. On the part itself, six decibels of
+swell is six decibels of swell. Measured, a swell on the keys, read bar by
+bar on the keys' own tap:
+
+    swell   bar 1   bar 2   bar 3   bar 4    the other three parts
+        4   -1.48   -0.50    0.49    1.49                    0.000
+        6   -2.21   -0.76    0.73    2.24                    0.000
+        9   -3.32   -1.14    1.10    3.36                    0.000
+       -6    2.22    0.75   -0.74   -2.24                    0.000
+
+Against the arithmetic's −2.25, −0.75, 0.75, 2.25 for a six, and nothing at
+all on any part that is not riding. The same swell reads 0.39 dB on the
+master.
+
+**Half up and half down**, so a swell is not also a fader: its average over
+the loop is nought, which keeps it out of `levels` and leaves `ride` the only
+reading that sees it. And the two parts in a round swell opposite ways,
+because two parts swelling together is the whole mix getting louder, which is
+a fader again.
+
+**A ride is handed to the stage, not set on the project.** A track's shape is
+a whitelist in `sketch/project.js`, so putting automation on it would have
+meant the save format, everything that validates a project, and the
+sketchpad's own panels — for something only this exercise asks for. As an
+option, nothing else changes and a stage with no rides behaves exactly as it
+did. It is booked in the same scheduling window the notes are, which is why it
+survives a clock driven by hand in an offline render.
+
+It is a staircase rather than a ramp — sixteen steps a bar, a tenth of a
+decibel at a time on a level that is already moving — because a real ramp
+would have meant a new method on `core/track.js`, the file every instrument in
+the app goes through.

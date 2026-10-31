@@ -25,6 +25,7 @@ import { loudnessGap } from './lib/loudness.js';
 import { levelsGap } from './mix/levels.js';
 import { shareGap } from './mix/share.js';
 import { roomGap } from './mix/room.js';
+import { rideGap } from './mix/ride.js';
 import { crestGap } from './analysis/dynamics.js';
 import { balanceGap } from './analysis/balance.js';
 import { widthGap } from './analysis/width.js';
@@ -98,6 +99,9 @@ const GAPS = {
   // say what colour the room is, which turns out to be the same question. See
   // `mix/room.js`.
   room: roomGap,
+  // Each part's own shape over the four bars, which is the one reading that
+  // is about time. See `mix/ride.js`.
+  ride: rideGap,
   crest: crestGap,
   balance: balanceGap,
   width: widthGap,

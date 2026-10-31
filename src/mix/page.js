@@ -64,6 +64,9 @@ const tellMove = (stem) => [
   stem.send ? `${Math.round(stem.send * 100)} in the room` : null,
 ].filter(Boolean).join(' ');
 
+/** What a ride reads. Nought is a fader that stays where it is. */
+const writeSwell = (db) => (db === 0 ? 'still' : `${db > 0 ? 'up ' : 'down '}${Math.abs(db).toFixed(1)}`);
+
 /** What a tone control reads. Zero is flat and says so rather than "0.0". */
 const writeTone = (db) => (db === 0 ? 'flat' : writeTrim(db));
 
@@ -98,6 +101,11 @@ export class MixPage {
     this.anchor = null;
     this.reference = null;
     this.measuring = false;
+
+    // What the learner has the faders doing over the loop, which is not part
+    // of the mix object: a ride is handed to the stage rather than set on a
+    // project. See `ride.js`.
+    this.rides = {};
 
     // Which speaker this is pretending to be, which survives a new round: it
     // is a fact about how somebody is listening and not about the round.
@@ -190,6 +198,17 @@ export class MixPage {
           <div class="tone-strips" data-tone-strips></div>
         </div>
 
+        <!-- The faders that move while it plays. Its own section for the
+             reason the tone desk is: a control that is not on every round
+             should not be a fifth dial on every strip. -->
+        <div class="tone-desk" data-rides hidden>
+          <div class="tone-head">
+            <span class="tone-cap">Rides</span>
+            <span class="fine">Where each part ends up, against where it started</span>
+          </div>
+          <div class="tone-strips" data-ride-strips></div>
+        </div>
+
         <div class="mix-result" data-result hidden></div>
         <p class="advice" data-advice hidden></p>
 
@@ -216,6 +235,8 @@ export class MixPage {
       picker: $('[data-picker]'),
       strips: $('[data-strips]'),
       tone: $('[data-tone]'),
+      rides: $('[data-rides]'),
+      rideStrips: $('[data-ride-strips]'),
       toneStrips: $('[data-tone-strips]'),
       match: $('[data-match]'),
       matchNote: $('[data-match-note]'),
@@ -250,6 +271,7 @@ export class MixPage {
     this.parts.strips.addEventListener('input', (e) => this.moved(e));
     this.parts.strips.addEventListener('click', (e) => this.pressed(e));
     this.parts.toneStrips.addEventListener('input', (e) => this.toned(e));
+    this.parts.rideStrips.addEventListener('input', (e) => this.rode(e));
     this.parts.picker.addEventListener('click', (e) => this.pickedOne(e));
   }
 
@@ -301,6 +323,7 @@ export class MixPage {
     this.picked = null;
     this.found = new Set();
     this.named = false;
+    this.rides = {};
 
     this.drawDesk();
     this.drawNaming();
@@ -423,10 +446,57 @@ export class MixPage {
     this.parts.tone.hidden = !wanted;
     this.parts.toneStrips.innerHTML = wanted ? this.toneStrips() : '';
 
+    const riding = !hidden && !!MIX_TIERS[this.tier]?.swells;
+    this.parts.rides.hidden = !riding;
+    this.parts.rideStrips.innerHTML = riding ? this.rideStrips() : '';
+
     // The drums' fader is the one thing on this desk that does not move. Said
     // on the strip rather than left as a disabled control nobody can explain.
     const anchor = this.parts.strips.querySelector(`[data-stem="${ANCHOR}"] .strip-db`);
     if (anchor) anchor.title = 'The drums are the level everything else is set against.';
+  }
+
+  /**
+   * One slider a part: where it ends up against where it started.
+   *
+   * Said that way round rather than as a depth, because that is what a hand
+   * on a fader knows. Nought is a fader that does not move, and the anchor
+   * has none for the reason it has no fader: something has to be the thing
+   * the moving parts are heard against.
+   */
+  rideStrips() {
+    return STEMS.map((stem) => {
+      const depth = this.rides[stem.id] ?? 0;
+      const anchored = stem.id === ANCHOR;
+
+      return `
+        <div class="tone-strip" data-ride-stem="${stem.id}">
+          <span class="tone-name">${stem.name}${anchored ? ' <span class="fine">· reference</span>' : ''}</span>
+          <label class="tone-band">
+            <span class="tone-band-name">Swell</span>
+            <input type="range" data-ride="${stem.id}"
+                   min="-12" max="12" step="${STEPS.gain}" value="${depth}"
+                   aria-label="${stem.name}, how far it swells over the four bars"
+                   ${anchored ? 'disabled' : ''}>
+            <span class="tone-read" data-ride-read="${stem.id}">${writeSwell(depth)}</span>
+          </label>
+        </div>`;
+    }).join('');
+  }
+
+  /** A ride moved, which is not a setting on the mix but a thing the stage does. */
+  rode(event) {
+    const input = event.target.closest('[data-ride]');
+    if (!input) return;
+
+    const depth = Number(input.value);
+    this.rides = { ...this.rides, [input.dataset.ride]: depth };
+
+    const read = input.closest('.tone-strip')?.querySelector(`[data-ride-read="${input.dataset.ride}"]`);
+    if (read) read.textContent = writeSwell(depth);
+
+    if (this.listening !== 'mine') this.hear('mine');
+    this.stage?.setRides(this.rides);
   }
 
   /**
@@ -686,8 +756,9 @@ export class MixPage {
       // it is the mute and solo map, which is a different kind of listening.
       this.speakers = makeMonitor(ctx, this.engine.out);
       this.speakers.setListen(this.listening_on);
-      this.building = makeStage(ctx, this.dressed(), { out: this.speakers.input })
-        .then((stage) => { this.stage = stage; return stage; });
+      this.building = makeStage(ctx, this.dressed(), {
+        out: this.speakers.input, rides: this.rides,
+      }).then((stage) => { this.stage = stage; return stage; });
     }
     return this.building;
   }
@@ -707,6 +778,7 @@ export class MixPage {
   }
 
   push() {
+    this.stage?.setRides(this.listening === 'theirs' ? (this.round.brief.rides ?? {}) : this.rides);
     this.stage?.setProject(this.dressed());
   }
 
@@ -947,7 +1019,9 @@ export class MixPage {
 
     try {
       const theirs = await this.answerRead();
-      const mine = await readMix(dress(this.round.piece, this.mine), 'yours');
+      const mine = await readMix(dress(this.round.piece, this.mine), 'yours', {
+        rides: this.rides,
+      });
       this.reference = theirs.loudness.values.integrated;
       this.anchor = anchorOf(this.mine, mine);
       this.matching = true;
@@ -1019,7 +1093,9 @@ export class MixPage {
   async answerRead() {
     if (!this.round.answer) {
       const theirs = dress(this.round.piece, this.round.brief.target);
-      this.round.answer = await readMix(theirs, 'answer');
+      this.round.answer = await readMix(theirs, 'answer', {
+        rides: this.round.brief.rides ?? {},
+      });
     }
     return this.round.answer;
   }
@@ -1034,7 +1110,9 @@ export class MixPage {
 
     try {
       const theirs = await this.answerRead();
-      const mine = await readMix(dress(this.round.piece, this.mine), 'yours');
+      const mine = await readMix(dress(this.round.piece, this.mine), 'yours', {
+        rides: this.rides,
+      });
 
       this.attempts += 1;
       this.marked = markMix(mine, theirs, this.tier);
@@ -1125,6 +1203,7 @@ export class MixPage {
       return;
     }
     this.mine = Object.fromEntries(STEM_IDS.map((id) => [id, { ...this.round.brief.target[id] }]));
+    this.rides = { ...(this.round.brief.rides ?? {}) };
     this.over = true;
     this.drawDesk();
     this.applyTrim();

@@ -14,6 +14,7 @@ import {
   mixBrief, flatMix, movesIn, gainFor, dbOf, STEPS, MOVABLE, ANCHOR,
   MIX_TIERS, MIX_TIER_IDS, ROOM_FOR, LEAST, TONE_BANDS, TONE_LEAST, toneIn,
   TONED, CARVES, CARVE_LEAST, colouring, DEPTHS, AT_A_DISTANCE, AIRY, TRIM,
+  SWELL_LEAST,
 } from '../src/mix/brief.js';
 import { EQ_REST } from '../src/sketch/knobs.js';
 import {
@@ -30,6 +31,7 @@ import {
   CHAIN_ORDERS, CHAIN_IDS, CHAIN_ON, chainMix, arrangementOf,
 } from '../src/mix/chain.js';
 import { MIX_FAULTS, MIX_FAULT_IDS, HOW_MANY } from '../src/mix/faults.js';
+import { rideAt, rideGain, rideGap, RIDE_AXIS, RIDE_BARS } from '../src/mix/ride.js';
 import {
   sumOf, mixLoudness, staleFor, matchTrim, anchorOf, gainOfTrim, MATCH_LIMIT,
   LISTEN_MODES, LISTEN_IDS, SMALL_SPEAKER,
@@ -1255,4 +1257,99 @@ test('the capstone is marked on everything it could have broken', () => {
 
   // The whole desk is out, because anything might have been done to it.
   assert.equal(colouring('fix').length, TONED.length);
+});
+
+/* --- a fader that moves while it plays ------------------------------------- */
+
+/** A ride reading's shape, from numbers rather than from a render. */
+const shapes = (per) => ({
+  kind: 'ride',
+  ready: true,
+  of: { state: 'x', source: 'test', axis: RIDE_AXIS },
+  values: {
+    shapes: Object.fromEntries(STEM_IDS.map((id) => [id, per[id] ?? [0, 0, 0, 0]])),
+  },
+});
+
+test('a swell is half up and half down, so it is not also a fader', () => {
+  // Three eighths of the depth in the outside bars, nothing in the middle,
+  // and nought on average - which is what keeps a ride out of `levels`.
+  const over = [0, 1, 2, 3].map((bar) => rideAt(6, (bar + 0.5) / 4));
+  assert.deepEqual(over.map((v) => Number(v.toFixed(3))), [-2.25, -0.75, 0.75, 2.25]);
+
+  const mean = over.reduce((sum, v) => sum + v, 0) / over.length;
+  assert.ok(Math.abs(mean) < 1e-12, 'a swell is not centred');
+
+  // And at the two ends it is exactly half the depth either way.
+  assert.equal(rideAt(8, 0), -4);
+  assert.equal(rideAt(8, 1), 4);
+  assert.equal(rideAt(0, 0.9), 0);
+
+  // As a gain, which is what the stage multiplies the fader by.
+  assert.ok(Math.abs(rideGain(6, 1) - 10 ** (3 / 20)) < 1e-12);
+  assert.equal(rideGain(0, 0.3), 1);
+});
+
+test('the ride gap names the part and the bar', () => {
+  const still = shapes({});
+  const rising = shapes({ keys: [-2.25, -0.75, 0.75, 2.25] });
+  const gap = rideGap(rising, still);
+
+  assert.ok(Math.abs(gap.off - 2.25) < 1e-9);
+  assert.equal(gap.detail.part, 'keys');
+  // Bar 1 and bar 4 are equally wrong on a swell, and the first of a tie is
+  // the one reported - which is also the first one anybody would hear.
+  assert.equal(gap.where, 'bar 1');
+  assert.ok(gap.detail.louder < 0, 'the first bar of a swell is the quiet end');
+  assert.equal(rideGap(still, still).off, 0);
+
+  // Two swells the other way round are as far apart as a reading can say,
+  // which is the mistake the tier is most about.
+  const falling = shapes({ keys: [2.25, 0.75, -0.75, -2.25] });
+  assert.ok(Math.abs(rideGap(rising, falling).off - 4.5) < 1e-9);
+});
+
+test('a swell round asks for two, one up and one down, and nothing else', () => {
+  for (let seed = 1; seed <= 40; seed += 1) {
+    const { rides, target } = mixBrief('swell', seed * 3571);
+    const parts = Object.keys(rides);
+
+    assert.equal(parts.length, 2, 'a ride round is one part moving against another');
+    assert.ok(!parts.includes(ANCHOR), 'the anchor rode, and it is the reference');
+    const depths = parts.map((id) => rides[id]);
+    assert.ok(depths[0] * depths[1] < 0, 'both swells went the same way, which is a fader');
+
+    for (const db of depths) {
+      assert.ok(Math.abs(db) >= SWELL_LEAST, `a swell of ${db} is too small to hear`);
+      assert.ok(Math.abs(db) <= MIX_TIERS.swell.depth[1]);
+      assert.equal(toStep(db, STEPS.gain), db, 'a swell off the grid the fader is on');
+    }
+
+    // And the mix underneath is flat: nothing else is being asked for.
+    for (const stem of movesIn(target)) {
+      assert.equal(stem.db, 0, `${stem.id} moved a fader on a ride round`);
+      assert.equal(stem.pan, 0);
+      assert.equal(stem.send, 0);
+    }
+  }
+});
+
+test('what moves is marked on the reading about time, and on nothing to do with level', () => {
+  const tolerance = toleranceFor('swell');
+  assert.ok(tolerance.ride > 0);
+  // A swell averages to nought over the loop, so a part that rides is a part
+  // at the right level: `levels` and `share` have nothing to say here and
+  // are not asked.
+  assert.equal(tolerance.levels, undefined);
+  assert.equal(tolerance.share, undefined);
+
+  const marked = markMix(
+    { ...master(), ride: shapes({ keys: [-2.25, -0.75, 0.75, 2.25] }) },
+    { ...master(), ride: shapes({}) },
+    'swell',
+  );
+  assert.equal(marked.worst.kind, 'ride');
+  assert.match(mixAdvice(marked), /keys are/);
+  assert.match(mixAdvice(marked), /bar 1/);
+  assert.match(mixAdvice(marked), /too far down/);
 });
