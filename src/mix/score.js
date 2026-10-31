@@ -119,6 +119,21 @@ export const MIX_TOLERANCE = {
     loudness: 1.2, balance: 1.8, placement: 1.0, width: 5.5, crest: 1.4,
     share: 0.6, room: 2.0,
   },
+  // The capstone, which is the only round marked on everything at once -
+  // because it is the only one where anything might have been done.
+  //
+  // The five off the master sit where the middle tier has them: the fix is
+  // an exact reversal of what was done rather than a mix to be found, so
+  // there is no case for the easy tier's room and none for making somebody
+  // reverse a fader to a tenth. `levels` is left out for the reason the last
+  // two tiers left it out - it and `share` read the same number for a
+  // broadband move - and `share` is tightened to 0.5 to carry both jobs: a
+  // step of fader reads 0.38 and must be forgiven, and the smallest fault in
+  // the library is four decibels, which reads about 3.
+  fix: {
+    loudness: 0.7, balance: 1.0, placement: 0.6, width: 2.8, crest: 0.8,
+    share: 0.5, room: 2.0,
+  },
 };
 
 /**

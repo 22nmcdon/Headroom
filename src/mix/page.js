@@ -29,6 +29,7 @@ import {
   anchorOf, matchTrim, staleFor, makeMonitor, LISTEN_MODES,
 } from './monitor.js';
 import { chainChoices, arrangementOf, chainMix, CHAIN_ON } from './chain.js';
+import { faultChoices, mixFaultOf } from './faults.js';
 import { renderPicker, syncPicker } from '../learn/bench/picker.js';
 import { makeStage } from '../sketch/stage.js';
 import { roundSeed } from '../learn/game.js';
@@ -103,8 +104,11 @@ export class MixPage {
     this.listening_on = 'full';
 
     // What has been picked on a round that is answered by naming it, which is
-    // not a mix and is not kept on the desk.
+    // not a mix and is not kept on the desk. On the capstone it is a set
+    // rather than one answer, because more than one thing can be wrong.
     this.picked = null;
+    this.found = new Set();
+    this.named = false;
 
     this.build();
     this.wire();
@@ -246,7 +250,7 @@ export class MixPage {
     this.parts.strips.addEventListener('input', (e) => this.moved(e));
     this.parts.strips.addEventListener('click', (e) => this.pressed(e));
     this.parts.toneStrips.addEventListener('input', (e) => this.toned(e));
-    this.parts.picker.addEventListener('click', (e) => this.named(e));
+    this.parts.picker.addEventListener('click', (e) => this.pickedOne(e));
   }
 
   /* --- a round ------------------------------------------------------------- */
@@ -275,8 +279,10 @@ export class MixPage {
       + `${this.whichPairs()}${this.round.piece.name}, four bars, going round.`;
     this.parts.result.hidden = true;
     this.parts.advice.hidden = true;
-    this.parts.submit.disabled = this.naming;
-    this.parts.submit.textContent = this.naming ? 'Say what it is' : 'Submit the mix';
+    this.parts.submit.disabled = this.asking === 'name';
+    this.parts.submit.textContent = this.asking === 'name'
+      ? (this.diagnosing ? 'Say what is wrong' : 'Say what it is')
+      : 'Submit the mix';
 
     // A naming round's two sides are the part with the chain and without it,
     // so the switch says that rather than "yours" and "the one to match" -
@@ -285,10 +291,16 @@ export class MixPage {
     near.textContent = this.naming ? 'Plain' : 'Yours';
     far.textContent = this.naming ? 'With it on' : 'The one to match';
 
-    // There is no desk to put back on a naming round.
+    // There is no desk to put back on a naming round. On the capstone the
+    // button does the same thing it always did - it puts the desk back to
+    // what the round opened with - but what the round opened with is not
+    // flat, so the label would be a lie.
     this.parts.flat.hidden = this.naming;
+    this.parts.flat.textContent = this.diagnosing ? 'Back to how you found it' : 'Back to flat';
 
     this.picked = null;
+    this.found = new Set();
+    this.named = false;
 
     this.drawDesk();
     this.drawNaming();
@@ -339,6 +351,16 @@ export class MixPage {
    * slider.
    */
   start() {
+    // The capstone opens on the mix as somebody left it, which is the answer
+    // with things done to it - not flat. A round whose answer is flat is a
+    // round you win by zeroing everything.
+    if (this.diagnosing && this.round?.brief?.start) {
+      return Object.fromEntries(STEM_IDS.map((id) => [id, {
+        ...this.round.brief.start[id],
+        settings: { eq: { ...this.round.brief.start[id].settings?.eq ?? EQ_REST } },
+      }]));
+    }
+
     const mix = flatMix();
     // A naming round's near side is the part with nothing on it, which is what
     // `flatMix` already is - and the inserts go on the far side only, out of
@@ -358,6 +380,23 @@ export class MixPage {
   /** Whether this round is answered by naming it rather than by matching it. */
   get naming() { return !!MIX_TIERS[this.tier]?.names; }
 
+  /** Whether this round asks what is wrong before it asks for it to be fixed. */
+  get diagnosing() { return !!MIX_TIERS[this.tier]?.faults; }
+
+  /**
+   * What the round is waiting for: a name, or a mix.
+   *
+   * `asking` and not `stage`, which this class already has and which is the
+   * audio graph. Setting a name that is only a getter throws where the
+   * constructor runs, so the whole view came up empty with one line in the
+   * console - the browser checks caught it, a unit test could not have.
+   */
+  get asking() {
+    if (this.naming) return 'name';
+    if (this.diagnosing && !this.named) return 'name';
+    return 'mix';
+  }
+
   /**
    * What the stage should be playing: a mix, with the monitoring on top.
    *
@@ -376,10 +415,11 @@ export class MixPage {
 
   /** The whole desk: the strips, and the tone of them when a round asks. */
   drawDesk() {
-    this.parts.strips.hidden = this.naming;
-    this.parts.strips.innerHTML = this.naming ? '' : this.strips();
+    const hidden = this.asking === 'name';
+    this.parts.strips.hidden = hidden;
+    this.parts.strips.innerHTML = hidden ? '' : this.strips();
 
-    const wanted = !this.naming && this.colours.length > 0;
+    const wanted = !hidden && this.colours.length > 0;
     this.parts.tone.hidden = !wanted;
     this.parts.toneStrips.innerHTML = wanted ? this.toneStrips() : '';
 
@@ -398,22 +438,49 @@ export class MixPage {
    * this file that looked like those ones until somebody restyled one of them.
    */
   drawNaming() {
-    this.parts.naming.hidden = !this.naming;
-    if (!this.naming) { this.parts.picker.textContent = ''; return; }
+    const asking = this.asking === 'name';
+    this.parts.naming.hidden = !asking;
+    if (!asking) { this.parts.picker.textContent = ''; return; }
 
     renderPicker(this.parts.picker, this.slots(), { order: this.picked }, {
       write: (el, text) => { el.textContent = text; },
     });
+    this.syncNaming();
   }
 
-  /** What a naming round asks, in the shape the picker takes. */
+  /** What the round is asking, in the shape the picker takes. */
   slots() {
+    if (this.diagnosing) {
+      return [{
+        id: 'fault',
+        kind: 'choice',
+        label: 'What is wrong with it — all of it',
+        options: faultChoices(),
+      }];
+    }
     return [{
       id: 'order',
       kind: 'choice',
       label: `What is on the ${STEMS.find((stem) => stem.id === CHAIN_ON)?.name.toLowerCase()}`,
       options: chainChoices(),
     }];
+  }
+
+  /**
+   * Which chips are pressed, which the picker cannot do for the capstone.
+   *
+   * `syncPicker` presses the one chip whose id matches the answer, which is
+   * what a question with one answer wants. This one has one to three, and
+   * does not say how many - so the pressing is kept here, as a set.
+   */
+  syncNaming() {
+    if (!this.diagnosing) {
+      syncPicker(this.parts.picker, this.slots(), { order: this.picked });
+      return;
+    }
+    for (const button of this.parts.picker.querySelectorAll('[data-option]')) {
+      button.setAttribute('aria-pressed', String(this.found.has(button.dataset.option)));
+    }
   }
 
   /**
@@ -692,13 +759,71 @@ export class MixPage {
 
   /* --- naming it ------------------------------------------------------------ */
 
-  named(event) {
+  /**
+   * A chip pressed.
+   *
+   * `pickedOne` and not `named`, which is the field next door that says
+   * whether the diagnosis has been given - a method and a field of one name
+   * on one object is the field, and what that looked like was a chip that
+   * did nothing and a console nobody was reading.
+   */
+  pickedOne(event) {
     const button = event.target.closest('[data-option]');
     if (!button || this.over) return;
+    const id = button.dataset.option;
 
-    this.picked = button.dataset.option;
-    syncPicker(this.parts.picker, this.slots(), { order: this.picked });
+    if (this.diagnosing) {
+      if (this.found.has(id)) this.found.delete(id);
+      else this.found.add(id);
+    } else {
+      this.picked = id;
+    }
+
+    this.syncNaming();
+    // Nothing picked is not an answer on either round. On the capstone it
+    // would also be a true one about half the time, which is worse.
+    this.parts.submit.disabled = this.diagnosing ? this.found.size === 0 : !this.picked;
+  }
+
+  /**
+   * What is wrong with it, said out loud, and then the desk.
+   *
+   * One guess at the naming, for the reason the other naming round gives, and
+   * then the round carries on: being wrong about what is wrong does not stop
+   * anybody from fixing it, and the fixing is marked separately. Which is
+   * also the honest order - plenty of engineers fix things they could not
+   * have named.
+   */
+  diagnose() {
+    if (this.named || !this.found.size) return;
+
+    const wanted = new Set(this.round.brief.faults.map((one) => one.fault));
+    const got = [...this.found];
+    const right = got.filter((id) => wanted.has(id));
+    const missed = [...wanted].filter((id) => !this.found.has(id));
+    const wrong = got.filter((id) => !wanted.has(id));
+
+    this.named = true;
+    this.diagnosed = { right: right.length, of: wanted.size, missed, wrong };
+
+    const say = (ids) => {
+      const names = ids.map((id) => mixFaultOf(id).symbol.toLowerCase());
+      if (names.length < 2) return names.join('');
+      return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+    };
+
+    this.parts.advice.hidden = false;
+    this.parts.advice.textContent = missed.length || wrong.length
+      ? `${right.length} of ${wanted.size}.`
+        + `${missed.length ? ` You missed ${say(missed)}.` : ''}`
+        + `${wrong.length ? ` You said ${say(wrong)}, and nothing was.` : ''}`
+        + ' Now put it back.'
+      : `All ${wanted.size} of them. Now put it back.`;
+
+    this.drawDesk();
+    this.drawNaming();
     this.parts.submit.disabled = false;
+    this.parts.submit.textContent = 'Submit the mix';
   }
 
   /**
@@ -755,6 +880,14 @@ export class MixPage {
       label: how.symbol,
     });
     this.drawRecord();
+  }
+
+  /** What was done to it, for the reveal and for the result panel. */
+  whatWasWrong() {
+    const said = this.round.brief.faults
+      .map(({ fault, on }) => `${mixFaultOf(fault).symbol.toLowerCase()} on the `
+        + `${STEMS.find((stem) => stem.id === on)?.name.toLowerCase()}`);
+    return `What was done to it: ${said.join(', ')}.`;
   }
 
   /* --- matching the levels -------------------------------------------------- */
@@ -893,6 +1026,7 @@ export class MixPage {
 
   async submit() {
     if (this.naming) { this.sayIt(); return; }
+    if (this.asking === 'name') { this.diagnose(); return; }
     if (this.busy || this.over) return;
     this.busy = true;
     this.parts.submit.disabled = true;
@@ -921,8 +1055,7 @@ export class MixPage {
           tier: this.tier,
           attempts: this.attempts,
           solved: true,
-          worst: this.marked.worst.kind,
-          label: READING_NAMES[this.marked.worst.kind].label,
+          ...this.recordAs(),
         });
         this.drawRecord();
       }
@@ -951,11 +1084,36 @@ export class MixPage {
               : `${reading.where ? `${reading.where} · ` : ''}${reading.allowed} is a match`}</span>
           </div>`).join('')}
       </div>
+      ${this.diagnosing && this.diagnosed ? `
+        <p class="fine">You named ${this.diagnosed.right} of ${this.diagnosed.of}
+           before you started. ${solved ? this.whatWasWrong() : ''}</p>` : ''}
       <p class="fine">You are marked on the master, not on the faders: any set of
          moves that gets there is the answer.</p>`;
 
     this.parts.advice.hidden = false;
     this.parts.advice.textContent = mixAdvice(this.marked);
+  }
+
+  /**
+   * What the record files this round under.
+   *
+   * Which reading was furthest out, on every tier but the capstone - and on
+   * that one, what was actually wrong, because that is the thing somebody is
+   * getting better or worse at. "The one that catches you out: too much
+   * room" is worth knowing; "the one that catches you out: how wide" is the
+   * same sentence about a symptom.
+   */
+  recordAs() {
+    if (this.diagnosing && this.diagnosed?.missed.length) {
+      const id = this.diagnosed.missed[0];
+      return { worst: `missed:${id}`, label: `${mixFaultOf(id).symbol} — missed` };
+    }
+    if (this.diagnosing && this.round.brief.faults.length) {
+      const { fault } = this.round.brief.faults[0];
+      return { worst: fault, label: mixFaultOf(fault).symbol };
+    }
+    const kind = this.marked?.worst.kind ?? 'balance';
+    return { worst: kind, label: READING_NAMES[kind].label };
   }
 
   /** The answer, on the faders, with the round closed. */
@@ -976,18 +1134,15 @@ export class MixPage {
     this.parts.submit.disabled = true;
     this.parts.submit.textContent = 'Shown';
     this.parts.advice.hidden = false;
-    this.parts.advice.textContent = `That is where it was: ${movesIn(this.round.brief.target)
+    this.parts.advice.textContent = `${this.diagnosing ? `${this.whatWasWrong()} ` : ''}`
+      + `That is where it was: ${movesIn(this.round.brief.target)
       .filter((stem) => stem.db || stem.pan || stem.send || stem.tone)
       .map((stem) => tellMove(stem))
       .join('; ')}.`;
 
     if (this.attempts) {
       recordMix({
-        tier: this.tier,
-        attempts: this.attempts,
-        solved: false,
-        worst: this.marked?.worst.kind ?? 'balance',
-        label: READING_NAMES[this.marked?.worst.kind ?? 'balance'].label,
+        tier: this.tier, attempts: this.attempts, solved: false, ...this.recordAs(),
       });
       this.drawRecord();
     }

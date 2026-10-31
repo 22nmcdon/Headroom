@@ -29,6 +29,7 @@ import { roomGap, roomOf, inARoom, ROOM_AXIS, ROOM_FLOOR } from '../src/mix/room
 import {
   CHAIN_ORDERS, CHAIN_IDS, CHAIN_ON, chainMix, arrangementOf,
 } from '../src/mix/chain.js';
+import { MIX_FAULTS, MIX_FAULT_IDS, HOW_MANY } from '../src/mix/faults.js';
 import {
   sumOf, mixLoudness, staleFor, matchTrim, anchorOf, gainOfTrim, MATCH_LIMIT,
   LISTEN_MODES, LISTEN_IDS, SMALL_SPEAKER,
@@ -893,6 +894,10 @@ test('every tier says which stems it colours, and the other three colour none', 
   // the part that has a top end to lose.
   for (const tier of MIX_TIER_IDS) {
     for (const { id, band } of colouring(tier)) {
+      if (MIX_TIERS[tier].faults || MIX_TIERS[tier].tones) {
+        assert.equal(band, TONE_BANDS[id], `${tier} colours ${id} somewhere it does not live`);
+        continue;
+      }
       if (MIX_TIERS[tier].depths) {
         assert.equal(band, 'high', `${tier} rolls the air off somewhere that is not the top`);
         assert.ok(AIRY.includes(id), `${tier} takes air off ${id}, which has none to take`);
@@ -1167,4 +1172,87 @@ test('a small speaker is two corners, and its Q is in the units it is in', () =>
   // the default of 1 is a one-decibel bump. See SMALL_SPEAKER.
   assert.ok(Math.abs(SMALL_SPEAKER.q - 20 * Math.log10(Math.SQRT1_2)) < 0.001);
   assert.ok(SMALL_SPEAKER.q < 0, 'a Butterworth corner is three decibels down, not up');
+});
+
+/* --- fixing a mix somebody has been at ------------------------------------- */
+
+test('every fault can be done, can be undone, and says what it hurts', () => {
+  assert.equal(MIX_FAULTS.length, 4);
+  assert.equal(new Set(MIX_FAULT_IDS).size, 4);
+
+  const marked = toleranceFor('fix');
+  for (const fault of MIX_FAULTS) {
+    assert.ok(fault.symbol && fault.symbol.length <= 14, `${fault.id} has no readable symbol`);
+    assert.ok(fault.name && fault.name.length > 10, `${fault.id} does not say what it is`);
+
+    // What it claims to hurt has to be a reading this tier is marked on, or
+    // the fault is invisible to the round it is in.
+    assert.ok(marked[fault.hurts] > 0, `${fault.id} hurts ${fault.hurts}, which is not marked here`);
+
+    // And somebody has to be able to put it back: every fault moves a
+    // control the desk has, which is why none of them touches the anchor's
+    // fader or a band its part does not live in.
+    const [low, high] = fault.size;
+    assert.ok(high > low && low > 0, `${fault.id} has no size`);
+  }
+});
+
+test('a round has one to three things wrong with it, never two of a kind', () => {
+  const counts = new Set();
+  for (let seed = 1; seed <= 80; seed += 1) {
+    const { faults, start, target } = mixBrief('fix', seed * 5099);
+
+    assert.ok(faults.length >= 1 && faults.length <= 3, `${faults.length} faults`);
+    counts.add(faults.length);
+
+    const kinds = faults.map((one) => one.fault);
+    const parts = faults.map((one) => one.on);
+    assert.equal(new Set(kinds).size, kinds.length, 'two faults of one kind cannot both be named');
+    assert.equal(new Set(parts).size, parts.length, 'two faults on one part hide each other');
+    assert.ok(!parts.includes(ANCHOR), 'the anchor was broken and its fader does not move');
+
+    // The mix underneath is a whole mix, not flat: a round whose answer is
+    // flat is a round you win by zeroing everything.
+    const moved = movesIn(target).filter((stem) => stem.db || stem.pan || stem.send);
+    assert.ok(moved.length >= 2, 'the mix under the faults is nearly flat');
+
+    // And the mix it opens on is not the answer.
+    assert.notDeepEqual(start, target);
+  }
+
+  // All three counts come up, or the round is not asking a question about
+  // how many: see HOW_MANY.
+  assert.equal(counts.size, 3, `only ${[...counts].join(', ')} ever came up`);
+});
+
+test('what was done to a mix is always something the desk can undo', () => {
+  for (let seed = 1; seed <= 40; seed += 1) {
+    const { faults, start, target } = mixBrief('fix', seed * 8191);
+
+    for (const { fault, on } of faults) {
+      const was = target[on];
+      const now = start[on];
+      const moved = Math.abs(dbOf(now.gain) - dbOf(was.gain)) > 1e-9
+        || Math.abs(now.pan - was.pan) > 1e-9
+        || Math.abs(now.send - was.send) > 1e-9
+        || toneIn(now) !== toneIn(was);
+      assert.ok(moved, `${fault} on the ${on} changed nothing`);
+
+      // On the grid the controls are on, so it can be put back exactly.
+      assert.equal(toStep(dbOf(now.gain), STEPS.gain), toStep(dbOf(now.gain), STEPS.gain));
+      assert.equal(now.pan, toStep(now.pan, STEPS.pan));
+      assert.equal(now.send, toStep(now.send, STEPS.send));
+      assert.equal(toneIn(now), toStep(toneIn(now), STEPS.tone));
+      assert.ok(Math.abs(now.pan) <= 1 && now.send <= 1 && now.send >= 0);
+      assert.ok(Math.abs(toneIn(now)) <= 12, 'a colour fault went past the slider');
+    }
+  }
+});
+
+test('the capstone is marked on everything it could have broken', () => {
+  const tolerance = toleranceFor('fix');
+  for (const fault of MIX_FAULTS) assert.ok(tolerance[fault.hurts] > 0, fault.id);
+
+  // The whole desk is out, because anything might have been done to it.
+  assert.equal(colouring('fix').length, TONED.length);
 });

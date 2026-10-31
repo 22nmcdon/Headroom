@@ -12,6 +12,9 @@ The mix exercise: a piece, a brief, and a score for how close the balance is.
     room.js       how much room there is and what is in it, which is distance
     chain.js      what is on a part and in what order, which is named rather
                   than matched
+    desk.js       what the controls move in and how far, which is true of the
+                  desk whether or not anybody is being asked anything
+    faults.js     what somebody did to this mix before you got to it
     monitor.js    the monitor path: matching the two loudnesses, folding to
                   mono, and a small speaker - none of it near the marking
     page.js       the strips, the transport and the result
@@ -342,3 +345,53 @@ on the flat mix of short-night the kit and the bass have all their weight
 below 310 Hz, with shares of 9.61 and 9.24 against the pad's −17.27. A mix
 balanced on its low end is a mix that loses both its anchors on a small
 speaker, and that is the thing to go and hear.
+
+## Fix the mix
+
+Every other round starts from flat and asks you to build something. This one
+starts from a mix that was right and has had one to three things done to it,
+and asks two questions in order: what is wrong, and then put it back. Which is
+the job rather than an exercise about the job — nobody is handed four flat
+faders and told to make a record; they are handed something that nearly works
+and asked why it does not.
+
+**The mix underneath is not flat**, because a round whose answer is flat is a
+round you win by zeroing everything. It is a whole mix — levels, places,
+room — and the only way to the answer is the A/B.
+
+**One fault per control, and never two of a kind.** Two of one kind could not
+both be named, because the chips are kinds; two on one part would hide each
+other, which is a fair thing for a mix to do and an unfair thing for a round
+that asks you to name them. Measured, each fault on its own against the mix it
+was done to:
+
+    fault     on      hurts        loud  balance  place  width  crest  share  room
+    too loud  bass    share        0.29     2.96   0.13   2.23   0.46   3.00  0.58
+    off       keys    placement    0.00     0.62   1.26   5.11   0.00   0.63  0.00
+    too wet   keys    room         0.23     1.36   0.12   3.02   0.22   0.00  6.74
+    colour    bass    share        0.14     2.44   0.04   1.65   0.25   1.99  0.41
+
+Every one of them is outside the tolerance of the reading it claims — 0.5 on
+share, 0.6 on placement, 2.0 on room — and `tests/browser/fix.mjs` holds that
+every run, along with the two ends of a round: the mix as it was left fails on
+room at 18.22 and the mix put back passes at 0.00.
+
+**The pan fault is only put on a part with the whole field to move in**, and
+that was a measurement rather than a nicety. The bass gets a quarter of the
+field, so the same fault on it is a pan move of 0.09 to 0.15 and reads 0.41
+against a tolerance of 0.6: a fault nobody can mark, and one nobody can hear
+is worse.
+
+**How many are wrong is not said.** A round that always had the same number
+would be a round you could count rather than hear — find two and stop
+looking — and the number being unknown is half of what makes the naming a
+question. Three is the ceiling because with four kinds in the library, four
+faults has one answer.
+
+**Being wrong about what is wrong does not stop you fixing it.** One guess at
+the naming, then the round carries on and the fix is marked separately, which
+is also the honest order: plenty of engineers fix things they could not have
+named. What the record files the round under is the fault that was missed
+rather than the reading that was worst — "the one that catches you out: too
+much room" is worth knowing, where "how wide" is the same sentence about a
+symptom.

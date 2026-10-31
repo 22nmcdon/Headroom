@@ -20,8 +20,11 @@ export const name = 'listen';
 
 export async function check({ browser, at, say }) {
   const problems = [];
+  // `noise` is pushed at the end rather than here, because it goes on
+  // collecting: an error thrown inside a click handler happens long after
+  // the page has opened, and a check that copied the list out at the top
+  // would report a clean page and a mysteriously dead control.
   const { page, noise } = await open(browser, at, { view: 'mix' });
-  problems.push(...noise);
 
   const out = await page.evaluate(async () => {
     const { makeMonitor, SMALL_SPEAKER, LISTEN_IDS } = await import('./src/mix/monitor.js');
@@ -189,6 +192,7 @@ export async function check({ browser, at, say }) {
     }
   }
 
+  problems.push(...noise);
   await page.close();
   return problems;
 }

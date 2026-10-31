@@ -12,16 +12,17 @@
 // everything.
 
 import { mulberry32 } from '../lib/random.js';
+import { STEPS, TRIM, gainFor, dbOf, TONE_BANDS, ROOM_FOR } from './desk.js';
 import { toStep } from '../learn/work/scoring.js';
 import { STEM_FLAT, STEMS, STEM_IDS, PIECE_IDS } from './piece.js';
 import { EQ_REST } from '../sketch/knobs.js';
 import { CHAIN_IDS, chainMix } from './chain.js';
+import { MIX_FAULT_IDS, howManyIn, injure } from './faults.js';
 
-/** What a fader, a pan, a send and a tone control move in. Targets sit on these too. */
-export const STEPS = { gain: 0.5, pan: 0.05, send: 0.05, tone: 0.5 };
-
-/** How far a fader goes, in decibels against where the stem arrives. */
-export const TRIM = { low: -12, high: 9 };
+// The desk's own facts live next door and are handed on from here, because
+// everything that asks about a round already imports this file. See desk.js
+// for why they moved.
+export { STEPS, TRIM, gainFor, dbOf, TONE_BANDS, ROOM_FOR };
 
 /**
  * The three tiers, as what gets moved rather than as how hard it is.
@@ -123,6 +124,22 @@ export const MIX_TIERS = {
     carves: true,
     tone: [3, 7],
   },
+  // The whole job: a mix that was right, with one to three things done to it.
+  //
+  // Two questions in order - what is wrong, and then put it back - and the
+  // mix underneath is a whole mix rather than flat, because a round whose
+  // answer is flat is a round you win by zeroing everything. See `faults.js`.
+  fix: {
+    label: 'Fix the mix',
+    blurb: 'This mix was right. Somebody has been at it.',
+    moves: 3,
+    pans: 2,
+    sends: 2,
+    gain: [-6, 6],
+    pan: [0.2, 0.5],
+    send: [0.15, 0.45],
+    faults: true,
+  },
   // The one round that is answered by naming it rather than by matching it.
   //
   // An order has four answers, so a round you could submit against would be a
@@ -141,12 +158,6 @@ export const MIX_TIERS = {
 };
 
 export const MIX_TIER_IDS = Object.keys(MIX_TIERS);
-
-/** A stem's gain, from decibels against the flat position. */
-export const gainFor = (db) => STEM_FLAT.gain * 10 ** (db / 20);
-
-/** And back, which is what a fader shows. */
-export const dbOf = (gain) => 20 * Math.log10(Math.max(gain, 1e-6) / STEM_FLAT.gain);
 
 /** Some of a list, shuffled, so the same two are not always the ones. */
 function some(rng, list, count) {
@@ -190,48 +201,6 @@ function worthIt(rng, range, least, step) {
  */
 export const ANCHOR = 'kit';
 export const MOVABLE = STEM_IDS.filter((id) => id !== ANCHOR);
-
-/**
- * Which band each stem is moved in, and why it is only one.
- *
- * An EQ insert is markable where a compressor insert is not, and this is the
- * table that says where. Measured on both pieces, a single band moved on one
- * stem, read as the gap it opens on the master's `balance` reading against
- * the same mix flat:
- *
- *     piece         stem    band     +2     +3     +4     +5     +6
- *     short-night   bass    low    1.14   1.67   2.17   2.64   3.07
- *     short-night   bass    mid    0.29   0.46   0.65   0.86   1.09
- *     short-night   bass    high   0.29   0.47   0.67   0.91   1.17
- *     short-night   keys    low    0.38   0.61   0.87   1.16   1.48
- *     short-night   keys    mid    0.75   1.13   1.51   1.88   2.24
- *     short-night   keys    high   0.30   0.49   0.70   0.94   1.21
- *     short-night   pad     low    0.35   0.56   0.80   1.06   1.36
- *     short-night   pad     mid    1.38   2.06   2.74   3.40   4.05
- *     short-night   pad     high   0.28   0.45   0.64   0.86   1.10
- *     late-room     bass    low    0.50   0.76   1.03   1.29   1.54
- *     late-room     bass    mid    0.14   0.22   0.30   0.40   0.51
- *     late-room     bass    high   0.15   0.24   0.35   0.46   0.59
- *     late-room     keys    low    0.27   0.44   0.63   0.84   1.08
- *     late-room     keys    mid    0.36   0.57   0.81   1.06   1.33
- *     late-room     keys    high   0.21   0.34   0.48   0.64   0.82
- *     late-room     pad     low    0.35   0.57   0.81   1.08   1.39
- *     late-room     pad     mid    1.13   1.68   2.20   2.70   3.17
- *     late-room     pad     high   0.29   0.46   0.66   0.89   1.14
- *
- * Every row rises with the move, which is the first thing a control has to
- * do and the thing a compressor insert could not: measured the same way, a
- * loudness-matched compressor's effect on the master's `crest` reading was
- * not monotonic in its own threshold, and sixteen decibels of reduction on
- * the bass moved it 0.49 dB against a tolerance of 0.45.
- *
- * What the table decides is the band. A high-shelf move never reaches 1.21 on
- * any stem of either piece, and a low-shelf move only does on the bass -
- * because that is where the energy is, and a band with nothing in it cannot
- * be heard to change. So each stem is moved in the one band it lives in, and
- * the round is never asked to hear something that is not there.
- */
-export const TONE_BANDS = { bass: 'low', keys: 'mid', pad: 'mid' };
 
 /**
  * The smallest tone move a round is allowed to ask for.
@@ -309,6 +278,9 @@ export const CARVE_LEAST = 3;
 /** Which stems a round lets you colour, and in which band. */
 export function colouring(tier) {
   const spec = MIX_TIERS[tier] ?? MIX_TIERS.easy;
+  // The capstone has the whole desk out, because anything might have been
+  // done - including a colour, which is one of the four faults.
+  if (spec.faults) return TONED.map((id) => ({ id, band: TONE_BANDS[id] }));
   if (spec.depths) return AIRY.map((id) => ({ id, band: 'high' }));
   if (spec.carves) return CARVES.map(({ masker, band }) => ({ id: masker, band }));
   if (spec.tones) return TONED.map((id) => ({ id, band: TONE_BANDS[id] }));
@@ -337,17 +309,6 @@ export const toneIn = (set) => toneAt(set)?.db ?? 0;
 
 /** Which stems a tone round is allowed to colour. */
 export const TONED = STEM_IDS.filter((id) => id in TONE_BANDS);
-
-/**
- * How far each stem is allowed off centre, and into the room.
- *
- * A level is a level and any stem can be at any of them. Where a thing sits
- * is not like that: a bass hard right is a mix nobody has ever made, and a
- * round that asked for one would be teaching an ear to expect something it
- * will never meet again. So the bass gets a quarter of the field and a
- * quarter of the room, and the parts that really do move get all of it.
- */
-export const ROOM_FOR = { bass: 0.25, keys: 1, pad: 1, kit: 0 };
 
 /**
  * Three distances, as what each one does to a part.
@@ -424,6 +385,19 @@ export function mixBrief(tier, seed) {
 
   for (const id of some(rng, MOVABLE, spec.sends)) {
     target[id].send = toStep(between(rng, spec.send) * ROOM_FOR[id], STEPS.send);
+  }
+
+  // Things done to a mix that was right. The target stays the answer - what
+  // is being asked for is the mix as it was - and the faults go on the mix
+  // the round opens with, which is the one difference from every other tier.
+  if (spec.faults) {
+    for (const id of STEM_IDS) {
+      target[id].inserts = ['eq'];
+      target[id].settings = { eq: { ...EQ_REST } };
+    }
+
+    const broken = injure(target, some(rng, MIX_FAULT_IDS, howManyIn(rng)), rng, MOVABLE);
+    return { tier, piece, target, spec, faults: broken.done, start: broken.mix };
   }
 
   // A naming round has no settings to find: the answer is which arrangement
