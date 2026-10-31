@@ -20,6 +20,10 @@
 
 export const name = 'sampler';
 
+/** Middle C, which is what SAMPLE_ROOT is - repeated here because the
+ * evaluate block's imports do not reach this side of the page boundary. */
+const SAMPLE_ROOT_NOTE = 60;
+
 export async function check({ browser, at, say }) {
   const problems = [];
   const page = await browser.newPage();
@@ -74,7 +78,7 @@ export async function check({ browser, at, say }) {
     };
 
     /** One note, rendered through a whole stage, and what came out of it. */
-    const render = async ({ take, root, pitch, takes: which }) => {
+    const render = async ({ take, root, pitch, takes: which, hold = false }) => {
       const seconds = 2.2;
       const ctx = new OfflineAudioContext(2, Math.ceil(RATE * seconds), RATE);
 
@@ -83,7 +87,7 @@ export async function check({ browser, at, say }) {
       project.tracks.forEach((_, i) => {
         if (i > 0) project = setTrack(project, i, { muted: true });
       });
-      project = setTrack(project, 0, { instrument: 'sampler', sample: { take, root } });
+      project = setTrack(project, 0, { instrument: 'sampler', sample: { take, root, hold } });
       project = setNotes(project, 0, 0, [{ pitch, start: 0, length: PPQ * 2 }]);
 
       const takes = new Map(Object.entries(which));
@@ -111,7 +115,18 @@ export async function check({ browser, at, say }) {
       const L = done.getChannelData(0);
       let peak = 0;
       for (let i = 0; i < L.length; i += 1) peak = Math.max(peak, Math.abs(L[i]));
-      return { hz: freqOf(L, RATE), peak };
+
+      // How long it actually sounded for, which is the whole question the
+      // held path exists to answer: resampling makes a sample shorter as it
+      // goes up, and holding the length does not.
+      let begins = -1;
+      let ends = 0;
+      for (let i = 0; i < L.length; i += 1) {
+        if (Math.abs(L[i]) > peak * 0.05) { if (begins < 0) begins = i; ends = i; }
+      }
+      const lasted = begins < 0 ? 0 : (ends - begins) / RATE;
+
+      return { hz: freqOf(L, RATE), peak, lasted };
     };
 
     // One context just to make the buffers in, since a buffer belongs to the
@@ -152,7 +167,73 @@ export async function check({ browser, at, say }) {
     // And no take at all, which is how every sampler track starts.
     const unset = await render({ take: null, root: SAMPLE_ROOT, pitch: 60, takes });
 
-    return { rows, missing, unset };
+    /* --- and the same notes with the length held ----------------------- */
+
+    // A longer recording, because what is being measured is how long the
+    // sound lasts and half a second against a note of a beat and a quarter
+    // leaves little room to tell the two behaviours apart.
+    //
+    // And at the frequency the root actually names, which the takes above
+    // deliberately are not. Resampling does not care: it shifts by a ratio
+    // and a wrong root only means the note comes out at the wrong absolute
+    // pitch. Holding the length does care, because the period it cuts grains
+    // on comes from the root - so a root that is a lie is grains landing at
+    // random phases of the waveform. That is measured below rather than
+    // avoided, because it is the reason the "Work it out" button beside the
+    // root picker matters more on this setting than on the other one.
+    const long = (ctx, hz) => {
+      const buf = ctx.createBuffer(1, Math.round(RATE * 1.0), RATE);
+      const data = buf.getChannelData(0);
+      for (let i = 0; i < data.length; i += 1) {
+        data[i] = Math.sin((2 * Math.PI * hz * i) / RATE) * 0.8;
+      }
+      return buf;
+    };
+    const TRUE_HZ = 440 * 2 ** ((SAMPLE_ROOT - 69) / 12);
+    const held = {
+      ...takes,
+      'take-long': long(holder, TRUE_HZ),
+      // The same recording, by a root that is a fifth out.
+      'take-lying': long(holder, TRUE_HZ),
+    };
+
+    const heldRows = [];
+    for (const pitch of [SAMPLE_ROOT - 12, SAMPLE_ROOT - 5, SAMPLE_ROOT, SAMPLE_ROOT + 7]) {
+      const want = TRUE_HZ * 2 ** ((pitch - SAMPLE_ROOT) / 12);
+      heldRows.push({
+        pitch,
+        want,
+        free: await render({ take: 'take-long', root: SAMPLE_ROOT, pitch, takes: held }),
+        kept: await render({ take: 'take-long', root: SAMPLE_ROOT, pitch, takes: held, hold: true }),
+      });
+    }
+
+    // Two octaves up is outside what the shifter will take, and the sampler
+    // is supposed to fall back to resampling rather than go quiet.
+    const past = await render({
+      take: 'take-long', root: SAMPLE_ROOT, pitch: SAMPLE_ROOT + 36, takes: held, hold: true,
+    });
+
+    // What a wrong root costs each of the two paths, at an octave down.
+    // The recording sounds at the root; the track is told it sounds a fifth
+    // higher. Both paths are then asked for an octave below that lie, so
+    // both are shifting by a half - and resampling gets a clean half while
+    // the held path is cutting grains on a period that is not the
+    // recording's.
+    const LIE = 7;
+    const lying = {
+      free: await render({
+        take: 'take-lying', root: SAMPLE_ROOT + LIE, pitch: SAMPLE_ROOT + LIE - 12, takes: held,
+      }),
+      kept: await render({
+        take: 'take-lying', root: SAMPLE_ROOT + LIE, pitch: SAMPLE_ROOT + LIE - 12, takes: held, hold: true,
+      }),
+      // Half of what the recording really sounds at, which is what a shift
+      // by a half means whatever the root is called.
+      want: TRUE_HZ / 2,
+    };
+
+    return { rows, missing, unset, heldRows, past, lying };
   });
 
   say('  what                              asked       got    out by     peak');
@@ -165,6 +246,78 @@ export async function check({ browser, at, say }) {
   say('');
   say(`  a take id nothing holds: peak ${got.missing.peak.toExponential(2)}`);
   say(`  no take chosen at all:   peak ${got.unset.peak.toExponential(2)}`);
+
+  // Resampling against holding the length, on a one-second recording. The
+  // pitch has to be the same either way and the length must not be.
+  say('\n  the same notes, resampled and with the length held\n');
+  say('  note    asked        resampled            length held');
+  say('                        got   lasted         got   lasted');
+  for (const r of got.heldRows) {
+    say(`  ${String(r.pitch).padStart(4)} ${r.want.toFixed(1).padStart(8)}`
+      + ` ${r.free.hz.toFixed(1).padStart(10)} ${r.free.lasted.toFixed(3).padStart(8)} s`
+      + ` ${r.kept.hz.toFixed(1).padStart(10)} ${r.kept.lasted.toFixed(3).padStart(8)} s`);
+
+    const want = (got_, what) => {
+      const off = Math.abs((got_.hz - r.want) / r.want) * 100;
+      if (got_.peak < 0.01) problems.push(`note ${r.pitch} ${what}: nothing came out`);
+      // Wider than the 0.1 % the resampled path is held to: the shifter is
+      // measured to within ten cents in tests/psola.test.js, and a zero
+      // crossing count over a grained signal is looser again.
+      else if (off > 1) {
+        problems.push(`note ${r.pitch} ${what}: asked ${r.want.toFixed(1)} Hz, got ${got_.hz.toFixed(1)}`);
+      }
+    };
+    want(r.free, 'resampled');
+    want(r.kept, 'with the length held');
+
+    if (r.pitch === SAMPLE_ROOT_NOTE) continue;
+    // The thing itself. Resampling moves the length with the pitch and
+    // holding it does not, and the gap between them is the feature.
+    const moved = Math.abs(r.free.lasted - r.kept.lasted);
+    if (moved < 0.05) {
+      problems.push(`note ${r.pitch}: resampled lasted ${r.free.lasted.toFixed(3)} s and held`
+        + ` ${r.kept.lasted.toFixed(3)}, which is the same - the held path is not being taken`);
+    }
+  }
+
+  // Held, every note should last about as long as every other one.
+  const lengths = got.heldRows.map((r) => r.kept.lasted);
+  const spread = Math.max(...lengths) - Math.min(...lengths);
+  say(`\n  held, the four notes lasted within ${spread.toFixed(3)} s of each other`);
+  if (spread > 0.1) {
+    problems.push(`held, the notes lasted ${lengths.map((l) => l.toFixed(2)).join(', ')} s,`
+      + ' which is not a length being held');
+  }
+
+  say(`  three octaves up, past what the shifter takes: ${got.past.hz.toFixed(1)} Hz,`
+    + ` ${got.past.lasted.toFixed(3)} s, peak ${got.past.peak.toFixed(3)}`);
+  if (got.past.peak < 0.01) {
+    problems.push('a note past the shifter range went silent rather than falling back to resampling');
+  }
+
+  // A root that is a fifth out, shifting down an octave. Resampling does not
+  // care what the root is called - it shifts by the ratio between the note
+  // and the root, and an octave is an octave. Holding the length does care,
+  // because the root is also where its grain period comes from, and grains
+  // cut on the wrong period land at arbitrary phases of the waveform.
+  //
+  // This is the reason the "Work it out" button beside the root picker
+  // matters more on this setting than on the other one, and it is measured
+  // here rather than asserted in a comment.
+  const lie = got.lying;
+  const off = (hz) => Math.abs(1200 * Math.log2(hz / lie.want));
+  say(`\n  a root a fifth out, shifted down an octave, against ${lie.want.toFixed(1)} Hz:`);
+  say(`    resampled ${lie.free.hz.toFixed(1)} Hz (${off(lie.free.hz).toFixed(0)} cents out)`);
+  say(`    held      ${lie.kept.hz.toFixed(1)} Hz (${off(lie.kept.hz).toFixed(0)} cents out)`);
+
+  if (off(lie.free.hz) > 20) {
+    problems.push(`resampling is supposed to be indifferent to a wrong root and came out`
+      + ` ${off(lie.free.hz).toFixed(0)} cents from the octave it was asked for`);
+  }
+  if (lie.kept.peak < 0.01) problems.push('a wrong root made the held path silent');
+  if (off(lie.kept.hz) < 20) {
+    say('    (the held path survived a wrong root at this interval)');
+  }
 
   for (const r of got.rows) {
     if (r.peak < 0.01) {

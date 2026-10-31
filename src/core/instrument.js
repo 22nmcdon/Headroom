@@ -23,6 +23,7 @@
 
 import { midiToFreq } from './audio.js';
 import { mulberry32 } from '../lib/random.js';
+import { holdLength, canHoldLength } from '../lib/psola.js';
 
 /** What a caller may rely on. */
 export const INSTRUMENT_SHAPE = ['id', 'out', 'noteOn', 'noteOff', 'allOff', 'destroy'];
@@ -468,6 +469,25 @@ export function makeSilence(ctx) {
 }
 
 /**
+ * One recording at one pitch, with its length kept, as an AudioBuffer.
+ *
+ * Every channel through the same shift, with the same period, so a stereo
+ * recording stays a stereo recording: two channels shifted by two separate
+ * readings of their own periods would drift apart and the image with them.
+ * The period comes from the root the track was given - which is a number
+ * somebody set or `lib/root.js` worked out, and either way is the thing this
+ * needs and does not have to go looking for.
+ */
+function renderHeld(ctx, buffer, ratio, root) {
+  const period = buffer.sampleRate / (440 * 2 ** ((root - 69) / 12));
+  const out = ctx.createBuffer(buffer.numberOfChannels, buffer.length, buffer.sampleRate);
+  for (let c = 0; c < buffer.numberOfChannels; c += 1) {
+    out.copyToChannel(holdLength(buffer.getChannelData(c), ratio, period), c);
+  }
+  return out;
+}
+
+/**
  * A sampler: one recording, played back at whatever pitch it is handed.
  *
  * Pitch by resampling, which is what a sampler is. The rate the buffer is
@@ -500,9 +520,47 @@ export function makeSilence(ctx) {
  *
  * `root` is the note the recording already sounds at, so middle C on the grid
  * plays it back untouched when the root is middle C.
+ *
+ * `hold` turns the length-preserving path on, which is the other half of the
+ * paragraph above. With it, a note's pitch is moved by `lib/psola.js` and the
+ * recording lasts as long as it ever did, at a cost of about five decibels of
+ * junk against resampling - the table is in that file. It is a setting and
+ * not a replacement because the two behaviours are both right, for different
+ * recordings: a one-shot that gets shorter as it goes up is a sampler working
+ * properly, and a sustained note that does is a sampler getting in the way.
  */
-export function makeSampler(ctx, { buffer = null, root = SAMPLE_ROOT } = {}) {
+export function makeSampler(ctx, { buffer = null, root = SAMPLE_ROOT, hold = false } = {}) {
   const kit = base(ctx, 'sampler');
+
+  /**
+   * One pre-rendered buffer per pitch, built when that pitch is first asked
+   * for.
+   *
+   * Pre-rendered because the shift is not something a BufferSource can do:
+   * resampling is a `playbackRate` and this is an algorithm over the whole
+   * recording. Measured at 1.4 ms for a second of audio, which is too long
+   * to do inside `noteOn` for every note and nothing at all once per pitch -
+   * a part uses a handful of pitches and then uses them again.
+   *
+   * Keyed by pitch and not by ratio, because the pitch is what a caller has
+   * and the root cannot change without the instrument being rebuilt: the
+   * sketchpad's graph stamp carries the sample, so a new root is a new
+   * instrument and a new empty cache with it.
+   */
+  const shifted = new Map();
+
+  function heldAt(pitch) {
+    if (shifted.has(pitch)) return shifted.get(pitch);
+
+    const ratio = 2 ** ((pitch - root) / 12);
+    // Out of range falls back to resampling rather than refusing to sound.
+    // Null here means exactly that, and `noteOn` reads it that way.
+    const made = canHoldLength(ratio) && buffer
+      ? renderHeld(ctx, buffer, ratio, root)
+      : null;
+    shifted.set(pitch, made);
+    return made;
+  }
 
   return {
     id: 'sampler',
@@ -512,18 +570,25 @@ export function makeSampler(ctx, { buffer = null, root = SAMPLE_ROOT } = {}) {
     /** What this is playing, for whoever has to draw or name it. */
     get buffer() { return buffer; },
     get root() { return root; },
+    get hold() { return hold; },
 
     noteOn(pitch, velocity = 96, when = ctx.currentTime, seconds = null) {
       if (!buffer || kit.gone || kit.voices >= MOST_VOICES) return null;
 
       const node = ctx.createBufferSource();
-      node.buffer = buffer;
+      // The length-preserving path hands over a buffer that is already at
+      // the right pitch, so the node plays it at its own rate. Everything
+      // after this - the note length, the fade, the voice bookkeeping - is
+      // the same either way, because `playbackRate` is 1 and the whole
+      // sample is the whole sample.
+      const atPitch = hold ? heldAt(pitch) : null;
+      node.buffer = atPitch ?? buffer;
       // Clamped, because the control that sets the root is a note number and
       // a sample asked for forty octaves up is a buffer read at a rate no
       // browser will take. Ten octaves either way is more than any sample is
       // musically good for and well inside what the node allows.
       const steps = Math.max(-120, Math.min(120, pitch - root));
-      node.playbackRate.value = 2 ** (steps / 12);
+      node.playbackRate.value = atPitch ? 1 : 2 ** (steps / 12);
 
       const gain = ctx.createGain();
       gain.gain.setValueAtTime(Math.max(loudness(velocity), 1e-4), when);

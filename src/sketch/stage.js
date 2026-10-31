@@ -40,7 +40,7 @@ export const SEND_VERB = { decay: 1.4, size: 14, damping: 0.5, preDelay: 12, mix
  * redrew the panel and went on playing the old recording.
  */
 const graphStamp = (track) => `${track.instrument}|${track.inserts.join(',')}`
-  + `|${track.sample?.take ?? ''}:${track.sample?.root ?? ''}`;
+  + `|${track.sample?.take ?? ''}:${track.sample?.root ?? ''}:${track.sample?.hold ? 'held' : 'free'}`;
 
 /**
  * What to hand each of a track's makers.
@@ -57,6 +57,7 @@ const optionsOf = (track, takes) => ({
   [track.instrument]: {
     buffer: track.sample?.take ? takes.get(track.sample.take) ?? null : null,
     root: track.sample?.root,
+    hold: Boolean(track.sample?.hold),
   },
 });
 

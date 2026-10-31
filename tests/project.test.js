@@ -562,7 +562,7 @@ test('a track remembers which take it plays and at what note', () => {
   });
 
   assert.equal(project.tracks[0].instrument, 'sampler');
-  assert.deepEqual(project.tracks[0].sample, { take: 'take-abc', root: 62 });
+  assert.deepEqual(project.tracks[0].sample, { take: 'take-abc', root: 62, hold: false });
 });
 
 test('a track with no sample chosen is a normal state, not a missing one', () => {
@@ -570,7 +570,7 @@ test('a track with no sample chosen is a normal state, not a missing one', () =>
   // the half-set state has to be a shape rather than an absence - which is
   // also what lets the instrument be silent instead of a crash.
   const project = setTrack(newProject(), 0, { instrument: 'sampler' });
-  assert.deepEqual(project.tracks[0].sample, { take: null, root: SAMPLE_ROOT });
+  assert.deepEqual(project.tracks[0].sample, { take: null, root: SAMPLE_ROOT, hold: false });
 });
 
 test('a root note outside the keyboard is brought back onto it', () => {
@@ -590,7 +590,25 @@ test('the sample survives being saved and loaded', () => {
 
   const back = parse(serialise(project));
   assert.equal(back.tracks[0].instrument, 'sampler');
-  assert.deepEqual(back.tracks[0].sample, { take: 'take-xyz', root: 55 });
+  assert.deepEqual(back.tracks[0].sample, { take: 'take-xyz', root: 55, hold: false });
+});
+
+test('whether the length moves with the pitch is remembered too', () => {
+  // Off unless asked for: a sample that gets shorter as it goes up is what
+  // a sampler does, and the other behaviour is the one you choose.
+  let project = setTrack(newProject(), 0, { instrument: 'sampler' });
+  assert.equal(project.tracks[0].sample.hold, false);
+
+  project = setTrack(project, 0, { sample: { take: 't', root: 60, hold: true } });
+  assert.equal(project.tracks[0].sample.hold, true);
+  assert.equal(parse(serialise(project)).tracks[0].sample.hold, true, 'it did not survive a save');
+
+  // Anything that is not a boolean becomes one, because this comes back out
+  // of a file somebody may have edited.
+  for (const [asked, want] of [[1, true], ['', false], [null, false], ['yes', true]]) {
+    const one = setTrack(newProject(), 0, { sample: { take: 't', hold: asked } });
+    assert.equal(one.tracks[0].sample.hold, want, `a hold of ${JSON.stringify(asked)}`);
+  }
 });
 
 test('every instrument a track can be set to is one the app can make', () => {

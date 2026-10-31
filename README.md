@@ -331,14 +331,28 @@ that doing it right is audible rather than merely scored:
   room and the mix, with that same MIDI file alongside them. Everything in it
   starts together and is the same length, so it all drops onto bar one.
 
+  A track can also be a **sampler**: point it at any recording in the sketch
+  and play it from the grid. It needs to know what note the recording already
+  sounds at, and **Work it out** reads that off the recording rather than
+  asking you to know — the shortest lag at which the thing repeats, which is
+  the question an ear asks. Measured to within a cent on sines, saws and a
+  plucked note whose fundamental is 16 dB under its second harmonic; the
+  biggest bin of an FFT is 1177 cents out on that last one, which is why it
+  is not an FFT. It says how far off the note the recording is as well as
+  which note it is — "C4, 30 cents flat" is two facts — and on a drum or a
+  chord it says it cannot tell rather than guessing.
+
+  Pitch moves by resampling, so a sample an octave up is half as long, which
+  is the classic behaviour and right for a one-shot. **Keep the length** is
+  the other one: grains cut on the recording's own period and laid back down
+  at the spacing the new pitch wants, which costs about five decibels against
+  resampling and holds the length to a thousandth of a second across two
+  octaves. It needs the root to be right in a way resampling does not —
+  measured, a root a fifth out puts resampling 0 cents from the octave it was
+  asked for and the held path 938 — so the face says so on that setting, and
+  the button next to it is how you get the root right.
+
 ## Not built yet
-- **Pitch that holds its length.** The sampler resamples, so a recording an
-  octave up is half as long — the classic behaviour, and the honest one.
-  Holding the length while moving the pitch wants a phase vocoder or a
-  granular engine, which is a different instrument.
-- **Detecting a recording's root note.** The sampler is told what note a
-  recording already sounds at, and the default is middle C. The analysis view
-  already has the FFT it would take to work it out.
 - **The rest of the inserts on a mix-exercise strip.** The desk has a tone
   tier now - an EQ on every stem, three bands at fixed frequencies, marked on
   the master's balance reading. The other five inserts are not there, and the

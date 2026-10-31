@@ -134,11 +134,16 @@ export const clipOf = ({
  * at a rate no browser will take, and the instrument clamps again for its
  * own safety rather than trusting this.
  */
-export const sampleOf = ({ take = null, root = SAMPLE_ROOT } = {}) => ({
+export const sampleOf = ({ take = null, root = SAMPLE_ROOT, hold = false } = {}) => ({
   take: take ? String(take) : null,
   root: Number.isFinite(Number(root))
     ? Math.max(0, Math.min(127, Math.round(Number(root))))
     : SAMPLE_ROOT,
+  // Whether moving the pitch should move the length with it. Off, because a
+  // sample that gets shorter as it goes up is what a sampler does and what
+  // anybody who has used one expects; holding the length is the thing you
+  // ask for, on the recordings where the length is the point.
+  hold: Boolean(hold),
 });
 
 /** A track, with its slots. One slot per scene, empty to begin with. */

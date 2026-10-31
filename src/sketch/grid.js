@@ -502,6 +502,15 @@ export class SketchPage {
       return;
     }
 
+    const hold = event.target.closest('[data-sample-hold]');
+    if (hold && this.owning !== null) {
+      const sample = this.project.tracks[this.owning].sample;
+      this.change(setTrack(this.project, this.owning, {
+        sample: { ...sample, hold: !sample.hold },
+      }));
+      return;
+    }
+
     const insert = event.target.closest('[data-insert]');
     if (insert && this.owning !== null) {
       const id = insert.dataset.insert;
@@ -1322,8 +1331,16 @@ export class SketchPage {
                and nowhere to correct it. -->
           <button class="chip" type="button" data-sample-hear
                   ${track.sample.take ? '' : 'disabled'}>Work it out</button>
+          <!-- A chip rather than a picker with two entries, because it is
+               one question with a yes and a no. What it changes is which of
+               two shifters plays the note: off resamples, which is what a
+               sampler does and makes a sample shorter as it goes up; on
+               keeps the length, at about five decibels more junk. The
+               numbers are in lib/psola.js. -->
+          <button class="chip" type="button" data-sample-hold
+                  aria-pressed="${track.sample.hold}">Keep the length</button>
         </div>
-        <p class="fine sketch-heard" data-sample-heard>${this.heard ?? ''}</p>`}
+        <p class="fine sketch-heard" data-sample-heard>${this.heard || this.holdNote(track)}</p>`}
 
         <div class="editor-row">
           <span class="editor-label">Inserts</span>
@@ -1392,6 +1409,27 @@ export class SketchPage {
             </label>`).join('')}
         </div>
       </div>`;
+  }
+
+  /**
+   * The standing note under the sampler's fields when nothing has been read.
+   *
+   * Only when the length is being held, because that is the setting where
+   * the root has to be true. Resampling shifts by the interval between the
+   * note and the root, so a root that is wrong only moves everything by the
+   * same amount and a player transposes around it without noticing. Holding
+   * the length cuts grains on the period the root names, so a wrong root is
+   * grains landing at arbitrary phases of the waveform.
+   *
+   * Measured through the real stage, with a root a fifth out and an octave
+   * down asked for: resampling comes out 0 cents from the octave and the
+   * held path comes out 938. That is the sentence this line exists to stop
+   * somebody discovering on their own.
+   */
+  holdNote(track) {
+    return track.sample.hold
+      ? 'The length is kept — which only works if "plays at" is right.'
+      : '';
   }
 
   /**

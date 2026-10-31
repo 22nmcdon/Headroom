@@ -202,6 +202,42 @@ export async function check({ browser, at, say }) {
       + ' which is a reading of the one before');
   }
 
+  /* --- and the setting that depends on the root being right -------------- */
+
+  // Holding the length cuts grains on the period the root names, so a wrong
+  // root is a wrong shift - 938 cents out at an octave, measured in the
+  // sampler check. Resampling does not care. So the face says so, and only
+  // on the setting where it is true.
+  const holdLine = async () => page.evaluate(() => ({
+    on: document.querySelector('[data-sample-hold]')?.getAttribute('aria-pressed'),
+    line: document.querySelector('[data-sample-heard]')?.textContent.trim() ?? '',
+  }));
+
+  const off = await holdLine();
+  await page.click('[data-sample-hold]');
+  await page.waitForTimeout(300);
+  const on = await holdLine();
+  say(`\n  keeping the length: off -> "${off.line}", on -> "${on.line}"`);
+
+  if (on.on !== 'true') problems.push('the keep-the-length chip did not come on when pressed');
+  if (off.line) problems.push(`with the length free the face says "${off.line}", which it should not`);
+  if (!/plays at/.test(on.line)) {
+    problems.push(`with the length kept the face says "${on.line}", which does not say the`
+      + ' root has to be right');
+  }
+
+  // And a reading, which is the more useful thing to show, wins the line.
+  await page.click('[data-sample-hear]');
+  await page.waitForTimeout(400);
+  const read = await page.$eval('[data-sample-heard]', (el) => el.textContent.trim());
+  say(`  and after working the root out: "${read}"`);
+  if (/plays at/.test(read)) {
+    problems.push('a reading was taken and the standing note is still what the face shows');
+  }
+
+  await page.click('[data-sample-hold]');
+  await page.waitForTimeout(300);
+
   problems.push(...noise);
   await page.close();
   return problems;
