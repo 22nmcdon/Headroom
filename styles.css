@@ -1538,6 +1538,20 @@ input.knob-value:focus {
   border-top: 1px solid var(--line);
 }
 
+/* What the widener and the pan mode are doing, said under the pickers that
+   set them. Its own line rather than an .eq-hint, which is hidden on a phone
+   because the hints there are about keyboards - this one is about what you
+   are hearing, and a phone is where the dropdown label is the only other
+   thing on the face that mentions it. */
+.stereo-said {
+  flex-basis: 100%;
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  color: var(--text-soft);
+}
+
+.stereo-said:empty { display: none; }
+
 /* --- saturation ------------------------------------------------------------ */
 /* The curve gets the square panel, because it is a picture of one axis against
    another and a stretched one lies about the symmetry - which is the only

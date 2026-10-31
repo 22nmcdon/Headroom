@@ -200,12 +200,12 @@ export const SHIMMER_FLOOR = 120;
  * a runaway.
  */
 export const SHIMMER_INTERVALS = [
-  { id: 'octaveUp', label: 'Octave up', ratio: 2, said: 'an octave up' },
-  { id: 'fifthUp', label: 'Fifth up', ratio: 1.498307, said: 'a fifth up' },
-  { id: 'fourthUp', label: 'Fourth up', ratio: 1.334840, said: 'a fourth up' },
-  { id: 'twoOctavesUp', label: 'Two octaves up', ratio: 4, said: 'two octaves up' },
-  { id: 'octaveDown', label: 'Octave down', ratio: 0.5, said: 'an octave down' },
-  { id: 'fifthDown', label: 'Fifth down', ratio: 0.667420, said: 'a fifth down' },
+  { id: 'octaveUp', label: 'Octave up', ratio: 2 },
+  { id: 'fifthUp', label: 'Fifth up', ratio: 1.498307 },
+  { id: 'fourthUp', label: 'Fourth up', ratio: 1.334840 },
+  { id: 'twoOctavesUp', label: 'Two octaves up', ratio: 4 },
+  { id: 'octaveDown', label: 'Octave down', ratio: 0.5 },
+  { id: 'fifthDown', label: 'Fifth down', ratio: 0.667420 },
 ];
 
 /** One interval's ratio, by id, falling back to the octave. */

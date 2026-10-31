@@ -46,8 +46,8 @@
  */
 export const MONO_RANGE = [40, 500];
 export const MONO_SLOPES = [
-  { id: 'gentle', label: '6 dB/oct', order: 1, said: 'six decibels an octave' },
-  { id: 'steep', label: '24 dB/oct', order: 2, said: 'twenty-four decibels an octave' },
+  { id: 'gentle', label: '6 dB/oct', order: 1 },
+  { id: 'steep', label: '24 dB/oct', order: 2 },
 ];
 
 /**

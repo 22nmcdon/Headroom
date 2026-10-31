@@ -66,9 +66,10 @@
  */
 export const WIDEN_KINDS = [
   {
+    // No prose on this one. The line under the picker leaves the widener out
+    // whenever it is not running, and off is the one kind that never is.
     id: 'off',
     label: 'Off',
-    said: 'nothing added',
   },
   {
     id: 'haas',

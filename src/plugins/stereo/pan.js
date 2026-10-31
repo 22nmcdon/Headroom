@@ -29,13 +29,11 @@ export const PAN_LAWS = [
   {
     id: 'power',
     label: '−3 dB',
-    said: 'three decibels down in the middle',
     gains: (p) => [Math.cos((p * Math.PI) / 2), Math.sin((p * Math.PI) / 2)],
   },
   {
     id: 'split',
     label: '−4.5 dB',
-    said: 'four and a half decibels down',
     // The geometric mean of the two either side of it, which is what makes it
     // the compromise rather than a third opinion.
     gains: (p) => [
@@ -46,7 +44,6 @@ export const PAN_LAWS = [
   {
     id: 'linear',
     label: '−6 dB',
-    said: 'six decibels down',
     gains: (p) => [1 - p, p],
   },
 ];

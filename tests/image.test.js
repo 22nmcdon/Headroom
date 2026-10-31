@@ -23,8 +23,9 @@ import { pitchCore } from '../src/lib/pitch.js';
 import { mulberry32 } from '../src/lib/random.js';
 import { STEREO_WORK as panning } from '../src/learn/work/panning.js';
 import {
-  PAN_LAWS, panGains, panMatrix, panPair, skewMatrix, timesMatrix, placeMatrix,
+  PAN_LAWS, PAN_MODES, panGains, panMatrix, panPair, skewMatrix, timesMatrix, placeMatrix,
 } from '../src/plugins/stereo/pan.js';
+import { SHIMMER_INTERVALS } from '../src/plugins/reverb/shimmer.js';
 import { panDeck } from '../src/plugins/stereo/plugin.js';
 
 const rate = 48000;
@@ -590,6 +591,45 @@ test('every kind is a real option and off really is off', () => {
       { ...STEREO_DEFAULTS, widen: kind.id, widenAmount: 0.8 });
     assert.ok(widthOfPair(out.left, out.right) > -20,
       `${kind.id} made ${widthOfPair(out.left, out.right).toFixed(1)} dB of side, which is none`);
+  }
+});
+
+test('a picker carries prose only where its label does not already say it', () => {
+  // Five tables here once carried a `said` string apiece and nothing read
+  // any of them. Three of the five were the label read aloud - "6 dB/oct"
+  // against "six decibels an octave", "-3 dB" against "three decibels down
+  // in the middle", "Octave up" against "an octave up" - so they went, and
+  // this is what keeps them gone: a second spelling of a label is a second
+  // place to change it and a second place to get it wrong.
+  for (const [what, table] of [
+    ['the pan laws', PAN_LAWS], ['the mono slopes', MONO_SLOPES],
+    ['the shimmer intervals', SHIMMER_INTERVALS],
+  ]) {
+    for (const one of table) {
+      assert.ok(!('said' in one), `${what} carry prose for ${one.id} that nothing reads`);
+    }
+  }
+
+  // The other two do say something a label cannot: "Decorrelator" is a name
+  // and "a sparse random response in the side" is what it does, and the same
+  // goes for the three pan modes. Those are on the face now, under the two
+  // pickers, so what is held here is that they stay worth putting there.
+  for (const [what, table] of [['the widen kinds', WIDEN_KINDS], ['the pan modes', PAN_MODES]]) {
+    for (const one of table) {
+      // Except off, which the line leaves out because it is the one kind
+      // that is never running when it is chosen.
+      if (one.id === 'off') {
+        assert.ok(!('said' in one), 'off carries prose the face never shows');
+        continue;
+      }
+      assert.ok(one.said && one.said.length > 10, `${what}: ${one.id} says nothing`);
+      // Not the label again, in any casing or spacing.
+      const plain = (text) => text.toLowerCase().replace(/[^a-z]/g, '');
+      assert.notEqual(plain(one.said), plain(one.label),
+        `${what}: ${one.id} says its own label back`);
+      assert.ok(!/^(a |an |the )?\w+$/.test(one.said),
+        `${what}: ${one.id} says one word, which a label already is`);
+    }
   }
 });
 

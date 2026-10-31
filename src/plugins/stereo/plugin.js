@@ -308,7 +308,13 @@ export class StereoPlugin {
               ${PAN_LAWS.map((law) => `<option value="${law.id}">${law.label}</option>`).join('')}
             </select>
           </label>
-          <span class="eq-hint">mono is the check that matters — what survives it is what everybody hears</span>
+          <!-- What the two pickers above are doing, in words. Their labels
+               are names - "Decorrelator", "Rotate" - and a name is not a
+               description: the phrase comes off the table beside the label
+               so there is one place to change it. The other three pickers
+               here have labels that say it already ("6 dB/oct", "-3 dB"),
+               and prose for those would be the label read aloud. -->
+          <span class="stereo-said" id="stereoSaid"></span>
         </div>
       </div>`;
 
@@ -803,6 +809,36 @@ export class StereoPlugin {
     if (this.settings.listen !== 'stereo') parts.push(`${this.settings.listen} only`);
 
     this.el.querySelector('#stereoRead').textContent = parts.join(' · ');
+    this.writeSaid();
+  }
+
+  /**
+   * What the widener and the pan mode are doing, under the pickers that set
+   * them.
+   *
+   * The head above reports measurements, which is what a head is for. This
+   * is the other thing: six widener kinds and three pan modes whose names
+   * are names, and nowhere on the face that says a decorrelator is a sparse
+   * random response in the side rather than a wider-sounding Haas. The
+   * phrases live on the tables in `widen.js` and `pan.js`, beside the labels
+   * they go with.
+   *
+   * Widening is left out of the line when the amount is down, because then
+   * it is not doing anything - the kind picker can be moved with the knob at
+   * nought and the sound does not change, which `image.test.js` holds.
+   */
+  writeSaid() {
+    const where = this.el.querySelector('#stereoSaid');
+    if (!where) return;
+
+    const kind = WIDEN_KINDS.find((one) => one.id === this.settings.widen);
+    const mode = PAN_MODES.find((one) => one.id === this.settings.panMode);
+    const widening = kind && kind.id !== 'off' && this.settings.widenAmount > 0;
+
+    where.textContent = [
+      widening ? `${kind.label}: ${kind.said}` : null,
+      mode ? `${mode.label}: ${mode.said}` : null,
+    ].filter(Boolean).join(' · ');
   }
 
   /* ---------- what the round does to it ---------- */
