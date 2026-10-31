@@ -49,5 +49,51 @@ export const HEAT_NOTES = {
         + 'of gear makes. So the curve runs at eight times the rate with a linear-phase '
         + 'filter either side of it, and the same hi-hat comes back 48 dB down.',
     },
+    {
+      heading: 'The difference between an effect and a fault',
+      body: 'Three of the seven answers in the artefact drill are things this plugin does '
+        + 'on purpose: hard clipping, soft clipping and quantising. The other four are '
+        + 'nobody\'s idea of a good time — sample and hold, mains hum, a click, and a codec '
+        + 'taking the ends off. They are in one drill because the difference between them '
+        + 'is not in the signal. It is whether anybody meant it.\n\n'
+        + 'What the ear has to do is sort them by kind rather than by how bad they are. '
+        + 'Measured on the mix loop, each one against the same loop clean, as what it does '
+        + 'to the spectrum and to the crest factor:\n\n'
+        + '    what               spectrum    crest\n'
+        + '    hard clipping           2.0      5.5\n'
+        + '    soft clipping           3.2      8.5\n'
+        + '    quantising              3.3      0.1\n'
+        + '    sample and hold        12.5      0.0\n'
+        + '    mains hum               5.9      0.1\n'
+        + '    a click                 6.5      3.1\n'
+        + '    band-limiting          10.8      0.1\n\n'
+        + 'Two groups, and the table shows them. The ones that flatten peaks move the crest '
+        + 'and hardly touch the spectrum; the ones that add something or take something '
+        + 'away do the opposite. That is the first question to ask of a recording that '
+        + 'sounds wrong: has something been flattened, has something been added, or has '
+        + 'something gone?\n\n'
+        + 'All seven are matched for loudness before you hear them, to a tenth of a decibel. '
+        + 'Without that the drill would be answerable by which one got quieter, which is not '
+        + 'a skill.',
+    },
+    {
+      heading: 'Why there is no number for how bad it is',
+      body: 'Total harmonic distortion is the number everybody reaches for, and it does not '
+        + 'predict what anybody hears. Geddes and Lee went looking for a measure that '
+        + 'correlated with perceived distortion and found that THD and IMD do not: a '
+        + 'high-order artefact at a tenth of a per cent is more objectionable than soft '
+        + 'clipping at ten per cent, because the ear cares what order the harmonics are and '
+        + 'how they move, not how much energy is in them.\n\n'
+        + 'So nothing here is scored on a percentage. The drill asks you to name what was '
+        + 'done, which is the thing an ear can actually do and the thing that tells you what '
+        + 'to go and fix.\n\n'
+        + 'The one number that does mean something is the one for quantising, because '
+        + 'quantising has a theory: a signal quantised to b bits should sit 6.02b + 1.76 dB '
+        + 'above its own noise. Measured on a sine, this quantiser gives 50.0 dB at eight '
+        + 'bits against the 49.9 the arithmetic says, 74.0 at twelve and 98.0 at sixteen. On '
+        + 'music it is thirteen decibels worse even after normalising, and that gap is the '
+        + 'crest factor: a sine sits at its peak and a drum loop spends most of its time a '
+        + 'long way below one.',
+    },
   ],
 };

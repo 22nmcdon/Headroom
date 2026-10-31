@@ -13,6 +13,11 @@ import { fft } from '../src/lib/fft.js';
 import { saturatorSource } from '../src/plugins/saturation/node.js';
 import { mulberry32 } from '../src/lib/random.js';
 import { HEAT_WORK as saturation } from '../src/learn/work/saturation.js';
+import {
+  DAMAGE, DAMAGE_IDS, damageOf, damageChoices, crushBits, holdFor, addClick,
+  snrOf, bitsFrom,
+} from '../src/lib/damage.js';
+import { integrated, kWeight } from '../src/lib/loudness.js';
 
 const rate = 48000;
 
@@ -634,5 +639,132 @@ test('warmth without grit cannot be had by driving it harder', () => {
         .some((guess) => saturation.score(guess, { ...puzzle, tier: tier }).correct);
       assert.ok(found, `${tier} asked for ${puzzle.want} dB of even harmonics and nothing reaches it`);
     }
+  }
+});
+
+/* --- the ways a recording gets spoiled ------------------------------------ */
+
+const RATE = 48000;
+
+/** A second of something with a shape to it, for the artefacts to spoil. */
+const material = () => {
+  const out = new Float32Array(RATE);
+  for (let i = 0; i < RATE; i += 1) {
+    const env = 0.3 + 0.7 * Math.abs(Math.sin((2 * Math.PI * 2 * i) / RATE));
+    out[i] = Math.sin((2 * Math.PI * 220 * i) / RATE) * 0.6 * env;
+  }
+  return out;
+};
+
+test('every artefact is in the table, and every one of them changes something', () => {
+  assert.equal(DAMAGE.length, 7);
+  assert.equal(new Set(DAMAGE_IDS).size, 7);
+
+  const clean = material();
+  for (const one of DAMAGE) {
+    assert.ok(one.symbol && one.symbol.length <= 14, `${one.id} has no readable symbol`);
+    assert.ok(one.name && one.name.length > 8, `${one.id} does not say what it is`);
+
+    // A click's default is a second and a fifth in, which is inside the
+    // loops this is used on and outside the one second here - so it is told
+    // where to go. That a click asked for past the end of the material does
+    // nothing at all is held two tests down.
+    const spoiled = one.apply(clean, RATE, one.id === 'click' ? { at: 0.5 } : {});
+    assert.equal(spoiled.length, clean.length, `${one.id} changed the length`);
+
+    let worst = 0;
+    for (let i = 0; i < clean.length; i += 1) worst = Math.max(worst, Math.abs(spoiled[i] - clean[i]));
+    assert.ok(worst > 1e-4, `${one.id} did nothing at all`);
+
+    // And it did not write over what it was handed, which would make the
+    // clean side of the A/B the spoiled one.
+    assert.notEqual(spoiled, clean);
+  }
+
+  assert.equal(damageOf('hum').id, 'hum');
+  assert.equal(damageOf('nonsense').id, DAMAGE[0].id);
+  assert.equal(damageChoices(['hum', 'click']).length, 2);
+});
+
+test('quantising is a ladder of 2 to the one minus b, and the formula comes out', () => {
+  const sine = new Float32Array(RATE);
+  for (let i = 0; i < RATE; i += 1) sine[i] = Math.sin((2 * Math.PI * 997 * i) / RATE);
+
+  for (const bits of [8, 12, 16]) {
+    const crushed = crushBits(sine, { bits });
+    const step = 1 / 2 ** (bits - 1);
+
+    // Every sample is on the ladder.
+    for (let i = 0; i < 2000; i += 1) {
+      const rungs = crushed[i] / step;
+      assert.ok(Math.abs(rungs - Math.round(rungs)) < 1e-6, `${bits} bits came off the ladder`);
+    }
+
+    // And the noise is where the arithmetic says it is: 6.02b + 1.76.
+    const snr = snrOf(sine, crushed);
+    assert.ok(Math.abs(snr - (6.02 * bits + 1.76)) < 0.5,
+      `${bits} bits read ${snr.toFixed(1)} dB`);
+    assert.ok(Math.abs(bitsFrom(snr) - bits) < 0.1, `${bits} bits read back as ${bitsFrom(snr).toFixed(2)}`);
+  }
+});
+
+test('dither costs what triangular dither costs, and buys a floor that does not follow', () => {
+  const sine = new Float32Array(RATE);
+  for (let i = 0; i < RATE; i += 1) sine[i] = Math.sin((2 * Math.PI * 997 * i) / RATE);
+
+  const plain = snrOf(sine, crushBits(sine, { bits: 10 }));
+  const dithered = snrOf(sine, crushBits(sine, { bits: 10, dither: true }));
+
+  // Two rectangular draws added is triangular, and triangular costs 4.77 dB.
+  const cost = plain - dithered;
+  assert.ok(cost > 3.5 && cost < 6, `dither cost ${cost.toFixed(2)} dB`);
+
+  // A quiet signal is the case dither is for: under half a step, quantising
+  // without it produces nothing at all, and with it produces noise that has
+  // the signal in it.
+  const tiny = Float32Array.from(sine, (x) => x * 2 ** -12);
+  const bare = crushBits(tiny, { bits: 8 });
+  assert.ok(bare.every((x) => x === 0), 'a signal under half a step survived quantising');
+
+  const shaken = crushBits(tiny, { bits: 8, dither: true });
+  assert.ok(shaken.some((x) => x !== 0), 'dither added nothing to a signal that had vanished');
+});
+
+test('hold keeps each sample for as long as it says, and a click is one sample', () => {
+  const clean = material();
+
+  for (const hold of [2, 4, 8]) {
+    const held = holdFor(clean, { hold });
+    for (let i = 0; i < 400; i += 1) {
+      const kept = held[Math.floor(i / hold) * hold];
+      assert.equal(held[i], kept, `held for ${hold} and sample ${i} is not the one it kept`);
+    }
+  }
+
+  const clicked = addClick(clean, RATE, { at: 0.5, size: 1 });
+  const where = Math.round(0.5 * RATE);
+  assert.equal(Math.abs(clicked[where]), 1);
+  for (const i of [where - 1, where + 1]) assert.equal(clicked[i], clean[i]);
+
+  // Past the end it does nothing, and does it loudly rather than wrapping
+  // round to somewhere nobody asked for: a round that put its click outside
+  // the loop would be a round with no answer in it, and silently moving it
+  // would hide that from whoever wrote the round.
+  const missed = addClick(clean, RATE, { at: 99 });
+  for (let i = 0; i < clean.length; i += 1) assert.equal(missed[i], clean[i]);
+});
+
+test('nothing in the library changes how loud it is', () => {
+  const clean = material();
+  const lufs = (samples) => integrated([kWeight(samples, RATE)], RATE).lufs;
+  const was = lufs(clean);
+
+  for (const one of DAMAGE) {
+    // Hum and a click put something there that was not there, so they are
+    // allowed to be a shade louder; the rest are matched on the way out.
+    const allowed = ['hum', 'click'].includes(one.id) ? 1.5 : 0.5;
+    const now = lufs(one.apply(clean, RATE, one.id === 'click' ? { at: 0.5 } : {}));
+    assert.ok(Math.abs(now - was) <= allowed,
+      `${one.id} moved the loudness by ${(now - was).toFixed(2)} dB`);
   }
 });

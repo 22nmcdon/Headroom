@@ -1,4 +1,5 @@
 import { HEAT_DEFAULTS, heatTrim, runShaper } from './shape.js';
+import { damageOf } from '../../lib/damage.js';
 import { LiveSaturator } from './node.js';
 
 /**
@@ -51,6 +52,13 @@ export class HeatPlayer {
     this.raw = loop;
     this.buffer = this.fault ? this.bake(loop, this.fault) : loop;
 
+    // What the far side of the A/B plays. Normally the same thing - a fault
+    // is baked in so that it cannot be switched off - but a round about
+    // naming damage can ask for the material itself over there, which is a
+    // different question from a fault to be fixed: one asks what to do about
+    // it and the other asks what it is.
+    this.other = this.fault?.against === 'clean' ? loop : this.buffer;
+
     // A second of it, mono, is what every reading is taken on. The shaping
     // runs eight times oversampled, which is the most expensive arithmetic
     // in this app, and a loop that repeats says everything about its level
@@ -74,10 +82,17 @@ export class HeatPlayer {
     const rate = ctx.sampleRate;
     const channels = loop.numberOfChannels;
     const out = ctx.createBuffer(channels, loop.length, rate);
+    const spoil = fault.damage ? damageOf(fault.damage) : null;
 
     for (let c = 0; c < channels; c += 1) {
       const from = loop.getChannelData(c);
-      out.copyToChannel(runShaper(from, rate, { ...HEAT_DEFAULTS, ...fault }), c);
+      // Two kinds of fault. A shaper setting is somebody else's saturation,
+      // already on the material; a `damage` is one of the ways a recording
+      // gets spoiled, which is `lib/damage.js` and is mostly not saturation
+      // at all - hum, a click, a codec. Both are baked for the same reason.
+      out.copyToChannel(spoil
+        ? spoil.apply(from, rate, fault)
+        : runShaper(from, rate, { ...HEAT_DEFAULTS, ...fault }), c);
     }
 
     return out;
@@ -171,21 +186,34 @@ export class HeatPlayer {
     const ctx = this.engine.ctx;
     const at = ctx.currentTime + 0.08;
 
+    // One source a side, started together, because the two sides are not
+    // always playing the same material: see `prepare`. When they are, which
+    // is every round but one, the two buffers are the same object and the
+    // crossfade between them is a crossfade between a signal and itself.
     this.node = ctx.createBufferSource();
     this.node.buffer = this.buffer;
     this.node.loop = true;
     this.node.connect(this.mine.heat.input);
-    this.node.connect(this.theirs.heat.input);
     this.node.start(at);
+
+    this.far = ctx.createBufferSource();
+    this.far.buffer = this.other ?? this.buffer;
+    this.far.loop = true;
+    this.far.connect(this.theirs.heat.input);
+    this.far.start(at);
+
     this.startedAt = at;
     return true;
   }
 
   stop() {
-    if (!this.node) return;
-    try { this.node.stop(); } catch { /* already stopped */ }
-    this.node.disconnect();
+    for (const source of [this.node, this.far]) {
+      if (!source) continue;
+      try { source.stop(); } catch { /* already stopped */ }
+      source.disconnect();
+    }
     this.node = null;
+    this.far = null;
   }
 
   get playing() {

@@ -5,6 +5,7 @@ import {
 import { SERIES_FLOOR } from '../../lib/harmonics.js';
 import { distance } from '../../gap.js';
 import { HIT, NEAR, MISS, onScale, toStep, pick } from './scoring.js';
+import { DAMAGE_IDS, damageOf, damageChoices } from '../../lib/damage.js';
 
 /**
  * The harmonics a thing makes when you push it.
@@ -120,6 +121,54 @@ const HEAT_DRILL = {
 };
 
 /**
+ * What is wrong with this recording, by tier: which of the seven, and how
+ * far gone.
+ *
+ * The easy three are chosen to be three different kinds of wrong rather than
+ * three strengths of one: something flattened, something added, something
+ * taken away. The other four arrive in the middle and hard tiers, where the
+ * question stops being "what kind" and becomes "which one".
+ *
+ * Three of the seven are what the saturator does on purpose, and that is the
+ * point rather than an accident - the difference between an effect and a
+ * fault is whether anybody meant it, which is not a property of the signal.
+ * A drill with only the bad ones in it would be a drill about which of four
+ * disasters, and the thing worth practising is noticing at all.
+ *
+ * The sizes are measured. See `tests/browser/damage.mjs`, which prints what
+ * each one does to the spectrum and to the crest on real material, and holds
+ * that no two of them land in the same place.
+ */
+const ARTEFACTS = {
+  easy: {
+    ids: ['clip', 'hum', 'band'],
+    how: { clip: { at: 0.4 }, hum: { hz: 50, at: -30 }, band: { from: 300, to: 3400 } },
+  },
+  medium: {
+    ids: ['clip', 'bits', 'rate', 'hum', 'band'],
+    how: {
+      clip: { at: 0.5 },
+      bits: { bits: 8 },
+      rate: { hold: 8 },
+      hum: { hz: 50, at: -34 },
+      band: { from: 250, to: 5000 },
+    },
+  },
+  hard: {
+    ids: DAMAGE_IDS,
+    how: {
+      clip: { at: 0.6 },
+      soft: { drive: 3 },
+      bits: { bits: 10 },
+      rate: { hold: 4 },
+      hum: { hz: 60, at: -38 },
+      click: { at: 1.1, size: 0.7 },
+      band: { from: 160, to: 7000 },
+    },
+  },
+};
+
+/**
  * The three exercises, in the shape a session can set up.
  *
  * In "even, not odd" there is nothing on the other side of the A/B but the
@@ -178,6 +227,41 @@ export const HEAT_EXERCISES = {
       ...HEAT_ENDS_SETTINGS[puzzle.answer.end],
       ...(HEAT_ENDS[puzzle.tier] ?? HEAT_ENDS.medium),
     }),
+    cleanOf: () => ({ ...HEAT_DEFAULTS, mix: 0 }),
+    restores: true,
+  },
+  artefact: {
+    id: 'artefact',
+    label: 'What is wrong with it?',
+    drill: true,
+    ask: 'Something has been done to this recording. What?',
+    lede: 'Nothing to dial. One thing has been done to the loop - flattened, '
+        + 'added to, or taken away - and the clean version is on the other '
+        + 'side of the A/B. Three of the answers are things this very plugin '
+        + 'does on purpose, which is the point: the difference between an '
+        + 'effect and a fault is whether anybody meant it.',
+    opening: 'Flip to the clean side and back. What is different is the answer.',
+    tierBlurbs: {
+      easy: 'Three kinds of wrong',
+      medium: 'Five, and gentler',
+      hard: 'All seven, gentler again',
+    },
+    // The mix, because four of the seven are about a whole spectrum - a codec
+    // takes the ends off something, and a single note has few ends to take.
+    source: 'mix',
+    other: 'Clean',
+    faultOf: (puzzle) => ({
+      damage: puzzle.answer.artefact,
+      // The far side of the A/B plays the material itself. Every other fault
+      // in this app is baked in so it cannot be switched off, because every
+      // other fault is a thing to be fixed; this one is a thing to be named,
+      // and naming damage with nothing to hear it against is a different and
+      // much harder exercise than the one being set.
+      against: 'clean',
+      ...(ARTEFACTS[puzzle.tier] ?? ARTEFACTS.medium).how[puzzle.answer.artefact],
+    }),
+    targetOf: () => ({ ...HEAT_DEFAULTS, mix: 0 }),
+    startOf: () => ({ ...HEAT_DEFAULTS, mix: 0 }),
     cleanOf: () => ({ ...HEAT_DEFAULTS, mix: 0 }),
     restores: true,
   },
@@ -323,6 +407,62 @@ function scoreEnds(state, puzzle) {
  * are two kinds and there is no such thing as nearly warm - and the amount is
  * a scale, so being one step out on it is being one step out.
  */
+/**
+ * Name what was done to it: exact, or nothing.
+ *
+ * There is no nearly here, and that is the honest shape rather than a
+ * strictness. The seven are seven different things, not seven amounts of
+ * one, so a guess of hum when the answer is a click is no closer than a
+ * guess of clipping - and marking one of them as warmer than another would
+ * be inventing an order that does not exist.
+ *
+ * The reveal says what it actually was, in its own words, because somebody
+ * who has just got it wrong is at the only moment they will ever care what
+ * the right answer sounds like.
+ */
+function scoreArtefact(state, puzzle) {
+  const { answer } = puzzle;
+  const want = damageOf(answer.artefact);
+  const got = damageOf(state.artefact);
+  const correct = state.artefact === answer.artefact;
+
+  return {
+    correct,
+    cells: [
+      { state: correct ? HIT : MISS, text: got.symbol },
+      {
+        state: correct ? HIT : MISS,
+        text: correct ? want.name : `it was ${want.symbol.toLowerCase()}`,
+        narrow: true,
+      },
+    ],
+    why: [
+      {
+        label: 'What it was',
+        value: `${want.symbol.toLowerCase()} — ${want.name}`,
+        how: 'Measured on this loop, as what each one does to the spectrum and '
+           + 'to the crest factor against the same loop clean: clipping 2.0 dB '
+           + 'and 5.5, soft clipping 3.2 and 8.5, quantising 3.3 and 0.1, '
+           + 'decimating 12.5 and 0.0, hum 5.9 and 0.1, a click 6.5 and 3.1, '
+           + 'band-limiting 10.8 and 0.1. The ones that flatten peaks move the '
+           + 'crest and barely touch the spectrum; the ones that add or take '
+           + 'away do the opposite. All seven are matched for loudness to a '
+           + 'tenth of a decibel, so none of them can be answered by the fader.',
+      },
+      {
+        label: 'Why these are the answers',
+        value: 'no two of them land in the same place',
+        how: 'The closest pair of the twenty-one is hard clipping against '
+           + 'soft clipping, 1.6 dB apart on the spectrum and 2.9 on the crest '
+           + '- which is as it should be, since they are the same idea done '
+           + 'two ways. Every other pair is further apart on at least one of '
+           + 'the two. A drill whose answers measured alike would be a drill '
+           + 'nobody could win twice.',
+      },
+    ],
+  };
+}
+
 function scoreColour(state, puzzle) {
   const { answer, tier } = puzzle;
   const spec = HEAT_DRILL[tier] ?? HEAT_DRILL.medium;
@@ -403,6 +543,15 @@ export const HEAT_WORK = {
 
   /** Answered on the plugin, except in the drill, which asks with chips. */
   slots(tier, settings) {
+    if (settings?.exercise === 'artefact') {
+      const spec = ARTEFACTS[tier] ?? ARTEFACTS.medium;
+      return [{
+        id: 'artefact',
+        kind: 'choice',
+        label: 'What was done to it',
+        options: damageChoices(spec.ids),
+      }];
+    }
     if (settings?.exercise === 'ends') {
       return [{ id: 'end', kind: 'choice', label: 'Which end', options: ENDS }];
     }
@@ -422,6 +571,11 @@ export const HEAT_WORK = {
 
   makePuzzle(rng, tier, settings) {
     const spec = this.tiers[tier];
+
+    if (settings.exercise === 'artefact') {
+      const spec = ARTEFACTS[tier] ?? ARTEFACTS.medium;
+      return { answer: { artefact: spec.ids[Math.floor(rng() * spec.ids.length)] } };
+    }
 
     if (settings.exercise === 'ends') return { answer: { end: pick(rng, ENDS).id } };
 
@@ -500,6 +654,7 @@ export const HEAT_WORK = {
     const { answer, tier } = puzzle;
     const guess = state;
     const exercise = puzzle?.settings?.exercise ?? 'amount';
+    if (exercise === 'artefact') return scoreArtefact(state, puzzle);
     if (exercise === 'ends') return scoreEnds(state, puzzle);
     if (exercise === 'drill') return scoreColour(state, puzzle);
 
@@ -683,6 +838,25 @@ export const HEAT_WORK = {
     const { answer, tier } = puzzle;
     const exercise = puzzle?.settings?.exercise ?? 'amount';
 
+    if (exercise === 'artefact') {
+      const want = damageOf(answer.artefact);
+      const added = ['hum', 'click'].includes(want.id);
+      const taken = want.id === 'band';
+      return [
+        'Flip to the clean side and back, twice. The question is not whether '
+          + 'it sounds worse - it is what kind of worse.',
+        added
+          ? 'Something is in there that was not in there before, and it is not '
+            + 'part of the music: it does not stop when the music does.'
+          : taken
+            ? 'Nothing has been added at all. Something has gone - listen to the '
+              + 'two ends rather than to the middle.'
+            : 'Nothing has been added and nothing has gone: the peaks themselves '
+              + 'are a different shape from the ones that went in.',
+        `It is ${want.symbol.toLowerCase()} — ${want.name}.`,
+      ];
+    }
+
     if (exercise === 'drill') {
       const even = answer.colour === 'even';
       const amount = AMOUNTS[amountAt(answer.amount)];
@@ -733,6 +907,11 @@ export const HEAT_WORK = {
   reveal(puzzle) {
     const { answer } = puzzle;
     const exercise = puzzle?.settings?.exercise ?? 'amount';
+
+    if (exercise === 'artefact') {
+      const want = damageOf(answer.artefact);
+      return { symbol: want.symbol.toLowerCase(), name: want.name };
+    }
 
     if (exercise === 'drill') {
       const colour = COLOURS[colourAt(answer.colour)];
