@@ -67,6 +67,7 @@ import { KIT_ROWS } from './steps.js';
 import { makeStage } from './stage.js';
 import { zipStems } from './stems.js';
 import { INSTRUMENT_IDS, isVoice } from '../core/instrument.js';
+import { rootOf, rootSaid } from '../lib/root.js';
 import { EFFECT_IDS } from '../core/effects.js';
 import { PPQ } from './midi.js';
 
@@ -159,6 +160,10 @@ export class SketchPage {
     this.open = null; // null | { kind: 'clip', track, scene } | { kind: 'track', track }
     this.frame = null;
     this.said = '';
+    // What the root detector last reported, which belongs to the panel and
+    // not to the project: it is a reading of a recording, and reopening the
+    // sketch should not bring back a sentence about a button nobody pressed.
+    this.heard = '';
     // Whether a pad press is being written down as well as heard, and the
     // run of how far out the last few were.
     this.arming = false;
@@ -491,6 +496,12 @@ export class SketchPage {
       return;
     }
 
+    const heard = event.target.closest('[data-sample-hear]');
+    if (heard && this.owning !== null) {
+      this.workOutRoot(this.owning);
+      return;
+    }
+
     const insert = event.target.closest('[data-insert]');
     if (insert && this.owning !== null) {
       const id = insert.dataset.insert;
@@ -604,6 +615,10 @@ export class SketchPage {
     const take = event.target.closest('[data-sample-take]');
     if (take) {
       const sample = { ...this.project.tracks[track].sample, take: take.value || null };
+      // A different recording makes the last reading a sentence about a
+      // recording nobody is looking at. Caught by the browser check, which
+      // was written to report what happened here and reported this.
+      this.heard = '';
       this.change(setTrack(this.project, track, { sample }));
       return;
     }
@@ -611,6 +626,10 @@ export class SketchPage {
     const plays = event.target.closest('[data-sample-root]');
     if (plays) {
       const sample = { ...this.project.tracks[track].sample, root: Number(plays.value) };
+      // Set by hand, so whatever the detector last said about this track is
+      // no longer what the picker says. Leaving it up would be the face
+      // claiming a reading for a note somebody has since overruled.
+      this.heard = '';
       this.change(setTrack(this.project, track, { sample }));
       return;
     }
@@ -1296,7 +1315,15 @@ export class SketchPage {
                 track.sample.root)}
             </select>
           </label>
-        </div>`}
+          <!-- Beside the picker rather than instead of it. What a recording
+               sounds at can be read off it (see lib/root.js), but it can
+               also be a chord, or a drum, or three notes - and a picker that
+               had been replaced by a detector would leave nowhere to say so
+               and nowhere to correct it. -->
+          <button class="chip" type="button" data-sample-hear
+                  ${track.sample.take ? '' : 'disabled'}>Work it out</button>
+        </div>
+        <p class="fine sketch-heard" data-sample-heard>${this.heard ?? ''}</p>`}
 
         <div class="editor-row">
           <span class="editor-label">Inserts</span>
@@ -1365,6 +1392,53 @@ export class SketchPage {
             </label>`).join('')}
         </div>
       </div>`;
+  }
+
+  /**
+   * Read the chosen recording and set the root to what it sounds at.
+   *
+   * The reading is `lib/root.js` and the arguments for how it works are
+   * there. What is here is what to do with an answer, which is three
+   * different things:
+   *
+   * A note it is sure of sets the picker and says what it found, including
+   * how far off the note the recording is - "G3, 31 cents flat" is worth
+   * knowing by itself, and it is also the sentence that explains why a
+   * sample played back at G3 still sounds wrong.
+   *
+   * A note it is not sure of sets the picker anyway and says so. Somebody
+   * who recorded the note knows whether it is right, and a reading they can
+   * check beats no reading.
+   *
+   * No note at all - a drum, a chord, a room - changes nothing and says why.
+   * A detector that moved the picker to middle C on a snare would be worse
+   * than one that stayed quiet, because the picker would then be wrong and
+   * look deliberate.
+   */
+  workOutRoot(track) {
+    const sample = this.project.tracks[track]?.sample;
+    const buffer = sample?.take ? this.takes.get(sample.take) : null;
+    if (!buffer) {
+      this.heard = 'no recording chosen';
+      this.draw();
+      return;
+    }
+
+    // One channel rather than the sum. A take is normally mono, and where it
+    // is not, summing two channels that disagree can cancel the very thing
+    // being looked for - which is a silent failure, and the one kind this
+    // detector has no way to notice.
+    const found = rootOf(buffer.getChannelData(0), buffer.sampleRate);
+    if (!found.found) {
+      this.heard = `could not tell: ${found.why}`;
+      this.draw();
+      return;
+    }
+
+    this.heard = `${pitchName(found.pitch)} — ${rootSaid(found)}`;
+    this.change(setTrack(this.project, track, {
+      sample: { ...sample, root: found.pitch },
+    }));
   }
 
   /**

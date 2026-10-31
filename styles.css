@@ -3357,6 +3357,13 @@ button.insert-name:hover { color: var(--charcoal); }
 
 .sketch-said { margin: 14px 0 0; min-height: 1em; }
 
+/* What the root detector found, under the row that asked it. No min-height:
+   this line is there only after somebody presses the button, and a reserved
+   empty row under the sampler's fields would be a gap with no explanation
+   for everybody who never presses it. */
+.sketch-heard { margin: 8px 0 0; }
+.sketch-heard:empty { display: none; }
+
 .sketch-menu { max-width: 440px; }
 .menu-outs { display: flex; flex-direction: column; align-items: flex-start; gap: 9px; }
 
