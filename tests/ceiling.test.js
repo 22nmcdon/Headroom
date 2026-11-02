@@ -22,7 +22,8 @@ import { reductionReading } from '../src/plugins/compressor/reading.js';
 import { COMP_DEFAULTS } from '../src/plugins/compressor/dsp.js';
 import { comparable } from '../src/lib/read.js';
 import { distance } from '../src/gap.js';
-import { truePeakOf, samplePeakOf } from '../src/lib/loudness.js';
+import { truePeakOf, samplePeakOf, integrated, kWeight } from '../src/lib/loudness.js';
+import { TARGETS } from '../src/lib/targets.js';
 import { mulberry32 } from '../src/lib/random.js';
 import { CEIL_WORK } from '../src/learn/work/limiter.js';
 
@@ -543,4 +544,168 @@ test('the three answers the drill offers are three different things', () => {
   // "no reduction" cannot be the whole of the cue.
   assert.ok(seen.clip.settings.drive > seen.none.settings.drive + 2,
     'the clipper should be pushed well past the knee');
+});
+
+/* --- the delivery drill: what the service takes back ----------------------- */
+
+/**
+ * One setting through the ceiling, read as a delivered file would be.
+ *
+ * `lufs` is what was handed over, `peak` its true peak, and `deepest` how far
+ * the gain came down to get there. The turn-down is then the gap between that
+ * loudness and the service's target, and the ratio the listener is left with
+ * is peak minus loudness - which a gain does not change, which is why it can
+ * be read here rather than after one.
+ */
+function ceilTurnOf(settings, material) {
+  const pass = runCeiling(material.left, material.right, { ...settings, output: 0 }, RATE);
+  const lufs = integrated([kWeight(pass.left, RATE), kWeight(pass.right, RATE)], RATE).lufs;
+  return { lufs, peak: peakOf(pass), deepest: deepestOf(pass.gr) };
+}
+
+test('every rung of the turn-down drill lands where it says, and is level-matched', () => {
+  // The drill asks how far a service had to turn a master down. Both sides
+  // play at the same loudness, so the loud master is not louder here - which
+  // is the whole lesson, and also what has to be true for the drill to be
+  // about anything at all.
+  const material = bedWithHits();
+  const target = TARGETS[0];
+
+  for (const tier of ['easy', 'medium', 'hard']) {
+    const rungs = CEIL_WORK.slots(tier, { exercise: 'turned' })[0].options.map((o) => o.id);
+    assert.ok(rungs.length >= 3, `${tier} offers ${rungs.length} answers, which is not a question`);
+
+    for (const rung of rungs) {
+      const puzzle = {
+        answer: { turndown: rung, service: target.id },
+        tier, settings: { exercise: 'turned' }, material,
+      };
+      const settings = CEIL_WORK.exercises.turned.startOf(puzzle);
+
+      const got = ceilTurnOf(settings, material);
+      const turned = got.lufs - target.lufs;
+      assert.ok(Math.abs(turned - rung) < 0.25,
+        `${tier} asked for ${rung} dB of turn-down and the settings reach ${turned.toFixed(2)}`);
+
+      // And the level is matched, or the drill asks which side is louder.
+      const pass = runCeiling(material.left, material.right, settings, RATE);
+      const cost = ceilingCost(material, pass, RATE);
+      assert.ok(Math.abs(cost.match) < 0.1,
+        `${tier} at ${rung} dB is ${cost.match.toFixed(3)} LU off the bypass`);
+    }
+  }
+});
+
+test('a decibel of turn-down is a decibel of dynamics, exactly', () => {
+  // The measurement the drill is built on, and the one its scoring quotes.
+  // Through the drill's own settings on the kept probe, the turn-down each
+  // rung reaches and the ratio the listener is left with:
+  //
+  //     rung    turned down    PLR    added up
+  //        0        0.04      12.96     13.00
+  //        1        1.01      11.99     13.00
+  //        2        1.99      11.01     13.00
+  //        3        3.00      10.00     13.00
+  //        4        4.01       8.99     13.00
+  //        5        5.02       7.98     13.00
+  //
+  // A constant the whole way up: what the service takes off is exactly what
+  // the master gave away to earn it. The constant itself belongs to the
+  // material - it is that loop's own ratio less what reaching the target
+  // costs - so what is held here is that it does not move, not its value.
+  const material = bedWithHits();
+  const target = TARGETS[0];
+  const rows = [];
+
+  for (const rung of [0, 1, 2, 3, 4, 5]) {
+    const puzzle = {
+      answer: { turndown: rung, service: target.id },
+      tier: 'hard', settings: { exercise: 'turned' }, material,
+    };
+    const settings = CEIL_WORK.exercises.turned.startOf(puzzle);
+    const got = ceilTurnOf(settings, material);
+    const turned = got.lufs - target.lufs;
+    const plr = got.peak - got.lufs;
+    rows.push({ rung, turned, plr, total: turned + plr });
+  }
+
+  for (const row of rows) {
+    assert.ok(Math.abs(row.total - rows[0].total) < 0.25,
+      `rung ${row.rung}: turn-down ${row.turned.toFixed(2)} plus ratio ${row.plr.toFixed(2)}`
+      + ` is ${row.total.toFixed(2)}, against ${rows[0].total.toFixed(2)} at the bottom`);
+  }
+
+  // And it is a real ladder, not six names for one thing.
+  assert.ok(rows[5].turned - rows[0].turned > 4,
+    `the ladder spans ${(rows[5].turned - rows[0].turned).toFixed(2)} dB of turn-down`);
+  assert.ok(rows[0].plr - rows[5].plr > 4,
+    'and the ratio has to fall by as much as the turn-down rose');
+});
+
+test('the turn-down stops, and the gain reduction does not', () => {
+  // The punchline of the whole module. Past about six decibels this limiter
+  // cannot buy another decibel of loudness at any drive, so the service takes
+  // off the same amount whatever is done - while the gain reduction goes on
+  // climbing. Measured on the probe: drives of 18, 21 and 24 all deliver
+  // 5.88 dB of turn-down, with reductions of 12.2, 15.2 and 18.2.
+  const material = bedWithHits();
+  const target = TARGETS[0];
+  const seen = [15, 18, 21, 24].map((drive) => {
+    const got = ceilTurnOf({ ...CEIL_DEFAULTS, mode: 'limit', drive }, material);
+    return { drive, turned: got.lufs - target.lufs, deepest: got.deepest };
+  });
+
+  const top = seen[seen.length - 1];
+  const before = seen[1];
+  assert.ok(Math.abs(top.turned - before.turned) < 0.3,
+    `six more decibels of drive changed the turn-down by ${(top.turned - before.turned).toFixed(2)} dB,`
+    + ' so it has not stopped where the drill says it does');
+  assert.ok(top.deepest < before.deepest - 4,
+    `the reduction went from ${before.deepest.toFixed(1)} to ${top.deepest.toFixed(1)},`
+    + ' which is not the cost climbing while the gain stands still');
+
+  // Which is why the ladder stops where it does.
+  const rungs = CEIL_WORK.slots('hard', { exercise: 'turned' })[0].options.map((o) => o.id);
+  assert.ok(Math.max(...rungs) <= top.turned + 0.3,
+    `the ladder's top rung is ${Math.max(...rungs)} dB and the limiter reaches`
+    + ` ${top.turned.toFixed(2)}`);
+});
+
+test('the turn-down drill is marked on the chip, with its reasons', () => {
+  const target = TARGETS[0];
+  const puzzle = {
+    answer: { turndown: 3, service: target.id },
+    tier: 'hard', settings: { exercise: 'turned' },
+  };
+
+  const right = CEIL_WORK.score({ turndown: 3 }, puzzle);
+  assert.equal(right.correct, true);
+  assert.ok(right.why.length >= 2, 'a drill has to say why');
+  for (const one of right.why) {
+    assert.ok(one.label && one.value && one.how, 'every reason needs all three parts');
+    assert.ok(one.how.length > 40, `"${one.label}" explains nothing`);
+  }
+
+  // Two chips out is a miss either way, and it says which way.
+  assert.equal(CEIL_WORK.score({ turndown: 5 }, puzzle).correct, false);
+  assert.equal(CEIL_WORK.score({ turndown: 1 }, puzzle).correct, false);
+  assert.ok(/too far/.test(CEIL_WORK.score({ turndown: 5 }, puzzle).cells[1].text));
+  assert.ok(/too little/.test(CEIL_WORK.score({ turndown: 1 }, puzzle).cells[1].text));
+
+  // Nothing taken off reads as words rather than as "0.00 dB", because that
+  // answer is a different kind of thing: the master arrived on target.
+  const onTarget = { ...puzzle, answer: { turndown: 0, service: target.id } };
+  const none = CEIL_WORK.score({ turndown: 0 }, onTarget);
+  assert.equal(none.correct, true);
+  assert.ok(/not at all/.test(none.cells[0].text), `it read "${none.cells[0].text}"`);
+
+  // The reveal and the stats keys both name the amount.
+  assert.ok(/3/.test(CEIL_WORK.reveal(puzzle).symbol));
+  assert.equal(CEIL_WORK.heard({ turndown: 3 }, puzzle).key, 'turned-3');
+  assert.equal(CEIL_WORK.weak(puzzle).key, 'turned-3');
+
+  // And the hints end on the answer, as every drill's do.
+  const hints = CEIL_WORK.hints(puzzle);
+  assert.ok(hints.length >= 3, 'three rungs of hint');
+  assert.ok(/3/.test(hints[hints.length - 1]), 'the last rung should give it away');
 });

@@ -16,11 +16,23 @@
 // three decibels of reduction is a property of the loop and not of the knob,
 // so it is measured rather than tabulated.
 //
-// What is NOT here is the delivery target: get this to -14 LUFS with the peak
-// under -1 dBTP. It wants a table of what each service asks for, and a date
-// on that table, and the loudness-matched preview that shows what the service
-// will do to a master that ignores it. That is the Loudness and Master
-// module, not a face's exercise.
+// The delivery target - get this to -14 LUFS with the peak under -1 dBTP - is
+// here as **Master it to a target**, and it is the one exercise on this face
+// that is marked against somebody's policy rather than against a measurement.
+// It takes the figure and the ceiling from `lib/targets.js`, which is the one
+// file in this app where a number is a published claim and not something
+// measured, and which carries the date it was last checked for that reason.
+//
+// What is deliberately NOT here is the other half of delivery: what a service
+// does to a master that ignores the target. That is a comparison between two
+// masters rather than a thing to dial on one, it needs both of them playing
+// at a matched loudness with an instant flip between them, and the place for
+// it is the analysis page - `analysis/delivery.js` owns it, with its own
+// small transport. A face whose job is one processor is the wrong home for a
+// question about two finished records.
+//
+// This paragraph used to say the opposite of all of that, and said it for
+// long enough that both halves had been built around it.
 
 import {
   CEIL_DEFAULTS, CEIL_DRIVE, CEIL_OUTPUT, ceilingReading, driveFor, matchOut, runCeiling,
@@ -195,6 +207,84 @@ const CEIL_HELD = [
 ];
 
 /**
+ * How far the service turns it down, as the delivery drill asks it.
+ *
+ * The other amount drill on this face asks how much the limiter took off.
+ * This one asks what the service took back, and they are not the same
+ * question: the first has no ceiling and this one does.
+ *
+ * Measured on the probe, pushing with the limiter and then applying the gain
+ * a -14 LUFS service would. Every row plays at -14, so loudness is not the
+ * cue in any of them:
+ *
+ *     drive   turned down    PLR    PLR spent   deepest GR   against the loop
+ *      6.4        0.05      13.05      0.59        -0.64          -38.5 dB
+ *      9.0        1.93      11.07      2.57        -3.24          -21.7
+ *     11.0        3.42       9.58      4.06        -5.24          -16.7
+ *     13.0        4.99       8.01      5.64        -7.24          -13.7
+ *     15.0        5.78       7.22      6.42        -9.24          -12.7
+ *     18.0        5.88       7.12      6.52       -12.24          -12.6
+ *     21.0        5.88       7.12      6.52       -15.24          -12.6
+ *     24.0        5.88       7.12      6.52       -18.24          -12.6
+ *
+ * Three things come out of that table and all three are the module's point.
+ *
+ * The turn-down STOPS at 5.88 dB. The last three rows are the same row as
+ * far as anybody listening is concerned - same loudness, same peak-to-
+ * loudness ratio, the signal the same distance from the loop - while the
+ * gain reduction goes on climbing from twelve decibels to eighteen. Past
+ * that drive the limiter is spending dynamics and buying nothing at all,
+ * and nobody downstream will ever hear the difference. That is the loudness
+ * war in one line, and it is why the ladder stops at five.
+ *
+ * The turn-down IS the dynamics given away, and not approximately. Measured
+ * through the drill's own settings, the turn-down each rung reaches and the
+ * peak-to-loudness ratio the listener is left with:
+ *
+ *     rung    turned down    PLR    the two added up
+ *        0        0.04      12.96        13.00
+ *        1        1.01      11.99        13.00
+ *        2        1.99      11.01        13.00
+ *        3        3.00      10.00        13.00
+ *        4        4.01       8.99        13.00
+ *        5        5.02       7.98        13.00
+ *
+ * A constant, to two decimals, the whole way up. Every decibel the service
+ * takes off is a decibel of ratio gone - not mostly, exactly - so the
+ * question "how far was this turned down" and the question "how much did it
+ * give away" are the same question with the same answer, and the second one
+ * is the one an ear can hear. The 13.00 is the loop's own 13.64 less the
+ * 0.64 that reaching the target at all costs.
+ *
+ * And a clipper does not stop. On the same probe it reaches 12.07 dB of
+ * turn-down at the same drive where the limiter has been stuck at 5.88 for
+ * nine decibels, because cutting a peak off does not modulate a gain - it
+ * just removes the thing that was holding the loudness down. That is not in
+ * this drill, which holds the mode still so there is one variable; it is in
+ * `held` next door, and it is the measurement that makes the two of them
+ * different exercises rather than one asked twice.
+ */
+const CEIL_TURNDOWN = {
+  easy: [0, 2.5, 5],
+  medium: [0, 1.5, 3, 4.5],
+  hard: [0, 1, 2, 3, 4, 5],
+};
+
+/**
+ * How far out still counts as close, in chips.
+ *
+ * One, like the amount drill, and it means the same thing here because the
+ * rungs are evenly spaced in the thing being judged. Measured, each rung of
+ * the hard tier sits 2.9 dB from the one below it as signal difference -
+ * 2.9, 3.0, 2.9, 2.9, 2.9 - so a chip is a chip wherever on the ladder you
+ * are.
+ */
+const CEIL_TURN_NEAR = 1;
+
+/** Where the turn-down stops, measured, which is the lesson's punchline. */
+const CEIL_TURN_CEILING = 5.88;
+
+/**
  * How much louder the drill makes the loop, per tier, in LU.
  *
  * Measured from the loop's own loudness, and it has to be well past the knee
@@ -226,6 +316,9 @@ const writeCeilDrive = (db) => `${db > 0 ? '+' : ''}${db.toFixed(1)} dB`;
 
 /** An amount of reduction, written the way a meter would say it. */
 const writeCeilGR = (db) => `${db.toFixed(db < 1 ? 2 : 1)} dB`;
+
+/** And a turn-down, which is a number of decibels the listener never got. */
+const writeCeilTurn = (db) => (db < 0.05 ? 'not at all' : `${db.toFixed(db < 1 ? 2 : 1)} dB`);
 
 /**
  * A stand-in for the loop, for the times the real thing is not to hand.
@@ -366,6 +459,71 @@ function ceilDrillSettings(puzzle) {
   settings.drive = driveFor(material, material.rate, settings, want);
   settings.output = matchOut(material, material.rate, settings);
   return settings;
+}
+
+/**
+ * The settings behind one rung of the delivery drill.
+ *
+ * Push until the service would have to take off this much, then match the
+ * level - which is the same match every drill on this face uses, and here it
+ * is doing double duty. Matching the output to the input puts both sides at
+ * the loop's own loudness; the service would put both at its target instead.
+ * Those are the same comparison a fixed number of decibels apart, so the
+ * cheaper one is the one to run, and what the learner hears is what a
+ * listener would hear.
+ *
+ * Solved rather than tabulated, twice over. The drive that buys a decibel of
+ * loudness depends on where the music peaks, and under the knee it buys one
+ * for one while past it the limiter is handing some back - so the drive is
+ * chased the way a person would chase it. The correction is over-relaxed by
+ * a little because the curve flattens as it goes: near the top of the ladder
+ * a decibel of wanted turn-down takes nearer two of drive.
+ *
+ * A turn-down of nothing is not a drive of nothing. It is the drive that
+ * reaches the target exactly, which on this loop is 6.4 dB - the loop is
+ * quieter than the target, so getting there is work and getting there is
+ * free. That rung is the one that teaches that a master delivered on target
+ * keeps everything it had.
+ */
+function ceilTurnSettings(puzzle) {
+  const material = ceilMaterial(puzzle);
+  const want = puzzle.answer?.turndown ?? CEIL_TURNDOWN.easy[0];
+  const target = targetOfId(puzzle.answer?.service) ?? TARGETS[0];
+
+  const base = { ...CEIL_DEFAULTS, mode: 'limit' };
+  const dry = ceilMasterOf(material, { ...base, drive: 0, output: 0 });
+
+  // Where the loop has to land for the service to take `want` off it.
+  const wantLufs = target.lufs + want;
+  let drive = Math.max(CEIL_DRIVE[0], Math.min(CEIL_DRIVE[1], wantLufs - dry.integrated));
+  for (let round = 0; round < 8; round += 1) {
+    const got = ceilMasterOf(material, { ...base, drive, output: 0 });
+    const off = wantLufs - got.integrated;
+    if (Math.abs(off) < 0.03) break;
+    const next = Math.max(CEIL_DRIVE[0], Math.min(CEIL_DRIVE[1], drive + off * 1.6));
+    if (next === drive) break;
+    drive = next;
+  }
+
+  const settings = { ...base, drive, output: 0 };
+  settings.output = matchOut(material, material.rate, settings);
+  return settings;
+}
+
+/**
+ * What the service actually took off, once the loop has been pinned.
+ *
+ * The ladder is what the round asked for; this is what it got, and on the
+ * top rungs they come apart - a rung of five lands on five, but there is no
+ * drive on this knob that lands on seven. Used by the scoring and the
+ * reveal so that both report the measurement rather than the request.
+ */
+function ceilTurnReached(puzzle) {
+  const material = ceilMaterial(puzzle);
+  const settings = ceilTurnSettings(puzzle);
+  const target = targetOfId(puzzle.answer?.service) ?? TARGETS[0];
+  const made = ceilMasterOf(material, { ...settings, output: 0 });
+  return { turndown: made.integrated - target.lufs, made, target };
 }
 
 /**
@@ -617,6 +775,30 @@ export const CEIL_EXERCISES = {
     cleanOf: () => ({ ...CEIL_DEFAULTS }),
     restores: true,
   },
+  turned: {
+    id: 'turned',
+    label: 'How far was it turned down?',
+    drill: true,
+    ask: 'How far did the service have to turn this master down?',
+    lede: 'Nothing to dial here. The loop has been mastered to be louder than '
+        + 'the target, and then turned down to the target the way a streaming '
+        + 'service would - so it is playing at exactly the loudness it would '
+        + 'play at for a listener, and so is the bypass. What is left to hear '
+        + 'is what the loudness cost.',
+    opening: 'Play it, flip to the bypass, then say how far it had to come down.',
+    tierBlurbs: {
+      easy: 'Three amounts, five decibels apart end to end',
+      medium: 'Four amounts, a decibel and a half apart',
+      hard: 'Six amounts, a decibel apart, up to where it stops buying anything',
+    },
+    source: 'mix',
+    other: 'Bypass',
+    faultOf: () => null,
+    targetOf: () => ({ ...CEIL_DEFAULTS }),
+    startOf: (puzzle) => ceilTurnSettings(puzzle),
+    cleanOf: () => ({ ...CEIL_DEFAULTS }),
+    restores: true,
+  },
   drill: {
     id: 'drill',
     label: 'How much is it limiting?',
@@ -742,6 +924,63 @@ function scoreHowMuch(state, puzzle) {
   };
 }
 
+/**
+ * Naming how far the service took it down, marked on the chip.
+ *
+ * The same shape as the amount drill next door and a different question: the
+ * `why` says what the turn-down bought, which is nothing, and what it cost,
+ * which is a decibel of dynamics for every decibel of it.
+ */
+function scoreTurnedDown(state, puzzle) {
+  const { answer, tier } = puzzle;
+  const offered = CEIL_TURNDOWN[tier] ?? CEIL_TURNDOWN.medium;
+
+  const at = offered.indexOf(state.turndown);
+  const wanted = offered.indexOf(answer.turndown);
+  const mark = onScale(at, wanted, { near: CEIL_TURN_NEAR });
+
+  const steps = at - wanted;
+  const away = Math.abs(steps);
+  const target = targetOfId(answer?.service) ?? TARGETS[0];
+
+  return {
+    correct: mark === HIT,
+    cells: [
+      { state: mark, text: writeCeilTurn(state.turndown) },
+      {
+        state: mark,
+        text: away === 0 ? 'that is how far it came down'
+          : `${away} step${away === 1 ? '' : 's'} too ${steps > 0 ? 'far' : 'little'}`,
+        narrow: true,
+      },
+    ],
+    why: [
+      {
+        label: 'What the service took off',
+        value: writeCeilTurn(answer.turndown),
+        how: `${target.name} plays everything at ${target.lufs.toFixed(1)} LUFS, so a master `
+           + `handed over ${writeCeilTurn(answer.turndown)} louder than that is turned down by `
+           + 'exactly that much before anybody hears it. Which means the extra '
+           + 'loudness was never delivered: it was spent on the way and then '
+           + 'taken back at the door.',
+      },
+      {
+        label: 'What it cost to buy',
+        value: 'a decibel of dynamics each',
+        how: 'Not approximately. Measured on this loop, the turn-down reached '
+           + 'and the peak-to-loudness ratio left over add up to 13.00 at '
+           + 'every rung of the ladder - 1.0 and 12.0, 3.0 and 10.0, 5.0 and '
+           + '8.0. Every decibel the service takes off is a decibel of ratio '
+           + 'gone, exactly. And it stops: past '
+           + `${CEIL_TURN_CEILING.toFixed(1)} dB of turn-down this limiter cannot buy `
+           + 'another decibel at any drive, while the gain reduction goes on '
+           + 'climbing from twelve decibels to eighteen. That is the whole '
+           + 'trade, and the top of it is all cost and no gain.',
+      },
+    ],
+  };
+}
+
 export const CEIL_WORK = {
   settings: [
     {
@@ -781,6 +1020,19 @@ export const CEIL_WORK = {
         options: CEIL_HELD.map(({ id, label, symbol }) => ({ id, label, symbol })),
       }];
     }
+    if (settings?.exercise === 'turned') {
+      const rungs = CEIL_TURNDOWN[tier] ?? CEIL_TURNDOWN.medium;
+      return [{
+        id: 'turndown',
+        kind: 'choice',
+        label: 'How far down',
+        options: rungs.map((db) => ({
+          id: db,
+          label: writeCeilTurn(db),
+          symbol: writeCeilTurn(db),
+        })),
+      }];
+    }
     if (settings?.exercise !== 'drill') return [];
 
     const offered = CEIL_LADDER[tier] ?? CEIL_LADDER.medium;
@@ -799,6 +1051,15 @@ export const CEIL_WORK = {
   makePuzzle(rng, tier, settings) {
     if (settings.exercise === 'held') {
       return { answer: { held: pick(rng, CEIL_HELD.map((h) => h.id)) } };
+    }
+
+    if (settings.exercise === 'turned') {
+      const rungs = CEIL_TURNDOWN[tier] ?? CEIL_TURNDOWN.medium;
+      // One service for the whole drill rather than a choice per round. What
+      // is being heard is the cost of a turn-down, and which service asked
+      // for it would be a second variable with nothing audible behind it -
+      // the gain is the gain whoever applies it.
+      return { answer: { turndown: pick(rng, rungs), service: TARGETS[0].id } };
     }
 
     if (settings.exercise === 'drill') {
@@ -838,6 +1099,7 @@ export const CEIL_WORK = {
     const { tier } = puzzle;
     const exercise = puzzle.settings?.exercise ?? 'match';
 
+    if (exercise === 'turned') return scoreTurnedDown(guess, puzzle);
     if (exercise === 'drill') return scoreHowMuch(guess, puzzle);
     if (exercise === 'held') return scoreHeld(guess, puzzle);
     if (exercise === 'deliver') return this.scoreDeliver(guess, puzzle);
@@ -1000,6 +1262,29 @@ export const CEIL_WORK = {
       ];
     }
 
+    if (exercise === 'turned') {
+      const db = answer.turndown;
+      const target = targetOfId(answer?.service) ?? TARGETS[0];
+      return [
+        'Both sides are already playing at the loudness a listener would get, '
+          + 'so the loud master is not louder here and never was. Flip to the '
+          + 'bypass in short bursts and listen to what it gave away instead.',
+        db < 0.05
+          ? 'One of the answers is that it was not turned down at all - a master '
+            + `handed over on ${target.name}'s target keeps everything it had, and `
+            + 'with the level put back that one is the bypass exactly.'
+          : db >= 4
+            ? 'It came down a long way, so it was pushed a long way: the hits are '
+              + 'flat and the space between them has come up to meet them.'
+            : 'It came down a little. The hits are still hits - something has been '
+              + 'taken off the top of them and the loop still breathes underneath.',
+        `${target.name} took ${writeCeilTurn(db)} off it, which is `
+          + `${db < 0.05 ? 'nothing - it arrived on target'
+            : db >= 4 ? 'the far end of what this tier offers'
+              : 'the gentler end of what this tier offers'}.`,
+      ];
+    }
+
     if (exercise === 'held') {
       const wanted = CEIL_HELD.find((h) => h.id === answer.held) ?? CEIL_HELD[1];
       return [
@@ -1058,6 +1343,14 @@ export const CEIL_WORK = {
       return { symbol: writeCeilGR(answer.amount), name: 'at its deepest' };
     }
 
+    if (exercise === 'turned') {
+      const target = targetOfId(answer?.service) ?? TARGETS[0];
+      return {
+        symbol: writeCeilTurn(answer.turndown),
+        name: `is what ${target.name} took off it`,
+      };
+    }
+
     if (exercise === 'held') {
       const wanted = CEIL_HELD.find((h) => h.id === answer.held) ?? CEIL_HELD[1];
       return { symbol: wanted.symbol, name: 'was holding the ceiling' };
@@ -1094,6 +1387,14 @@ export const CEIL_WORK = {
       return { key: `held-${guess.held}`, label: said?.symbol ?? guess.held };
     }
 
+    if (exercise === 'turned') {
+      if (guess?.turndown === undefined) return null;
+      return {
+        key: `turned-${guess.turndown}`,
+        label: `${writeCeilTurn(guess.turndown)} of turn-down`,
+      };
+    }
+
     if (exercise !== 'drill') return null;
     if (guess?.amount === undefined) return null;
     return { key: `ceil-${guess.amount}`, label: `${writeCeilGR(guess.amount)} of limiting` };
@@ -1105,6 +1406,12 @@ export const CEIL_WORK = {
     const { answer } = puzzle;
     if (exercise === 'drill') {
       return { key: `ceil-${answer.amount}`, label: `${writeCeilGR(answer.amount)} of limiting` };
+    }
+    if (exercise === 'turned') {
+      return {
+        key: `turned-${answer.turndown}`,
+        label: `${writeCeilTurn(answer.turndown)} of turn-down`,
+      };
     }
     if (exercise === 'held') {
       const wanted = CEIL_HELD.find((h) => h.id === answer.held) ?? CEIL_HELD[1];

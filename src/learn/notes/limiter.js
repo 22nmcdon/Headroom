@@ -161,6 +161,33 @@ export const CEIL_NOTES = {
         + 'scale, which is why the ones that do it have a limiter of their own in the way.',
     },
     {
+      heading: 'The exchange rate, measured',
+      body: 'The trade above is usually described and rarely counted, so here it is '
+        + 'counted. Pushing this loop with the limiter until a -14 LUFS service has to '
+        + 'turn it down by a given amount, and reading what the listener is left with:\n\n'
+        + '    turned down    peak-to-loudness ratio    the two added up\n'
+        + '        0.04                12.96                  13.00\n'
+        + '        1.01                11.99                  13.00\n'
+        + '        1.99                11.01                  13.00\n'
+        + '        3.00                10.00                  13.00\n'
+        + '        4.01                 8.99                  13.00\n'
+        + '        5.02                 7.98                  13.00\n\n'
+        + 'The last column does not move. Every decibel the service takes off is a '
+        + 'decibel of dynamic range gone — not roughly, exactly, because normalisation '
+        + 'is a gain and a gain moves the peak and the loudness by the same amount. So '
+        + '"how much louder did you master it" and "how much did you throw away" are '
+        + 'one question asked twice.\n\n'
+        + 'And then it stops. Past about six decibels of turn-down this limiter cannot '
+        + 'buy another decibel of loudness at any drive at all: measured, drives of '
+        + 'eighteen, twenty-one and twenty-four decibels all end up turned down by the '
+        + 'same 5.88, playing at the same loudness with the same ratio, while the gain '
+        + 'reduction climbs from twelve decibels to eighteen. Six decibels of extra '
+        + 'reduction, bought and paid for, that nobody downstream can hear. A clipper '
+        + 'does keep buying — it reaches twelve decibels of turn-down where the limiter '
+        + 'has been stuck for nine — because cutting a peak off does not modulate a gain, '
+        + 'it just removes the thing that was holding the loudness down.',
+    },
+    {
       heading: 'What a delivery spec actually asks for',
       body: 'Two numbers, and they are different kinds of number. The loudness is a target '
         + 'to land on — and at a normalising service it barely matters, because they are '
