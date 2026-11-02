@@ -1176,17 +1176,23 @@ export class EQPlugin {
     bands.forEach((band, i) => { if (this.bands[i]) Object.assign(this.bands[i], band); });
 
     this.reading = null;
-    // The rail as well as the knobs. `syncControls` only writes the selected
-    // band's three controls, so a state set from outside - a round putting
-    // its answer on the tool, a drill's A/B flipping back - could turn band
-    // one from a high-pass at 40 Hz into a peak at 157 and leave the rail
-    // still saying "HP 40". The curve redrew, the audio was right and the
-    // scoring accepted it; only the one row that names the bands was stale.
-    this.buildBandButtons();
-    this.syncControls();
-    this.player.setBands(this.bands);
-    this.draw();
-    this.onChange?.(this.state());
+    // The whole face, which is what `changed` is for. This used to hand-roll
+    // a subset of it, and the subset was wrong twice over: first the rail
+    // went on naming bands the strip no longer had, and then, with the rail
+    // added to the subset, the type and slope rows went on naming the kind of
+    // band it no longer was. A state set from outside - a round putting its
+    // answer on the tool, a drill's A/B flipping back - turned band one from a
+    // high-pass at 40 Hz into a 157 Hz bell and left the face saying, at the
+    // same time: "PK 157" on the rail, 157 Hz on the readout, High pass still
+    // lit on the type row, and a resonance knob where the bell's gain belongs.
+    // The curve redrew, the audio was right and the scoring accepted it, so
+    // the only thing wrong was everything a person could read.
+    //
+    // The other ten plugins all set their state as `buildKnobs(); changed()`
+    // and not one of them has ever had this. Being the one tool that
+    // refreshes itself by hand was the fault; the stale rows were how it
+    // showed.
+    this.changed();
   }
 
   /** A resonance somebody else left in the sample, before it reached you. */
