@@ -1176,6 +1176,13 @@ export class EQPlugin {
     bands.forEach((band, i) => { if (this.bands[i]) Object.assign(this.bands[i], band); });
 
     this.reading = null;
+    // The rail as well as the knobs. `syncControls` only writes the selected
+    // band's three controls, so a state set from outside - a round putting
+    // its answer on the tool, a drill's A/B flipping back - could turn band
+    // one from a high-pass at 40 Hz into a peak at 157 and leave the rail
+    // still saying "HP 40". The curve redrew, the audio was right and the
+    // scoring accepted it; only the one row that names the bands was stale.
+    this.buildBandButtons();
     this.syncControls();
     this.player.setBands(this.bands);
     this.draw();
