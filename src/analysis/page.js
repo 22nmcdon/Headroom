@@ -315,9 +315,26 @@ export class AnalysisPage {
     const gap = distance(mine.balance, theirs.balance);
     const loud = mine.loudness.values.integrated - theirs.loudness.values.integrated;
 
-    return `Yours is ${Math.abs(loud).toFixed(1)} LU ${loud > 0 ? 'louder' : 'quieter'}. `
-      + `The furthest apart the two spectra get is ${gap.off.toFixed(1)} dB at `
-      + `${gap.where}, where yours is the ${gap.detail.hotter > 0 ? 'hotter' : 'quieter'}.`;
+    // Anything under half of what gets printed is nothing. This sentence
+    // shows one decimal, so "0.0 LU quieter" is a reading claiming a
+    // direction it has just rounded away - and the same material in both
+    // slots is the first thing anybody does to see what the page is for.
+    const NIL = 0.05;
+
+    const level = Math.abs(loud) < NIL
+      ? 'Yours and the reference are the same loudness.'
+      : `Yours is ${Math.abs(loud).toFixed(1)} LU ${loud > 0 ? 'louder' : 'quieter'}.`;
+
+    // `where` is null when not one band differs, which is what `balanceGap`
+    // says about a thing against itself - every comparator here uses that
+    // convention and this sentence used to print the word "null" into the
+    // middle of itself when it got one.
+    const shape = gap.where === null || gap.off < NIL
+      ? 'Their spectra read the same, band for band.'
+      : `The furthest apart the two spectra get is ${gap.off.toFixed(1)} dB at `
+        + `${gap.where}, where yours is the ${gap.detail.hotter > 0 ? 'hotter' : 'quieter'}.`;
+
+    return `${level} ${shape}`;
   }
 
   /** The width, band by band, as bars rather than a curve. */
