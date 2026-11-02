@@ -130,10 +130,20 @@ export function renderPicker(el, slots, answer, { write, hand = false }) {
   }
 }
 
-/** Repaints which chips are pressed and what each dial now reads. */
+/**
+ * Repaints which chips are pressed and what each dial now reads.
+ *
+ * The comparison goes through `String` because the two sides of it are
+ * different kinds of thing and only one of them can be fixed: an answer holds
+ * a slot option's own id, which for every amount drill is a number, and
+ * `dataset.option` is what the DOM kept of it, which is always text. Comparing
+ * them strictly was true for the drills whose ids are words and false for
+ * every drill whose ids are numbers - so an amount chip could be chosen, and
+ * marked, and never looked chosen.
+ */
 export function syncPicker(el, slots, answer) {
   for (const button of el.querySelectorAll('[data-option]')) {
-    const picked = answer[button.dataset.slot] === button.dataset.option;
+    const picked = String(answer[button.dataset.slot]) === button.dataset.option;
     button.setAttribute('aria-pressed', picked ? 'true' : 'false');
   }
 

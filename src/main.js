@@ -1120,7 +1120,19 @@ function wire() {
   $('#picker').addEventListener('click', (e) => {
     const chosen = e.target.closest('[data-option]');
     if (!chosen) return;
-    ui.guess[chosen.dataset.slot] = chosen.dataset.option;
+    // The option's own id, not the string the DOM kept of it. A chip whose
+    // id is the number 3 comes back out of `dataset` as "3", and a scorer
+    // that does arithmetic on it - every drill whose answer is an amount -
+    // gets a string. The limiter's gain-reduction drill threw on every
+    // guess for exactly this reason, from the day it shipped until a browser
+    // check pressed one of its chips: `3.0 dB` has no `toFixed`.
+    //
+    // Looked up rather than coerced, so a slot whose ids really are strings
+    // keeps them. `String(option.id)` is how the attribute was written, so
+    // it is how to find the way back.
+    const slot = tool().slots(ui.tier, settings()).find((one) => one.id === chosen.dataset.slot);
+    const option = slot?.options?.find((one) => String(one.id) === chosen.dataset.option);
+    ui.guess[chosen.dataset.slot] = option ? option.id : chosen.dataset.option;
     syncAnswer();
   });
 

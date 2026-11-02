@@ -14,6 +14,7 @@ import assert from 'node:assert/strict';
 import { TOOLS, TOOL_IDS } from '../src/learn/bench/registry.js';
 import { HIT, NEAR, MISS } from '../src/learn/work/scoring.js';
 import { makePuzzle, settingsFor, scoreGuess } from '../src/learn/game.js';
+import { pickedLabel } from '../src/learn/bench/picker.js';
 
 /** The drills a tool has, by id. Saturation has two; the rest have one. */
 const drillsOf = (id) => Object.values(TOOLS[id].exercises).filter((e) => e.drill).map((e) => e.id);
@@ -465,4 +466,82 @@ test('the reverb drill tells a wrong length from a wrong space', () => {
   assert.equal(read(3.0, 'small').cells[2].text, 'neither yet');
   assert.match(read(3.0, 'medium').cells[0].text, /long$/, 'and says which way');
   assert.match(read(0.5, 'medium').cells[0].text, /short$/);
+});
+
+/* --- the guess as the interface actually hands it over --------------------- */
+
+test('a right answer scores right when it arrives the way the picker sends it', () => {
+  // The chips are buttons, their ids live in `dataset`, and the DOM keeps
+  // everything there as text. So a drill whose answers are amounts gets its
+  // guess as "6" where its answer is 6, and a scorer that does arithmetic on
+  // it is working on a string.
+  //
+  // Four shipped drills had numeric chips and all four were wrong about it.
+  // The limiter's threw outright - `writeCeilGR` called `toFixed` on a string
+  // and took the whole round down - and the level, gate and align drills each
+  // returned `correct: false` for the right answer, because `indexOf` on a
+  // list of numbers does not find a string and -1 is never the wanted rung.
+  // Nothing caught it because every test here, including the ones above,
+  // builds its guess out of the answer and gets a number for free.
+  //
+  // So this one goes through `String` on the way in, which is the only part
+  // of the journey the interface actually performs.
+  for (const [id, tier, drill] of DRILLS) {
+    const puzzle = drillPuzzle(id, tier, 0x5a1e, drill);
+    const slots = slotsOf(id, tier, drill);
+
+    const asGiven = {};
+    const asText = {};
+    for (const slot of slots) {
+      if (slot.kind === 'range') continue;
+      const answer = puzzle.answer[slot.id];
+      if (answer === undefined) continue;
+      asGiven[slot.id] = answer;
+      // Exactly what `dataset.option` would hold, and what a click used to
+      // put straight into the guess.
+      asText[slot.id] = String(answer);
+    }
+    if (!Object.keys(asGiven).length) continue;
+
+    const right = scoreGuess({ ...puzzle.answer, ...asGiven }, puzzle);
+    assert.equal(right.correct, true,
+      `${id}/${tier}/${drill}: the answer does not score as correct even as itself`);
+
+    // The chips the shell renders carry String(option.id); the one it sends
+    // back has to resolve to the same guess, or a right answer reads wrong.
+    const texted = slots
+      .filter((slot) => slot.kind !== 'range' && puzzle.answer[slot.id] !== undefined)
+      .map((slot) => {
+        const option = slot.options.find((one) => String(one.id) === asText[slot.id]);
+        assert.ok(option, `${id}/${tier}/${drill}: no chip resolves "${asText[slot.id]}"`);
+        return [slot.id, option.id];
+      });
+
+    const resolved = scoreGuess({ ...puzzle.answer, ...Object.fromEntries(texted) }, puzzle);
+    assert.equal(resolved.correct, true,
+      `${id}/${tier}/${drill}: the right chip, resolved back from what the DOM kept of it,`
+      + ' does not score as correct');
+  }
+});
+
+test('a chip looks chosen when it is chosen, whatever kind its id is', () => {
+  // The other half of the same fault, and it pointed the other way: the guess
+  // holds an option's own id and `dataset.option` holds text, so comparing
+  // them strictly was true for the drills whose ids are words and false for
+  // every drill whose ids are numbers. An amount chip could be picked, and
+  // scored, and never once look picked.
+  for (const [id, tier, drill] of DRILLS) {
+    const slots = slotsOf(id, tier, drill);
+    for (const slot of slots) {
+      if (slot.kind === 'range') continue;
+      for (const option of slot.options) {
+        const answer = { [slot.id]: option.id };
+        assert.equal(String(answer[slot.id]), String(option.id),
+          `${id}/${tier}/${drill}: ${slot.id} chip ${option.id} does not survive being written down`);
+        // And the label the summary line shows has to find it too.
+        assert.ok(pickedLabel(slot, option.id),
+          `${id}/${tier}/${drill}: ${slot.id} chip ${option.id} has no label when chosen`);
+      }
+    }
+  }
 });
