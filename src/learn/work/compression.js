@@ -435,6 +435,9 @@ function releaseSettings(puzzle) {
 export const COMP_EXERCISES = {
   match: {
     id: 'match',
+    // The target is the settings that win, so it can go on the controls
+    // after the answer is shown. Measured: see `ontoTool` in main.js.
+    ontoTool: true,
     label: 'Match the target',
     source: 'drums',
     sourceOptions: { key: null },
@@ -444,6 +447,9 @@ export const COMP_EXERCISES = {
   },
   fix: {
     id: 'fix',
+    // The target is the settings that win, so it can go on the controls
+    // after the answer is shown. Measured: see `ontoTool` in main.js.
+    ontoTool: true,
     label: 'Even it out',
     source: 'drums',
     sourceOptions: { key: null },

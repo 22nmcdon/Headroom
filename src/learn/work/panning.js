@@ -169,6 +169,9 @@ const PLACE_DRILL = {
 export const STEREO_EXERCISES = {
   place: {
     id: 'place',
+    // The target is the settings that win, so it can go on the controls
+    // after the answer is shown. Measured: see `ontoTool` in main.js.
+    ontoTool: true,
     label: 'Place it',
     source: 'instrument',
     other: 'Target',
@@ -177,6 +180,9 @@ export const STEREO_EXERCISES = {
   },
   match: {
     id: 'match',
+    // The target is the settings that win, so it can go on the controls
+    // after the answer is shown. Measured: see `ontoTool` in main.js.
+    ontoTool: true,
     label: 'Match the image',
     source: 'mix',
     other: 'Target',
@@ -185,6 +191,9 @@ export const STEREO_EXERCISES = {
   },
   mono: {
     id: 'mono',
+    // The target is the settings that win, so it can go on the controls
+    // after the answer is shown. Measured: see `ontoTool` in main.js.
+    ontoTool: true,
     label: 'Rescue the low end',
     source: 'mix',
     // Somebody spread the bottom end before it reached you. The other side of

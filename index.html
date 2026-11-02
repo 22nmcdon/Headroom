@@ -172,6 +172,13 @@
       <span class="dock-outs">
         <button class="link-btn dock-out" type="button" id="hint" hidden>Hint</button>
         <button class="link-btn dock-out" type="button" id="show" hidden>Show me</button>
+        <!-- After the answer is shown, and only on a round answered on the
+             tool: put the answer on the controls, hear it, put yours back.
+             Showing the answer deliberately leaves the controls alone so you
+             can work your way onto it; this is the other half of that, for
+             when what you want is to hear where you were headed. -->
+        <button class="link-btn dock-out" type="button" id="onto"
+                aria-pressed="false" hidden>Put it on the controls</button>
       </span>
       <button class="submit-btn" type="button" id="submit" disabled>Submit guess</button>
     </div>

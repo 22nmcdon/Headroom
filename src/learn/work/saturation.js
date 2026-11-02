@@ -178,6 +178,9 @@ const ARTEFACTS = {
 export const HEAT_EXERCISES = {
   amount: {
     id: 'amount',
+    // The target is the settings that win, so it can go on the controls
+    // after the answer is shown. Measured: see `ontoTool` in main.js.
+    ontoTool: true,
     label: 'How much',
     source: 'mix',
     other: 'Target',
@@ -186,6 +189,9 @@ export const HEAT_EXERCISES = {
   },
   match: {
     id: 'match',
+    // The target is the settings that win, so it can go on the controls
+    // after the answer is shown. Measured: see `ontoTool` in main.js.
+    ontoTool: true,
     label: 'Match the colour',
     source: 'mix',
     other: 'Target',

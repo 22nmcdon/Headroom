@@ -198,6 +198,9 @@ const DRILL_ECHO = { feedback: 0.45, mix: 0.4, tone: 6000, lowCut: 120, pingPong
 export const ECHO_EXERCISES = {
   match: {
     id: 'match',
+    // The target is the settings that win, so it can go on the controls
+    // after the answer is shown. Measured: see `ontoTool` in main.js.
+    ontoTool: true,
     label: 'Match the delay',
     source: 'instrument',
     sourceOptions: { tempo: true },
@@ -206,6 +209,9 @@ export const ECHO_EXERCISES = {
   },
   find: {
     id: 'find',
+    // The target is the settings that win, so it can go on the controls
+    // after the answer is shown. Measured: see `ontoTool` in main.js.
+    ontoTool: true,
     label: 'Find the time',
     // Its own, because the generic ones name controls this exercise does not
     // ask you to touch: here the only question is ever the time, and the tier

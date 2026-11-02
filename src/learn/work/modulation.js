@@ -122,6 +122,9 @@ export const MOD_EXERCISES = {
   // loop arrives clean and what is being judged is what you did to it.
   match: {
     id: 'match',
+    // The target is the settings that win, so it can go on the controls
+    // after the answer is shown. Measured: see `ontoTool` in main.js.
+    ontoTool: true,
     label: 'Match the modulation',
     source: 'instrument',
     other: 'Target',

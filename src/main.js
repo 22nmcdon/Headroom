@@ -62,6 +62,9 @@ const ui = {
   clean: null,
   chosen: {}, // settings, per mode, so switching back finds them as you left them
   guess: {},
+  // Flipping the tool between what you dialled and the answer, once the
+  // answer has been shown. Built by `ontoWay`, cleared on every new round.
+  onto: null,
   game: null,
   log: null, // what has been tried this round, newest first
 };
@@ -362,6 +365,14 @@ async function putExercise() {
   $('#drillClean').hidden = !ui.clean;
   setClean(false);
 
+  // A new round has no answer to put anywhere yet. Cleared rather than left,
+  // or the button would flip the next round's tool onto the last one's
+  // answer - which is a reveal of something nobody asked about.
+  ui.onto = null;
+  $('#onto').hidden = true;
+  $('#onto').setAttribute('aria-pressed', 'false');
+  $('#onto').textContent = 'Put it on the controls';
+
   syncAnswer();
   syncTransport();
 }
@@ -401,6 +412,68 @@ function cleanWay(exercise, puzzle) {
     on: () => ui.tool?.setState(clean),
     off: () => ui.tool?.setState(working),
   };
+}
+
+/**
+ * Flipping the tool between what you dialled and the answer.
+ *
+ * The other half of being shown a target. Showing one leaves the controls
+ * alone on purpose - the point is to work your way onto it - and this is for
+ * when what you want is the other thing: hear where you were headed, then
+ * hear where you are, with the loop never stopping. It is `cleanWay`'s two
+ * calls against a different pair.
+ *
+ * The target is `targetOf` and not the puzzle's answer, which matters and is
+ * not obvious. Several exercises here measure their answer against the loop
+ * the round is actually played on rather than against the probe it was made
+ * with - the limiter's `ceilSettle` re-solves a drive for the real material -
+ * and `targetOf` is the one the scoring compares a guess against. Put the raw
+ * answer on the tool instead and you get settings that do not hit the target
+ * on this loop, which is a reveal that reveals the wrong thing.
+ *
+ * Offered only where the exercise says its target IS the settings that win,
+ * which is `ontoTool` and which is not something that can be worked out from
+ * here. The first version of this offered it wherever a `targetOf` existed,
+ * and five rounds out of twenty-two then put something on the controls that
+ * could not win:
+ *
+ *   - `limiter/deliver` returns a delivery spec - a loudness and a ceiling
+ *     and a service's name - rather than knob positions. Set that on a
+ *     limiter and nothing it names is a control it has.
+ *   - `eq/fix`, `compression/duck`, `reverb/tempo` and `saturation/even` are
+ *     marked on a reading derived from what came out, not on matching a
+ *     settings object, so their target is a thing to be judged against and
+ *     not a thing to be dialled.
+ *
+ * Every one of those was found by a check pressing the button and locking in,
+ * which is the only way to tell "the target" from "the answer" - they look
+ * identical from here and are not the same object.
+ *
+ * A drill never gets it: its answer is a chip, and a drill that has set the
+ * tool's controls has set them to the question rather than the answer.
+ */
+function ontoWay(exercise, puzzle) {
+  if (exercise.drill || !exercise.ontoTool) return null;
+  const target = exercise.targetOf?.(puzzle) ?? exercise.answerOf?.(puzzle) ?? puzzle.answer ?? null;
+  if (!target || !ui.tool?.setState) return null;
+
+  // Taken at the moment of showing, which is what "yours" means here: where
+  // the controls were when you asked. Taken once, because `targetOf` may
+  // have solved against the loop and asking twice would solve it twice.
+  const yours = ui.tool.state();
+  return {
+    on: () => ui.tool?.setState(target),
+    off: () => ui.tool?.setState(yours),
+  };
+}
+
+/** Put the answer on the controls, or put yours back. */
+function setOnto(on) {
+  const button = $('#onto');
+  button.setAttribute('aria-pressed', on ? 'true' : 'false');
+  button.textContent = on ? 'Put mine back' : 'Put it on the controls';
+  if (on) ui.onto?.on();
+  else ui.onto?.off();
 }
 
 /** Hear it without whatever is being asked about, and back. */
@@ -484,8 +557,14 @@ async function startGame({ fresh = false } = {}) {
   // because the audio it marks against loads after the board does.
   render();
   // A tool is not answered by naming anything; a drill is answered by nothing
-  // else, so it gets the first word.
-  say(exerciseOf(ui.mode, chosen).opening ?? tool().opening ?? 'Play it, then name what you heard.');
+  // else. Which is what the fallback had backwards: three work rounds - the
+  // level's match, the limiter's match and its delivery round - carry no
+  // opening of their own and were being told to name what they heard on a
+  // round answered by dialling. The rule was already written here; the line
+  // under it just did not follow it.
+  const asking = tool().slots(ui.tier, chosen).length > 0;
+  say(exerciseOf(ui.mode, chosen).opening ?? tool().opening
+    ?? (asking ? 'Play it, then name what you heard.' : 'Play it, then work the tool.'));
 }
 
 /**
@@ -629,7 +708,15 @@ function onShow() {
 
   ui.game = showAnswer(ui.game);
   recordGame(ui.game);
-  say('There it is. The controls are still live — work your way onto it.');
+
+  const exercise = exerciseOf(ui.mode, settings());
+  ui.onto = ontoWay(exercise, ui.game.puzzle);
+  $('#onto').hidden = !ui.onto;
+
+  say(ui.onto
+    ? 'There it is. The controls are still live — work your way onto it, or '
+      + 'put it on them and hear where you were headed.'
+    : 'There it is. The controls are still live — work your way onto it.');
   finish(ui.game);
   render();
 }
@@ -1159,6 +1246,10 @@ function wire() {
 
   $('#hint').addEventListener('click', onHint);
   $('#show').addEventListener('click', onShow);
+
+  $('#onto').addEventListener('click', (e) => {
+    setOnto(e.currentTarget.getAttribute('aria-pressed') !== 'true');
+  });
 
   $('#path-btn').addEventListener('click', showPath);
   $('#path-close').addEventListener('click', () => $('#path').close());

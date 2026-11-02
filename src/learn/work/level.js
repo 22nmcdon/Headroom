@@ -115,6 +115,9 @@ function faultedMaterial(puzzle) {
 export const LEVEL_EXERCISES = {
   match: {
     id: 'match',
+    // The target is the settings that win, so it can go on the controls
+    // after the answer is shown. Measured: see `ontoTool` in main.js.
+    ontoTool: true,
     label: 'Match the level',
     source: 'mix',
     // The loop before somebody changed its level, which is both the thing to

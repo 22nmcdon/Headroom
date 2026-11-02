@@ -111,6 +111,9 @@ const MOVES = [
 export const EQ_EXERCISES = {
   match: {
     id: 'match',
+    // The target is the settings that win, so it can go on the controls
+    // after the answer is shown. Measured: see `ontoTool` in main.js.
+    ontoTool: true,
     label: 'Match the target',
     source: 'mix',
     other: 'Target',
