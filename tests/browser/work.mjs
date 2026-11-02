@@ -6,22 +6,24 @@
 // rounds where the answer is the tool itself rather than a chip - and none of
 // them had ever been locked in outside a unit test either.
 //
-// ## What it can claim, and what it cannot
+// ## The claim
 //
-// It cannot press the right answer. A drill's answers are chips, so a sweep
-// finds the one that wins; these are answered by where a dozen controls are
-// set, and there is no sweep over that. "Show me" does not help - it reveals
-// the target and deliberately leaves the controls alone, which is the right
-// behaviour and the wrong hook.
+// Every round has to be winnable with the answer the app itself reveals.
+// Show the answer, put it on the controls, lock it in: the board must say
+// that is it. Nothing weaker would do - a round that marks something and
+// reports a number can still be marking the wrong thing - and until the
+// controls could be moved onto the target there was no way to ask for it.
+// This check used to say so, in a paragraph about what it could not do.
 //
-// So what is held here is narrower and still worth holding: that locking in
-// whatever the tool is set to comes back MARKED, with a finite reading, and
-// that the reveal runs. The failure that shape catches is the one this
-// codebase actually has - a guess and a target whose readings will not
-// compare, which `read.js` refuses on purpose and which surfaces as a dash
-// where a number should be. A round that cannot say how far off you are is a
-// round that teaches nothing, and it looks exactly like a working one until
-// somebody locks it in.
+// It matters that the answer goes on through `targetOf` rather than the
+// puzzle's raw answer. Several exercises re-measure against the loop the
+// round is played on, so the raw answer is settings that miss the target
+// here; the shell does the right one, and this is where that is held.
+//
+// The weaker claims are kept, because they fail differently: that locking in
+// comes back marked with a reading that is a reading catches a guess and a
+// target whose readings will not compare, which `read.js` refuses on purpose
+// and which surfaces as a dash where a number should be.
 //
 // It also holds the inverse of what the drills check holds about the shell:
 // a tool exercise shows the tool and hides the chips, because the tool is
@@ -59,7 +61,7 @@ export async function check({ browser, at, say }) {
       tiers: Object.keys(TOOLS[id].tiers),
       work: Object.values(TOOLS[id].exercises)
         .filter((one) => !one.drill)
-        .map((one) => ({ id: one.id, label: one.label })),
+        .map((one) => ({ id: one.id, label: one.label, onto: !!one.ontoTool })),
     })).filter((tool) => tool.work.length);
   });
 
@@ -76,6 +78,7 @@ export async function check({ browser, at, say }) {
     for (const exercise of tool.work) {
       for (const tier of tool.tiers) {
         const where = `${tool.id}/${exercise.id}/${tier}`;
+        const wantsOnto = exercise.onto;
         await putRound(page, { exercise: exercise.id, tier });
 
         const round = await page.evaluate(async () => {
@@ -104,30 +107,81 @@ export async function check({ browser, at, say }) {
             verdict: verdict(),
           };
 
+          // Sometimes the tool's own defaults are the answer - on a lenient
+          // tier with a target near the middle of its range, locking in
+          // without touching anything wins. The round is then over, so
+          // "Show me" correctly does nothing and there is no button, and
+          // reading that as a missing control is how this check spent a run
+          // reporting eight rounds that drifted between runs.
+          const alreadyWon = /that is it/i.test(marked.verdict);
+
+          if (alreadyWon) {
+            return { before, marked, alreadyWon, shown: null, won: { took: true, verdict: marked.verdict } };
+          }
+
           // And the reveal, which every plugin implements itself and several
           // of which do real work to draw it - the reverb builds an impulse.
           let threw = null;
           try {
             document.querySelector('#show').click();
-            await new Promise((ok) => setTimeout(ok, 400));
+            await new Promise((ok) => setTimeout(ok, 500));
           } catch (e) {
             threw = String(e && e.message ? e.message : e);
           }
 
+          const onto = document.querySelector('#onto');
           const shown = {
             verdict: verdict(),
             again: !document.querySelector('#again')?.hidden,
+            onto: onto ? !onto.hidden : null,
             threw,
           };
 
-          return { before, marked, shown };
+          // Then the thing worth checking: put the answer on the controls and
+          // lock it in. The app has just said what the answer is; its own
+          // marking has to agree.
+          //
+          // And the face has to show it. Everything the controls read, before
+          // and after - a tool whose settings changed and whose face did not
+          // is a reveal nobody can see, which is exactly what the EQ did: its
+          // curve redrew and its rail went on naming the bands it used to
+          // have. The round is only reached when the first guess was wrong,
+          // so the answer differs from what is on the face by enough to show.
+          const faceNow = () => [
+            ...document.querySelectorAll('.surface .knob-dial, .surface [data-dial]'),
+          ].map((d) => d.value).join('|') + '//' + [
+            ...document.querySelectorAll('.surface .rail-btn, .surface .knob-value'),
+          ].map((n) => n.innerText.trim()).join('|');
+
+          let won = null;
+          if (shown.onto) {
+            const faceWas = faceNow();
+            onto.click();
+            await new Promise((ok) => setTimeout(ok, 600));
+            const faceIs = faceNow();
+
+            submit.click();
+            await new Promise((ok) => setTimeout(ok, 500));
+            won = {
+              verdict: verdict(),
+              took: /that is it/i.test(verdict()),
+              faceMoved: faceIs !== faceWas,
+              face: faceIs.slice(0, 80),
+            };
+          }
+
+          return { before, marked, alreadyWon, shown, won };
         });
 
         played += 1;
 
         const first = round.marked.cells[0] ?? '';
         say(`  ${where.padEnd(28)} ${String(round.marked.cells.length)} cells`
-          + `  ${first ? `"${first}"` : '(none)'}`);
+          + `  ${(first ? `"${first}"` : '(none)').padEnd(26)}`
+          + ` ${round.alreadyWon ? 'the defaults won it'
+            : round.won?.took ? 'the answer wins'
+              : round.won ? 'THE ANSWER LOSES'
+                : wantsOnto ? 'NO BUTTON' : 'not dialled'}`);
 
         if (round.before.surface !== false) {
           problems.push(`${where}: the tool is the answer and its display is hidden`);
@@ -137,6 +191,11 @@ export async function check({ browser, at, say }) {
         }
         if (round.before.disabled) {
           problems.push(`${where}: could not be locked in at all`);
+        }
+        // A round answered by dialling must not be told to name what it heard.
+        if (/name what you heard/i.test(round.before.opened)) {
+          problems.push(`${where}: opens with "${round.before.opened}" on a round that is`
+            + ' answered on the tool, not by naming anything');
         }
         if (!round.before.hint || !round.before.show) {
           problems.push(`${where}: a way out is missing - hint ${round.before.hint},`
@@ -155,11 +214,37 @@ export async function check({ browser, at, say }) {
             + ' - the round was rebuilt underneath this and nothing was tested');
         }
 
+        if (!round.shown) {
+          // The defaults won it, so there was nothing to reveal. Nothing
+          // about the reveal can be claimed from this round.
+          continue;
+        }
         if (round.shown.threw) {
           problems.push(`${where}: showing the answer threw - ${round.shown.threw}`);
         }
         if (!round.shown.again) {
           problems.push(`${where}: the answer was shown and the round did not end`);
+        }
+        // Not every round can be won by dialling: five of them are marked on a
+        // reading derived from what came out rather than on matching a
+        // settings object, and one hands back a delivery spec instead of knob
+        // positions. Those declare it, and nothing is claimed about them here.
+        // What IS claimed is the other way round: a round that offers the
+        // button has to be winnable with what the button puts on.
+        if (!round.shown.onto) {
+          if (wantsOnto) {
+            problems.push(`${where}: says its target is the settings that win and offers`
+              + ' no way to put them on the controls');
+          }
+        } else if (!round.won) {
+          problems.push(`${where}: the answer could be put on the controls and locking it`
+            + ' in produced nothing');
+        } else if (!round.won.took) {
+          problems.push(`${where}: the answer the app revealed was put on its own controls`
+            + ` and its own marking does not accept it - the board says "${round.won.verdict}"`);
+        } else if (!round.won.faceMoved) {
+          problems.push(`${where}: the answer went on and the marking accepted it, and nothing`
+            + ' the controls read changed - the reveal is one nobody can see');
         }
       }
     }
