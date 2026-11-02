@@ -142,3 +142,59 @@ export const SIZES = [
   ['landscape', 932, 430],
   ['desktop', 1280, 1000],
 ];
+
+/**
+ * Put the bench on a given exercise and tier, and wait for the round.
+ *
+ * Here rather than in a check because getting it wrong cost two full runs of
+ * the suite, and two checks need it. Starting a round is asynchronous -
+ * several of these render a loop and measure it - and each of the two changes
+ * below starts one. A fixed delay is not a wait: under the load of the whole
+ * suite the check plays the previous round, the new one lands in the middle
+ * of it, and the failure reads as something wrong with the app.
+ *
+ * So each change is waited for on its own. The line the shell writes when a
+ * round opens is blanked first, so what comes back is this round's and not
+ * the last one's, and the two changes are never in flight together.
+ *
+ * `exercise` is left alone when the tool already has it, which matters: a
+ * tool with one drill has its exercise dropdown hidden - correctly, a
+ * dropdown with one option is not a choice - and asking a zero-width select
+ * to change hangs until the timeout.
+ */
+export async function putRound(page, { exercise = null, tier = null } = {}) {
+  const settle = async (change) => {
+    await page.evaluate(() => {
+      const verdict = document.querySelector('#verdict');
+      if (verdict) verdict.textContent = '';
+    });
+    await change();
+    await page.waitForFunction(
+      () => (document.querySelector('#verdict')?.textContent.trim().length ?? 0) > 0,
+      null, { timeout: 20000 },
+    );
+    await page.waitForTimeout(200);
+  };
+
+  if (exercise) {
+    const already = await page
+      .$eval('[data-setting="exercise"]', (el) => el.value)
+      .catch(() => null);
+    if (already !== exercise) {
+      await settle(() => page.evaluate(({ want }) => {
+        const select = document.querySelector('[data-setting="exercise"]');
+        if (!select) return;
+        select.value = want;
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      }, { want: exercise }));
+    }
+  }
+
+  if (tier) await settle(() => page.selectOption('#tier', tier));
+}
+
+/** Which kind of activity the pill is on, and how to get to the other one. */
+export async function putKind(page, kind) {
+  await page.click(`button:text-is("${kind === 'drill' ? 'Drills' : 'Work at it'}")`);
+  await page.waitForTimeout(400);
+}

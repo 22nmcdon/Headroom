@@ -24,7 +24,7 @@
 // weaker pass: pick what can be picked, submit, and hold that something was
 // marked and nothing threw. Said here rather than quietly skipped.
 
-import { open } from './harness.mjs';
+import { open, putRound, putKind } from './harness.mjs';
 
 export const name = 'drills';
 
@@ -68,53 +68,16 @@ export async function check({ browser, at, say }) {
   for (const tool of plan) {
     await page.click(`.modes button:text-is("${tool.label}")`);
     await page.waitForTimeout(500);
-    await page.click('button:text-is("Drills")');
-    await page.waitForTimeout(350);
+    await putKind(page, 'drill');
 
     for (const drill of tool.drills) {
       for (const tier of tool.tiers) {
         const where = `${tool.id}/${drill.id}/${tier}`;
 
-        // Each of these starts a round, and starting one is asynchronous -
-        // several of these render a loop and measure it. So each is waited
-        // for on its own: blank the line the shell writes when a round opens,
-        // make the change, wait for it to come back.
-        //
-        // Waiting only after the second was not enough, and the way it failed
-        // is worth keeping. Two builds would be in flight at once; the second
-        // finished, the check started playing, and the first then landed and
-        // put its own opening line back - which read as a drill that could
-        // not be won, on one round, only under the load of the whole suite.
-        // A fixed delay in front of it had the same hole one step earlier.
-        const settle = async (change) => {
-          await page.evaluate(() => {
-            const verdict = document.querySelector('#verdict');
-            if (verdict) verdict.textContent = '';
-          });
-          await change();
-          await page.waitForFunction(
-            () => (document.querySelector('#verdict')?.textContent.trim().length ?? 0) > 0,
-            null, { timeout: 20000 },
-          );
-          await page.waitForTimeout(200);
-        };
-
-        // Only when there is a choice to make. A tool with one drill has its
-        // exercise dropdown hidden - correctly, a dropdown with one option is
-        // not a choice - and asking a zero-width select to change is how this
-        // check spent its first run failing on the EQ.
-        const already = await page.$eval('[data-setting="exercise"]', (el) => el.value)
-          .catch(() => null);
-        if (already !== drill.id) {
-          await settle(() => page.evaluate(({ want }) => {
-            const select = document.querySelector('[data-setting="exercise"]');
-            if (!select) return;
-            select.value = want;
-            select.dispatchEvent(new Event('change', { bubbles: true }));
-          }, { want: drill.id }));
-        }
-
-        await settle(() => page.selectOption('#tier', tier));
+        // The waiting is the harness's, because getting it wrong cost two
+        // runs of the suite and because the work-exercise check needs the
+        // same thing. See `putRound`.
+        await putRound(page, { exercise: drill.id, tier });
 
         const round = await page.evaluate(async (limit) => {
           const picker = document.querySelector('#picker');
