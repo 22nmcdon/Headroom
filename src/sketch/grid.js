@@ -49,6 +49,8 @@ import { StereoPlugin } from '../plugins/stereo/plugin.js';
 import { EchoPlugin } from '../plugins/delay/plugin.js';
 import { VerbPlugin } from '../plugins/reverb/plugin.js';
 import { tapInto, drift, timing } from './tap.js';
+import { waveOf, rescaleWave, WAVE_COLUMNS } from '../lib/wave.js';
+import { readyCanvas, watchSize } from '../lib/panel.js';
 import {
   Recorder, canRecord, barsFor, fitTo, loudestIn, SILENCE,
   ticksFor, freeSeconds, MOST_SECONDS, saidLength, barSeconds,
@@ -181,6 +183,10 @@ export class SketchPage {
     this.open = null; // null | { kind: 'clip', track, scene } | { kind: 'track', track }
     this.frame = null;
     this.said = '';
+    // A take's drawn shape, summarised once and kept. Cleared for one id
+    // when that id is recorded over, so the picture never belongs to a take
+    // that is gone.
+    this.peaks = new Map();
     // What the root detector last reported, which belongs to the panel and
     // not to the project: it is a reading of a recording, and reopening the
     // sketch should not bring back a sentence about a button nobody pressed.
@@ -302,6 +308,7 @@ export class SketchPage {
   wire() {
     const { parts } = this;
 
+    this.watchWave();
     parts.play.addEventListener('click', () => this.toggle());
 
     this.el.querySelector('[data-menu]').addEventListener('click', () => {
@@ -820,6 +827,11 @@ export class SketchPage {
       const id = takeId();
       const kept = await putTake(id, channels, got.rate, { name: `${this.project.name} take` });
 
+      // Recording over a clip leaves the old take's drawn shape in the cache
+      // under the old id. Harmless while that id is still pointed at by
+      // something, and a lie the moment it is not.
+      if (isTake(was) && was.take !== id) this.peaks.delete(was.take);
+
       // Playable now whether or not it could be stored: a browser that
       // refuses IndexedDB should still let somebody finish the idea.
       const buffer = this.engine.ctx.createBuffer(channels.length, channels[0].length, got.rate);
@@ -1092,6 +1104,90 @@ export class SketchPage {
    * whichever of its clips happens to be open - and on a phone it meant
    * scrolling past a step grid to reach a fader.
    */
+  /**
+   * A take's shape, summarised once.
+   *
+   * Cached on the id rather than recomputed per draw, because the panel is
+   * rebuilt from a string every time anything changes and a ten-minute take
+   * costs about 45 ms to summarise - measured. Once is a dropped frame; once
+   * per redraw is a sketchpad that stutters whenever a knob moves.
+   *
+   * Summarised wide, at `WAVE_COLUMNS`, and cut down to the canvas when it
+   * is drawn. So a resize is a rescale and never a re-measure.
+   */
+  peaksFor(id) {
+    if (this.peaks.has(id)) return this.peaks.get(id);
+
+    const buffer = this.takes.get(id);
+    if (!buffer) return null;
+
+    const channels = Array.from({ length: buffer.numberOfChannels },
+      (_, i) => buffer.getChannelData(i));
+    const summary = waveOf(channels, WAVE_COLUMNS);
+    this.peaks.set(id, summary);
+    return summary;
+  }
+
+  /**
+   * The open clip's recording, drawn.
+   *
+   * A recording was an invisible object until this: a cell that said it held
+   * one, a length in the corner, and no way to see whether the take began
+   * with four seconds of somebody finding the microphone. Two half-waves
+   * about a centre line, which is what every editor draws and what a person
+   * reads without being told.
+   *
+   * Separate from `drawPanel` because the panel is innerHTML and a canvas
+   * cannot be. It is called after the markup lands and again on a resize.
+   */
+  drawWave() {
+    const canvas = this.parts.editor.querySelector('[data-wave]');
+    if (!canvas) return;
+
+    const ready = readyCanvas(canvas);
+    if (!ready) return;
+    const { c, width, height } = ready;
+
+    // Off the theme rather than written in here, so the waveform belongs to
+    // whatever the page is wearing - the same thing every plugin face does.
+    const style = getComputedStyle(canvas);
+    const line = style.getPropertyValue('--blush-deep').trim() || '#b4655a';
+    const faint = style.getPropertyValue('--line').trim() || 'rgba(0, 0, 0, 0.16)';
+
+    const clip = this.clip();
+    const peaks = clip?.take ? this.peaksFor(clip.take) : null;
+
+    // A take that has not finished loading, which is every take for the
+    // moment between opening a sketch and the audio context existing. Said
+    // rather than drawn as an empty box.
+    if (!peaks?.length) {
+      c.fillStyle = faint;
+      c.fillRect(0, height / 2 - 0.5, width, 1);
+      return;
+    }
+
+    const columns = rescaleWave(peaks, Math.max(1, Math.floor(width)));
+    const count = columns.length / 2;
+    const mid = height / 2;
+    // Short of the full half-height, so a take that hits full scale is not
+    // drawn touching the edges of its own box.
+    const reach = mid * 0.92;
+
+    c.fillStyle = line;
+    for (let i = 0; i < count; i += 1) {
+      const lo = Math.max(-1, Math.min(1, columns[i * 2]));
+      const hi = Math.max(-1, Math.min(1, columns[i * 2 + 1]));
+      const top = mid - hi * reach;
+      const bottom = mid - lo * reach;
+      // At least a pixel, or silence between two notes is a gap in the
+      // waveform rather than a quiet stretch of it.
+      c.fillRect(i * (width / count), top, Math.max(1, width / count), Math.max(1, bottom - top));
+    }
+
+    c.fillStyle = faint;
+    c.fillRect(0, mid - 0.5, width, 1);
+  }
+
   drawPanel() {
     const kind = this.open?.kind ?? 'none';
 
@@ -1115,6 +1211,7 @@ export class SketchPage {
     if (kind === 'clip' && this.clip()) {
       this.parts.body.dataset.open = 'clip';
       this.parts.editor.innerHTML = this.clipPanel();
+      this.drawWave();
       return;
     }
 
@@ -1374,6 +1471,11 @@ export class SketchPage {
       ${!clip.chords ? '' : `
         <p class="fine">Made from “${clip.chords}”. The chords went in as notes and
         are yours to move now.</p>`}
+
+      ${!isTake(clip) ? '' : `
+        <div class="clip-wave">
+          <canvas data-wave aria-label="The shape of this recording"></canvas>
+        </div>`}
 
       ${!(isTake(clip) || (canRecord() && isVoice(track.instrument))) ? '' : `
         <div class="editor-row">
@@ -1699,6 +1801,18 @@ export class SketchPage {
   }
 
   /** The repaint loop, on only while something is moving. */
+  /**
+   * Keep the waveform the width of its box.
+   *
+   * Bound once to the editor rather than to the canvas, because the panel is
+   * rebuilt from a string on every redraw and a watcher on the canvas would
+   * be watching an element that is already gone.
+   */
+  watchWave() {
+    this.unwatchWave?.();
+    this.unwatchWave = watchSize(this.parts.editor, () => this.drawWave());
+  }
+
   watch(on) {
     if (on && !this.frame) {
       const step = () => {
@@ -1876,6 +1990,8 @@ export class SketchPage {
 
   destroy() {
     this.watch(false);
+    this.unwatchWave?.();
+    this.unwatchWave = null;
     this.closePlugin();
     this.mic?.close();
     this.mic = null;
