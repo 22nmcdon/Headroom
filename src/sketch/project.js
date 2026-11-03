@@ -86,9 +86,23 @@ export const followOf = (follow) => {
   };
 };
 
+/**
+ * How a recording is kept: as a looping cell, or at its own length.
+ *
+ * `bars` is a loop. The take is rounded to a whole number of bars and plays
+ * from the top of each pass, which is what a sketchpad cell is for and what
+ * every take used to be, whether or not it suited.
+ *
+ * `free` is a one-shot. The take keeps every sample of what was played,
+ * plays once from the launch, and is never cut - which is what a sung idea
+ * or a guitar part needs, because those are not two bars long and asking
+ * them to be destroys them.
+ */
+export const FITS = ['bars', 'free'];
+
 export const clipOf = ({
   id = null, length = PPQ * 4, notes = [], name = '', division = 'eighth', chords = '',
-  take = null, follow = null,
+  take = null, follow = null, fit = 'bars',
 } = {}) => ({
   id: id ?? `clip-${Math.random().toString(36).slice(2, 8)}`,
   name,
@@ -98,6 +112,10 @@ export const clipOf = ({
   // here is the thread back to it - and a clip whose take has gone is a
   // clip that plays nothing, which is why they are swept together.
   take: take ? String(take) : null,
+  // `bars` by default, so that every project saved before this existed opens
+  // behaving exactly as it did. A recording made from now on asks for `free`
+  // itself.
+  fit: FITS.includes(fit) ? fit : 'bars',
   follow: followOf(follow),
   // The line of chord symbols this clip was made from, when it was made from
   // one. Kept so that coming back to it shows what was typed rather than
@@ -474,6 +492,30 @@ export function setFollow(project, track, scene, follow) {
   const here = clipAt(project, track, scene);
   if (!here) return project;
   return setClip(project, track, scene, { ...here, follow });
+}
+
+/**
+ * Switch a recording between looping and running free.
+ *
+ * `length` comes with it, because the two modes mean different things by it:
+ * a loop's length is the bar line it comes back to, and a free take's is how
+ * long it actually is. The caller knows the take's real length and this does
+ * not, so it is handed in.
+ *
+ * What is never touched is the audio. The old bars path cut the samples to
+ * the loop before storing them, so switching modes could not have been
+ * offered at all - there was nothing left of the take to switch back to. Now
+ * the stored take is whole and a loop is a window onto it, so this is
+ * reversible as many times as somebody likes.
+ */
+export function setFit(project, track, scene, fit, length = null) {
+  const here = clipAt(project, track, scene);
+  if (!here) return project;
+  return setClip(project, track, scene, {
+    ...here,
+    fit,
+    ...(Number.isFinite(length) && length > 0 ? { length: Math.max(1, Math.round(length)) } : {}),
+  });
 }
 
 /* --- out of here ------------------------------------------------------------ */

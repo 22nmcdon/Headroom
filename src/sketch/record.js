@@ -13,6 +13,8 @@
 // handing blocks back with the audio time of each one can be cut exactly.
 
 import { workletModule, installWorklet } from '../lib/worklet.js';
+import { PPQ } from './midi.js';
+import { ticksPerBar } from './transport.js';
 
 const CAPTURE_PROCESSOR = `class HeadroomCapture extends AudioWorkletProcessor {
   constructor() {
@@ -63,6 +65,76 @@ export function barsFor(seconds, bpm, beats = 4, value = 4) {
   const per = barSeconds(bpm, beats, value);
   if (!(per > 0) || !(seconds > 0)) return 1;
   return Math.max(1, Math.min(MOST_BARS, Math.round(seconds / per)));
+}
+
+/* --- and takes that are not loops --------------------------------------- */
+
+/**
+ * The longest a free take may run, in seconds.
+ *
+ * A cap on storage rather than on music, which is why it is minutes and not
+ * bars. `wav.js` writes 24-bit, so a mono take at 48 kHz costs 141 KB a
+ * second and ten minutes of it is 82 MB sitting in IndexedDB - measured,
+ * from the format the writer actually emits rather than from the 16-bit
+ * guess it would be easy to make.
+ *
+ * The recorder stops itself when it gets here, and says so. That is the
+ * whole difference from the cap this replaces: eight bars was enforced by
+ * CUTTING the audio after the fact, and the cut happened before `putTake`,
+ * so a minute of singing became twenty seconds with nothing left to
+ * recover and a message that said it had been kept.
+ */
+export const MOST_SECONDS = 600;
+
+/**
+ * How long a free take is allowed to be: its own length, up to the cap.
+ *
+ * The counterpart of `barsFor`, and deliberately not it. `barsFor` decides
+ * what a loop should be and the audio is then made to fit; this reports what
+ * was played and nothing is made to fit anything.
+ */
+export function freeSeconds(seconds) {
+  if (!(seconds > 0)) return 1 / PPQ;
+  return Math.min(MOST_SECONDS, seconds);
+}
+
+/**
+ * A length said out loud, for a take that is no longer a number of bars.
+ *
+ * "Eight bars" was always the right way to say a loop and is the wrong way to
+ * say a sung idea - a person who has just sung for ninety seconds wants to be
+ * told ninety seconds, not "36 bars". Seconds under a minute, minutes and
+ * seconds above it, and the seconds dropped when they are nothing, because
+ * "2 minutes 0 seconds" is not how anybody says two minutes.
+ */
+export function saidLength(seconds) {
+  const whole = Math.max(0, Math.round(seconds));
+  if (whole < 60) return `${whole} second${whole === 1 ? '' : 's'}`;
+
+  const mins = Math.floor(whole / 60);
+  const rest = whole % 60;
+  const said = `${mins} minute${mins === 1 ? '' : 's'}`;
+  return rest ? `${said} ${rest}` : said;
+}
+
+/**
+ * A length in ticks, for a take that is keeping its own length.
+ *
+ * The grid needs a number to say how long the clip is and a follow action
+ * needs one to know when it ends. Both of those are ticks, and neither is
+ * allowed to be used to cut the audio - which is the trap the bars path fell
+ * into, where the number that described the take became the number the take
+ * was trimmed to.
+ *
+ * Not rounded to a bar. Three and a half bars of singing is three and a half
+ * bars long here, where `barsFor` would call it four and `fitTo` would then
+ * add half a bar of silence to make it true.
+ */
+export function ticksFor(seconds, bpm, beats = 4, value = 4) {
+  const per = barSeconds(bpm, beats, value);
+  const bar = ticksPerBar(beats, value, PPQ);
+  if (!(per > 0) || !(seconds > 0)) return 1;
+  return Math.max(1, Math.round((seconds / per) * bar));
 }
 
 /**

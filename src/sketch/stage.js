@@ -122,10 +122,21 @@ export async function makeStage(ctx, project, {
 
     const length = piece.clip.length;
     const anchor = piece.anchor ?? 0;
+    // A take kept free is a one-shot: it plays once, from the launch, at its
+    // own length. A take kept as a loop plays from the top of every pass of
+    // the clip, which is what all of them used to do whether it suited them
+    // or not.
+    //
+    // Pass zero is the launch, and only the window the launch falls in has a
+    // pass zero in it - every later window starts at pass one or beyond,
+    // because `first` is measured from the anchor. So "once" is exactly
+    // "pass zero", with no extra state to keep.
+    const once = piece.clip.fit === 'free';
     const first = Math.ceil((piece.from - anchor) / length);
     const last = Math.ceil((piece.to - anchor) / length);
 
     for (let pass = first; pass < last; pass += 1) {
+      if (once && pass !== 0) break;
       const at = anchor + pass * length;
       if (at < piece.from || at >= piece.to) continue;
 
@@ -133,9 +144,15 @@ export async function makeStage(ctx, project, {
       source.buffer = buffer;
       source.connect(row.track.chain.in);
       source.start(clock.timeOf(at));
-      // Never longer than the clip it is in: a take a shade too long would
-      // overlap the next pass of itself.
-      source.stop(clock.timeOf(at + length));
+      // A loop is never longer than the clip it is in, or a take a shade too
+      // long would overlap the next pass of itself. This is also what makes
+      // switching a free take back to a loop safe: the samples past the bar
+      // line are still in the store, and the loop simply stops before them
+      // rather than them having been thrown away.
+      //
+      // A free take has no next pass to overlap, so it runs to its own end.
+      // It is still in `row.sounding`, so stopping the transport stops it.
+      if (!once) source.stop(clock.timeOf(at + length));
       source.onended = () => {
         row.sounding = row.sounding.filter((each) => each !== source);
       };

@@ -31,7 +31,7 @@
 
 import {
   newProject, setClip, setTrack, setProject, setNotes, setLength,
-  clipAt, trackAt, sceneOf, sceneHasAnything, barTicks, sceneToMidi, isTake,
+  clipAt, trackAt, sceneOf, sceneHasAnything, barTicks, sceneToMidi, isTake, setFit,
   addScene, dropScene, MOST_SCENES, setFollow, MOST_PASSES,
   addTrack, dropTrack, MOST_TRACKS, moveInsert,
 } from './project.js';
@@ -49,7 +49,10 @@ import { StereoPlugin } from '../plugins/stereo/plugin.js';
 import { EchoPlugin } from '../plugins/delay/plugin.js';
 import { VerbPlugin } from '../plugins/reverb/plugin.js';
 import { tapInto, drift, timing } from './tap.js';
-import { Recorder, canRecord, barsFor, fitTo, loudestIn, SILENCE } from './record.js';
+import {
+  Recorder, canRecord, barsFor, fitTo, loudestIn, SILENCE,
+  ticksFor, freeSeconds, MOST_SECONDS, saidLength, barSeconds,
+} from './record.js';
 import {
   takeId, putTake, loadTake, dropTake, sweepTakes,
 } from './takes.js';
@@ -120,7 +123,7 @@ const titled = (id) => id.charAt(0).toUpperCase() + id.slice(1);
  * The length is only said when it is not the usual one. A grid of sixteen
  * cells each ending in "· 1" is sixteen ones nobody reads.
  */
-const clipSays = (clip, perBar) => {
+const clipSays = (clip, perBar, perBarSeconds = 0) => {
   const bars = Math.max(1, Math.round(clip.length / perBar));
   // A recording first, because a clip holding one has no notes to count and
   // counting them said "empty". Which is what the grid read after every
@@ -128,8 +131,19 @@ const clipSays = (clip, perBar) => {
   // the cell beside it said the cell was empty, in the same breath. The one
   // place a person looks to see whether it worked was the one place saying
   // it had not.
-  const what = isTake(clip) ? 'recording'
+  // "take" rather than "recording", which is the word the rest of this file
+  // uses anyway and the only one of the two that fits: a cell is about seven
+  // characters wide and "recording · 5s" came out as "recording…", which is
+  // a cell saying nothing again by a different route.
+  const what = isTake(clip) ? 'take'
     : clip.notes.length ? plural(clip.notes.length, 'note', 'notes') : 'empty';
+
+  // A take kept at its own length is measured in seconds, not bars. Rounding
+  // it to bars to print it is how a six-second take comes to read "2 bars" -
+  // true of the number in the clip and not of anything a person played.
+  if (isTake(clip) && clip.fit === 'free' && perBarSeconds > 0) {
+    return `${what} · ${Math.round((clip.length / perBar) * perBarSeconds)}s`;
+  }
   return bars > 1 ? `${what} · ${bars} bars` : what;
 };
 
@@ -562,6 +576,38 @@ export class SketchPage {
       return;
     }
 
+    const fit = event.target.closest('[data-fit]');
+    if (fit && this.at) {
+      const want = fit.dataset.fit;
+      const clip = this.clip();
+
+      // Before there is a take, this is a choice about the next one and lives
+      // on the grid. Once there is one, it is a property of that clip and
+      // lives in the project, so it saves with the sketch.
+      if (!isTake(clip)) {
+        this.keepFree = want === 'free';
+        this.draw();
+        return;
+      }
+
+      // The stored take is whole in both modes, so this is a switch and not a
+      // decision: what changes is the length the clip claims and therefore
+      // where the stage stops the source.
+      const buffer = this.takes.get(clip.take);
+      const seconds = buffer?.duration ?? 0;
+      const length = want === 'free'
+        ? ticksFor(seconds, this.project.bpm, this.project.beats, this.project.value)
+        : barsFor(seconds, this.project.bpm, this.project.beats, this.project.value)
+          * barTicks(this.project);
+
+      this.change(setFit(this.project, this.at.track, this.at.scene, want, length));
+      this.tell(want === 'free'
+        ? `Kept at its own length — ${saidLength(seconds)}, played once when the scene starts.`
+        : 'Looping on the bar line. Everything you played is still stored, so you can '
+          + 'put it back to its own length whenever.');
+      return;
+    }
+
     if (event.target.closest('[data-mic]')) { this.record(); return; }
 
     if (event.target.closest('[data-clear]') && this.at) {
@@ -739,6 +785,8 @@ export class SketchPage {
     if (this.recording) {
       const got = this.mic?.stop();
       this.recording = false;
+      clearTimeout(this.capping);
+      this.capping = null;
 
       if (!got) { this.draw(); this.tell('Nothing came back from the microphone.'); return; }
       if (loudestIn(got.channels) < SILENCE) {
@@ -747,10 +795,27 @@ export class SketchPage {
         return;
       }
 
-      const bars = barsFor(got.seconds, this.project.bpm, this.project.beats, this.project.value);
-      const seconds = bars * (60 / this.project.bpm) * this.project.beats
-        * (4 / this.project.value);
-      const channels = fitTo(got.channels, got.rate, seconds);
+      // Recording over a take keeps how that take was kept; a fresh one takes
+      // whatever the panel is set to.
+      const was = clipAt(this.project, this.at.track, this.at.scene);
+      const fit = this.fitOf(was);
+
+      // Stored whole, in both modes. Nothing is cut on the way in - which is
+      // the whole of what was wrong before. `fitTo` here only enforces the
+      // ten-minute cap, which the recorder has already stopped itself at, so
+      // below the cap this copies and changes nothing.
+      //
+      // A loop no longer needs the samples trimmed to its bar line, because
+      // the stage stops the source there instead. That is what makes the two
+      // modes a switch rather than a decision: the take in the store is
+      // always everything that was played, and a loop is a window onto it.
+      const channels = fitTo(got.channels, got.rate, freeSeconds(got.seconds));
+      const seconds = channels[0].length / got.rate;
+
+      const bars = barsFor(seconds, this.project.bpm, this.project.beats, this.project.value);
+      const length = fit === 'free'
+        ? ticksFor(seconds, this.project.bpm, this.project.beats, this.project.value)
+        : bars * barTicks(this.project);
 
       const id = takeId();
       const kept = await putTake(id, channels, got.rate, { name: `${this.project.name} take` });
@@ -761,15 +826,17 @@ export class SketchPage {
       channels.forEach((channel, i) => buffer.copyToChannel(channel, i));
       this.takes.set(id, buffer);
 
-      const was = clipAt(this.project, this.at.track, this.at.scene);
       this.change(setClip(this.project, this.at.track, this.at.scene, {
-        ...(was ?? {}), take: id, notes: [], chords: '', length: bars * barTicks(this.project),
+        ...(was ?? {}), take: id, notes: [], chords: '', fit, length,
       }));
 
+      const how = fit === 'free'
+        ? `${saidLength(seconds)} recorded, kept whole and playing once`
+        : `${bars === 1 ? 'A bar' : `${bars} bars`} recorded, looping`;
       this.tell(kept
-        ? `${bars === 1 ? 'A bar' : `${bars} bars`} recorded, and kept in this browser.`
-        : `${bars === 1 ? 'A bar' : `${bars} bars`} recorded — but this browser would not `
-          + 'store it, so it will be gone on a reload. Export the stems to keep it.');
+        ? `${how}, and kept in this browser.`
+        : `${how} — but this browser would not store it, so it will be gone on a `
+          + 'reload. Export the stems to keep it.');
       return;
     }
 
@@ -786,7 +853,23 @@ export class SketchPage {
     this.mic.start();
     this.recording = true;
     this.draw();
-    this.tell('Recording. Press again to stop — it will be cut to the nearest whole bar.');
+
+    // Stopped rather than trimmed. The cap is storage - ten minutes of a
+    // mono 24-bit take is 82 MB in IndexedDB - and the honest way to enforce
+    // it is to stop while somebody is watching, not to cut what they played
+    // after they have finished playing it.
+    clearTimeout(this.capping);
+    this.capping = setTimeout(() => {
+      if (this.recording) {
+        this.record();
+        this.tell(`That is the longest one take can be — ${saidLength(MOST_SECONDS)} — so it `
+          + 'stopped there and kept everything up to it.');
+      }
+    }, MOST_SECONDS * 1000);
+
+    this.tell(this.fitOf(clipAt(this.project, this.at.track, this.at.scene)) === 'free'
+      ? 'Recording. Press again to stop — it is kept at whatever length you play.'
+      : 'Recording. Press again to stop — it will be cut to the nearest whole bar.');
   }
 
   sayTap(line) {
@@ -941,6 +1024,7 @@ export class SketchPage {
   drawGrid() {
     const { project } = this;
     const perBar = barTicks(project);
+    const perBarSeconds = barSeconds(project.bpm, project.beats, project.value);
 
     const last = project.scenes.length - 1;
     const canDrop = project.scenes.length > 1 && !sceneHasAnything(project, last);
@@ -975,7 +1059,7 @@ export class SketchPage {
                   data-asking="${this.removing === `${index}:${column}`}"
                   ${clip?.follow ? `title="${clip.follow.after}× then ${FOLLOW_SAYS[clip.follow.then]}"` : ''}>
             <span class="cell-what">${this.removing === `${index}:${column}` ? 'Take out?'
-              : clip ? clipSays(clip, perBar) : '+'}</span>
+              : clip ? clipSays(clip, perBar, perBarSeconds) : '+'}</span>
             ${clip?.follow ? `<span class="cell-follow">${clip.follow.after}×${FOLLOW_MARK[clip.follow.then]}</span>` : ''}
           </button>`;
       }).join('')}
@@ -1155,6 +1239,21 @@ export class SketchPage {
    * away: none of bars, grid, repeat or key is touched while notes are
    * going in, but all four are worth knowing at a glance.
    */
+  /**
+   * How this clip is kept, or how the next recording into it will be.
+   *
+   * One answer in one place, because three callers want it - the toggle that
+   * shows it, the recorder that obeys it, and the line that says what the
+   * clip is - and three copies of the same conditional is how they drift
+   * apart. A clip with a take carries its own; an empty one borrows whatever
+   * the panel is set to, which starts free because that is the thing a sung
+   * idea needs and the thing the bars-only version could not do.
+   */
+  fitOf(clip) {
+    if (isTake(clip)) return clip.fit === 'bars' ? 'bars' : 'free';
+    return this.keepFree === false ? 'bars' : 'free';
+  }
+
   setupSays(clip, track) {
     const bars = Math.max(1, Math.round(clip.length / barTicks(this.project)));
     const parts = [];
@@ -1164,9 +1263,12 @@ export class SketchPage {
       parts.push(divisionOf(clip.division).label);
     }
 
+    // A free take does not loop, so saying "loops" about one is the summary
+    // contradicting the toggle three rows above it.
     parts.push(clip.follow
       ? `${clip.follow.after}× then ${FOLLOW_SAYS[clip.follow.then]}`
-      : 'loops');
+      : isTake(clip) && clip.fit === 'free' ? 'plays once'
+        : 'loops');
 
     if (!isVoice(track.instrument) && track.instrument !== 'kit') {
       parts.push(`${ROOT_NAMES[this.project.key.root]} ${SCALES[this.project.key.scale].label.toLowerCase()}`);
@@ -1272,6 +1374,19 @@ export class SketchPage {
       ${!clip.chords ? '' : `
         <p class="fine">Made from “${clip.chords}”. The chords went in as notes and
         are yours to move now.</p>`}
+
+      ${!(isTake(clip) || (canRecord() && isVoice(track.instrument))) ? '' : `
+        <div class="editor-row">
+          <span class="editor-label">Keep it</span>
+          <span class="chips">
+            <button class="chip" type="button" data-fit="free"
+                    aria-pressed="${this.fitOf(clip) === 'free'}"
+                    title="Any length, played once when the scene starts">at its length</button>
+            <button class="chip" type="button" data-fit="bars"
+                    aria-pressed="${this.fitOf(clip) === 'bars'}"
+                    title="On the bar line, looping every pass">as a loop</button>
+          </span>
+        </div>`}
 
       <div class="editor-row editor-outs">
         <button class="link-btn" type="button" data-clear>Clear the notes</button>
@@ -1543,7 +1658,12 @@ export class SketchPage {
     cell.dataset.follows = clip?.follow?.then ?? '';
 
     const what = cell.querySelector('.cell-what');
-    if (what) what.textContent = clip ? clipSays(clip, barTicks(this.project)) : '+';
+    if (what) {
+      what.textContent = clip
+        ? clipSays(clip, barTicks(this.project),
+          barSeconds(this.project.bpm, this.project.beats, this.project.value))
+        : '+';
+    }
   }
 
   /**

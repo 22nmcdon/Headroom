@@ -9,7 +9,9 @@ import assert from 'node:assert/strict';
 
 import {
   barsFor, barSeconds, fitTo, joinBlocks, loudestIn, MOST_BARS, SILENCE, canRecord,
+  freeSeconds, ticksFor, MOST_SECONDS, saidLength,
 } from '../src/sketch/record.js';
+import { PPQ } from '../src/sketch/midi.js';
 
 test('a bar is as long as the tempo says', () => {
   assert.equal(barSeconds(120), 2);
@@ -85,4 +87,77 @@ test('whether anything can be recorded is answered, not assumed', () => {
   // In node there is no navigator, which is exactly the case the sketchpad
   // has to handle without throwing.
   assert.equal(canRecord(), false);
+});
+
+/* --- takes that are not loops -------------------------------------------- */
+
+// A take used to have no choice about being a looping cell: it was rounded to
+// a whole number of bars, capped at eight of them, and CUT to that before it
+// reached the store. At 96 bpm the cap is twenty seconds, so a minute of
+// singing was stored as twenty seconds and the other forty were gone - and
+// the message still said it had been kept. The cut came before `putTake`, so
+// there was nothing left to recover.
+//
+// A take kept free keeps its length. What it needs instead is a length in
+// ticks, so the grid can say how long it is and a follow action knows when it
+// ends, without that number ever being used to cut the audio.
+
+test('a free take keeps every sample of what was played', () => {
+  const got = new Float32Array(3000).fill(0.5);
+  const [kept] = fitTo([got], 1000, freeSeconds(3));
+  assert.equal(kept.length, 3000, 'three seconds in, three seconds out');
+});
+
+test('a free take is capped, and the cap is minutes rather than bars', () => {
+  // The cap is storage, not music: a mono 24-bit WAV at 48 kHz is 141 KB a
+  // second, so ten minutes is 82 MB in IndexedDB. Measured, not guessed.
+  assert.equal(freeSeconds(5), 5);
+  assert.equal(freeSeconds(300), 300, 'five minutes is fine');
+  assert.equal(freeSeconds(MOST_SECONDS + 60), MOST_SECONDS);
+  assert.ok(MOST_SECONDS >= 600, 'at least ten minutes, or it is still a loop cell');
+  // And the old cap is twenty seconds at this tempo, which is the thing being
+  // escaped.
+  assert.ok(MOST_SECONDS > MOST_BARS * barSeconds(96) * 10);
+});
+
+test('a free take is never nothing', () => {
+  assert.ok(freeSeconds(0) > 0);
+  assert.ok(freeSeconds(-4) > 0);
+});
+
+test('a free take has a length in ticks, for the grid and for follows', () => {
+  // PPQ ticks a quarter note, four of them to a 4/4 bar.
+  assert.equal(ticksFor(barSeconds(96), 96), PPQ * 4, 'one bar of seconds is one bar of ticks');
+  assert.equal(ticksFor(barSeconds(96) * 3, 96), PPQ * 12);
+  // Not rounded to a bar: that is the whole point. Half a bar is half a bar.
+  assert.equal(ticksFor(barSeconds(96) / 2, 96), PPQ * 2);
+});
+
+test('a free take of an odd length keeps the odd length', () => {
+  // Three and a bit bars, which `barsFor` would have called three and cut to.
+  const odd = barSeconds(96) * 3.4;
+  assert.equal(barsFor(odd, 96), 3, 'the loop path rounds it');
+  assert.ok(ticksFor(odd, 96) > PPQ * 13, 'the free path does not');
+  assert.ok(ticksFor(odd, 96) < PPQ * 14);
+});
+
+test('a length in ticks is never nothing, whatever the tempo', () => {
+  assert.ok(ticksFor(0, 96) >= 1);
+  assert.ok(ticksFor(5, 0) >= 1, 'a tempo of nothing still gives a usable length');
+  assert.ok(ticksFor(-5, 96) >= 1);
+});
+
+test('a free take says its length the way a person would', () => {
+  // "Eight bars" is the right way to say a loop and the wrong way to say a
+  // sung idea. Somebody who just sang for ninety seconds wants to hear
+  // ninety seconds back, not "36 bars".
+  assert.equal(saidLength(1), '1 second');
+  assert.equal(saidLength(37), '37 seconds');
+  assert.equal(saidLength(59.4), '59 seconds');
+  assert.equal(saidLength(60), '1 minute');
+  assert.equal(saidLength(95), '1 minute 35');
+  assert.equal(saidLength(120), '2 minutes');
+  assert.equal(saidLength(MOST_SECONDS), '10 minutes');
+  assert.equal(saidLength(0), '0 seconds');
+  assert.equal(saidLength(-5), '0 seconds', 'never a negative length out loud');
 });
