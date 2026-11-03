@@ -54,6 +54,7 @@ import { nextBar } from './transport.js';
 import { waveOf, rescaleWave, spreadWave, WAVE_COLUMNS } from '../lib/wave.js';
 import { readyCanvas, watchSize } from '../lib/panel.js';
 import { peakAt, fallenTo, clockOf, PEAK_FLOOR, PEAK_HOT } from '../lib/meter.js';
+import { floorOf, saidFloor } from '../lib/loudness.js';
 import {
   Recorder, canRecord, barsFor, fitTo, loudestIn, SILENCE,
   ticksFor, freeSeconds, MOST_SECONDS, saidLength, barSeconds, oversIn,
@@ -928,6 +929,11 @@ export class SketchPage {
         ...(was ?? {}), take: id, notes: [], chords: '', fit, length, kind: 'mic',
       }));
 
+      // What is under it. Kept on the grid rather than in the project: it is a
+      // reading of a recording, and reopening a sketch should not bring back
+      // a sentence about a measurement nobody took this time.
+      this.floorRead = { ...floorOf(channels, got.rate), take: id };
+
       // What it did to the ceiling, which is the one thing about a take that
       // cannot be undone. 24-bit storage clamps at full scale and Web Audio's
       // floats do not, so a hot input arrives already flattened - and until
@@ -951,10 +957,15 @@ export class SketchPage {
       const how = fit === 'free'
         ? `${saidLength(seconds)} recorded, kept whole and playing once`
         : `${bars === 1 ? 'A bar' : `${bars} bars`} recorded, looping`;
+      // The sentence, which is the part worth having: a number says what the
+      // noise is and this says what to do about it, including when the answer
+      // is that nothing in software will help.
+      const under = this.floorRead.enough ? ` ${saidFloor(this.floorRead, peakDb)}` : '';
+
       this.tell(kept
-        ? `${how}, and kept in this browser.${cut}${ceiling}`
+        ? `${how}, and kept in this browser.${cut}${ceiling}${under}`
         : `${how} — but this browser would not store it, so it will be gone on a `
-          + `reload. Export the stems to keep it.${cut}${ceiling}`);
+          + `reload. Export the stems to keep it.${cut}${ceiling}${under}`);
       return;
     }
 
@@ -1863,6 +1874,16 @@ export class SketchPage {
           <dt>Giving</dt><dd>${this.mic?.open
             ? saidInput(this.mic.settings)
             : 'not open yet — press record'}</dd>
+          ${!(this.floorRead && this.floorRead.take === clip.take) ? '' : `
+            <dt>Floor</dt><dd${this.floorRead.mostlySilent ? ' class="warn"' : ''}>${
+              !this.floorRead.enough ? 'too short to read'
+                // The row has to agree with the sentence under it. Reporting
+                // "0.0 dB of range" from the handful of windows that were not
+                // digital silence, while the line below says there is no floor
+                // to read, is a panel contradicting itself one row apart.
+                : this.floorRead.mostlySilent ? 'mostly digital silence — nothing to read'
+                  : `${this.floorRead.floor.toFixed(1)} dB · ${this.floorRead.range.toFixed(1)} dB of range`
+            }</dd>`}
           ${!this.mic?.open ? '' : (() => {
             const over = this.mic.overridden;
             return `<dt>Processing</dt><dd${over.length ? ' class="warn"' : ''}>${over.length

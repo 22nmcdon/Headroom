@@ -188,7 +188,7 @@ export async function check({ browser, at, say }) {
   const during = await page.evaluate(() => ({
     says: document.querySelector('[data-mic]')?.innerText.trim() ?? '',
     pressed: document.querySelector('[data-mic]')?.getAttribute('aria-pressed') ?? null,
-    told: document.body.innerText.match(/[^\n]*(Recording|microphone)[^\n]*/i)?.[0]?.trim() ?? '',
+    told: document.querySelector('[data-said]')?.textContent.trim() ?? '',
   }));
   say(`recording: "${during.says}" — ${during.told}`);
   if (during.pressed !== 'true') {
@@ -292,8 +292,12 @@ export async function check({ browser, at, say }) {
   await page.waitForTimeout(1600);
 
   const after = await page.evaluate(() => ({
-    told: document.body.innerText.match(/[^\n]*(recorded|silence|Nothing came back)[^\n]*/i)?.[0]?.trim() ?? '',
+    told: document.querySelector('[data-said]')?.textContent.trim() ?? '',
     says: document.querySelector('[data-mic]')?.innerText.trim() ?? '',
+    // The whole line, taken now: every later section of this check presses
+    // something that writes to it, so reading it at the end reads whatever
+    // was said last instead of what was said about the take.
+    line: document.querySelector('[data-said]')?.textContent.trim() ?? '',
   }));
   say(`stopped: ${after.told}`);
 
@@ -301,7 +305,11 @@ export async function check({ browser, at, say }) {
     problems.push('the microphone was opened, held for five seconds and gave back nothing'
       + ' - the capture worklet is not handing its blocks over');
   }
-  if (/silence/i.test(after.told)) {
+  // The message itself, not the word. Matching on "silence" caught the floor
+  // reading's own "Most of this take is digital silence", which is a sentence
+  // about a measurement rather than a failure to record - a check keyed to a
+  // word fails the moment anything unrelated uses it.
+  if (/was silence/i.test(after.told)) {
     problems.push('what came back was under the silence floor, so the capture node is running'
       + ' but nothing is reaching it');
   }
@@ -541,6 +549,118 @@ export async function check({ browser, at, say }) {
     }
   }
 
+  /* --- what is under the take ---------------------------------------------- */
+
+  // The measurement this app is for, pointed at the thing people ask about:
+  // how much of a take is the room and the microphone rather than the
+  // playing. Nothing in software lowers a microphone's self-noise, so the
+  // only useful answer is a number and what it means for what to do next.
+  //
+  // Read off the panel for the take just made, and then exercised on planted
+  // material - because Chromium's fake microphone cannot provide a floor to
+  // measure. It is exactly zero for 97% of its samples, which is digital
+  // silence rather than a noise floor, and `floorOf` excludes those on
+  // purpose. Driving the real recorder is how that was found; it is not how
+  // the reading itself can be tested.
+  const floor = await page.evaluate(() => {
+    const rows = {};
+    for (const node of document.querySelectorAll('.rec-about dt')) {
+      rows[node.textContent.trim()] = node.nextElementSibling?.textContent.trim() ?? '';
+    }
+    return { row: rows.Floor ?? '' };
+  });
+
+  say(`\n  the floor row reads "${floor.row}"`);
+  if (!floor.row) {
+    problems.push('the panel never says what is under the take - which is the one reading'
+      + ' that tells somebody whether a closer or better microphone is worth the trouble');
+  } else if (!/dB|too short|nothing to read/.test(floor.row)) {
+    problems.push(`the floor row reads "${floor.row}", which is not a measurement`);
+  }
+  // The row and the sentence have to agree. A row reporting a range while the
+  // line under it says there is no floor to read is a panel contradicting
+  // itself one row apart, which is its own kind of wrong answer.
+  if (/digital silence/i.test(after.line) && /of range/.test(floor.row)) {
+    problems.push(`the line says the take is mostly digital silence and the row says`
+      + ` "${floor.row}" - the two are one row apart and do not agree`);
+  }
+  if (!/quiet parts|digital silence|too short/i.test(after.line)) {
+    problems.push(`after the take the panel said "${after.line.slice(0, 140)}" and nothing`
+      + ' about what is under it - a number on its own does not tell anybody whether to move'
+      + ' closer or change microphone');
+  }
+
+  // And the reading itself, on material whose floor is known in advance.
+  const measured = await page.evaluate(async () => {
+    const { floorOf, saidFloor } = await import('./src/lib/loudness.js');
+    const rate = 48000;
+
+    const make = (noise, level) => {
+      const run = new Float32Array(rate * 6);
+      let seed = 11;
+      const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return (seed / 0x7fffffff) * 2 - 1; };
+      for (let i = 0; i < run.length; i += 1) {
+        const loud = Math.floor(i / (rate * 0.5)) % 2 === 0;
+        run[i] = noise * rnd() + (loud ? Math.sin((2 * Math.PI * 220 * i) / rate) * level : 0);
+      }
+      return run;
+    };
+
+    const peakOf = (run) => {
+      let p = 0;
+      for (let i = 0; i < run.length; i += 1) p = Math.max(p, Math.abs(run[i]));
+      return 20 * Math.log10(Math.max(p, 1e-12));
+    };
+
+    const look = (noise, level) => {
+      const run = make(noise, level);
+      const read = floorOf([run], rate);
+      return { read, said: saidFloor(read, peakOf(run)), peak: peakOf(run) };
+    };
+
+    return {
+      // Loud and clean: nothing to suggest.
+      clean: look(0.00005, 0.8),
+      // Quiet, so the level is what is eating the range.
+      quiet: look(0.002, 0.04),
+      // Loud and still noisy: the microphone or the room is the limit.
+      noisy: look(0.03, 0.9),
+    };
+  });
+
+  say('\n  case     floor      range    peak     what it says');
+  for (const [name, one] of Object.entries(measured)) {
+    say(`  ${name.padEnd(8)} ${one.read.floor.toFixed(1).padStart(7)} dB`
+      + ` ${one.read.range.toFixed(1).padStart(7)} dB ${one.peak.toFixed(1).padStart(7)} dB`
+      + `   ${one.said.slice(0, 64)}…`);
+  }
+
+  // The claim that makes the reading worth having: two takes with a similar
+  // range get opposite advice, because one can be fixed by the level and the
+  // other cannot be fixed at all.
+  if (!/level|closer|louder/i.test(measured.quiet.said)) {
+    problems.push(`a take peaking at ${measured.quiet.peak.toFixed(1)} dB is told`
+      + ` "${measured.quiet.said}" - the level is what is costing its range and that is the`
+      + ' cheapest thing to change');
+  }
+  if (/turn it up|louder/i.test(measured.noisy.said)) {
+    problems.push(`a take peaking at ${measured.noisy.peak.toFixed(1)} dB is told to go`
+      + ' louder, which is advice that cannot be taken');
+  }
+  if (!/microphone|room/i.test(measured.noisy.said)) {
+    problems.push('a take already at full scale and still noisy is not told that the'
+      + ' microphone or the room is the limit, which is the only honest answer');
+  }
+  if (/microphone|closer/i.test(measured.clean.said)) {
+    problems.push(`a clean take is told "${measured.clean.said}" - nothing to fix is`
+      + ' nothing to suggest');
+  }
+  if (!(measured.clean.read.range > measured.noisy.read.range + 20)) {
+    problems.push(`a clean take reads ${measured.clean.read.range.toFixed(1)} dB of range and`
+      + ` a noisy one ${measured.noisy.read.range.toFixed(1)} - the reading is not separating`
+      + ' them');
+  }
+
   /* --- and a take that begins on a bar line -------------------------------- */
 
   // The claim at the top of `record.js`, finally true. It explains that
@@ -626,7 +746,13 @@ export async function check({ browser, at, say }) {
     }
     return {
       rows,
-      warned: !!document.querySelector('.rec-about dd.warn'),
+      // The PROCESSING row's own state, not "anything in the block marked as
+      // a warning". The floor row is legitimately one when a take is mostly
+      // digital silence, and an assertion keyed to the container fails on a
+      // row it was never about.
+      warned: [...document.querySelectorAll('.rec-about dt')]
+        .some((dt) => dt.textContent.trim() === 'Processing'
+          && dt.nextElementSibling?.classList.contains('warn')),
       picker: !!document.querySelector('[data-input]'),
       inputs: [...document.querySelectorAll('[data-input] option')].map((o) => o.textContent.trim()),
       // What the page's own reading of the stream says, to compare against.

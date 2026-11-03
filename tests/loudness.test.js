@@ -17,7 +17,7 @@ import assert from 'node:assert/strict';
 import {
   kWeighting, kWeight, integrated, shortTerm, loudnessRange,
   truePeakOf, samplePeakOf, loudnessReading, loudnessGap,
-  ABSOLUTE_GATE, BLOCK_MS,
+  ABSOLUTE_GATE, BLOCK_MS, floorOf, saidFloor,
 } from '../src/lib/loudness.js';
 import { distance } from '../src/gap.js';
 
@@ -278,4 +278,165 @@ test('a loudness reading refuses to be compared with one at a different rate', (
   const a = loudnessReading([sine(-23, 5)], RATE);
   const b = loudnessReading([sine(-23, 5, { rate: 44100 })], 44100);
   assert.throws(() => distance(a, b), /different axes/);
+});
+
+/* --- the noise under a recording ----------------------------------------- */
+
+// The measurement this app is for, pointed at the thing people actually ask
+// about: how much of what came back is the room and the microphone rather
+// than the playing. Nothing software does lowers a microphone's self-noise,
+// so the useful answer is a number - whether moving closer or changing the
+// microphone is worth the trouble, or whether the level was simply set low.
+//
+// Windows of RMS rather than single samples, and percentiles rather than the
+// extremes:
+//
+//   * The quietest SAMPLE is a zero crossing, which every signal has. It
+//     reports a floor nobody has.
+//   * The quietest WINDOW is a digitally silent lead-in, if there is one -
+//     and a take that was gated, or trimmed, would read as having no noise
+//     at all when the gaps between the notes are full of it.
+//   * The loudest window against the quietest is apples to apples. A sample
+//     peak against an RMS floor is 3 dB of flattery on a sine and more on
+//     anything peakier.
+
+test('a recording reports the floor under it and the room above it', () => {
+  // Built to a known answer: half-second bursts of a 0.5 sine over uniform
+  // noise at 0.001, which is -9.03 dB RMS against -64.77 dB RMS. Worked out
+  // before the function was written, not read off it afterwards.
+  const rate = 48000;
+  const frames = rate * 8;
+  const run = new Float32Array(frames);
+  let seed = 1;
+  const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return (seed / 0x7fffffff) * 2 - 1; };
+  for (let i = 0; i < frames; i += 1) {
+    const loud = Math.floor(i / (rate * 0.5)) % 2 === 0;
+    run[i] = 0.001 * rnd() + (loud ? Math.sin((2 * Math.PI * 220 * i) / rate) * 0.5 : 0);
+  }
+
+  const read = floorOf([run], rate);
+  assert.ok(Math.abs(read.floor - -64.77) < 0.5, `floor read ${read.floor.toFixed(2)}`);
+  assert.ok(Math.abs(read.signal - -9.03) < 0.5, `signal read ${read.signal.toFixed(2)}`);
+  assert.ok(Math.abs(read.range - 55.75) < 1, `range read ${read.range.toFixed(2)}`);
+});
+
+test('a louder floor is a smaller range, by exactly the amount', () => {
+  // Ten times the noise is twenty decibels of it, and the range has to shrink
+  // by the same twenty - otherwise the number is not measuring what it says.
+  const rate = 48000;
+  const make = (noise) => {
+    const run = new Float32Array(rate * 4);
+    let seed = 7;
+    const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return (seed / 0x7fffffff) * 2 - 1; };
+    for (let i = 0; i < run.length; i += 1) {
+      const loud = Math.floor(i / (rate * 0.5)) % 2 === 0;
+      run[i] = noise * rnd() + (loud ? Math.sin((2 * Math.PI * 220 * i) / rate) * 0.5 : 0);
+    }
+    return floorOf([run], rate);
+  };
+
+  const quiet = make(0.0001);
+  const noisy = make(0.001);
+  assert.ok(Math.abs((noisy.floor - quiet.floor) - 20) < 1,
+    `floor moved ${(noisy.floor - quiet.floor).toFixed(2)} dB for ten times the noise`);
+  assert.ok(Math.abs((quiet.range - noisy.range) - 20) < 1,
+    `range moved ${(quiet.range - noisy.range).toFixed(2)} dB`);
+});
+
+test('digital silence is not a floor anybody measured', () => {
+  // A real microphone always has self-noise, so a window of exact zeros means
+  // something gated it or it was never recorded. Counting those would report
+  // a take as having no noise in it while the gaps hiss.
+  const rate = 48000;
+  const run = new Float32Array(rate * 4);
+  for (let i = 0; i < rate; i += 1) run[i] = 0; // a silent lead-in
+  let seed = 3;
+  const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return (seed / 0x7fffffff) * 2 - 1; };
+  for (let i = rate; i < run.length; i += 1) {
+    const loud = Math.floor(i / (rate * 0.5)) % 2 === 0;
+    run[i] = 0.002 * rnd() + (loud ? Math.sin((2 * Math.PI * 220 * i) / rate) * 0.5 : 0);
+  }
+
+  const read = floorOf([run], rate);
+  assert.ok(read.floor > -70, `the silent second was counted as the floor: ${read.floor}`);
+  assert.ok(read.silent > 0, 'and it is reported rather than quietly dropped');
+});
+
+test('a take of nothing but silence says so rather than dividing by it', () => {
+  const read = floorOf([new Float32Array(48000)], 48000);
+  assert.equal(Number.isFinite(read.range), true, 'no NaN out of an empty take');
+  assert.equal(read.measured, 0, 'nothing was measurable, and it says so');
+});
+
+test('too short to measure is said, not guessed at', () => {
+  // A window is 50 ms, so a take under about half a second has too few of
+  // them for a percentile to mean anything.
+  const read = floorOf([new Float32Array(1000)], 48000);
+  assert.ok(read.measured < 4);
+  assert.equal(read.enough, false);
+});
+
+test('nothing at all is nothing, not a throw', () => {
+  assert.equal(floorOf([], 48000).measured, 0);
+  assert.equal(floorOf(null, 48000).measured, 0);
+});
+
+test('the reading is turned into the decision it bears on', () => {
+  // Two different problems look identical as a range and have opposite
+  // answers. Recorded quietly, the fix is the level or the distance and
+  // costs nothing. Recorded loudly and still noisy, the microphone or the
+  // room is the limit and no setting touches it.
+  //
+  // The boundaries are the physics of the hardware most of this runs on: a
+  // phone's MEMS microphones sit around 30 dBA of self-noise, so a voice at
+  // 20 cm - about 75 dB SPL - leaves roughly 45 dB of range, and the same
+  // phone across a room from a piano at 60 dB SPL leaves about 30.
+  const quietly = saidFloor({ floor: -72, signal: -42, range: 30, enough: true }, -24);
+  assert.match(quietly, /level|closer|louder/i);
+
+  const loudly = saidFloor({ floor: -34, signal: -6, range: 28, enough: true }, -1.2);
+  assert.match(loudly, /microphone|room/i);
+  assert.doesNotMatch(loudly, /turn it up|louder/i,
+    'telling somebody already at full scale to go louder is advice that cannot be taken');
+
+  const clean = saidFloor({ floor: -78, signal: -10, range: 68, enough: true }, -3 );
+  assert.doesNotMatch(clean, /microphone|closer/i, 'nothing to fix is nothing to suggest');
+});
+
+test('too little to read says so rather than advising from noise', () => {
+  const said = saidFloor({ floor: -60, signal: -20, range: 40, enough: false, measured: 2 }, -6);
+  assert.match(said, /too short|not enough/i);
+});
+
+test('the sentence always names the two numbers it is about', () => {
+  const said = saidFloor({ floor: -64.8, signal: -9, range: 55.8, enough: true }, -3.1);
+  assert.match(said, /-64\.8|64\.8/);
+  assert.match(said, /55\.8|56/);
+});
+
+test('a take that is mostly digital silence says so instead of reporting a range', () => {
+  // Found by driving the real recorder: Chromium's fake microphone is exactly
+  // zero for 97% of its samples, so 91 windows of 100 were excluded as not
+  // being a floor anybody measured and the range came from the 9 that were
+  // left - all the same beep, so it read "0.0 dB of range". True of those
+  // nine windows and not a fact about the take.
+  //
+  // No real microphone does this; a real one always has self-noise. But a
+  // gated take, a trimmed one, or a dropout does, and a reading drawn from
+  // the remainder should admit what it is drawn from.
+  const rate = 48000;
+  const run = new Float32Array(rate * 5);
+  // One beep a second, silence in between, as the fake device behaves.
+  for (let s = 0; s < 5; s += 1) {
+    const from = s * rate;
+    for (let i = 0; i < Math.round(rate * 0.03); i += 1) {
+      run[from + i] = Math.sin((2 * Math.PI * 1000 * i) / rate) * 0.9;
+    }
+  }
+
+  const read = floorOf([run], rate);
+  assert.ok(read.silent > read.measured, 'most of it is not a measurement');
+  assert.equal(read.mostlySilent, true);
+  assert.match(saidFloor(read, -0.9), /silen/i,
+    'and the sentence leads with that rather than with a range from the remainder');
 });

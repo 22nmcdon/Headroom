@@ -499,3 +499,170 @@ export function loudnessGap(mine, theirs) {
     },
   };
 }
+
+/* --- the noise under a recording ----------------------------------------- */
+
+/**
+ * How long a window is when looking for the quiet parts, in seconds.
+ *
+ * Fifty milliseconds. Long enough to average a waveform rather than to catch
+ * where it happens to cross zero - a 220 Hz note goes round eleven times in
+ * one - and short enough to land inside the gap between two notes, which is
+ * the stretch the question is actually about.
+ */
+export const NOISE_WINDOW = 0.05;
+
+/**
+ * Which window counts as the floor, and which as the signal.
+ *
+ * Percentiles, not the extremes, and this is the whole of why the reading is
+ * worth anything:
+ *
+ *   * The quietest SAMPLE is a zero crossing. Every signal has one, so that
+ *     reports a floor nobody has.
+ *   * The quietest WINDOW is a digitally silent lead-in when there is one,
+ *     and a take that was trimmed or gated would then read as having no
+ *     noise at all while its gaps hiss.
+ *   * The loudest window against the quietest is apples to apples. A sample
+ *     peak measured against an RMS floor flatters the range by 3 dB on a sine
+ *     and more on anything peakier.
+ */
+export const NOISE_FLOOR_AT = 0.1;
+export const NOISE_SIGNAL_AT = 0.9;
+
+/** Below about this many windows a percentile is not measuring anything. */
+export const NOISE_ENOUGH = 4;
+
+/**
+ * What is under a recording, and how far the playing sits above it.
+ *
+ * The measurement people actually ask for and the one nothing in software can
+ * improve: a microphone's self-noise is a fact about the microphone. So the
+ * useful answer is a number - whether moving closer or changing microphone is
+ * worth the trouble, or whether the level was simply set too low.
+ *
+ * Returns decibels below full scale, and says how much it had to work with.
+ * A take with nothing measurable in it reports `measured: 0` rather than
+ * dividing by it, and one too short for a percentile says `enough: false`
+ * rather than guessing from three windows.
+ */
+export function floorOf(channels, rate, { window = NOISE_WINDOW } = {}) {
+  const nothing = {
+    floor: -Infinity, signal: -Infinity, range: 0,
+    measured: 0, silent: 0, enough: false, mostlySilent: false,
+  };
+  if (!Array.isArray(channels) || !channels.length || !(rate > 0)) return nothing;
+
+  const frames = Math.min(...channels.map((channel) => channel?.length ?? 0));
+  const wide = Math.max(1, Math.round(rate * window));
+  const count = Math.floor(frames / wide);
+  if (!(count > 0)) return { ...nothing, measured: 0 };
+
+  const loud = [];
+  let silent = 0;
+
+  for (let c = 0; c < count; c += 1) {
+    let sum = 0;
+    let n = 0;
+    for (const channel of channels) {
+      for (let i = c * wide; i < (c + 1) * wide; i += 1) {
+        sum += channel[i] * channel[i];
+        n += 1;
+      }
+    }
+    const rms = Math.sqrt(sum / Math.max(1, n));
+    // Exact zero is not a measurement. A real microphone always has a floor,
+    // so a window of nothing means something gated it or nothing was
+    // recorded there - counted and reported, never averaged in.
+    if (rms > 0) loud.push(rms); else silent += 1;
+  }
+
+  if (!loud.length) return { ...nothing, measured: 0, silent };
+
+  loud.sort((a, b) => a - b);
+  const at = (p) => loud[Math.min(loud.length - 1, Math.floor(p * loud.length))];
+  const db = (v) => 20 * Math.log10(Math.max(v, 1e-12));
+
+  const floor = db(at(NOISE_FLOOR_AT));
+  const signal = db(at(NOISE_SIGNAL_AT));
+
+  return {
+    floor,
+    signal,
+    range: signal - floor,
+    measured: loud.length,
+    silent,
+    enough: loud.length >= NOISE_ENOUGH,
+    // More of the take excluded than measured. No real microphone does this -
+    // one always has self-noise - but a gated take, a trimmed one or a
+    // dropout does, and so does Chromium's fake device, which is exactly zero
+    // for 97% of its samples. A range drawn from the remainder is true of the
+    // remainder and not a fact about the take, so it says which.
+    mostlySilent: silent > loud.length,
+  };
+}
+
+/**
+ * Where a phone stops being the limit, in decibels of range.
+ *
+ * Not a rule of recording - a figure from the hardware most of this runs on.
+ * A phone's MEMS microphones sit around 30 dBA of self-noise, so a voice at
+ * 20 cm, about 75 dB SPL, leaves roughly 45 dB of range; the same phone
+ * across a room from a piano at 60 dB SPL leaves about 30. So 45 is a phone
+ * doing well and 30 is a phone struggling at distance, and those are the two
+ * boundaries worth drawing.
+ */
+export const NOISE_GOOD = 45;
+export const NOISE_TIGHT = 30;
+
+/** Under this, a take is quiet enough that the level is worth blaming first. */
+export const NOISE_QUIET_PEAK = -18;
+
+/**
+ * The floor reading, as the decision it bears on.
+ *
+ * Two different problems look identical as a range and have opposite
+ * answers. A take recorded quietly has its range eaten by the level, and the
+ * fix - closer, or louder - costs nothing. A take recorded at full scale that
+ * is still noisy has run into the microphone or the room, and no setting
+ * touches that. Telling somebody already peaking at -1 dB to turn it up is
+ * advice that cannot be taken, which is worse than no advice.
+ */
+export function saidFloor(read, peakDb) {
+  if (!read?.enough) {
+    return 'Too short to read a noise floor from — a few seconds would do it.';
+  }
+  if (read.mostlySilent) {
+    return `Most of this take is digital silence — ${read.silent} stretches of it against`
+      + ` ${read.measured} with anything in them — so there is no noise floor to read.`
+      + ' Something gated it, or the input was not connected for most of it.';
+  }
+
+  const floor = read.floor.toFixed(1);
+  const range = read.range.toFixed(1);
+  const where = `The quiet parts sit at ${floor} dB, ${range} dB under the playing.`;
+
+  if (read.range >= NOISE_GOOD + 15) {
+    return `${where} Nothing here is noise-limited.`;
+  }
+  if (read.range >= NOISE_GOOD) {
+    return `${where} That is a clean take for a sketch.`;
+  }
+  // Which of the two problems it is depends on the PEAK, not on where the
+  // range falls. A take at full scale with 31 dB of range and one with 29 have
+  // the same cause and the same answer; branching on the range made the advice
+  // flip across a boundary that means nothing, which is how a check driving
+  // three cases found this.
+  if (peakDb < NOISE_QUIET_PEAK) {
+    return `${where} It was recorded quietly — peaking at ${peakDb.toFixed(1)} dB — so the`
+      + ' level is what is costing the range. Closer, or louder, before anything else.';
+  }
+
+  // Near full scale and still short of range: no setting touches this.
+  const badly = read.range < NOISE_TIGHT
+    ? 'the noise is close enough to the playing to be part of it'
+    : 'the noise will show in the gaps';
+  return `${where} It is already near full scale, so ${badly} because of the microphone or`
+    + ' the room rather than the setting. Closer to the source is what buys the most; a'
+    + ' better microphone is the only other thing that moves it.';
+}
