@@ -153,6 +153,35 @@ export async function check({ browser, at, say }) {
 
   /* --- press it, sing, press it again ------------------------------------- */
 
+  const readCanvas = () => page.evaluate(() => {
+    const canvas = document.querySelector('[data-wave]');
+    if (!canvas) return { missing: true };
+    const c = canvas.getContext('2d');
+    const { width, height } = canvas;
+    const pixels = c.getImageData(0, 0, width, height).data;
+    const bg = [pixels[0], pixels[1], pixels[2]];
+
+    // How many columns have anything in them beyond the centre line, and how
+    // tall the tallest is. A flat line is one row of ink everywhere; a
+    // waveform is many rows in some places.
+    let inked = 0;
+    let tallest = 0;
+    for (let x = 0; x < width; x += 1) {
+      let rows = 0;
+      for (let y = 0; y < height; y += 1) {
+        const at = (y * width + x) * 4;
+        if (Math.abs(pixels[at] - bg[0]) + Math.abs(pixels[at + 1] - bg[1])
+          + Math.abs(pixels[at + 2] - bg[2]) > 24) rows += 1;
+      }
+      if (rows > 2) inked += 1;
+      tallest = Math.max(tallest, rows);
+    }
+    return { width, height, inked, tallest };
+  });
+
+  // The canvas before anything is recorded, to compare the live one against.
+  const blank = await readCanvas();
+
   await page.click('[data-mic]');
   await page.waitForTimeout(900);
 
@@ -222,6 +251,39 @@ export async function check({ browser, at, say }) {
     if (!/^\d+:\d\d\b/.test(meter.clock)) {
       problems.push(`the clock reads "${meter.clock}" while a take is running, rather than`
         + ' counting - a number that changes every second wants a shape that does not');
+    }
+  }
+
+  // The waveform while the take is still being made. Before this the canvas
+  // only ever held a stored summary, so a take in progress drew a flat line -
+  // which looks exactly like a microphone that is not working.
+  const drawing = await readCanvas();
+
+  if (drawing.missing) {
+    problems.push('a take is running and there is no waveform canvas on the panel');
+  } else {
+    say(`  the waveform mid-take: ${drawing.inked} of ${drawing.width} columns drawn,`
+      + ` tallest ${drawing.tallest} of ${drawing.height} px`);
+    // Against the empty canvas read before the take started, rather than
+    // against a column count. Chromium's fake device is silent for 97% of its
+    // samples, so most columns are legitimately empty and a check demanding
+    // most of them filled would be demanding a signal this input never sends.
+    // What is not legitimate is a flat line, which is what the canvas drew
+    // before this existed and what a dead microphone draws now.
+    say(`  before the take: tallest ${blank.tallest} px; mid-take: ${drawing.tallest} px`);
+
+    if (!(drawing.tallest > blank.tallest + 8)) {
+      problems.push(`the canvas was ${blank.tallest} px tall before the take and`
+        + ` ${drawing.tallest} px during it - a take in progress is drawing nothing, which`
+        + ' looks exactly like a microphone that is not working');
+    }
+    if (!(drawing.tallest > drawing.height * 0.3)) {
+      problems.push(`the tallest column mid-take is ${drawing.tallest} px of ${drawing.height}`
+        + ' - the shape is being drawn but not at the size of what is arriving');
+    }
+    if (!(drawing.inked >= 5)) {
+      problems.push(`${drawing.inked} columns have a shape in them, which is too few to be`
+        + ' a waveform of anything');
     }
   }
 

@@ -50,7 +50,7 @@ import { StereoPlugin } from '../plugins/stereo/plugin.js';
 import { EchoPlugin } from '../plugins/delay/plugin.js';
 import { VerbPlugin } from '../plugins/reverb/plugin.js';
 import { tapInto, drift, timing } from './tap.js';
-import { waveOf, rescaleWave, WAVE_COLUMNS } from '../lib/wave.js';
+import { waveOf, rescaleWave, spreadWave, WAVE_COLUMNS } from '../lib/wave.js';
 import { readyCanvas, watchSize } from '../lib/panel.js';
 import { peakAt, fallenTo, clockOf, PEAK_FLOOR, PEAK_HOT } from '../lib/meter.js';
 import {
@@ -1254,18 +1254,34 @@ export class SketchPage {
     const faint = style.getPropertyValue('--line').trim() || 'rgba(0, 0, 0, 0.16)';
 
     const clip = this.clip();
-    const peaks = clip?.take ? this.peaksFor(clip.take) : null;
+    const wide = Math.max(1, Math.floor(width));
 
-    // A take that has not finished loading, which is every take for the
-    // moment between opening a sketch and the audio context existing. Said
-    // rather than drawn as an empty box.
+    // A take being made is drawn from the pairs the recorder is collecting;
+    // one that exists is drawn from its stored summary. The live one wins
+    // while it is running, so recording over a take shows what is arriving
+    // rather than what is about to be replaced.
+    //
+    // `spreadWave` rather than `rescaleWave` for the live one: a second into
+    // a take there are fewer blocks than pixels, and drawing those few wide
+    // is the correct picture of a short take rather than invented detail.
+    // Both fill the width, so the live waveform becomes the stored one
+    // without jumping.
+    const live = this.recording && this.mic?.live?.length
+      ? spreadWave(Float32Array.from(this.mic.live), wide)
+      : null;
+    const peaks = live ?? (clip?.take ? this.peaksFor(clip.take) : null);
+
+    // Nothing to draw: a take that has not finished loading, which is every
+    // take for the moment between opening a sketch and the audio context
+    // existing, or a mic clip with nothing recorded into it yet. Said as a
+    // centre line rather than drawn as an empty box.
     if (!peaks?.length) {
       c.fillStyle = faint;
       c.fillRect(0, height / 2 - 0.5, width, 1);
       return;
     }
 
-    const columns = rescaleWave(peaks, Math.max(1, Math.floor(width)));
+    const columns = live ?? rescaleWave(peaks, wide);
     const count = columns.length / 2;
     const mid = height / 2;
     // Short of the full half-height, so a take that hits full scale is not
@@ -1395,6 +1411,7 @@ export class SketchPage {
         if (!this.mic?.open) { this.levelFrame = null; return; }
         this.paintMeter();
         this.paintClock();
+        this.drawWave();
         this.levelFrame = requestAnimationFrame(step);
       };
       this.levelFrame = requestAnimationFrame(step);
@@ -1719,9 +1736,10 @@ export class SketchPage {
         <p class="fine">Made from “${clip.chords}”. The chords went in as notes and
         are yours to move now.</p>`}
 
-      ${!isTake(clip) ? '' : `
+      ${this.kindHere(clip, track) !== 'mic' ? '' : `
         <div class="clip-wave">
-          <canvas data-wave aria-label="The shape of this recording"></canvas>
+          <canvas data-wave aria-label="${isTake(clip)
+            ? 'The shape of this recording' : 'What the microphone is hearing'}"></canvas>
         </div>`}
 
       ${!(canRecord() && this.kindHere(clip, track) === 'mic') ? '' : `

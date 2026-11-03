@@ -27,23 +27,30 @@ const CAPTURE_PROCESSOR = `class HeadroomCapture extends AudioWorkletProcessor {
     const input = inputs[0];
     if (!input || !input.length || !input[0]) return true;
 
-    // The peak of this block, worked out here rather than on the other side,
-    // so that a meter can run without the blocks themselves being shipped and
-    // kept. Posted whether or not a take is being kept: a level is most use
-    // BEFORE somebody commits to a take, and a meter that only appears once
-    // recording has started is a meter that tells you what you have already
-    // lost.
-    let peak = 0;
+    // Both edges of this block, worked out here rather than on the other
+    // side, so that a meter and a waveform can run without the blocks
+    // themselves being shipped and kept. Posted whether or not a take is
+    // being kept: a level is most use BEFORE somebody commits to a take, and
+    // a meter that only appears once recording has started is a meter that
+    // tells you what you have already lost.
+    //
+    // Low and high rather than one magnitude, because a waveform is drawn
+    // about a centre line and a signal is not symmetric. A bar drawn from one
+    // number would be a picture of the loudest half of each block, mirrored.
+    let lo = 0;
+    let hi = 0;
     for (const channel of input) {
       for (let i = 0; i < channel.length; i += 1) {
-        const v = channel[i] < 0 ? -channel[i] : channel[i];
-        if (v > peak) peak = v;
+        const v = channel[i];
+        if (v < lo) lo = v;
+        if (v > hi) hi = v;
       }
     }
 
     this.port.postMessage({
       at: currentTime,
-      peak,
+      lo,
+      hi,
       // A copy, because the block is reused the moment this returns - and
       // only while it is wanted, because copying 375 blocks a second into a
       // message nobody keeps is the one part of this that is not free.
@@ -367,6 +374,8 @@ export class Recorder {
     this.peak = 0;
     this.held = 0;
     this.overs = 0;
+    /** The take's shape so far, as `[lo, hi]` a block, for drawing it live. */
+    this.live = [];
     /** What `getSettings` said, once there is a stream to ask. */
     this.settings = {};
     this.deviceId = null;
@@ -426,15 +435,24 @@ export class Recorder {
       channelCountMode: 'explicit',
     });
     this.node.port.onmessage = (event) => {
-      const { peak = 0, block = null } = event.data ?? {};
+      const { lo = 0, hi = 0, block = null } = event.data ?? {};
+      const peak = Math.max(hi, -lo);
 
       // What the meter reads, kept whether or not a take is running.
       this.peak = peak;
       if (peak > this.held) this.held = peak;
       if (peak >= 1) this.overs += 1;
-      this.onLevel?.(this);
 
-      if (this.taking && block) this.blocks.push(block);
+      // And the shape so far, one pair a block, while a take is running. Kept
+      // as pairs rather than re-summarised from the blocks each frame: a
+      // ten-minute take is 225,000 blocks, and walking all of them sixty
+      // times a second is the one way to make a waveform cost something.
+      if (this.taking) {
+        this.live.push(lo, hi);
+        if (block) this.blocks.push(block);
+      }
+
+      this.onLevel?.(this);
     };
 
     this.source = this.ctx.createMediaStreamSource(this.stream);
@@ -455,6 +473,7 @@ export class Recorder {
   start() {
     if (!this.node) return false;
     this.blocks = [];
+    this.live = [];
     this.resetPeak();
     this.taking = true;
     this.node.port.postMessage({ on: true });

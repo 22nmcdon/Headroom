@@ -106,3 +106,49 @@ export function rescaleWave(peaks, columns) {
 
   return out;
 }
+
+/**
+ * A summary across exactly as many columns as are asked for.
+ *
+ * The counterpart of `rescaleWave`, and deliberately a second function rather
+ * than a flag on the first, because the two answer opposite questions about
+ * the same data.
+ *
+ * `rescaleWave` refuses to hand back more columns than it holds. That is
+ * right for a stored take: it has all the detail it will ever have, and
+ * stretching it would draw samples nobody recorded.
+ *
+ * A take still being made is the other case. The blocks arrive 375 a second
+ * at 48 kHz, so for the first second and a bit there are fewer of them than
+ * the canvas has pixels - and drawing those few wide is not invention, it is
+ * the correct picture of a take that is one second long. Which is also what
+ * makes the live waveform become the stored one without jumping: both draw
+ * the whole take across the whole width.
+ *
+ * Going down it behaves exactly like `rescaleWave`, by the extremes, because
+ * a take longer than the canvas is the normal case a second in.
+ */
+export function spreadWave(peaks, columns) {
+  const had = Math.floor(peaks.length / 2);
+  const count = Math.floor(columns);
+  if (!(count > 0) || !(had > 0)) return new Float32Array(0);
+
+  const out = new Float32Array(count * 2);
+
+  for (let c = 0; c < count; c += 1) {
+    const from = Math.floor((c * had) / count);
+    const to = Math.max(from + 1, Math.floor(((c + 1) * had) / count));
+
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (let i = from; i < to && i < had; i += 1) {
+      if (peaks[i * 2] < lo) lo = peaks[i * 2];
+      if (peaks[i * 2 + 1] > hi) hi = peaks[i * 2 + 1];
+    }
+
+    out[c * 2] = Number.isFinite(lo) ? lo : 0;
+    out[c * 2 + 1] = Number.isFinite(hi) ? hi : 0;
+  }
+
+  return out;
+}

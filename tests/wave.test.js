@@ -14,7 +14,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { waveOf, rescaleWave, WAVE_COLUMNS } from '../src/lib/wave.js';
+import { waveOf, rescaleWave, spreadWave, WAVE_COLUMNS } from '../src/lib/wave.js';
 
 /** A ramp, so every column has a different and predictable pair. */
 const ramp = (n) => Float32Array.from({ length: n }, (_, i) => (i / (n - 1)) * 2 - 1);
@@ -129,4 +129,56 @@ test('rescaling upward is refused rather than invented', () => {
 
 test('the column count a take is summarised at is wide enough for a screen', () => {
   assert.ok(WAVE_COLUMNS >= 1280, 'or a desktop canvas would be drawn from too little');
+});
+
+/* --- and a take still being made ----------------------------------------- */
+
+// A summary that is still growing is a different problem from a stored one.
+// `rescaleWave` refuses to hand back more columns than it holds, on purpose:
+// a stored take has all the detail it is ever going to have, and stretching
+// it would be drawing samples nobody recorded.
+//
+// A take in progress is the other case. Two seconds in, there are fewer
+// blocks than the canvas has pixels - 375 blocks a second at 48 kHz, so about
+// 1.3 seconds before there is one per column - and drawing those few wide is
+// not invention, it is the correct picture of a short take. Which is also
+// what makes the live waveform turn into the stored one without jumping: both
+// show the whole take across the whole width.
+
+test('a growing summary fills the width it is given', () => {
+  const few = waveOf([ramp(400)], 4);
+  const wide = spreadWave(few, 16);
+  assert.equal(wide.length, 32, 'four pairs across sixteen columns');
+});
+
+test('spreading repeats rather than inventing between', () => {
+  // Each column takes the pair it lands in. An interpolated value would be a
+  // level the microphone never saw, drawn as if it had.
+  const two = Float32Array.from([-1, 1, -0.25, 0.25]);
+  const wide = spreadWave(two, 4);
+  assert.deepEqual([...wide], [-1, 1, -1, 1, -0.25, 0.25, -0.25, 0.25]);
+});
+
+test('spreading down is still by the extremes', () => {
+  // Going the other way it has to behave like `rescaleWave`, because a take
+  // longer than the canvas is the normal case a second into recording.
+  const quiet = new Float32Array(2000);
+  quiet[1000] = 0.9;
+  const fine = waveOf([quiet], 500);
+  const down = spreadWave(fine, 10);
+  let hi = 0;
+  for (let c = 0; c < 10; c += 1) hi = Math.max(hi, down[c * 2 + 1]);
+  assert.ok(Math.abs(hi - 0.9) < 1e-6, 'the loudest moment survives');
+});
+
+test('spreading nothing is nothing', () => {
+  assert.equal(spreadWave(new Float32Array(0), 10).length, 0);
+  assert.equal(spreadWave(waveOf([ramp(100)], 4), 0).length, 0);
+  assert.equal(spreadWave(waveOf([ramp(100)], 4), -3).length, 0);
+});
+
+test('the two live side by side and do not do each other\'s job', () => {
+  const few = waveOf([ramp(400)], 4);
+  assert.equal(rescaleWave(few, 16).length, 8, 'a stored summary stays as wide as it is');
+  assert.equal(spreadWave(few, 16).length, 32, 'a growing one fills the canvas');
 });
