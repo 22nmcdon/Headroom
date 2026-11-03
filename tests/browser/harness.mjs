@@ -104,8 +104,19 @@ export async function launch() {
  * Console errors count as failures. Half of what these checks have caught
  * announced itself there first and nothing was listening.
  */
-export async function open(browser, at, { width = 1280, height = 1000, view = null } = {}) {
-  const page = await browser.newPage({ viewport: { width, height } });
+export async function open(browser, at, {
+  width = 1280, height = 1000, view = null, touch = false,
+} = {}) {
+  // A context of its own when the check wants touch, because `hasTouch` is a
+  // context setting and because a gesture check needs the context anyway: a
+  // press held for half a second is not `page.tap`, and the only way to send
+  // one is a CDP session off the context.
+  const context = touch
+    ? await browser.newContext({ viewport: { width, height }, hasTouch: true, isMobile: true })
+    : null;
+  const page = context
+    ? await context.newPage()
+    : await browser.newPage({ viewport: { width, height } });
   const noise = [];
   page.on('pageerror', (e) => noise.push(`pageerror: ${e.message}`));
   page.on('console', (m) => { if (m.type() === 'error') noise.push(`console: ${m.text()}`); });
@@ -117,7 +128,7 @@ export async function open(browser, at, { width = 1280, height = 1000, view = nu
     await page.click(`[data-view="${view}"]`);
     await page.waitForTimeout(250);
   }
-  return { page, noise };
+  return { page, noise, context: context ?? page.context() };
 }
 
 /**

@@ -94,6 +94,17 @@ const PLUGINS = {
 /** How long a clip can be, in bars. A sketchpad, not an arranger. */
 const LENGTHS = [1, 2, 4];
 
+/**
+ * How far a finger may drift and still be holding still, in CSS pixels.
+ *
+ * Ten, which is roughly a millimetre on a phone: enough that nobody holding
+ * a cell has to hold it like a clamp, and short enough that a deliberate
+ * drag up the grid still cancels. The press used to cancel on any movement
+ * at all, which meant it never fired for a real hand - three pixels of drift
+ * over half a second is somebody holding still, and it read as a drag.
+ */
+const HOLD_SLOP = 10;
+
 /** What each effect is called where there is room for four letters. */
 const EFFECT_LABELS = {
   eq: 'EQ',
@@ -348,16 +359,42 @@ export class SketchPage {
     // is twenty chances to delete a part while reaching for it - and it asks
     // before it acts, so the gesture never destroys anything on its own.
     parts.grid.addEventListener('pointerdown', (event) => {
+      // Every press starts clean. `asked` has to be cleared here rather than
+      // on the click, because a press by a mouse produces no click at all -
+      // `drawGrid` replaces the cell mid-press, so there is no element the
+      // down and the up share - and a flag left standing would swallow the
+      // next real tap instead of the one it was set for.
+      this.asked = false;
+
       const cell = event.target.closest('[data-cell]');
       if (!cell || cell.dataset.full !== 'true') return;
+
+      this.heldAt = { x: event.clientX, y: event.clientY };
       this.held = setTimeout(() => {
         this.held = null;
         this.removing = cell.dataset.cell;
+        // The press that asks must not also answer. On touch the browser
+        // synthesises a click when the finger lifts, and that click used to
+        // land on the branch that takes the clip out - so a long press
+        // deleted on release with nothing confirmed, and the tap meant to
+        // confirm it landed on an empty cell and put a fresh clip there. The
+        // cell still looked full and the gesture read as doing nothing, when
+        // it had in fact done everything, twice.
+        this.asked = true;
         this.drawGrid();
         this.paint();
       }, 500);
     });
-    for (const done of ['pointerup', 'pointercancel', 'pointerleave', 'pointermove']) {
+
+    // A finger is not a clamp. Cancelling on any movement at all meant the
+    // press never fired for a real hand: three pixels of drift over half a
+    // second is somebody holding still, and it read as somebody dragging.
+    parts.grid.addEventListener('pointermove', (event) => {
+      if (!this.held || !this.heldAt) return;
+      const far = Math.hypot(event.clientX - this.heldAt.x, event.clientY - this.heldAt.y);
+      if (far > HOLD_SLOP) { clearTimeout(this.held); this.held = null; }
+    });
+    for (const done of ['pointerup', 'pointercancel', 'pointerleave']) {
       parts.grid.addEventListener(done, () => {
         if (this.held) { clearTimeout(this.held); this.held = null; }
       });
@@ -431,6 +468,11 @@ export class SketchPage {
 
     const cell = event.target.closest('[data-cell]');
     if (!cell) { this.unask(); return; }
+
+    // The click the asking press itself produced. Swallowed, so that letting
+    // go of a long press leaves the question on screen rather than answering
+    // it - see the `pointerdown` handler for what this cost.
+    if (this.asked) { this.asked = false; return; }
 
     // The second tap of a long press, which is the one that acts.
     if (this.removing === cell.dataset.cell) {

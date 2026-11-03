@@ -3292,7 +3292,16 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
 
 /* A clip that hands over says so on its face, so the shape of an
    arrangement can be read off the grid without opening every clip. */
-.cell { position: relative; }
+.cell {
+  position: relative;
+  /* What `.pad` already had and a cell did not. A cell is held down on
+     purpose, and a long press on a phone is the browser's own gesture -
+     text selection and the callout menu - unless something says otherwise. */
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
 .cell-follow {
   position: absolute;
   right: 3px;
