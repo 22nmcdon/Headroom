@@ -100,9 +100,26 @@ export const followOf = (follow) => {
  */
 export const FITS = ['bars', 'free'];
 
+/**
+ * What a clip is: notes to be played, or something recorded.
+ *
+ * The grid used to read this off the TRACK - a mic track's clips were
+ * recordings and everything else's were notes. The engine never agreed: a
+ * recording plays on any track at all, because `bookTake` wires the buffer
+ * into the track's chain and never looks at the instrument. So the coupling
+ * was a rule the interface invented and then enforced against itself, and
+ * the cost was that a recording could not be put on a track whose inserts
+ * were already dialled in for it.
+ *
+ * (Named for the clip because `gap.js` already has a `KINDS`, about kinds of
+ * reading, and `main.js` a `kindOf`. The artifact build refuses two modules
+ * declaring one top-level name, which is how both were found.)
+ */
+export const CLIP_KINDS = ['notes', 'mic'];
+
 export const clipOf = ({
   id = null, length = PPQ * 4, notes = [], name = '', division = 'eighth', chords = '',
-  take = null, follow = null, fit = 'bars',
+  take = null, follow = null, fit = 'bars', kind = null,
 } = {}) => ({
   id: id ?? `clip-${Math.random().toString(36).slice(2, 8)}`,
   name,
@@ -116,6 +133,11 @@ export const clipOf = ({
   // behaving exactly as it did. A recording made from now on asks for `free`
   // itself.
   fit: FITS.includes(fit) ? fit : 'bars',
+  // Null means "whatever this track is for", which is what every clip in
+  // every saved sketch means and what a new one means until somebody says
+  // otherwise. An id this version does not know becomes null rather than
+  // being kept and read as something later.
+  kind: CLIP_KINDS.includes(kind) ? kind : null,
   follow: followOf(follow),
   // The line of chord symbols this clip was made from, when it was made from
   // one. Kept so that coming back to it shows what was typed rather than
@@ -511,6 +533,33 @@ export function setFollow(project, track, scene, follow) {
   const here = clipAt(project, track, scene);
   if (!here) return project;
   return setClip(project, track, scene, { ...here, follow });
+}
+
+/**
+ * What this clip is, resolved.
+ *
+ * The take is the fact and `kind` is only ever the intent for an empty clip:
+ * a clip with audio in it is a recording whatever it claims, or the panel
+ * would draw a step grid over a waveform. Notes in it answer the question the
+ * same way - somebody who has drawn a part has said what the clip is, and
+ * offering to record over it because the track is a mic track is the app
+ * forgetting what is in front of it.
+ *
+ * Only a clip that is genuinely empty falls through to the track, which is
+ * what makes a mic track a default rather than a lock.
+ */
+export function clipKindOf(clip, track) {
+  if (clip?.take) return 'mic';
+  if (clip?.notes?.length) return 'notes';
+  if (CLIP_KINDS.includes(clip?.kind)) return clip.kind;
+  return track?.instrument === 'mic' ? 'mic' : 'notes';
+}
+
+/** Say what an empty clip is for, or hand it back to the track with null. */
+export function setKind(project, track, scene, kind) {
+  const here = clipAt(project, track, scene);
+  if (!here) return project;
+  return setClip(project, track, scene, { ...here, kind });
 }
 
 /**

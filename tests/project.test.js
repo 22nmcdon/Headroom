@@ -16,7 +16,7 @@ import {
   clipAt, trackAt, sceneOf, sceneHasAnything, barTicks, repeat,
   sceneToMidi, serialise, parse, PROJECT_FORMAT, SCENES, setLength,
   addScene, dropScene, MOST_SCENES, STARTER, setFollow, followOf, MOST_PASSES, keyRoutes,
-  moveInsert,
+  moveInsert, CLIP_KINDS, clipKindOf, setKind,
 } from '../src/sketch/project.js';
 import { SAMPLE_ROOT } from '../src/core/instrument.js';
 import { readMidi, PPQ, DRUM_CHANNEL } from '../src/sketch/midi.js';
@@ -670,4 +670,73 @@ test('a new sketch opens with somewhere to record', () => {
   const made = newProject();
   assert.ok(made.tracks.some((track) => track.instrument === 'mic'),
     'a sketchpad with nowhere to put a microphone is missing the point of being on a phone');
+});
+
+/* --- a clip is notes or a recording, and says which ---------------------- */
+
+// The grid used to decide that from the TRACK: a mic track's clips were
+// recordings and everything else's were notes. The engine never agreed - a
+// recording plays on any track at all, because `bookTake` wires the buffer
+// into the track's chain and never looks at the instrument - so the coupling
+// was a rule the UI invented and then enforced on itself.
+//
+// `kind` is null by default, which means "whatever this track is for". That
+// keeps every saved sketch exactly as it was and makes an override something
+// a person chose rather than something a default decided for them.
+
+test('a clip does not claim a kind until somebody gives it one', () => {
+  assert.equal(clipOf({}).kind, null);
+  assert.equal(clipOf({ kind: 'notes' }).kind, 'notes');
+  assert.equal(clipOf({ kind: 'mic' }).kind, 'mic');
+});
+
+test('a kind that is not a kind is no kind at all', () => {
+  // Rather than being kept and read as something later. A clip off a disk
+  // written by a version that had other ideas is still a clip.
+  assert.equal(clipOf({ kind: 'audio' }).kind, null);
+  assert.equal(clipOf({ kind: 7 }).kind, null);
+  assert.ok(CLIP_KINDS.includes('notes') && CLIP_KINDS.includes('mic'));
+});
+
+test('a clip holding a recording is a recording, whatever it claims', () => {
+  // The take is the fact; `kind` is only ever the intent for an empty one.
+  // A clip with audio in it that called itself notes would be a clip the
+  // panel drew a step grid over.
+  assert.equal(clipKindOf(clipOf({ take: 'take-1', kind: 'notes' }), { instrument: 'piano' }), 'mic');
+  assert.equal(clipKindOf(clipOf({ take: 'take-1' }), { instrument: 'piano' }), 'mic');
+});
+
+test('an empty clip takes the kind its track is for', () => {
+  assert.equal(clipKindOf(clipOf({}), { instrument: 'mic' }), 'mic');
+  assert.equal(clipKindOf(clipOf({}), { instrument: 'piano' }), 'notes');
+});
+
+test('and a clip told otherwise keeps what it was told', () => {
+  // Which is the whole point: a recording belongs on a track whose inserts
+  // are already dialled in, and a mic track is a default rather than a lock.
+  assert.equal(clipKindOf(clipOf({ kind: 'mic' }), { instrument: 'piano' }), 'mic');
+  assert.equal(clipKindOf(clipOf({ kind: 'notes' }), { instrument: 'mic' }), 'notes');
+});
+
+test('notes in a clip make it a clip of notes', () => {
+  // Somebody who has drawn a part has answered the question, and asking
+  // again - or worse, offering to record over it because the track is a mic
+  // track - is the app forgetting what is in front of it.
+  const drawn = clipOf({ notes: [{ pitch: 60, start: 0, length: 120 }] });
+  assert.equal(clipKindOf(drawn, { instrument: 'mic' }), 'notes');
+});
+
+test('a kind can be set and unset', () => {
+  let project = newProject();
+  project = setNotes(project, 0, 0, []);
+  project = setKind(project, 0, 0, 'mic');
+  assert.equal(clipAt(project, 0, 0).kind, 'mic');
+
+  project = setKind(project, 0, 0, null);
+  assert.equal(clipAt(project, 0, 0).kind, null, 'back to following the track');
+});
+
+test('setting a kind on a slot with nothing in it changes nothing', () => {
+  const empty = newProject();
+  assert.equal(setKind(empty, 0, 1, 'mic'), empty);
 });

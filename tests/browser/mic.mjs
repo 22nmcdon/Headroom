@@ -416,6 +416,89 @@ export async function check({ browser, at, say }) {
     }
   }
 
+  /* --- and a recording on a track that is not the mic track -------------- */
+
+  // The gate this removes. The engine always played a take on any track -
+  // `bookTake` wires the buffer into the track's chain and never looks at the
+  // instrument - so the only thing stopping a vocal going on a piano track,
+  // with that track's inserts already dialled in for it, was the panel
+  // reading the track to decide what the clip was.
+  //
+  // Which also means this is the case nothing had ever drawn: a clip holding
+  // audio, on a track whose instrument says notes. It used to get a step grid
+  // over the top of it and no way to play it back.
+  const elsewhere = await page.evaluate(async () => {
+    const { newProject, setClip, clipOf, barTicks } = await import('./src/sketch/project.js');
+    const { saveSketch } = await import('./src/sketch/store.js');
+    const { putTake } = await import('./src/sketch/takes.js');
+
+    const RATE = 48000;
+    const channel = new Float32Array(RATE);
+    for (let i = 0; i < channel.length; i += 1) {
+      channel[i] = Math.sin((2 * Math.PI * 220 * i) / RATE) * 0.6;
+    }
+    await putTake('take-on-piano', [channel], RATE, { name: 'on a piano track' });
+
+    let project = newProject();
+    // Track 0 is the piano in the starter project.
+    project = setClip(project, 0, 0, clipOf({
+      take: 'take-on-piano', notes: [], fit: 'free', length: barTicks(project),
+    }));
+    saveSketch(project);
+    return { instrument: project.tracks[0].instrument };
+  });
+
+  await page.reload({ waitUntil: 'networkidle' });
+  await page.waitForTimeout(400);
+  await page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
+  await page.click('[data-view="sketch"]');
+  await page.waitForTimeout(400);
+  await page.click('[data-play]');
+  await page.waitForTimeout(700);
+  await page.click('[data-play]');
+  await page.waitForTimeout(300);
+  await page.click('[data-view="tools"]');
+  await page.waitForTimeout(300);
+  await page.click('[data-view="sketch"]');
+  await page.waitForTimeout(900);
+  await page.click('[data-cell="0:0"]');
+  await page.waitForTimeout(800);
+
+  const takeThere = await page.evaluate(() => ({
+    wave: !!document.querySelector('[data-wave]'),
+    steps: !!document.querySelector('.steps'),
+    keep: [...document.querySelectorAll('[data-fit]')].length,
+    record: !!document.querySelector('[data-mic]'),
+    cell: document.querySelector('[data-cell="0:0"]')?.innerText.replace(/\n+/g, ' ').trim() ?? '',
+    summary: document.querySelector('.clip-sums')?.innerText.trim() ?? '',
+  }));
+
+  say(`\n  a recording on the ${elsewhere.instrument} track`);
+  say(`    waveform ${takeThere.wave} · step grid ${takeThere.steps}`
+    + ` · keep-it chips ${takeThere.keep} · record ${takeThere.record}`);
+  say(`    the cell reads "${takeThere.cell}", the summary "${takeThere.summary}"`);
+
+  if (!takeThere.wave) {
+    problems.push(`a recording on the ${elsewhere.instrument} track draws no waveform,`
+      + ' so the panel is still deciding what a clip is from the track it sits on');
+  }
+  if (takeThere.steps) {
+    problems.push(`a recording on the ${elsewhere.instrument} track has a step grid drawn`
+      + ' over it - there are no notes in a recording to put on it');
+  }
+  if (takeThere.keep !== 2) {
+    problems.push(`a recording on the ${elsewhere.instrument} track offers`
+      + ` ${takeThere.keep} ways to keep it rather than both`);
+  }
+  if (!takeThere.record) {
+    problems.push(`a recording on the ${elsewhere.instrument} track offers no way to record`
+      + ' over it, so a take that landed on the wrong track is stuck there');
+  }
+  if (/bar|note/.test(takeThere.summary) && !/second|plays once/.test(takeThere.summary)) {
+    problems.push(`the summary for a recording reads "${takeThere.summary}", which describes`
+      + ' a clip of notes');
+  }
+
   problems.push(...noise);
   await page.close();
   return problems;

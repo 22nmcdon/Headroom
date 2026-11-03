@@ -32,6 +32,7 @@
 import {
   newProject, setClip, setTrack, setProject, setNotes, setLength,
   clipAt, trackAt, sceneOf, sceneHasAnything, barTicks, sceneToMidi, isTake, setFit,
+  clipKindOf, setKind,
   addScene, dropScene, MOST_SCENES, setFollow, MOST_PASSES,
   addTrack, dropTrack, MOST_TRACKS, moveInsert,
 } from './project.js';
@@ -625,6 +626,21 @@ export class SketchPage {
       return;
     }
 
+    const kind = event.target.closest('[data-kind]');
+    if (kind && this.at) {
+      const want = kind.dataset.kind;
+      const track = trackAt(this.project, this.at.track);
+      // Back to null when the choice matches what the track is for, so a clip
+      // that was never steered does not carry an override that says nothing.
+      const fallback = isMic(track.instrument) ? 'mic' : 'notes';
+      this.change(setKind(this.project, this.at.track, this.at.scene,
+        want === fallback ? null : want));
+      this.tell(want === 'mic'
+        ? 'This slot is for a recording. Press record when you are ready.'
+        : 'This slot is for notes. Draw them in, or play them in.');
+      return;
+    }
+
     const fit = event.target.closest('[data-fit]');
     if (fit && this.at) {
       const want = fit.dataset.fit;
@@ -881,7 +897,7 @@ export class SketchPage {
       this.takes.set(id, buffer);
 
       this.change(setClip(this.project, this.at.track, this.at.scene, {
-        ...(was ?? {}), take: id, notes: [], chords: '', fit, length,
+        ...(was ?? {}), take: id, notes: [], chords: '', fit, length, kind: 'mic',
       }));
 
       const how = fit === 'free'
@@ -1388,6 +1404,32 @@ export class SketchPage {
    * the panel is set to, which starts free because that is the thing a sung
    * idea needs and the thing the bars-only version could not do.
    */
+  /**
+   * What the open clip is: notes, or a recording.
+   *
+   * One answer in one place, because the panel asks it eight times - which
+   * rows to show, what the summary says, whether there is a waveform, whether
+   * there is a record button - and eight copies of a conditional is how a
+   * panel comes to contradict itself. Which is exactly what it used to do:
+   * every one of those read the TRACK, so a recording dropped on a piano
+   * track got a step grid drawn over it and no way to play it back.
+   */
+  kindHere(clip, track) {
+    return clipKindOf(clip, track);
+  }
+
+  /**
+   * Whether this clip can still be told what it is.
+   *
+   * Only while it is empty. Once there are notes in it or a take on it, the
+   * clip has been answered by its contents, and a chip that silently threw
+   * either away would be a delete button wearing a label that does not say
+   * delete.
+   */
+  canSwap(clip) {
+    return Boolean(clip) && !clip.take && !clip.notes.length;
+  }
+
   fitOf(clip) {
     if (isTake(clip)) return clip.fit === 'bars' ? 'bars' : 'free';
     return this.keepFree === false ? 'bars' : 'free';
@@ -1397,7 +1439,7 @@ export class SketchPage {
     const bars = Math.max(1, Math.round(clip.length / barTicks(this.project)));
     const parts = [];
 
-    if (!isMic(track.instrument) && !isTake(clip)) {
+    if (this.kindHere(clip, track) === 'notes') {
       parts.push(bars === 1 ? '1 bar' : `${bars} bars`);
       parts.push(divisionOf(clip.division).label);
     }
@@ -1409,7 +1451,7 @@ export class SketchPage {
       : isTake(clip) && clip.fit === 'free' ? 'plays once'
         : 'loops');
 
-    if (!isMic(track.instrument) && track.instrument !== 'kit') {
+    if (this.kindHere(clip, track) === 'notes' && track.instrument !== 'kit') {
       parts.push(`${ROOT_NAMES[this.project.key.root]} ${SCALES[this.project.key.scale].label.toLowerCase()}`);
     }
 
@@ -1450,7 +1492,7 @@ export class SketchPage {
       <details class="clip-setup"${this.setupOpen ? ' open' : ''} data-setup>
         <summary class="clip-sums">${this.setupSays(clip, track)}</summary>
 
-        ${isMic(track.instrument) || isTake(clip) ? '' : `
+        ${this.kindHere(clip, track) === 'mic' ? '' : `
         <div class="editor-row">
           <span class="editor-label">Bars</span>
           <span class="chips">
@@ -1490,7 +1532,7 @@ export class SketchPage {
           </span>
         </div>`}
 
-        ${isMic(track.instrument) || track.instrument === 'kit' ? '' : `
+        ${this.kindHere(clip, track) === 'mic' || track.instrument === 'kit' ? '' : `
         <div class="editor-row">
           <span class="editor-label">Rows</span>
           <span class="chips">
@@ -1505,10 +1547,8 @@ export class SketchPage {
         </div>`}
       </details>
 
-      ${isMic(track.instrument) ? '' : isTake(clip) ? `
-        <p class="take-note">A recording, ${bars === 1 ? 'a bar' : `${bars} bars`} long.
-        There is nothing to draw on it — take it out and the slot is a clip of notes again.</p>
-      ` : `<div class="steps" style="--cols: ${wide}">${rows}</div>`}
+      ${this.kindHere(clip, track) === 'mic' ? '' : `
+        <div class="steps" style="--cols: ${wide}">${rows}</div>`}
 
       ${!clip.chords ? '' : `
         <p class="fine">Made from “${clip.chords}”. The chords went in as notes and
@@ -1519,7 +1559,7 @@ export class SketchPage {
           <canvas data-wave aria-label="The shape of this recording"></canvas>
         </div>`}
 
-      ${!(isTake(clip) || (canRecord() && isMic(track.instrument))) ? '' : `
+      ${!(isTake(clip) || (canRecord() && this.kindHere(clip, track) === 'mic')) ? '' : `
         <div class="editor-row">
           <span class="editor-label">Keep it</span>
           <span class="chips">
@@ -1532,12 +1572,26 @@ export class SketchPage {
           </span>
         </div>`}
 
+      ${!this.canSwap(clip) ? '' : `
+        <div class="editor-row">
+          <span class="editor-label">This clip</span>
+          <span class="chips">
+            <button class="chip" type="button" data-kind="notes"
+                    aria-pressed="${this.kindHere(clip, track) === 'notes'}"
+                    title="A part you draw or play in">notes</button>
+            <button class="chip" type="button" data-kind="mic"
+                    aria-pressed="${this.kindHere(clip, track) === 'mic'}"
+                    title="Something recorded through the microphone">a recording</button>
+          </span>
+        </div>`}
+
       <div class="editor-row editor-outs">
-        <button class="link-btn" type="button" data-clear>Clear the notes</button>
-        ${canRecord() && isMic(track.instrument) ? `
+        ${this.kindHere(clip, track) === 'mic' ? '' : `
+          <button class="link-btn" type="button" data-clear>Clear the notes</button>`}
+        ${!(canRecord() && this.kindHere(clip, track) === 'mic') ? '' : `
           <button class="link-btn" type="button" data-mic aria-pressed="${this.recording}">
             ${this.recording ? 'Stop recording'
-              : isTake(clip) ? 'Record over it' : 'Record into this clip'}</button>` : ''}
+              : isTake(clip) ? 'Record over it' : 'Record into this clip'}</button>`}
       </div>`;
   }
 
