@@ -541,6 +541,75 @@ export async function check({ browser, at, say }) {
     }
   }
 
+  /* --- and a take that begins on a bar line -------------------------------- */
+
+  // The claim at the top of `record.js`, finally true. It explains that
+  // capturing on the audio thread is what makes a take cuttable against a bar
+  // line, because the worklet stamps every block with an audio time. The
+  // stamps were discarded, so a take began wherever a finger landed.
+  //
+  // Measured through the real clock rather than from the settings: what has
+  // to line up is the time the transport says the next bar falls at and the
+  // time the recorder cuts to, and those are two different objects agreeing.
+  const onTheBar = await page.evaluate(async () => {
+    const { headFrom } = await import('./src/sketch/record.js');
+    const { nextBar, ticksPerBar } = await import('./src/sketch/transport.js');
+    const PPQ = 480;
+
+    const perBar = ticksPerBar(4, 4, PPQ);
+    // Pressed a third of the way through a bar at 120 bpm: a bar is 2 s, so
+    // the next line is about 1.33 s away and that is what must be trimmed.
+    const perTick = 2 / perBar;
+    const pressedAt = perBar / 3;
+    const line = nextBar(pressedAt, perBar);
+    const waited = (line - pressedAt) * perTick;
+
+    const rate = 48000;
+    const run = new Float32Array(Math.round(rate * 4));
+    // A mark at the bar line, so where the cut lands can be read off the
+    // audio rather than inferred from its length.
+    const mark = Math.round(waited * rate);
+    for (let i = mark; i < mark + 100; i += 1) run[i] = 1;
+
+    const [cut] = headFrom([run], rate, 0, waited);
+    return {
+      waited,
+      trimmed: (run.length - cut.length) / rate,
+      // The mark should now be at the very start of the take.
+      startsOnTheMark: cut[0] === 1 && cut[99] === 1 && cut[200] === 0,
+    };
+  });
+
+  say(`\n  pressed a third into a bar at 120 bpm: ${onTheBar.waited.toFixed(3)}s to the line,`
+    + ` ${onTheBar.trimmed.toFixed(3)}s trimmed`);
+  say(`  the take now starts on the mark: ${onTheBar.startsOnTheMark}`);
+
+  if (Math.abs(onTheBar.trimmed - onTheBar.waited) > 0.001) {
+    problems.push(`the bar line was ${onTheBar.waited.toFixed(3)}s away and`
+      + ` ${onTheBar.trimmed.toFixed(3)}s was trimmed - the cut is not where the clock says`);
+  }
+  if (!onTheBar.startsOnTheMark) {
+    problems.push('the take was trimmed by the right amount and does not begin on the mark,'
+      + ' so the cut landed somewhere other than the bar line');
+  }
+
+  // And the choice that goes with it.
+  const counting = await page.evaluate(() => {
+    const chips = [...document.querySelectorAll('[data-countin]')];
+    return {
+      offered: chips.map((c) => c.dataset.countin),
+      on: chips.filter((c) => c.getAttribute('aria-pressed') === 'true').map((c) => c.dataset.countin),
+    };
+  });
+  say(`  count-in offered: ${counting.offered.join(', ')} bars; chosen ${counting.on.join() || 'none'}`);
+  if (!counting.offered.includes('0')) {
+    problems.push('no way to record without a count-in - half the point of a sketchpad is that'
+      + ' the gap between having an idea and keeping it is short');
+  }
+  if (counting.on.length !== 1) {
+    problems.push(`${counting.on.length} count-in chips are lit, not one`);
+  }
+
   /* --- what the browser gave, and whether it did as it was asked ---------- */
 
   // The app asks for no gain control, no noise suppression and no echo

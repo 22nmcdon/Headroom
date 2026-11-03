@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import {
   barsFor, barSeconds, fitTo, joinBlocks, loudestIn, MOST_BARS, SILENCE, canRecord,
   freeSeconds, ticksFor, MOST_SECONDS, saidLength, oversIn,
-  WANTED, overriddenIn, saidInput, CAPTURE_CHANNELS,
+  WANTED, overriddenIn, saidInput, CAPTURE_CHANNELS, headFrom, COUNT_INS,
 } from '../src/sketch/record.js';
 import { PPQ } from '../src/sketch/midi.js';
 
@@ -271,4 +271,68 @@ test('what the browser handed over is said in words, not in field names', () => 
   // Nothing reported is said as nothing rather than as "undefined Hz".
   assert.match(saidInput({}), /does not say/i);
   assert.match(saidInput(null), /does not say/i);
+});
+
+/* --- and beginning where it was meant to begin --------------------------- */
+
+// The claim at the top of `record.js` that was not true. It explains that the
+// take is captured on the audio thread rather than with MediaRecorder
+// because "a take has to begin on a bar line to be any use in a loop, and a
+// bar line is an audio time. A worklet handing blocks back with the audio
+// time of each one can be cut exactly."
+//
+// The worklet does stamp every block. The handler threw the stamp away, and
+// `startedAt` was recorded and read by nobody. So the justification for the
+// whole architecture was a benefit that was never collected, and a take began
+// wherever a finger landed.
+//
+// `headFrom` is the cut. Given the audio time of the first block kept and the
+// time the take was meant to begin, it drops exactly the frames in between.
+
+test('a take cut to where it should start loses exactly the lead-in', () => {
+  const run = Float32Array.from({ length: 1000 }, (_, i) => i / 1000);
+  // Half a second in, at 1000 Hz, is 500 frames.
+  const [cut] = headFrom([run], 1000, 10, 10.5);
+  assert.equal(cut.length, 500);
+  assert.ok(Math.abs(cut[0] - 0.5) < 1e-6, 'and it starts where the cut was');
+});
+
+test('a take already starting on time is not touched', () => {
+  const run = Float32Array.from([1, 2, 3, 4]);
+  const [same] = headFrom([run], 1000, 10, 10);
+  assert.deepEqual([...same], [1, 2, 3, 4]);
+});
+
+test('a start before the first block is nothing to cut, not a negative one', () => {
+  // Which happens when the bar line fell while the microphone was still
+  // being opened - a permission prompt is not instant.
+  const run = Float32Array.from([1, 2, 3, 4]);
+  assert.deepEqual([...headFrom([run], 1000, 10, 9)[0]], [1, 2, 3, 4]);
+});
+
+test('a start past the whole take leaves a take rather than a hole', () => {
+  // Never zero-length: a buffer of no frames is one `createBuffer` throws on,
+  // and the honest answer to "the take began after it ended" is the last
+  // thing that arrived rather than an exception.
+  const run = Float32Array.from([1, 2, 3, 4]);
+  const [cut] = headFrom([run], 1000, 10, 99);
+  assert.ok(cut.length >= 1);
+});
+
+test('every channel is cut by the same amount', () => {
+  const a = new Float32Array(1000);
+  const b = new Float32Array(1000);
+  const cut = headFrom([a, b], 1000, 0, 0.25);
+  assert.deepEqual(cut.map((c) => c.length), [750, 750]);
+});
+
+test('nothing to cut is nothing, not a throw', () => {
+  assert.deepEqual(headFrom([], 1000, 0, 1), []);
+  assert.deepEqual(headFrom(null, 1000, 0, 1), []);
+});
+
+test('a count-in is a whole number of bars, and off is a choice', () => {
+  assert.ok(COUNT_INS.includes(0), 'off, because an idea does not always want counting in');
+  assert.ok(COUNT_INS.includes(1));
+  assert.ok(COUNT_INS.every((n) => Number.isInteger(n) && n >= 0));
 });

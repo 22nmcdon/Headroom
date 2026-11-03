@@ -8,9 +8,21 @@
 //
 // Captured on the audio thread rather than with MediaRecorder. MediaRecorder
 // gives a compressed blob that has to be decoded, and neither its start nor
-// its stop is on any clock this app has: a take has to begin on a bar line
-// to be any use in a loop, and a bar line is an audio time. A worklet
-// handing blocks back with the audio time of each one can be cut exactly.
+// its stop is on any clock this app has: a take meant for a loop has to begin
+// on a bar line, and a bar line is an audio time. A worklet handing blocks
+// back with the audio time of each one can be cut exactly.
+//
+// That last sentence was a lie for as long as this file existed. The worklet
+// did stamp every block; the handler threw the stamp away, and `startedAt`
+// was recorded and read by nobody - so the justification for the whole
+// architecture was a benefit nothing ever collected, and a take began
+// wherever a finger landed. `headFrom` is the cut it describes, and `start`
+// takes the time to make it at.
+//
+// A take still begins at the press when the transport is stopped. There is no
+// bar line to begin on then, and a sketchpad on a phone exists because an
+// idea arrives when the phone is the only thing to hand: making somebody
+// press play first would cost the idea.
 
 import { workletModule, installWorklet } from '../lib/worklet.js';
 import { PPQ } from './midi.js';
@@ -290,6 +302,44 @@ export function fitTo(channels, rate, seconds) {
   });
 }
 
+/**
+ * The count-ins on offer, in bars.
+ *
+ * Nought included and first, because an idea arriving on a phone does not
+ * always want counting in - half the point of a sketchpad is that the gap
+ * between having the idea and keeping it is short.
+ */
+export const COUNT_INS = [0, 1, 2];
+
+/**
+ * A take cut back to the moment it was meant to begin.
+ *
+ * This is the cut the top of this file has always claimed to make. The
+ * worklet stamps every block with the audio time it covers, and the point of
+ * capturing on the audio thread rather than with MediaRecorder was that those
+ * stamps make a take cuttable against a bar line - which is also an audio
+ * time. The stamps were thrown away and `startedAt` was read by nobody, so a
+ * take began wherever a finger landed.
+ *
+ * `at0` is the audio time of the first block kept and `from` is the time the
+ * take was meant to start. Everything between them is lead-in: the gap
+ * between pressing record and the bar line coming round, plus any count-in.
+ *
+ * Never cut to nothing. `createBuffer` throws on a buffer of no frames, and
+ * the honest answer to "the take was meant to begin after it ended" is the
+ * last thing that arrived rather than an exception.
+ */
+export function headFrom(channels, rate, at0, from) {
+  if (!Array.isArray(channels) || !channels.length) return [];
+
+  const drop = Math.round((from - at0) * rate);
+  if (!(drop > 0)) return channels;
+
+  const have = Math.min(...channels.map((channel) => channel.length));
+  const cut = Math.min(drop, Math.max(0, have - 1));
+  return channels.map((channel) => channel.subarray(cut));
+}
+
 /** Blocks as they arrived, as one run of samples a channel. */
 export function joinBlocks(blocks) {
   if (!blocks.length) return [];
@@ -376,6 +426,9 @@ export class Recorder {
     this.overs = 0;
     /** The take's shape so far, as `[lo, hi]` a block, for drawing it live. */
     this.live = [];
+    /** The audio time of the first block kept, and the one to begin at. */
+    this.firstAt = null;
+    this.beginAt = 0;
     /** What `getSettings` said, once there is a stream to ask. */
     this.settings = {};
     this.deviceId = null;
@@ -448,6 +501,11 @@ export class Recorder {
       // ten-minute take is 225,000 blocks, and walking all of them sixty
       // times a second is the one way to make a waveform cost something.
       if (this.taking) {
+        // The audio time of the first block kept. This is the stamp the whole
+        // architecture was chosen for and which used to be discarded: without
+        // it there is nothing to measure a bar line against, and a take
+        // begins wherever a finger landed.
+        if (this.firstAt === null) this.firstAt = event.data?.at ?? null;
         this.live.push(lo, hi);
         if (block) this.blocks.push(block);
       }
@@ -470,10 +528,20 @@ export class Recorder {
   }
 
   /** Begin keeping what arrives. */
-  start() {
+  /**
+   * Begin keeping what arrives.
+   *
+   * `from` is an audio time to begin the take AT, which may be later than the
+   * press: the next bar line, plus any count-in. Everything before it is
+   * still captured - a take is kept from the moment of pressing so that
+   * nothing played early is lost - and cut off in `stop`.
+   */
+  start({ from = 0 } = {}) {
     if (!this.node) return false;
     this.blocks = [];
     this.live = [];
+    this.firstAt = null;
+    this.beginAt = from;
     this.resetPeak();
     this.taking = true;
     this.node.port.postMessage({ on: true });
@@ -487,15 +555,26 @@ export class Recorder {
     this.taking = false;
     this.node.port.postMessage({ on: false });
 
-    const channels = joinBlocks(this.blocks);
+    const joined = joinBlocks(this.blocks);
     this.blocks = [];
-    if (!channels.length) return null;
+    if (!joined.length) return null;
+
+    const rate = this.ctx.sampleRate;
+    // Cut to the bar line, which is what the stamps were kept for. With no
+    // bar line asked for - the transport stopped, an idea that wants keeping
+    // now - `beginAt` is nought and nothing is dropped.
+    const channels = this.beginAt > 0 && this.firstAt !== null
+      ? headFrom(joined, rate, this.firstAt, this.beginAt)
+      : joined;
 
     return {
       channels,
-      rate: this.ctx.sampleRate,
-      seconds: channels[0].length / this.ctx.sampleRate,
+      rate,
+      seconds: channels[0].length / rate,
       startedAt: this.startedAt,
+      // What was cut off the front, so a caller can say so rather than
+      // leaving somebody wondering where their count-in went.
+      leadIn: (joined[0].length - channels[0].length) / rate,
     };
   }
 

@@ -50,13 +50,14 @@ import { StereoPlugin } from '../plugins/stereo/plugin.js';
 import { EchoPlugin } from '../plugins/delay/plugin.js';
 import { VerbPlugin } from '../plugins/reverb/plugin.js';
 import { tapInto, drift, timing } from './tap.js';
+import { nextBar } from './transport.js';
 import { waveOf, rescaleWave, spreadWave, WAVE_COLUMNS } from '../lib/wave.js';
 import { readyCanvas, watchSize } from '../lib/panel.js';
 import { peakAt, fallenTo, clockOf, PEAK_FLOOR, PEAK_HOT } from '../lib/meter.js';
 import {
   Recorder, canRecord, barsFor, fitTo, loudestIn, SILENCE,
   ticksFor, freeSeconds, MOST_SECONDS, saidLength, barSeconds, oversIn,
-  inputsOf, saidInput, PROCESSING_SAYS,
+  inputsOf, saidInput, PROCESSING_SAYS, COUNT_INS,
 } from './record.js';
 import {
   takeId, putTake, loadTake, dropTake, sweepTakes,
@@ -633,6 +634,16 @@ export class SketchPage {
       return;
     }
 
+    const countIn = event.target.closest('[data-countin]');
+    if (countIn) {
+      this.countIn = Number(countIn.dataset.countin);
+      this.drawPanel();
+      this.tell(this.countIn
+        ? `${plural(this.countIn, 'bar', 'bars')} of count-in, then the take begins.`
+        : 'The take begins on the next bar line.');
+      return;
+    }
+
     const kind = event.target.closest('[data-kind]');
     if (kind && this.at) {
       const want = kind.dataset.kind;
@@ -929,13 +940,21 @@ export class SketchPage {
           + ' and were flattened — turn the input down and go again.'
         : ` Peak ${peakDb > -0.05 ? '0.0' : peakDb.toFixed(1)} dB.`;
 
+      // What the bar line cost, said rather than left as a mystery. A take
+      // that began a bar and a half after the press is a take whose first
+      // second and a half is not in it, and somebody who played into that
+      // gap deserves to know why it is gone.
+      const cut = got.leadIn > 0.05
+        ? ` The first ${saidLength(got.leadIn)} before the bar line was trimmed.`
+        : '';
+
       const how = fit === 'free'
         ? `${saidLength(seconds)} recorded, kept whole and playing once`
         : `${bars === 1 ? 'A bar' : `${bars} bars`} recorded, looping`;
       this.tell(kept
-        ? `${how}, and kept in this browser.${ceiling}`
+        ? `${how}, and kept in this browser.${cut}${ceiling}`
         : `${how} — but this browser would not store it, so it will be gone on a `
-          + `reload. Export the stems to keep it.${ceiling}`);
+          + `reload. Export the stems to keep it.${cut}${ceiling}`);
       return;
     }
 
@@ -957,7 +976,19 @@ export class SketchPage {
       if (all.length > 1 && this.open?.kind === 'clip') this.drawPanel();
     });
 
-    this.mic.start();
+    // Where the take is meant to begin. With the transport running, the next
+    // bar line plus the count-in - this is what the block stamps were always
+    // for and what nothing used to collect. With it stopped there is no bar
+    // line to begin on, so the take begins now: a sketchpad on a phone exists
+    // because an idea arrives when the phone is the only thing to hand, and
+    // making somebody press play first would cost the idea.
+    const clock = this.stage?.transport;
+    const counting = this.countIn ?? 0;
+    const from = clock?.playing
+      ? clock.timeOf(nextBar(clock.tick, clock.perBar) + counting * clock.perBar)
+      : 0;
+
+    this.mic.start({ from });
     this.meterShown = PEAK_FLOOR;
     this.meterAt = 0;
     this.recording = true;
@@ -978,9 +1009,13 @@ export class SketchPage {
       }
     }, MOST_SECONDS * 1000);
 
-    this.tell(this.fitOf(clipAt(this.project, this.at.track, this.at.scene)) === 'free'
-      ? 'Recording. Press again to stop — it is kept at whatever length you play.'
-      : 'Recording. Press again to stop — it will be cut to the nearest whole bar.');
+    const kept = this.fitOf(clipAt(this.project, this.at.track, this.at.scene)) === 'free'
+      ? 'it is kept at whatever length you play'
+      : 'it will be cut to the nearest whole bar';
+    this.tell(from
+      ? `Recording from the next bar line${counting ? ` after ${plural(counting, 'bar', 'bars')} of count-in` : ''}`
+        + ` — press again to stop, and ${kept}.`
+      : `Recording. Press again to stop — ${kept}.`);
   }
 
   sayTap(line) {
@@ -1754,6 +1789,19 @@ export class SketchPage {
         <div class="in-scale">
           ${[PEAK_FLOOR, PEAK_FLOOR * 0.75, PEAK_FLOOR * 0.5, PEAK_FLOOR * 0.25, 0]
             .map((db) => `<span>${Math.round(db)}</span>`).join('')}
+        </div>`}
+
+      ${!(canRecord() && this.kindHere(clip, track) === 'mic') ? '' : `
+        <div class="editor-row">
+          <span class="editor-label">Count in</span>
+          <span class="chips">
+            ${COUNT_INS.map((bars) => `
+              <button class="chip" type="button" data-countin="${bars}"
+                      aria-pressed="${(this.countIn ?? 0) === bars}"
+                      title="${bars ? `${bars} bar${bars === 1 ? '' : 's'} before the take begins`
+                        : 'Begin on the next bar line'}"
+                >${bars ? `${bars} bar${bars === 1 ? '' : 's'}` : 'none'}</button>`).join('')}
+          </span>
         </div>`}
 
       ${!(isTake(clip) || (canRecord() && this.kindHere(clip, track) === 'mic')) ? '' : `
