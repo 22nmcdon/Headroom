@@ -122,7 +122,14 @@ const titled = (id) => id.charAt(0).toUpperCase() + id.slice(1);
  */
 const clipSays = (clip, perBar) => {
   const bars = Math.max(1, Math.round(clip.length / perBar));
-  const what = clip.notes.length ? plural(clip.notes.length, 'note', 'notes') : 'empty';
+  // A recording first, because a clip holding one has no notes to count and
+  // counting them said "empty". Which is what the grid read after every
+  // recording ever made in this app: the panel said "2 bars recorded" and
+  // the cell beside it said the cell was empty, in the same breath. The one
+  // place a person looks to see whether it worked was the one place saying
+  // it had not.
+  const what = isTake(clip) ? 'recording'
+    : clip.notes.length ? plural(clip.notes.length, 'note', 'notes') : 'empty';
   return bars > 1 ? `${what} · ${bars} bars` : what;
 };
 

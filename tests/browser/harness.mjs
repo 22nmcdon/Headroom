@@ -79,7 +79,14 @@ export async function launch() {
   try {
     const browser = await chromium.launch({
       ...(where ? { executablePath: where } : {}),
-      args: ['--autoplay-policy=no-user-gesture-required'],
+      args: ['--autoplay-policy=no-user-gesture-required',
+        // A microphone that is always there and never asks. Chromium's fake
+        // device plays a tone into getUserMedia, which is what lets the
+        // recording path be driven at all - without these the record button
+        // is not even on the page, because `canRecord` is false in a
+        // headless browser with no input.
+        '--use-fake-device-for-media-stream',
+        '--use-fake-ui-for-media-stream'],
     });
     return { browser };
   } catch (err) {
