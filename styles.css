@@ -2780,6 +2780,56 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
   width: 100%;
   height: 100%;
 }
+.clip-wave[data-trimmable] { position: relative; touch-action: none; }
+
+/* What a trim leaves out, dimmed rather than hidden: the samples are still in
+   the recording and the picture should say so. */
+.wave-out {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  background: var(--cream-2);
+  opacity: 0.82;
+  pointer-events: none;
+}
+.wave-out.is-after { left: auto; right: 0; width: auto; }
+.wave-out:not(.is-after) { left: 0; }
+
+/* The handles. Wider than they look, because a finger is about 9 mm and a
+   line is one pixel: the bar is 2 px and the thing you can grab is 28. */
+.wave-grab {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 28px;
+  margin-left: -14px;
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: col-resize;
+  touch-action: none;
+}
+.wave-grab::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 13px;
+  width: 2px;
+  background: var(--charcoal);
+}
+.wave-grab::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 8px;
+  width: 12px;
+  height: 12px;
+  margin-top: -6px;
+  border-radius: 2px;
+  background: var(--charcoal);
+}
 
 /* The input meter. Three states rather than a gradient: a colour that slides
    continuously says where you are, and the only thing this meter is for is

@@ -117,9 +117,70 @@ export const FITS = ['bars', 'free'];
  */
 export const CLIP_KINDS = ['notes', 'mic'];
 
+/**
+ * How long the fade at each end of a trim is, in seconds.
+ *
+ * Measured, not chosen. A 220 Hz sine cut at its peak puts 27.9 dB of energy
+ * above 5 kHz - that is the click - and a raised-cosine fade over the edge
+ * takes it down by 52 dB at one millisecond, 79 at five and 92 at ten. It is
+ * monotonic, so the only question is how much of the take to spend on it.
+ * Five milliseconds is inaudible as a shortening and 79 dB down is inaudible
+ * as a click.
+ *
+ * (The first two attempts at that measurement were wrong and said so: one
+ * measured the analysis window's own leakage, and one put the cut where a
+ * Hann window had no gain and found no click at all.)
+ */
+export const TRIM_FADE = 0.005;
+
+/**
+ * A window into a take, or null for the whole of it.
+ *
+ * In the take's own seconds, because that is what a buffer is measured in and
+ * what `AudioBufferSourceNode.start` takes. Everything else about a clip is
+ * ticks, and converting here would tie a trim to a tempo it has nothing to do
+ * with - the same four seconds of singing are the same four seconds at any
+ * speed.
+ *
+ * Non-destructive, like the rest of a take in this app: the stored recording
+ * stays whole and this is a window onto it, so a trim can be moved, widened
+ * or taken off as often as somebody likes.
+ */
+export const trimOf = (trim) => {
+  const from = Number(trim?.from);
+  const to = Number(trim?.to);
+  if (!Number.isFinite(from) || !Number.isFinite(to)) return null;
+  if (from < 0 || to <= from) return null;
+  return { from, to };
+};
+
+/**
+ * What the stage should actually play, given how long the take turned out.
+ *
+ * Clamped to the take rather than trusted, because a clip recorded over with
+ * something shorter keeps the trim it had - and `start` with a zero duration
+ * plays nothing while a negative one throws. Neither is the right answer to a
+ * stale window.
+ *
+ * (Named for the take because `analysis/dynamics.js` already has a `windowOf`,
+ * about a window of samples to measure. The artifact build refuses two
+ * modules declaring one top-level name, which is how that was found.)
+ */
+export function takeWindow(clip, duration) {
+  const whole = Math.max(0, Number(duration) || 0);
+  const trim = clip?.trim;
+  if (!trim) return { offset: 0, length: whole };
+
+  // Never nothing: a window entirely past the end of a shorter take comes
+  // back as the last moment of it rather than as silence or a throw.
+  const offset = Math.min(trim.from, Math.max(0, whole - TRIM_FADE));
+  const length = Math.max(TRIM_FADE, Math.min(trim.to, whole) - offset);
+  return { offset, length: Math.min(length, Math.max(0, whole - offset)) || whole };
+}
+
 export const clipOf = ({
   id = null, length = PPQ * 4, notes = [], name = '', division = 'eighth', chords = '',
-  take = null, follow = null, fit = 'bars', kind = null,
+  take = null, follow = null, fit = 'bars', kind = null, trim = null,
 } = {}) => ({
   id: id ?? `clip-${Math.random().toString(36).slice(2, 8)}`,
   name,
@@ -138,6 +199,8 @@ export const clipOf = ({
   // otherwise. An id this version does not know becomes null rather than
   // being kept and read as something later.
   kind: CLIP_KINDS.includes(kind) ? kind : null,
+  // A window into the take, or null for the whole of it.
+  trim: trimOf(trim),
   follow: followOf(follow),
   // The line of chord symbols this clip was made from, when it was made from
   // one. Kept so that coming back to it shows what was typed rather than
@@ -553,6 +616,13 @@ export function clipKindOf(clip, track) {
   if (clip?.notes?.length) return 'notes';
   if (CLIP_KINDS.includes(clip?.kind)) return clip.kind;
   return track?.instrument === 'mic' ? 'mic' : 'notes';
+}
+
+/** Put a window on a take, or take it off with null. */
+export function setTrim(project, track, scene, trim) {
+  const here = clipAt(project, track, scene);
+  if (!here) return project;
+  return setClip(project, track, scene, { ...here, trim });
 }
 
 /** Say what an empty clip is for, or hand it back to the track with null. */

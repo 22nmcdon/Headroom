@@ -32,7 +32,7 @@
 import {
   newProject, setClip, setTrack, setProject, setNotes, setLength,
   clipAt, trackAt, sceneOf, sceneHasAnything, barTicks, sceneToMidi, isTake, setFit,
-  clipKindOf, setKind,
+  clipKindOf, setKind, setTrim, takeWindow,
   addScene, dropScene, MOST_SCENES, setFollow, MOST_PASSES,
   addTrack, dropTrack, MOST_TRACKS, moveInsert,
 } from './project.js';
@@ -409,6 +409,33 @@ export class SketchPage {
         if (this.held) { clearTimeout(this.held); this.held = null; }
       });
     }
+    // Dragging a trim handle. On the editor rather than on the handles,
+    // because the panel is rebuilt from a string and a listener on a handle
+    // would be a listener on an element that has already been replaced.
+    parts.editor.addEventListener('pointerdown', (event) => {
+      const grab = event.target.closest('[data-grab]');
+      if (!grab) return;
+      // The pointer is captured so the drag survives the finger leaving the
+      // handle, which it does immediately - a handle is a few pixels wide and
+      // a trim is most of the panel.
+      grab.setPointerCapture?.(event.pointerId);
+      this.grabbing = grab.dataset.grab;
+      event.preventDefault();
+    });
+    parts.editor.addEventListener('pointermove', (event) => {
+      if (this.grabbing) this.dragTrim(event);
+    });
+    for (const done of ['pointerup', 'pointercancel']) {
+      parts.editor.addEventListener(done, () => {
+        if (!this.grabbing) return;
+        this.grabbing = null;
+        // Written to the project on release rather than on every move: a drag
+        // is sixty changes a second and each one would be an undo step and a
+        // save.
+        this.commitTrim();
+      });
+    }
+
     parts.editor.addEventListener('click', (event) => this.editorClick(event));
     // Ranges on `input` and everything else on `change`: a fader that only
     // moves when you let go of it is a fader you cannot hear yourself using.
@@ -632,6 +659,12 @@ export class SketchPage {
       this.change(setClip(this.project, this.at.track, this.at.scene, {
         ...this.clip(), division: grid.dataset.division,
       }));
+      return;
+    }
+
+    if (event.target.closest('[data-untrim]') && this.at) {
+      this.change(setTrim(this.project, this.at.track, this.at.scene, null));
+      this.tell('Back to the whole take — nothing was ever thrown away.');
       return;
     }
 
@@ -1433,6 +1466,65 @@ export class SketchPage {
     this.tell(`Listening to ${named?.label ?? 'that input'} — ${saidInput(this.mic.settings)}.`);
   }
 
+  /**
+   * A trim handle under a finger.
+   *
+   * Moved on the element rather than through the project, so a drag is a
+   * style change and not sixty rebuilds of the panel a second - which would
+   * also take the handle out from under the finger holding it.
+   */
+  dragTrim(event) {
+    const box = this.parts.editor.querySelector('[data-trimmable]');
+    const clip = this.clip();
+    if (!box || !clip?.take) return;
+
+    const whole = this.takes.get(clip.take)?.duration ?? 0;
+    if (!(whole > 0)) return;
+
+    const rect = box.getBoundingClientRect();
+    const part = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
+    const want = part * whole;
+
+    const now = takeWindow(clip, whole);
+    // Never past each other, and never shorter than the fades need. A window
+    // of nothing is a clip that plays nothing while still looking like a take.
+    const least = TRIM_FADE * 4;
+    const from = this.grabbing === 'from'
+      ? Math.min(want, now.offset + now.length - least)
+      : now.offset;
+    const to = this.grabbing === 'to'
+      ? Math.max(want, from + least)
+      : now.offset + now.length;
+
+    this.dragged = { from: Math.max(0, from), to: Math.min(whole, to) };
+
+    const at = (t) => `${(t / whole) * 100}%`;
+    box.querySelector('[data-grab="from"]').style.left = at(this.dragged.from);
+    box.querySelector('[data-grab="to"]').style.left = at(this.dragged.to);
+    box.querySelector('.wave-out').style.width = at(this.dragged.from);
+    box.querySelector('.wave-out.is-after').style.left = at(this.dragged.to);
+  }
+
+  /** The drag, written down once the finger is off it. */
+  commitTrim() {
+    if (!this.dragged || !this.at) return;
+    const trim = this.dragged;
+    this.dragged = null;
+
+    const clip = this.clip();
+    const whole = this.takes.get(clip?.take)?.duration ?? 0;
+    // A trim that is the whole take is no trim: it should not sit in the
+    // project as a window that happens to match, or a take re-recorded over
+    // it inherits a window that was never meant for it.
+    const all = trim.from <= 0.001 && trim.to >= whole - 0.001;
+
+    this.change(setTrim(this.project, this.at.track, this.at.scene, all ? null : trim));
+    this.tell(all
+      ? 'Back to the whole take.'
+      : `Keeping ${saidLength(trim.to - trim.from)} of ${saidLength(whole)},`
+        + ` from ${trim.from.toFixed(2)}s. The rest is still in the recording.`);
+  }
+
   /** The take's clock, while one is running. */
   paintClock() {
     const clock = this.parts.editor.querySelector('[data-rec-clock]');
@@ -1804,9 +1896,32 @@ export class SketchPage {
         are yours to move now.</p>`}
 
       ${this.kindHere(clip, track) !== 'mic' ? '' : `
-        <div class="clip-wave">
+        <div class="clip-wave"${isTake(clip) ? ' data-trimmable' : ''}>
           <canvas data-wave aria-label="${isTake(clip)
             ? 'The shape of this recording' : 'What the microphone is hearing'}"></canvas>
+          ${!isTake(clip) ? '' : (() => {
+            const whole = this.takes.get(clip.take)?.duration ?? 0;
+            const { offset, length } = takeWindow(clip, whole);
+            const at = (t) => (whole > 0 ? (t / whole) * 100 : 0);
+            return `
+              <span class="wave-out" style="width: ${at(offset)}%"></span>
+              <span class="wave-out is-after" style="right: 0; left: ${at(offset + length)}%"></span>
+              <button class="wave-grab" type="button" data-grab="from"
+                      style="left: ${at(offset)}%" aria-label="Where it starts"></button>
+              <button class="wave-grab" type="button" data-grab="to"
+                      style="left: ${at(offset + length)}%" aria-label="Where it ends"></button>`;
+          })()}
+        </div>`}
+
+      ${!(isTake(clip) && clip.trim) ? '' : `
+        <div class="editor-row">
+          <span class="editor-label">Trimmed</span>
+          <span class="fine">${(() => {
+            const whole = this.takes.get(clip.take)?.duration ?? 0;
+            const { offset, length } = takeWindow(clip, whole);
+            return `${saidLength(length)} of ${saidLength(whole)}, from ${offset.toFixed(2)}s`;
+          })()}</span>
+          <button class="link-btn" type="button" data-untrim>Use all of it</button>
         </div>`}
 
       ${!(canRecord() && this.kindHere(clip, track) === 'mic') ? '' : `

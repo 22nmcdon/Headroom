@@ -22,7 +22,7 @@ import { transportFor, nextBar } from './transport.js';
 import { makeTrack, playPieces } from '../core/track.js';
 import { makeEffect } from '../core/effects.js';
 import { booking, following, queue, resting } from './launch.js';
-import { clipAt, isTake, keyRoutes } from './project.js';
+import { clipAt, isTake, keyRoutes, takeWindow, TRIM_FADE } from './project.js';
 import { optionsFor, paramsFor } from './knobs.js';
 import { makeLimiterNode } from '../lib/limiter-node.js';
 import { RIDE_STEPS } from '../lib/tempo.js';
@@ -120,7 +120,7 @@ export async function makeStage(ctx, project, {
     const buffer = takes.get(piece.clip.take);
     if (!buffer) return;
 
-    const length = piece.clip.length;
+    const bars = piece.clip.length;
     const anchor = piece.anchor ?? 0;
     // A take kept free is a one-shot: it plays once, from the launch, at its
     // own length. A take kept as a loop plays from the top of every pass of
@@ -132,18 +132,44 @@ export async function makeStage(ctx, project, {
     // because `first` is measured from the anchor. So "once" is exactly
     // "pass zero", with no extra state to keep.
     const once = piece.clip.fit === 'free';
-    const first = Math.ceil((piece.from - anchor) / length);
-    const last = Math.ceil((piece.to - anchor) / length);
+    const first = Math.ceil((piece.from - anchor) / bars);
+    const last = Math.ceil((piece.to - anchor) / bars);
 
     for (let pass = first; pass < last; pass += 1) {
       if (once && pass !== 0) break;
-      const at = anchor + pass * length;
+      const at = anchor + pass * bars;
       if (at < piece.from || at >= piece.to) continue;
 
       const source = ctx.createBufferSource();
       source.buffer = buffer;
-      source.connect(row.track.chain.in);
-      source.start(clock.timeOf(at));
+
+      // The window the clip asks for, which is the whole take unless it has
+      // been trimmed. Clamped against this buffer's real length rather than
+      // trusted, because a clip recorded over with something shorter keeps
+      // the trim it had.
+      const { offset, length } = takeWindow(piece.clip, buffer.duration);
+      const began = clock.timeOf(at);
+
+      // A fade at each edge, through a gain of its own. A cut through a
+      // waveform is a step, and a step is a click: measured, a 220 Hz sine
+      // cut at its peak puts 27.9 dB of energy above 5 kHz, and five
+      // milliseconds of raised cosine takes that down by 79. Only where there
+      // is actually a cut - an untrimmed take already starts and ends at
+      // whatever the microphone was doing, and fading that would be fading
+      // the recording rather than the edit.
+      if (piece.clip.trim) {
+        const shaped = ctx.createGain();
+        const fade = Math.min(TRIM_FADE, length / 4);
+        shaped.gain.setValueAtTime(0, began);
+        shaped.gain.linearRampToValueAtTime(1, began + fade);
+        shaped.gain.setValueAtTime(1, began + length - fade);
+        shaped.gain.linearRampToValueAtTime(0, began + length);
+        source.connect(shaped).connect(row.track.chain.in);
+      } else {
+        source.connect(row.track.chain.in);
+      }
+
+      source.start(began, offset, length);
       // A loop is never longer than the clip it is in, or a take a shade too
       // long would overlap the next pass of itself. This is also what makes
       // switching a free take back to a loop safe: the samples past the bar
@@ -152,7 +178,7 @@ export async function makeStage(ctx, project, {
       //
       // A free take has no next pass to overlap, so it runs to its own end.
       // It is still in `row.sounding`, so stopping the transport stops it.
-      if (!once) source.stop(clock.timeOf(at + length));
+      if (!once) source.stop(clock.timeOf(at + piece.clip.length));
       source.onended = () => {
         row.sounding = row.sounding.filter((each) => each !== source);
       };

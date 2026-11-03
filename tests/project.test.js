@@ -16,7 +16,7 @@ import {
   clipAt, trackAt, sceneOf, sceneHasAnything, barTicks, repeat,
   sceneToMidi, serialise, parse, PROJECT_FORMAT, SCENES, setLength,
   addScene, dropScene, MOST_SCENES, STARTER, setFollow, followOf, MOST_PASSES, keyRoutes,
-  moveInsert, CLIP_KINDS, clipKindOf, setKind,
+  moveInsert, CLIP_KINDS, clipKindOf, setKind, takeWindow, setTrim, TRIM_FADE,
 } from '../src/sketch/project.js';
 import { SAMPLE_ROOT } from '../src/core/instrument.js';
 import { readMidi, PPQ, DRUM_CHANNEL } from '../src/sketch/midi.js';
@@ -739,4 +739,80 @@ test('a kind can be set and unset', () => {
 test('setting a kind on a slot with nothing in it changes nothing', () => {
   const empty = newProject();
   assert.equal(setKind(empty, 0, 1, 'mic'), empty);
+});
+
+/* --- trimming a take ------------------------------------------------------ */
+
+// The thing the waveform was the prerequisite for: a take that opens with
+// four seconds of somebody finding the microphone, cut back to the part worth
+// keeping.
+//
+// Non-destructive, like everything else about a take in this app. The stored
+// recording stays whole and the clip carries a window into it, so a trim can
+// be moved, widened or undone as many times as somebody likes. Baking it into
+// the audio would undo the property that makes the loop-or-free toggle a
+// switch rather than a decision.
+
+test('a clip does not claim a trim until somebody makes one', () => {
+  assert.equal(clipOf({}).trim, null);
+});
+
+test('a trim is two times, in the take\'s own seconds', () => {
+  const made = clipOf({ trim: { from: 1.5, to: 4 } });
+  assert.deepEqual(made.trim, { from: 1.5, to: 4 });
+});
+
+test('a trim that is not one is no trim at all', () => {
+  // Rather than being kept and read as something later: a clip off a disk
+  // written by another version is still a clip.
+  assert.equal(clipOf({ trim: { from: 4, to: 1 } }).trim, null, 'backwards');
+  assert.equal(clipOf({ trim: { from: 2, to: 2 } }).trim, null, 'empty');
+  assert.equal(clipOf({ trim: { from: -1, to: 2 } }).trim, null, 'before the start');
+  assert.equal(clipOf({ trim: 'half' }).trim, null);
+  assert.equal(clipOf({ trim: { from: 0, to: Infinity } }).trim, null);
+});
+
+test('no trim is the whole take', () => {
+  assert.deepEqual(takeWindow(clipOf({}), 8), { offset: 0, length: 8 });
+});
+
+test('a trim is the window the stage plays', () => {
+  const made = clipOf({ trim: { from: 1.5, to: 4 } });
+  assert.deepEqual(takeWindow(made, 8), { offset: 1.5, length: 2.5 });
+});
+
+test('a trim past the end of the take is clamped to it', () => {
+  // Which happens when a take is recorded over with a shorter one and the
+  // trim from the old one is still on the clip.
+  const made = clipOf({ trim: { from: 1, to: 20 } });
+  assert.deepEqual(takeWindow(made, 8), { offset: 1, length: 7 });
+});
+
+test('a trim that begins past the end leaves something rather than nothing', () => {
+  // `source.start` with a zero duration plays nothing and a negative one
+  // throws, and neither is the right answer to a stale trim.
+  const made = clipOf({ trim: { from: 12, to: 20 } });
+  const window = takeWindow(made, 8);
+  assert.ok(window.length > 0, `length came back ${window.length}`);
+  assert.ok(window.offset + window.length <= 8.0001);
+});
+
+test('a trim can be set and taken off', () => {
+  let project = newProject();
+  project = setClip(project, 0, 0, clipOf({ take: 'one' }));
+  project = setTrim(project, 0, 0, { from: 1, to: 3 });
+  assert.deepEqual(clipAt(project, 0, 0).trim, { from: 1, to: 3 });
+
+  project = setTrim(project, 0, 0, null);
+  assert.equal(clipAt(project, 0, 0).trim, null, 'back to the whole take');
+});
+
+test('the fade at each edge is long enough to kill the cut', () => {
+  // Measured rather than chosen: a 220 Hz sine cut at its peak puts 27.9 dB
+  // of energy above 5 kHz, which is the click. A raised-cosine fade over the
+  // edge takes that down by 52 dB at one millisecond, 79 at five and 92 at
+  // ten - monotonic, so the only question is how much of the take to spend.
+  // Five is inaudible as a shortening and 79 dB down is inaudible as a click.
+  assert.ok(TRIM_FADE >= 0.002, 'under about two milliseconds the cut is still audible');
+  assert.ok(TRIM_FADE <= 0.02, 'and past twenty it is eating the take');
 });
