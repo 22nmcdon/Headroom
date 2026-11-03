@@ -9,7 +9,7 @@
 
 import { serve, launch } from '../tests/browser/harness.mjs';
 
-const CHECKS = ['faces', 'inserts', 'chain', 'tracks', 'cells', 'wide', 'shape', 'knobs', 'decks',
+const CHECKS = ['faces', 'inserts', 'chain', 'tracks', 'cells', 'pads', 'wide', 'shape', 'knobs', 'decks',
   'eq-curve', 'restate', 'stereo', 'tone', 'order', 'sampler', 'sides', 'align', 'modulation',
   'match', 'carve', 'depth', 'arrange', 'listen', 'fix', 'ride', 'damage', 'said', 'root', 'turned', 'drills', 'work', 'analysis', 'mic', 'wave'];
 

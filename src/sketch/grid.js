@@ -1690,6 +1690,12 @@ export class SketchPage {
     const bars = Math.max(1, Math.round(clip.length / barTicks(this.project)));
     const beat = PPQ / step;
 
+    // Low to high, which is the reverse of the grid's rows: a column of rows
+    // runs downwards like a stave, and a row of pads runs upwards like a
+    // keyboard. The same pitches either way, so what can be drawn can be
+    // played and the two never disagree about what the track is.
+    const pads = [...rowsFor(track, this.project.key)].reverse();
+
     const rows = rowsFor(track, this.project.key).map((row) => `
       <button class="step-name${row.root ? ' is-root' : ''}" type="button"
               data-row-clear="${row.pitch}" title="Clear ${row.label}">${row.label}</button>
@@ -1765,7 +1771,22 @@ export class SketchPage {
       </details>
 
       ${this.kindHere(clip, track) === 'mic' ? '' : `
-        <div class="steps" style="--cols: ${wide}">${rows}</div>`}
+        <div class="steps" style="--cols: ${wide}">${rows}</div>
+
+        ${!pads.length ? '' : `
+          <div class="editor-row pad-row">
+            <button class="link-btn" type="button" data-arm
+                    aria-pressed="${Boolean(this.arming)}"
+              >${this.arming ? 'Stop recording' : 'Record into this clip'}</button>
+            <span class="fine" data-tap-said>${this.arming
+              ? 'Armed. Press play and tap — every hit lands on the nearest line of the grid.'
+              : 'Tap to hear it, or record and play the part in.'}</span>
+          </div>
+          <div class="pads">
+            ${pads.map((one) => `
+              <button class="pad" type="button" data-pad="${one.pitch}"
+                >${one.label}</button>`).join('')}
+          </div>`}`}
 
       ${!clip.chords ? '' : `
         <p class="fine">Made from “${clip.chords}”. The chords went in as notes and

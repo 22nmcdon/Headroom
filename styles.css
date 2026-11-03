@@ -3340,11 +3340,19 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
 .chord-line::placeholder { color: var(--line); font-style: italic; }
 .chord-said { margin: -4px 0 8px; min-height: 1em; }
 
-/* Three pads, for the part of a sketch that is faster played than drawn. */
+/* Pads, for the part of a sketch that is faster played than drawn. Written
+   for three of them - a kit's kick, snare and hat - and never rendered at
+   all until now. A melodic track has its scale degrees instead, which is more
+   than three, so the row wraps. */
 .pad-row { gap: 8px 12px; }
-.pads { display: flex; gap: 6px; flex: 1 1 auto; }
+.pads {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
 .pad {
-  flex: 1 1 0;
+  flex: 1 1 56px;
   min-width: 56px;
   padding: 10px 6px;
   font-family: var(--sans);
