@@ -37,7 +37,7 @@ test('a new sketch is the starter tracks and four scenes, with nothing in them',
   assert.equal(project.scenes.length, SCENES);
   assert.equal(project.tracks.length, STARTER.length);
   assert.deepEqual(project.tracks.map((t) => t.instrument),
-    ['piano', 'bass', 'kit', 'synth', 'voice']);
+    ['piano', 'bass', 'kit', 'synth', 'mic']);
 
   for (const track of project.tracks) {
     assert.equal(track.slots.length, SCENES, 'one slot per scene');
@@ -633,4 +633,41 @@ test('a sampler track exports its notes rather than being skipped', () => {
   const track = midi.tracks.find((t) => t.name === project.tracks[0].name);
   assert.ok(track, 'the sampler track is missing from the export');
   assert.equal(track.notes.filter((n) => n.pitch === 64).length > 0, true);
+});
+
+/* --- the voice track became the mic track -------------------------------- */
+
+// A microphone does not care what is in front of it. Calling the track
+// "voice" said it was for singing, which is why somebody wanting to record a
+// piano through it had to be told the track was named wrongly rather than
+// shown where to go.
+//
+// The cost of the rename is that `voice` is a SAVED id: every sketch written
+// before it says `instrument: 'voice'`, and an unknown instrument falls back
+// to the synth. So a saved recording track would have opened as a synth that
+// plays nothing anybody put in it, silently. Hence the alias, and hence this.
+
+test('a sketch saved with a voice track opens as a mic track', () => {
+  const old = JSON.stringify({
+    format: PROJECT_FORMAT,
+    name: 'Old', bpm: 96, beats: 4, value: 4,
+    scenes: [{ id: 'scene-1', name: '1' }],
+    tracks: [{ id: 'voice', name: 'Voice', instrument: 'voice', slots: [] }],
+  });
+
+  const back = parse(old);
+  assert.ok(back, 'it still parses');
+  assert.equal(back.tracks[0].instrument, 'mic',
+    'the old id is carried over rather than falling back to the synth');
+});
+
+test('the mic is one of the instruments a track can be, and the voice is not', () => {
+  assert.ok(INSTRUMENT_IDS.includes('mic'));
+  assert.ok(!INSTRUMENT_IDS.includes('voice'), 'there is one name for it, not two');
+});
+
+test('a new sketch opens with somewhere to record', () => {
+  const made = newProject();
+  assert.ok(made.tracks.some((track) => track.instrument === 'mic'),
+    'a sketchpad with nowhere to put a microphone is missing the point of being on a phone');
 });

@@ -30,10 +30,10 @@ export const STARTER = [
   { id: 'bass', name: 'Bass', instrument: 'bass', pan: 0 },
   { id: 'kit', name: 'Kit', instrument: 'kit', pan: 0 },
   { id: 'synth', name: 'Synth', instrument: 'synth', pan: 0.2, gain: 0.6 },
-  // Somewhere to sing. The whole reason a sketchpad is worth having on a
+  // Somewhere to record. The whole reason a sketchpad is worth having on a
   // phone is that an idea arrives when the phone is the only thing to hand,
-  // and a hummed line is not notes.
-  { id: 'voice', name: 'Voice', instrument: 'voice', pan: 0 },
+  // and a hummed line - or a piano, or a guitar - is not notes.
+  { id: 'mic', name: 'Mic', instrument: 'mic', pan: 0 },
 ];
 
 /** What a new sketch opens with. */
@@ -165,6 +165,23 @@ export const sampleOf = ({ take = null, root = SAMPLE_ROOT, hold = false } = {})
 });
 
 /** A track, with its slots. One slot per scene, empty to begin with. */
+/**
+ * Instrument ids that have been renamed, and what they are now.
+ *
+ * A sketch on a disk was written by whatever version of this file saved it,
+ * and `trackOf` falls back to the synth for an instrument it does not know.
+ * So without this, every sketch holding a recording would reopen as a synth
+ * track - silently, because a synth with no notes in it makes no sound and
+ * nothing would look broken until somebody pressed play and heard nothing.
+ */
+export const RENAMED = { voice: 'mic' };
+
+/** An instrument id as it is called now, or the synth if it is nothing. */
+const instrumentNamed = (id) => {
+  const now = RENAMED[id] ?? id;
+  return INSTRUMENT_IDS.includes(now) ? now : 'synth';
+};
+
 export const trackOf = ({
   id,
   name = id,
@@ -180,7 +197,9 @@ export const trackOf = ({
 } = {}) => ({
   id,
   name,
-  instrument: INSTRUMENT_IDS.includes(instrument) ? instrument : 'synth',
+  // Through `RENAMED` first, so a saved sketch keeps the track it had rather
+  // than falling into the synth fallback below.
+  instrument: instrumentNamed(instrument),
   inserts: inserts.filter((effect) => EFFECT_IDS.includes(effect)),
   // What each insert is set to, kept whether or not that insert is on: take
   // a delay off to hear the part dry, put it back, and it is the delay you

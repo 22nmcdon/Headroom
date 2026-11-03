@@ -19,7 +19,7 @@
 // ## The claims
 //
 // That the whole path works, end to end, in the order a person does it:
-// the button is offered on a voice track and nowhere else, pressing it
+// the button is offered where recording belongs, pressing it
 // records, pressing it again keeps what arrived, the recording reaches the
 // store at the length it claims, it is not silence, and the grid says it is
 // there.
@@ -35,10 +35,10 @@
 
 import { open } from './harness.mjs';
 
-export const name = 'voice';
+export const name = 'mic';
 
-/** Which track in the starter project is the voice one, and a note one. */
-const VOICE = 4;
+/** Which track in the starter project is the mic one, and a note one. */
+const MIC = 4;
 const PIANO = 0;
 
 /** How long to hold the button down for. Long enough to be several bars. */
@@ -48,6 +48,52 @@ export async function check({ browser, at, say }) {
   const problems = [];
   const { page, noise } = await open(browser, at, { view: 'sketch', height: 1100 });
   await page.waitForTimeout(500);
+
+  /* --- a sketch saved before the rename still opens --------------------- */
+
+  // `voice` was a saved instrument id, and `trackOf` falls back to the synth
+  // for an id it does not know. Without the alias, every sketch holding a
+  // recording would reopen as a synth track - and a synth with no notes in it
+  // makes no sound, so nothing would look broken until somebody pressed play
+  // and heard nothing where their singing used to be.
+  //
+  // Held here rather than only in a unit test because what matters is the
+  // whole path: written to storage as the old version wrote it, read back
+  // through the app's own loader, and shown on the grid.
+  const migrated = await page.evaluate(async () => {
+    const { PROJECT_FORMAT } = await import('./src/sketch/project.js');
+    const { loadSketch, SKETCH_KEY } = await import('./src/sketch/store.js');
+
+    const old = {
+      format: PROJECT_FORMAT,
+      name: 'Before the rename', bpm: 96, beats: 4, value: 4,
+      scenes: [{ id: 'scene-1', name: '1' }],
+      tracks: [
+        { id: 'piano', name: 'Piano', instrument: 'piano', slots: [] },
+        { id: 'voice', name: 'Voice', instrument: 'voice', slots: [] },
+      ],
+    };
+    // Written to the real key the way the old version wrote it, then read
+    // back by this one's own loader.
+    try { localStorage.setItem(SKETCH_KEY, JSON.stringify(old)); } catch { return { none: true }; }
+    const back = loadSketch();
+    return back ? { instruments: back.tracks.map((t) => t.instrument) } : { none: true };
+  });
+
+  if (migrated.none) {
+    say('  (a saved sketch could not be read back; the alias is held in the unit tests)');
+  } else {
+    say(`  a sketch saved as "voice" reopens as: ${migrated.instruments.join(', ')}`);
+    if (migrated.instruments.includes('voice')) {
+      problems.push('a sketch saved before the rename still reports a "voice" track,'
+        + ' so two names for one thing are now in circulation');
+    }
+    if (!migrated.instruments.includes('mic')) {
+      problems.push(`a sketch saved with a voice track reopened as`
+        + ` ${migrated.instruments.join(', ')} - the recording track fell back to`
+        + ' something else and anything recorded into it plays nothing');
+    }
+  }
 
   const able = await page.evaluate(async () => {
     const { canRecord } = await import('./src/sketch/record.js');
@@ -83,7 +129,7 @@ export async function check({ browser, at, say }) {
 
   await page.click('[data-back]').catch(() => {});
   await page.waitForTimeout(300);
-  await page.click(`[data-cell="${VOICE}:0"]`);
+  await page.click(`[data-cell="${MIC}:0"]`);
   await page.waitForTimeout(500);
 
   const before = await page.evaluate(() => {
@@ -94,9 +140,9 @@ export async function check({ browser, at, say }) {
       pressed: mic?.getAttribute('aria-pressed') ?? null,
     };
   });
-  say(`a voice clip offers it: ${before.there} — "${before.says}"`);
+  say(`a mic clip offers it: ${before.there} — "${before.says}"`);
   if (!before.there) {
-    problems.push('a voice clip offers no record button, which is the one place it belongs');
+    problems.push('a mic clip offers no record button, which is the one place it belongs');
     problems.push(...noise);
     await page.close();
     return problems;
@@ -307,7 +353,7 @@ export async function check({ browser, at, say }) {
 
       let project = newProject({ bpm: BPM });
       project.tracks.forEach((_, i) => { if (i > 0) project = setTrack(project, i, { muted: true }); });
-      project = setTrack(project, 0, { instrument: 'voice' });
+      project = setTrack(project, 0, { instrument: 'mic' });
       project = setClip(project, 0, 0, {
         take: 'one', notes: [], fit, length: barTicks(project),
       });

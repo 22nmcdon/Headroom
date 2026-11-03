@@ -457,7 +457,7 @@ export function makeKit(ctx) {
 export function makeSilence(ctx) {
   const out = ctx.createGain();
   return {
-    id: 'voice',
+    id: 'mic',
     out,
     get voices() { return 0; },
     noteOn: () => null,
@@ -640,7 +640,7 @@ export const INSTRUMENTS = {
   kit: makeKit,
   synth: makeSynth,
   sampler: makeSampler,
-  voice: makeSilence,
+  mic: makeSilence,
 };
 
 /** The ones that make a sound when handed a note. */
@@ -651,10 +651,10 @@ export const INSTRUMENT_IDS = Object.keys(INSTRUMENTS);
  * Which General MIDI program each one is nearest, for export.
  *
  * The kit is null because it goes on channel 10, where the channel is the
- * instrument. The voice is null because it has no notes to export at all.
+ * instrument. The mic is null because it has no notes to export at all.
  */
 export const GM_PROGRAM = {
-  piano: 0, bass: 33, synth: 81, kit: null, voice: null,
+  piano: 0, bass: 33, synth: 81, kit: null, mic: null,
   // A sample can be anything, so there is no nearest program for it - but it
   // does play notes, and a part exported with no program at all is a part the
   // receiving instrument chooses for you. Piano is the General MIDI default
@@ -663,10 +663,22 @@ export const GM_PROGRAM = {
 };
 
 /** The ones a step grid or a chord line means anything on. */
-export const NOTED = INSTRUMENT_IDS.filter((id) => id !== 'voice');
+export const NOTED = INSTRUMENT_IDS.filter((id) => id !== 'mic');
 
-/** Whether a track is somewhere recordings go rather than somewhere notes do. */
-export const isVoice = (instrument) => instrument === 'voice';
+/**
+ * Whether a track's own default is a recording rather than notes.
+ *
+ * Named for the microphone and not for a voice, because a microphone does
+ * not care what is in front of it. "Voice" said the track was for singing,
+ * which sent anybody wanting to record a piano looking for a track that does
+ * not exist - and the answer was always this one.
+ *
+ * It is a default and not a rule. The engine plays a recording on any track
+ * at all: `bookTake` wires the buffer into the track's chain and never looks
+ * at the instrument, which is measured in `tests/browser/mic.mjs`. So this
+ * decides what pressing record on an empty slot does, and nothing else.
+ */
+export const isMic = (instrument) => instrument === 'mic';
 
 export function makeInstrument(ctx, id, options = {}) {
   const make = INSTRUMENTS[id];

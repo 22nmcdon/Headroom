@@ -14,7 +14,7 @@ import assert from 'node:assert/strict';
 import { makeClip, notesIn } from '../src/core/track.js';
 import { PPQ } from '../src/sketch/midi.js';
 import {
-  GM_DRUMS, pieceFor, INSTRUMENT_IDS, GM_PROGRAM, MOST_VOICES, NOTED, isVoice,
+  GM_DRUMS, pieceFor, INSTRUMENT_IDS, GM_PROGRAM, MOST_VOICES, NOTED, isMic,
 } from '../src/core/instrument.js';
 
 const BAR = PPQ * 4;
@@ -131,9 +131,9 @@ test('every starter instrument says which General MIDI sound it is', () => {
   }
 
   // The kit is null because it goes on channel 10, where the channel is the
-  // instrument; the voice is null because it has no notes to export at all.
+  // instrument; the mic is null because it has no notes to export at all.
   assert.equal(GM_PROGRAM.kit, null);
-  assert.equal(GM_PROGRAM.voice, null);
+  assert.equal(GM_PROGRAM.mic, null);
 
   // The pitched ones - everything that plays notes and is not the kit.
   for (const id of NOTED.filter((each) => each !== 'kit')) {
@@ -172,14 +172,18 @@ test('an anchored clip comes back with the tick it really sounds at', () => {
   assert.equal(note.at, BAR * 5 + PPQ);
 });
 
-test('the voice is an instrument that plays nothing', () => {
+test('the mic is an instrument that plays nothing', () => {
   // A track with no instrument would be a branch in the chain, the fader,
   // the pan, the send and the stem. An instrument that makes no sound is a
   // branch in none of them.
-  assert.ok(INSTRUMENT_IDS.includes('voice'));
-  assert.ok(isVoice('voice'));
-  assert.ok(!isVoice('piano'));
-  assert.ok(!NOTED.includes('voice'), 'a step grid on a voice track means nothing');
+  //
+  // Named for the microphone rather than for a voice, because a microphone
+  // does not care what is in front of it - and "voice" sent anybody wanting
+  // to record a piano looking for a track that does not exist.
+  assert.ok(INSTRUMENT_IDS.includes('mic'));
+  assert.ok(isMic('mic'));
+  assert.ok(!isMic('piano'));
+  assert.ok(!NOTED.includes('mic'), 'a step grid on a mic track means nothing');
   // The sampler is noted: a recording played back at a pitch is a part with
   // notes in it, which is the whole of what it is for.
   assert.deepEqual(NOTED, ['piano', 'bass', 'kit', 'synth', 'sampler']);

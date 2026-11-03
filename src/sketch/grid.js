@@ -71,7 +71,7 @@ const SAMPLE_NOTES = Array.from({ length: 61 }, (_, i) => i + 30);
 import { KIT_ROWS } from './steps.js';
 import { makeStage } from './stage.js';
 import { zipStems } from './stems.js';
-import { INSTRUMENT_IDS, isVoice } from '../core/instrument.js';
+import { INSTRUMENT_IDS, isMic } from '../core/instrument.js';
 import { rootOf, rootSaid } from '../lib/root.js';
 import { EFFECT_IDS } from '../core/effects.js';
 import { PPQ } from './midi.js';
@@ -1355,7 +1355,7 @@ export class SketchPage {
     const bars = Math.max(1, Math.round(clip.length / barTicks(this.project)));
     const parts = [];
 
-    if (!isVoice(track.instrument) && !isTake(clip)) {
+    if (!isMic(track.instrument) && !isTake(clip)) {
       parts.push(bars === 1 ? '1 bar' : `${bars} bars`);
       parts.push(divisionOf(clip.division).label);
     }
@@ -1367,7 +1367,7 @@ export class SketchPage {
       : isTake(clip) && clip.fit === 'free' ? 'plays once'
         : 'loops');
 
-    if (!isVoice(track.instrument) && track.instrument !== 'kit') {
+    if (!isMic(track.instrument) && track.instrument !== 'kit') {
       parts.push(`${ROOT_NAMES[this.project.key.root]} ${SCALES[this.project.key.scale].label.toLowerCase()}`);
     }
 
@@ -1408,7 +1408,7 @@ export class SketchPage {
       <details class="clip-setup"${this.setupOpen ? ' open' : ''} data-setup>
         <summary class="clip-sums">${this.setupSays(clip, track)}</summary>
 
-        ${isVoice(track.instrument) || isTake(clip) ? '' : `
+        ${isMic(track.instrument) || isTake(clip) ? '' : `
         <div class="editor-row">
           <span class="editor-label">Bars</span>
           <span class="chips">
@@ -1448,7 +1448,7 @@ export class SketchPage {
           </span>
         </div>`}
 
-        ${isVoice(track.instrument) || track.instrument === 'kit' ? '' : `
+        ${isMic(track.instrument) || track.instrument === 'kit' ? '' : `
         <div class="editor-row">
           <span class="editor-label">Rows</span>
           <span class="chips">
@@ -1463,7 +1463,7 @@ export class SketchPage {
         </div>`}
       </details>
 
-      ${isVoice(track.instrument) ? '' : isTake(clip) ? `
+      ${isMic(track.instrument) ? '' : isTake(clip) ? `
         <p class="take-note">A recording, ${bars === 1 ? 'a bar' : `${bars} bars`} long.
         There is nothing to draw on it — take it out and the slot is a clip of notes again.</p>
       ` : `<div class="steps" style="--cols: ${wide}">${rows}</div>`}
@@ -1477,7 +1477,7 @@ export class SketchPage {
           <canvas data-wave aria-label="The shape of this recording"></canvas>
         </div>`}
 
-      ${!(isTake(clip) || (canRecord() && isVoice(track.instrument))) ? '' : `
+      ${!(isTake(clip) || (canRecord() && isMic(track.instrument))) ? '' : `
         <div class="editor-row">
           <span class="editor-label">Keep it</span>
           <span class="chips">
@@ -1492,7 +1492,7 @@ export class SketchPage {
 
       <div class="editor-row editor-outs">
         <button class="link-btn" type="button" data-clear>Clear the notes</button>
-        ${canRecord() && isVoice(track.instrument) ? `
+        ${canRecord() && isMic(track.instrument) ? `
           <button class="link-btn" type="button" data-mic aria-pressed="${this.recording}">
             ${this.recording ? 'Stop recording'
               : isTake(clip) ? 'Record over it' : 'Record into this clip'}</button>` : ''}
