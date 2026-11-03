@@ -2781,6 +2781,56 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
   height: 100%;
 }
 
+/* The input meter. Three states rather than a gradient: a colour that slides
+   continuously says where you are, and the only thing this meter is for is
+   whether you are in trouble. */
+.rec-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+.rec-clock { font-family: var(--mono); font-size: 18px; color: var(--text); }
+.rec-clock small { font-size: 10px; color: var(--text-soft); }
+.in-read { font-family: var(--mono); font-size: 11px; color: var(--text-soft); }
+.in-read[data-how="hot"]  { color: var(--gold); }
+.in-read[data-how="over"] { color: var(--rust); }
+
+.in-meter {
+  position: relative;
+  height: 16px;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  background: var(--cream-2);
+  overflow: hidden;
+}
+.in-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0;
+  display: block;
+  background: var(--sage);
+}
+.in-fill[data-how="hot"]  { background: var(--gold); }
+.in-fill[data-how="over"] { background: var(--rust); }
+.in-hold {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--charcoal);
+}
+.in-scale {
+  display: flex;
+  justify-content: space-between;
+  margin: 3px 0 12px;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  color: var(--text-soft);
+}
+
 .editor-label {
   font-size: 10px;
   text-transform: uppercase;

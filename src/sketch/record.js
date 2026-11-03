@@ -25,11 +25,29 @@ const CAPTURE_PROCESSOR = `class HeadroomCapture extends AudioWorkletProcessor {
 
   process(inputs) {
     const input = inputs[0];
-    if (!this.on || !input || !input.length || !input[0]) return true;
-    // A copy, because the block is reused the moment this returns.
+    if (!input || !input.length || !input[0]) return true;
+
+    // The peak of this block, worked out here rather than on the other side,
+    // so that a meter can run without the blocks themselves being shipped and
+    // kept. Posted whether or not a take is being kept: a level is most use
+    // BEFORE somebody commits to a take, and a meter that only appears once
+    // recording has started is a meter that tells you what you have already
+    // lost.
+    let peak = 0;
+    for (const channel of input) {
+      for (let i = 0; i < channel.length; i += 1) {
+        const v = channel[i] < 0 ? -channel[i] : channel[i];
+        if (v > peak) peak = v;
+      }
+    }
+
     this.port.postMessage({
       at: currentTime,
-      block: input.map((channel) => channel.slice()),
+      peak,
+      // A copy, because the block is reused the moment this returns - and
+      // only while it is wanted, because copying 375 blocks a second into a
+      // message nobody keeps is the one part of this that is not free.
+      block: this.on ? input.map((channel) => channel.slice()) : null,
     });
     return true;
   }
@@ -185,6 +203,35 @@ export function loudestIn(channels) {
 /** Under this and nothing was plugged in, or nothing was played. */
 export const SILENCE = 0.002;
 
+/**
+ * How many samples a take put at or over the ceiling.
+ *
+ * The number nobody could see. `autoGainControl` is asked for and switched
+ * off on purpose - a sketch wants what was played, not what a phone thinks a
+ * voice on a call sounds like - so the level is entirely whatever the
+ * hardware hands over, and nothing reported it either during a take or after.
+ *
+ * Measured, on the writer this app actually has: `wav.js` writes 24-bit and
+ * `quantise` clamps to plus or minus one, while Web Audio's Float32 exceeds
+ * it freely. An input peaking at 1.13 - which is exactly what Chromium's own
+ * fake microphone hands back - loses 31% of its samples to that clamp, each
+ * one flattened, with nothing said about it.
+ *
+ * At or over, not merely over: a real signal essentially never lands on 1.0
+ * by accident, so a sample sitting precisely there is one that something
+ * upstream has already clipped.
+ */
+export function oversIn(channels, ceiling = 1) {
+  if (!Array.isArray(channels)) return 0;
+  let over = 0;
+  for (const channel of channels) {
+    for (let i = 0; i < (channel?.length ?? 0); i += 1) {
+      if (Math.abs(channel[i]) >= ceiling) over += 1;
+    }
+  }
+  return over;
+}
+
 /* --- the live part ------------------------------------------------------- */
 
 /**
@@ -202,9 +249,24 @@ export class Recorder {
     this.source = null;
     this.blocks = [];
     this.taking = false;
+    // What the input is doing right now, what the loudest thing it has done
+    // was, and how many blocks of it came back at or over the ceiling. The
+    // hold is what a peak meter is for: a transient is one block long and a
+    // bar that followed it exactly would flash past too fast to read.
+    this.peak = 0;
+    this.held = 0;
+    this.overs = 0;
+    /** Called on every block, so a face can draw what is arriving. */
+    this.onLevel = null;
   }
 
   get open() { return Boolean(this.node); }
+
+  /** Forget the hold and the count, for a fresh take or a fresh look. */
+  resetPeak() {
+    this.held = 0;
+    this.overs = 0;
+  }
 
   /** Ask for the microphone. Returns null when it is refused or absent. */
   async ask() {
@@ -235,7 +297,15 @@ export class Recorder {
       channelCountMode: 'explicit',
     });
     this.node.port.onmessage = (event) => {
-      if (this.taking) this.blocks.push(event.data.block);
+      const { peak = 0, block = null } = event.data ?? {};
+
+      // What the meter reads, kept whether or not a take is running.
+      this.peak = peak;
+      if (peak > this.held) this.held = peak;
+      if (peak >= 1) this.overs += 1;
+      this.onLevel?.(this);
+
+      if (this.taking && block) this.blocks.push(block);
     };
 
     this.source = this.ctx.createMediaStreamSource(this.stream);
@@ -256,6 +326,7 @@ export class Recorder {
   start() {
     if (!this.node) return false;
     this.blocks = [];
+    this.resetPeak();
     this.taking = true;
     this.node.port.postMessage({ on: true });
     this.startedAt = this.ctx.currentTime;

@@ -52,9 +52,10 @@ import { VerbPlugin } from '../plugins/reverb/plugin.js';
 import { tapInto, drift, timing } from './tap.js';
 import { waveOf, rescaleWave, WAVE_COLUMNS } from '../lib/wave.js';
 import { readyCanvas, watchSize } from '../lib/panel.js';
+import { peakAt, fallenTo, clockOf, PEAK_FLOOR, PEAK_HOT } from '../lib/meter.js';
 import {
   Recorder, canRecord, barsFor, fitTo, loudestIn, SILENCE,
-  ticksFor, freeSeconds, MOST_SECONDS, saidLength, barSeconds,
+  ticksFor, freeSeconds, MOST_SECONDS, saidLength, barSeconds, oversIn,
 } from './record.js';
 import {
   takeId, putTake, loadTake, dropTake, sweepTakes,
@@ -850,6 +851,8 @@ export class SketchPage {
     if (this.recording) {
       const got = this.mic?.stop();
       this.recording = false;
+      this.recordingFrom = null;
+      this.watchLevel(false);
       clearTimeout(this.capping);
       this.capping = null;
 
@@ -900,13 +903,25 @@ export class SketchPage {
         ...(was ?? {}), take: id, notes: [], chords: '', fit, length, kind: 'mic',
       }));
 
+      // What it did to the ceiling, which is the one thing about a take that
+      // cannot be undone. 24-bit storage clamps at full scale and Web Audio's
+      // floats do not, so a hot input arrives already flattened - and until
+      // the meter existed there was nothing anywhere that said so.
+      const over = oversIn(channels);
+      const peak = loudestIn(channels);
+      const peakDb = peak > 0 ? 20 * Math.log10(peak) : -Infinity;
+      const ceiling = over
+        ? ` ${over} sample${over === 1 ? '' : 's'} came back at or over the ceiling`
+          + ' and were flattened — turn the input down and go again.'
+        : ` Peak ${peakDb > -0.05 ? '0.0' : peakDb.toFixed(1)} dB.`;
+
       const how = fit === 'free'
         ? `${saidLength(seconds)} recorded, kept whole and playing once`
         : `${bars === 1 ? 'A bar' : `${bars} bars`} recorded, looping`;
       this.tell(kept
-        ? `${how}, and kept in this browser.`
+        ? `${how}, and kept in this browser.${ceiling}`
         : `${how} — but this browser would not store it, so it will be gone on a `
-          + 'reload. Export the stems to keep it.');
+          + `reload. Export the stems to keep it.${ceiling}`);
       return;
     }
 
@@ -921,8 +936,12 @@ export class SketchPage {
     }
 
     this.mic.start();
+    this.meterShown = PEAK_FLOOR;
+    this.meterAt = 0;
     this.recording = true;
+    this.recordingFrom = Date.now();
     this.draw();
+    this.watchLevel(true);
 
     // Stopped rather than trimmed. The cap is storage - ten minutes of a
     // mono 24-bit take is 82 MB in IndexedDB - and the honest way to enforce
@@ -1246,6 +1265,95 @@ export class SketchPage {
     c.fillRect(0, mid - 0.5, width, 1);
   }
 
+  /**
+   * The input meter, painted from what the recorder last heard.
+   *
+   * Written straight to the elements rather than through `draw`, because the
+   * panel is rebuilt from a string and a meter that rebuilt its own markup
+   * sixty times a second would be a panel nobody could press a button on.
+   *
+   * Paced by animation frames rather than by blocks. The worklet hands over
+   * 375 of those a second at 48 kHz, and a bar cannot be seen to move more
+   * often than the screen draws.
+   */
+  paintMeter() {
+    const mic = this.mic;
+    const fill = this.parts.editor.querySelector('[data-meter-fill]');
+    if (!fill || !mic) return;
+
+    const hold = this.parts.editor.querySelector('[data-meter-hold]');
+    const read = this.parts.editor.querySelector('[data-meter-read]');
+
+    const db = (amp) => (amp > 0 ? 20 * Math.log10(amp) : -Infinity);
+    const worst = db(mic.held);
+
+    // Up instantly, down at a fixed rate. Without the fall the bar follows
+    // the per-block peak exactly, and anything with gaps in it - a word, a
+    // plucked note, a beep - drives that to nothing between transients, so
+    // the bar reads as no signal at almost every frame it is looked at.
+    const at = performance.now();
+    const since = this.meterAt ? (at - this.meterAt) / 1000 : 0;
+    this.meterAt = at;
+    this.meterShown = fallenTo(db(mic.peak), this.meterShown ?? PEAK_FLOOR, since);
+    const now = this.meterShown;
+
+    fill.style.width = `${peakAt(now) * 100}%`;
+    // Three states rather than a gradient: under, close, and over. A colour
+    // that slides continuously tells you where you are and not whether you
+    // are in trouble, which is the only thing this meter is for.
+    fill.dataset.how = mic.overs || worst >= 0 ? 'over'
+      : now >= PEAK_HOT ? 'hot' : 'fine';
+
+    if (hold) {
+      const at = peakAt(worst);
+      hold.hidden = !(mic.held > 0);
+      hold.style.left = `${at * 100}%`;
+    }
+
+    if (read) {
+      read.textContent = mic.held <= 0
+        ? 'nothing in yet'
+        : `peak ${worst > -0.05 ? '0.0' : worst.toFixed(1)} dB`
+          + (mic.overs ? ` · ${mic.overs} over` : '');
+      read.dataset.how = mic.overs ? 'over' : worst >= PEAK_HOT ? 'hot' : 'fine';
+    }
+  }
+
+  /** The take's clock, while one is running. */
+  paintClock() {
+    const clock = this.parts.editor.querySelector('[data-rec-clock]');
+    if (!clock) return;
+    const was = clock.querySelector('small')?.outerHTML ?? '';
+    const run = this.recording && this.recordingFrom
+      ? clockOf((Date.now() - this.recordingFrom) / 1000)
+      : '—';
+    clock.innerHTML = `${run}${was}`;
+  }
+
+  /**
+   * Keep the meter moving while the microphone is open.
+   *
+   * Its own frame loop rather than the transport's, because an input level is
+   * worth watching when nothing is playing - which is most of the time
+   * somebody spends setting one.
+   */
+  watchLevel(on) {
+    if (on && !this.levelFrame) {
+      const step = () => {
+        if (!this.mic?.open) { this.levelFrame = null; return; }
+        this.paintMeter();
+        this.paintClock();
+        this.levelFrame = requestAnimationFrame(step);
+      };
+      this.levelFrame = requestAnimationFrame(step);
+      return;
+    }
+    if (!on && this.levelFrame) {
+      cancelAnimationFrame(this.levelFrame);
+      this.levelFrame = null;
+    }
+  }
+
   drawPanel() {
     const kind = this.open?.kind ?? 'none';
 
@@ -1445,11 +1553,16 @@ export class SketchPage {
     }
 
     // A free take does not loop, so saying "loops" about one is the summary
-    // contradicting the toggle three rows above it.
-    parts.push(clip.follow
+    // contradicting the toggle three rows above it. Read through `fitOf`
+    // rather than off the take, because a mic clip with nothing in it yet
+    // still has a choice showing - and summarising it as "loops" while the
+    // chip beside it reads "at its length" is the same contradiction one step
+    // earlier.
+    const loops = clip.follow
       ? `${clip.follow.after}× then ${FOLLOW_SAYS[clip.follow.then]}`
-      : isTake(clip) && clip.fit === 'free' ? 'plays once'
-        : 'loops');
+      : this.kindHere(clip, track) === 'mic' && this.fitOf(clip) === 'free' ? 'plays once'
+        : 'loops';
+    parts.push(loops);
 
     if (this.kindHere(clip, track) === 'notes' && track.instrument !== 'kit') {
       parts.push(`${ROOT_NAMES[this.project.key.root]} ${SCALES[this.project.key.scale].label.toLowerCase()}`);
@@ -1557,6 +1670,20 @@ export class SketchPage {
       ${!isTake(clip) ? '' : `
         <div class="clip-wave">
           <canvas data-wave aria-label="The shape of this recording"></canvas>
+        </div>`}
+
+      ${!(canRecord() && this.kindHere(clip, track) === 'mic') ? '' : `
+        <div class="rec-head">
+          <span class="rec-clock" data-rec-clock>${this.recording ? '0:00' : '—'}<small> / ${clockOf(MOST_SECONDS)}</small></span>
+          <span class="in-read" data-meter-read>nothing in yet</span>
+        </div>
+        <div class="in-meter" data-meter>
+          <i class="in-fill" data-meter-fill></i>
+          <span class="in-hold" data-meter-hold hidden></span>
+        </div>
+        <div class="in-scale">
+          ${[PEAK_FLOOR, PEAK_FLOOR * 0.75, PEAK_FLOOR * 0.5, PEAK_FLOOR * 0.25, 0]
+            .map((db) => `<span>${Math.round(db)}</span>`).join('')}
         </div>`}
 
       ${!(isTake(clip) || (canRecord() && this.kindHere(clip, track) === 'mic')) ? '' : `
@@ -2086,6 +2213,7 @@ export class SketchPage {
 
   destroy() {
     this.watch(false);
+    this.watchLevel(false);
     this.unwatchWave?.();
     this.unwatchWave = null;
     this.closePlugin();

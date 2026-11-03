@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 
 import {
   barsFor, barSeconds, fitTo, joinBlocks, loudestIn, MOST_BARS, SILENCE, canRecord,
-  freeSeconds, ticksFor, MOST_SECONDS, saidLength,
+  freeSeconds, ticksFor, MOST_SECONDS, saidLength, oversIn,
 } from '../src/sketch/record.js';
 import { PPQ } from '../src/sketch/midi.js';
 
@@ -160,4 +160,46 @@ test('a free take says its length the way a person would', () => {
   assert.equal(saidLength(MOST_SECONDS), '10 minutes');
   assert.equal(saidLength(0), '0 seconds');
   assert.equal(saidLength(-5), '0 seconds', 'never a negative length out loud');
+});
+
+/* --- what a take did to the ceiling -------------------------------------- */
+
+// The thing you cannot currently see, and the reason a take comes back
+// ruined. `autoGainControl` is asked for and switched off on purpose, so the
+// level is entirely whatever the hardware hands over - and nothing showed it,
+// during or after.
+//
+// Measured, on the writer this app actually has: `wav.js` writes 24-bit and
+// `quantise` clamps to plus or minus one, while Web Audio's Float32 exceeds
+// it freely. An input peaking at 1.13 - which is what Chromium's own fake
+// microphone hands back - loses 31% of its samples to that clamp, flattened,
+// with nothing said.
+
+test('overs are the samples the writer will flatten', () => {
+  assert.equal(oversIn([Float32Array.from([0, 0.5, -0.9])]), 0);
+  assert.equal(oversIn([Float32Array.from([1.2, 0.5, -1.4])]), 2);
+  // Exactly full scale counts. A real signal essentially never lands on 1.0
+  // by accident, so a sample sitting precisely there is one something
+  // upstream has already clipped.
+  assert.equal(oversIn([Float32Array.from([1, -1, 0.99])]), 2);
+});
+
+test('every channel is counted, not just the first', () => {
+  const quiet = new Float32Array(4);
+  const hot = Float32Array.from([1.5, 0, 0, 1.5]);
+  assert.equal(oversIn([quiet, hot]), 2);
+});
+
+test('nothing to count is nothing, not a throw', () => {
+  assert.equal(oversIn([]), 0);
+  assert.equal(oversIn(null), 0);
+  assert.equal(oversIn([new Float32Array(0)]), 0);
+});
+
+test('a ceiling below full scale can be asked about', () => {
+  // For "how close did it get", which is a different question from "did it
+  // break", and the one somebody setting a level is actually asking.
+  const near = Float32Array.from([0.9, 0.5, 0.95]);
+  assert.equal(oversIn([near], 0.89), 2, 'the two loud ones, not the quiet one as well');
+  assert.equal(oversIn([near], 0.94), 1);
 });

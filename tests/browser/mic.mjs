@@ -169,6 +169,62 @@ export async function check({ browser, at, say }) {
     problems.push(`while recording the button says "${during.says}" rather than offering a stop`);
   }
 
+  // The meter, while a take is running. The one thing nobody could see: the
+  // level is entirely the hardware's, because `autoGainControl` is switched
+  // off on purpose, and nothing reported it either during or after.
+  await page.waitForTimeout(1200);
+  const meter = await page.evaluate(() => {
+    const fill = document.querySelector('[data-meter-fill]');
+    const hold = document.querySelector('[data-meter-hold]');
+    const read = document.querySelector('[data-meter-read]');
+    const clock = document.querySelector('[data-rec-clock]');
+    return {
+      there: !!fill,
+      wide: fill ? parseFloat(fill.style.width) : null,
+      how: fill?.dataset.how ?? null,
+      holdAt: hold && !hold.hidden ? parseFloat(hold.style.left) : null,
+      read: read?.textContent.trim() ?? '',
+      clock: clock?.innerText.replace(/\n+/g, ' ').trim() ?? '',
+    };
+  });
+
+  say(`  the meter: ${meter.wide}% wide, ${meter.how}, hold at ${meter.holdAt}%`);
+  say(`  it reads "${meter.read}", the clock "${meter.clock}"`);
+
+  if (!meter.there) {
+    problems.push('a take is running and there is no input meter on the panel - the level'
+      + ' is the hardware\'s alone, so not showing it is not showing anything');
+  } else {
+    if (!(meter.wide > 0)) {
+      problems.push(`the meter is ${meter.wide}% wide while a signal is arriving, so it is`
+        + ' on the page and not reading anything');
+    }
+    if (!(meter.holdAt > 0)) {
+      problems.push('the meter shows no peak hold - a transient is one block long and a bar'
+        + ' that followed it exactly would flash past too fast to read');
+    }
+    // Chromium's fake microphone peaks at 1.13, measured. So this input is
+    // over the ceiling, and a meter that called it fine would be a meter
+    // agreeing with a take that has already lost samples.
+    // Chromium's fake microphone peaks at 1.13, measured, so this input is
+    // over the ceiling. Asserted on the latched state rather than on the
+    // instantaneous colour, because catching the frame a beep lands on is a
+    // race and a check that depends on one is a check that fails for reasons
+    // nobody can read.
+    if (meter.how !== 'over') {
+      problems.push(`the meter calls this input "${meter.how}" after it has already gone`
+        + ' over - an over is not something a take recovers from, so the warning for it'
+        + ' has to stay up');
+    }
+    if (!/peak/.test(meter.read)) {
+      problems.push(`the readout says "${meter.read}" rather than what the peak was`);
+    }
+    if (!/^\d+:\d\d\b/.test(meter.clock)) {
+      problems.push(`the clock reads "${meter.clock}" while a take is running, rather than`
+        + ' counting - a number that changes every second wants a shape that does not');
+    }
+  }
+
   await page.waitForTimeout(SINGING);
   await page.click('[data-mic]');
   await page.waitForTimeout(1600);
@@ -189,6 +245,13 @@ export async function check({ browser, at, say }) {
   }
   if (!/recorded/i.test(after.told)) {
     problems.push(`after stopping, the panel says "${after.told}" rather than what it kept`);
+  }
+  // And the part that cannot be undone, said once the take is over. The fake
+  // device is over the ceiling, so this take really has lost samples.
+  if (!/over the ceiling|flattened|Peak /.test(after.told)) {
+    problems.push(`after stopping, the panel says "${after.told}" and nothing about what the`
+      + ' take did to the ceiling - 24-bit storage clamps at full scale and a hot take'
+      + ' arrives already flattened');
   }
 
   /* --- what reached the project, and the store --------------------------- */
