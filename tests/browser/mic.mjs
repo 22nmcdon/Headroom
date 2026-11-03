@@ -479,6 +479,66 @@ export async function check({ browser, at, say }) {
     }
   }
 
+  /* --- what the browser gave, and whether it did as it was asked ---------- */
+
+  // The app asks for no gain control, no noise suppression and no echo
+  // cancellation, and until now never looked at whether it got any of that.
+  // A browser is free to ignore all three, and gain control riding up during
+  // the quiet parts is exactly what lifts a microphone's noise floor into
+  // audibility - so asking for it off and then not checking is how somebody
+  // ends up recording into the very thing they switched off.
+  const gave = await page.evaluate(async () => {
+    const { overriddenIn, WANTED } = await import('./src/sketch/record.js');
+    const rows = {};
+    for (const node of document.querySelectorAll('.rec-about dt')) {
+      rows[node.textContent.trim()] = node.nextElementSibling?.textContent.trim() ?? '';
+    }
+    return {
+      rows,
+      warned: !!document.querySelector('.rec-about dd.warn'),
+      picker: !!document.querySelector('[data-input]'),
+      inputs: [...document.querySelectorAll('[data-input] option')].map((o) => o.textContent.trim()),
+      // What the page's own reading of the stream says, to compare against.
+      asked: WANTED,
+      over: overriddenIn({ autoGainControl: true }),
+    };
+  });
+
+  say(`\n  what the browser handed over`);
+  for (const [name, value] of Object.entries(gave.rows)) say(`    ${name.padEnd(12)} ${value}`);
+  say(`    picker ${gave.picker}${gave.inputs.length ? `: ${gave.inputs.join(' · ')}` : ''}`);
+
+  if (!gave.rows.Giving) {
+    problems.push('the panel never says what the browser handed over - a request for no gain'
+      + ' control is only a request, and the sample rate and channel count are the other two'
+      + ' things nobody can otherwise see');
+  } else if (!/kHz|does not say/.test(gave.rows.Giving)) {
+    problems.push(`the panel reports the input as "${gave.rows.Giving}"`);
+  }
+
+  if (!gave.rows.Processing) {
+    problems.push('the panel never says whether the processing it asked to be switched off'
+      + ' actually was - which is the row that matters and the one nobody thinks to check');
+  } else if (!/off, as asked|ignored the request/.test(gave.rows.Processing)) {
+    problems.push(`the processing row reads "${gave.rows.Processing}", which answers neither way`);
+  }
+
+  // Chromium honours all three, so this run must read "off, as asked" and
+  // must NOT be warning. A panel that cried wolf on a browser that did as it
+  // was told would teach people to ignore the one case that matters.
+  if (/ignored the request/.test(gave.rows.Processing ?? '')) {
+    problems.push(`this browser honours all three and the panel says "${gave.rows.Processing}"`
+      + ' - a warning shown when nothing is wrong is a warning nobody reads when it is');
+  }
+  if (gave.warned) {
+    problems.push('something is marked as a warning on a browser that did as it was asked');
+  }
+  // And the arithmetic behind it is reachable and says what it should.
+  if (gave.over.join() !== 'autoGainControl') {
+    problems.push(`overriddenIn reports ${JSON.stringify(gave.over)} for a stream whose gain`
+      + ' control came back on');
+  }
+
   /* --- and a recording on a track that is not the mic track -------------- */
 
   // The gate this removes. The engine always played a take on any track -

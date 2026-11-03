@@ -56,6 +56,7 @@ import { peakAt, fallenTo, clockOf, PEAK_FLOOR, PEAK_HOT } from '../lib/meter.js
 import {
   Recorder, canRecord, barsFor, fitTo, loudestIn, SILENCE,
   ticksFor, freeSeconds, MOST_SECONDS, saidLength, barSeconds, oversIn,
+  inputsOf, saidInput, PROCESSING_SAYS,
 } from './record.js';
 import {
   takeId, putTake, loadTake, dropTake, sweepTakes,
@@ -200,6 +201,11 @@ export class SketchPage {
     // when that id is recorded over, so the picture never belongs to a take
     // that is gone.
     this.peaks = new Map();
+    // The inputs this browser offers. Empty until the microphone has been
+    // allowed once, because a browser will not say what hardware is attached
+    // before that - so the picker appears after a first take rather than
+    // before one, and there is nothing to be done about that.
+    this.inputs = [];
     // What the root detector last reported, which belongs to the panel and
     // not to the project: it is a reading of a recording, and reopening the
     // sketch should not bring back a sentence about a button nobody pressed.
@@ -731,6 +737,14 @@ export class SketchPage {
   }
 
   editorChange(event) {
+    // Before the guard below, because this one belongs to a clip panel rather
+    // than to a track's, and `owning` is null there.
+    const input = event.target.closest('[data-input]');
+    if (input) {
+      this.pickInput(input.value);
+      return;
+    }
+
     const track = this.owning;
     if (track === null) return;
 
@@ -928,12 +942,20 @@ export class SketchPage {
     if (!this.mic) this.mic = new Recorder(this.engine.ensure());
     this.tell('Asking for the microphone…');
 
-    if (!await this.mic.ask()) {
+    if (!await this.mic.ask({ deviceId: this.input })) {
       this.mic = null;
       this.tell('The microphone is not available — it may have been refused, '
         + 'or this page may not be on a secure connection.');
       return;
     }
+
+    // Now that the microphone has been allowed, the browser will name the
+    // hardware. Asked for every time rather than once, because a device can
+    // be plugged in between one take and the next.
+    inputsOf().then((all) => {
+      this.inputs = all;
+      if (all.length > 1 && this.open?.kind === 'clip') this.drawPanel();
+    });
 
     this.mic.start();
     this.meterShown = PEAK_FLOOR;
@@ -1317,6 +1339,36 @@ export class SketchPage {
           + (mic.overs ? ` · ${mic.overs} over` : '');
       read.dataset.how = mic.overs ? 'over' : worst >= PEAK_HOT ? 'hot' : 'fine';
     }
+  }
+
+  /**
+   * Record from a different input.
+   *
+   * Refused mid-take rather than swapped under one: the blocks already kept
+   * came from the old device, and splicing a second one onto them would make
+   * a take that changes microphone halfway through with nothing saying so.
+   */
+  async pickInput(deviceId) {
+    if (this.recording) {
+      this.tell('Stop the take first — the input cannot change part way through one.');
+      this.drawPanel();
+      return;
+    }
+    if (!this.mic) return;
+
+    const got = await this.mic.use(deviceId);
+    if (!got) {
+      this.mic = null;
+      this.tell('That input would not open. Try another, or allow the microphone again.');
+      this.drawPanel();
+      return;
+    }
+
+    this.input = deviceId;
+    this.inputs = await inputsOf();
+    this.drawPanel();
+    const named = this.inputs.find((one) => one.id === deviceId);
+    this.tell(`Listening to ${named?.label ?? 'that input'} — ${saidInput(this.mic.settings)}.`);
   }
 
   /** The take's clock, while one is running. */
@@ -1711,6 +1763,27 @@ export class SketchPage {
                     title="Something recorded through the microphone">a recording</button>
           </span>
         </div>`}
+
+      ${!(canRecord() && this.kindHere(clip, track) === 'mic') ? '' : `
+        <dl class="rec-about">
+          ${this.inputs.length < 2 ? '' : `
+            <dt>Input</dt>
+            <dd><select class="in-pick" data-input>
+              ${this.inputs.map((one) => `
+                <option value="${one.id}"${one.id === this.mic?.deviceId ? ' selected' : ''}
+                  >${one.label}</option>`).join('')}
+            </select></dd>`}
+          <dt>Giving</dt><dd>${this.mic?.open
+            ? saidInput(this.mic.settings)
+            : 'not open yet — press record'}</dd>
+          ${!this.mic?.open ? '' : (() => {
+            const over = this.mic.overridden;
+            return `<dt>Processing</dt><dd${over.length ? ' class="warn"' : ''}>${over.length
+              ? `${over.map((one) => PROCESSING_SAYS[one]).join(' and ')} `
+                + `${over.length === 1 ? 'is' : 'are'} ON — the browser ignored the request`
+              : 'off, as asked'}</dd>`;
+          })()}
+        </dl>`}
 
       <div class="editor-row editor-outs">
         ${this.kindHere(clip, track) === 'mic' ? '' : `

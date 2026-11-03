@@ -10,6 +10,7 @@ import assert from 'node:assert/strict';
 import {
   barsFor, barSeconds, fitTo, joinBlocks, loudestIn, MOST_BARS, SILENCE, canRecord,
   freeSeconds, ticksFor, MOST_SECONDS, saidLength, oversIn,
+  WANTED, overriddenIn, saidInput, CAPTURE_CHANNELS,
 } from '../src/sketch/record.js';
 import { PPQ } from '../src/sketch/midi.js';
 
@@ -202,4 +203,72 @@ test('a ceiling below full scale can be asked about', () => {
   const near = Float32Array.from([0.9, 0.5, 0.95]);
   assert.equal(oversIn([near], 0.89), 2, 'the two loud ones, not the quiet one as well');
   assert.equal(oversIn([near], 0.94), 1);
+});
+
+/* --- what was asked for, and what the browser actually did ---------------- */
+
+// The app asks for no gain control, no noise suppression and no echo
+// cancellation, which is right for a sketchpad: it wants what was played, not
+// what a phone thinks a voice on a call sounds like. What it never did was
+// check whether the request was honoured - and a browser is free to ignore
+// any of them.
+//
+// That matters more than it sounds. Gain control riding up during the quiet
+// parts is what lifts a microphone's own noise floor into audibility, which
+// is the hiss people hear on a phone recording of something with dynamics in
+// it. Asking for it off and then not looking is how you end up recording into
+// the very thing you turned off.
+
+test('what is asked for is stated once, where both sides can read it', () => {
+  assert.equal(WANTED.autoGainControl, false);
+  assert.equal(WANTED.noiseSuppression, false);
+  assert.equal(WANTED.echoCancellation, false);
+});
+
+test('a browser that did as it was asked has nothing overridden', () => {
+  assert.deepEqual(overriddenIn({
+    autoGainControl: false, noiseSuppression: false, echoCancellation: false,
+  }), []);
+});
+
+test('and one that did not is named, by the thing it overrode', () => {
+  assert.deepEqual(overriddenIn({
+    autoGainControl: true, noiseSuppression: false, echoCancellation: false,
+  }), ['autoGainControl']);
+
+  assert.deepEqual(overriddenIn({
+    autoGainControl: true, noiseSuppression: true, echoCancellation: false,
+  }), ['autoGainControl', 'noiseSuppression']);
+});
+
+test('a setting the browser says nothing about is not a setting it ignored', () => {
+  // The distinction the whole thing rests on. `getSettings` reports what a
+  // browser chooses to report, and Safari has historically reported less than
+  // Chromium. Treating silence as refusal would put a warning on every take
+  // made in a browser that simply does not say - which teaches people to
+  // ignore the warning.
+  assert.deepEqual(overriddenIn({}), []);
+  assert.deepEqual(overriddenIn({ autoGainControl: false }), []);
+  assert.deepEqual(overriddenIn(null), []);
+  assert.deepEqual(overriddenIn({ sampleRate: 48000 }), []);
+});
+
+test('a stereo input folded to mono says so, because it is not what is kept', () => {
+  // The capture node is fixed at one channel, so a device offering two is
+  // being folded - and a row reading "2 channels" would have somebody expect
+  // a stereo take and get a mono one. Measured on Chromium's fake device,
+  // which offers 44.1 kHz and two channels.
+  assert.match(saidInput({ sampleRate: 44100, channelCount: 2 }), /kept as mono/);
+  assert.doesNotMatch(saidInput({ sampleRate: 48000, channelCount: 1 }), /kept as mono/);
+  assert.equal(CAPTURE_CHANNELS, 1, 'and if that ever changes, this says so');
+});
+
+test('what the browser handed over is said in words, not in field names', () => {
+  assert.match(saidInput({ sampleRate: 48000, channelCount: 1 }), /48 kHz/);
+  assert.match(saidInput({ sampleRate: 48000, channelCount: 1 }), /1 channel\b/);
+  assert.match(saidInput({ sampleRate: 44100, channelCount: 2 }), /44\.1 kHz/);
+  assert.match(saidInput({ sampleRate: 44100, channelCount: 2 }), /2 channels/);
+  // Nothing reported is said as nothing rather than as "undefined Hz".
+  assert.match(saidInput({}), /does not say/i);
+  assert.match(saidInput(null), /does not say/i);
 });

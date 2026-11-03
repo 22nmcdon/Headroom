@@ -57,6 +57,117 @@ registerProcessor('headroom-capture', HeadroomCapture);`;
 
 export const captureSource = () => workletModule({ processor: CAPTURE_PROCESSOR });
 
+/* --- what is asked for, and what comes back ------------------------------ */
+
+/**
+ * The processing this app asks a browser to switch off.
+ *
+ * Stated once so that the request and the check can read the same list.
+ * A sketch wants what was played, not what a phone thinks a voice on a call
+ * sounds like - and of the three, gain control is the one that does real
+ * damage: riding up during the quiet parts is what lifts a microphone's own
+ * noise floor into audibility, which is the hiss anybody hears on a phone
+ * recording of something with dynamics in it.
+ */
+export const WANTED = {
+  // In the order they are worth complaining about, because `overriddenIn`
+  // reports them in this order and the first one named is the one somebody
+  // reads. Gain control first: it is the one that does real damage.
+  autoGainControl: false,
+  noiseSuppression: false,
+  echoCancellation: false,
+};
+
+/**
+ * Which of those the browser overrode, if it says.
+ *
+ * The distinction this rests on: a setting absent from `getSettings` is one
+ * the browser does not report, which is NOT the same as one it ignored.
+ * Safari has historically reported less than Chromium, and treating silence
+ * as refusal would put a warning on every take made there - which teaches
+ * people to ignore the warning, and then it is worth nothing on the browser
+ * that did override something.
+ */
+export function overriddenIn(settings) {
+  const got = settings ?? {};
+  return Object.entries(WANTED)
+    .filter(([name, want]) => name in got && got[name] !== want)
+    .map(([name]) => name);
+}
+
+/**
+ * How many channels a take is actually kept in.
+ *
+ * One. The capture node is built `channelCount: 1, channelCountMode:
+ * 'explicit'`, so whatever the device offers is folded down before it is
+ * kept - which is right for one microphone and wrong for a stereo interface,
+ * and is a thing to fix rather than a thing to hide. Until it is fixed, the
+ * panel says so: a device offering two channels and a row reading "2
+ * channels" would have somebody expect a stereo take and get a mono one.
+ */
+export const CAPTURE_CHANNELS = 1;
+
+/** What those are called out loud, rather than in the API's words. */
+export const PROCESSING_SAYS = {
+  echoCancellation: 'echo cancellation',
+  noiseSuppression: 'noise suppression',
+  autoGainControl: 'gain control',
+};
+
+/**
+ * What the browser actually handed over.
+ *
+ * Said as a sentence rather than as fields, and saying so plainly when it
+ * reports nothing - "undefined Hz" is worse than an admission.
+ */
+export function saidInput(settings) {
+  const rate = Number(settings?.sampleRate);
+  const channels = Number(settings?.channelCount);
+  if (!Number.isFinite(rate) && !Number.isFinite(channels)) {
+    return 'this browser does not say what it gave';
+  }
+
+  const parts = [];
+  if (Number.isFinite(rate)) {
+    // 48 kHz rather than 48.0, and 44.1 rather than 44 - the two rates
+    // anybody actually sees, written the way they are written.
+    const k = rate / 1000;
+    parts.push(`${Number.isInteger(k) ? k : k.toFixed(1)} kHz`);
+  }
+  if (Number.isFinite(channels)) {
+    parts.push(`${channels} channel${channels === 1 ? '' : 's'}`);
+    // Said rather than quietly done. The fold is real and the row would
+    // otherwise promise a stereo take that never arrives.
+    if (channels > CAPTURE_CHANNELS) parts.push('kept as mono');
+  }
+  return parts.join(' · ');
+}
+
+/**
+ * The inputs this browser will offer, newest API first.
+ *
+ * Labels are empty until the microphone has been allowed once - a browser
+ * will not tell a page what hardware is attached before that, which is the
+ * right call and means the picker is worth showing only after a first take.
+ * An input with no label still has an id, so it is offered with a number
+ * rather than hidden.
+ */
+export async function inputsOf() {
+  if (!navigator?.mediaDevices?.enumerateDevices) return [];
+  try {
+    const all = await navigator.mediaDevices.enumerateDevices();
+    return all
+      .filter((one) => one.kind === 'audioinput')
+      .map((one, i) => ({
+        id: one.deviceId,
+        label: one.label || `Input ${i + 1}`,
+        named: Boolean(one.label),
+      }));
+  } catch {
+    return [];
+  }
+}
+
 /** Whether this browser will let anything be recorded at all. */
 export const canRecord = () => Boolean(
   typeof navigator !== 'undefined'
@@ -256,6 +367,9 @@ export class Recorder {
     this.peak = 0;
     this.held = 0;
     this.overs = 0;
+    /** What `getSettings` said, once there is a stream to ask. */
+    this.settings = {};
+    this.deviceId = null;
     /** Called on every block, so a face can draw what is arriving. */
     this.onLevel = null;
   }
@@ -268,24 +382,39 @@ export class Recorder {
     this.overs = 0;
   }
 
-  /** Ask for the microphone. Returns null when it is refused or absent. */
-  async ask() {
+  /**
+   * Ask for the microphone. Returns null when it is refused or absent.
+   *
+   * `deviceId` names which input, for the browsers that offer a choice. Left
+   * out, the browser picks - which until now was the only thing that could
+   * happen, so a better microphone plugged in was not necessarily the one
+   * being recorded from.
+   */
+  async ask({ deviceId = null } = {}) {
     if (this.node) return this;
     if (!canRecord()) return null;
 
     try {
       this.stream = await navigator.mediaDevices.getUserMedia({
         audio: {
-          // A sketch wants what was played, not what a phone thinks a voice
-          // on a call sounds like.
-          echoCancellation: false,
-          noiseSuppression: false,
-          autoGainControl: false,
+          ...WANTED,
+          // Asked for rather than demanded: `exact` would fail outright when
+          // a device has been unplugged between being listed and being
+          // chosen, and the useful behaviour there is to record from
+          // something rather than from nothing.
+          ...(deviceId ? { deviceId } : {}),
         },
       });
     } catch {
       return null;
     }
+
+    // What the browser actually gave, which nothing used to ask. A request
+    // for no gain control is a request, and a browser is free to ignore it -
+    // so the only honest way to show the setting is to read it back.
+    const [track] = this.stream.getAudioTracks();
+    this.settings = track?.getSettings?.() ?? {};
+    this.deviceId = this.settings.deviceId ?? deviceId ?? null;
 
     const worklet = await installWorklet(this.ctx, captureSource());
     if (!worklet) { this.close(); return null; }
@@ -351,6 +480,23 @@ export class Recorder {
     };
   }
 
+  /** Which of the three the browser overrode, if it says anything at all. */
+  get overridden() { return overriddenIn(this.settings); }
+
+  /**
+   * Open a different input.
+   *
+   * Torn down and asked again rather than swapped on the live graph, because
+   * a MediaStreamSource belongs to the stream it was made from and the
+   * capture node's channel count is fixed at construction.
+   */
+  async use(deviceId) {
+    const level = this.onLevel;
+    this.close();
+    this.onLevel = level;
+    return this.ask({ deviceId });
+  }
+
   close() {
     this.taking = false;
     try { this.node?.port.postMessage({ on: false }); } catch { /* gone */ }
@@ -361,5 +507,6 @@ export class Recorder {
     this.stream = null;
     this.node = null;
     this.source = null;
+    this.settings = {};
   }
 }
