@@ -85,6 +85,28 @@ export async function check({ browser, at, say }) {
           const submit = document.querySelector('#submit');
           const verdict = () => document.querySelector('#verdict')?.textContent.trim() ?? '';
 
+          // Waited for rather than slept through.
+          //
+          // Every pause below used to be a fixed one, and a fixed pause is a
+          // check that passes on an idle machine and reports the machine on a
+          // loaded one. This check spent two runs claiming the delay's easy
+          // tier "was rebuilt underneath this" when all that had happened was
+          // that marking a round took longer than 400 ms on a box that was
+          // also rendering a scene offline in another tab.
+          //
+          // The board writing a new verdict is the signal that it has marked
+          // something, so that is what is waited for. It returns either way:
+          // a timeout here is a real answer - the board never responded - and
+          // the assertions below are the right place to say so.
+          const spoke = async (was, most = 10000) => {
+            const by = Date.now() + most;
+            while (Date.now() < by) {
+              if (verdict() !== was) return true;
+              await new Promise((ok) => setTimeout(ok, 50));
+            }
+            return false;
+          };
+
           const before = {
             // The tool is the answer here, so it has to be on screen - and
             // the chips must not be, or there are two ways to answer one
@@ -100,7 +122,7 @@ export async function check({ browser, at, say }) {
           };
 
           submit.click();
-          await new Promise((ok) => setTimeout(ok, 400));
+          await spoke(before.opened);
 
           const marked = {
             cells: [...document.querySelectorAll('.cell')].map((c) => c.textContent.trim()),
@@ -124,7 +146,7 @@ export async function check({ browser, at, say }) {
           let threw = null;
           try {
             document.querySelector('#show').click();
-            await new Promise((ok) => setTimeout(ok, 500));
+            await spoke(marked.verdict);
           } catch (e) {
             threw = String(e && e.message ? e.message : e);
           }
@@ -157,11 +179,17 @@ export async function check({ browser, at, say }) {
           if (shown.onto) {
             const faceWas = faceNow();
             onto.click();
-            await new Promise((ok) => setTimeout(ok, 600));
+            // The face moving is the claim, so it is also the thing to wait
+            // for: a timeout costs time only on a round that really failed.
+            const by = Date.now() + 10000;
+            while (Date.now() < by && faceNow() === faceWas) {
+              await new Promise((ok) => setTimeout(ok, 50));
+            }
             const faceIs = faceNow();
 
+            const said = verdict();
             submit.click();
-            await new Promise((ok) => setTimeout(ok, 500));
+            await spoke(said);
             won = {
               verdict: verdict(),
               took: /that is it/i.test(verdict()),
