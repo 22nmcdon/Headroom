@@ -3015,9 +3015,16 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
     gap: 4px;
     grid-template-columns: var(--names) repeat(var(--scenes, 4), minmax(58px, 1fr)) 22px;
   }
-  .cell { min-height: 42px; font-size: 9.5px; }
+  /* Forty-four rather than the 42 this was: ten pixels across five rows to
+     stop every slot on the phone being under a fingertip, and a slot is
+     also where a long press starts. */
+  .cell { min-height: 44px; font-size: 9.5px; }
   .track-name { font-size: 12.5px; }
-  .step { height: 18px; }
+  /* A step is aimed at deliberately, not struck, and sixteen of them across
+     430 pixels puts 44 out of reach arithmetically. Twenty-six is what is
+     available: two-thirds of a fingertip, and enough that a thumb lands on
+     one row rather than between two. It was 18. */
+  .step { height: 26px; }
   .steps { grid-template-columns: 34px repeat(var(--cols, 8), minmax(0, 1fr)); gap: 1px; }
   .step-name { font-size: 9px; padding-right: 4px; }
   .sketch-pos { font-size: 19px; min-width: 46px; }
@@ -3404,6 +3411,12 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
 .pad {
   flex: 1 1 56px;
   min-width: 56px;
+  /* Forty-four, because a pad is struck in time rather than aimed at: there
+     is no second look to correct a miss. Measured at 115x38 before this. */
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   padding: 10px 6px;
   font-family: var(--sans);
   font-size: 11px;
@@ -3435,7 +3448,32 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
   margin: 14px 0;
   max-width: 52ch;
 }
-.editor-outs [data-mic][aria-pressed="true"] { color: var(--rust); font-weight: 500; }
+/* The record button, which was a text link.
+   Measured at 430x932 it came out 161x16, which is a sixteen-pixel target for
+   the one control this whole panel exists for - and, worse, the same text link
+   as the "Clear the notes" beside it, so the button that destroys a part and
+   the button that makes one looked identical.
+   So it takes the chip vocabulary the panel already uses rather than a new
+   look: a bordered box, 44 tall, that fills while it is running. The fill is
+   what `aria-pressed` has always claimed and nothing showed. */
+.editor-outs [data-mic] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0 16px;
+  border: 1px solid var(--line);
+  border-bottom-color: var(--line);
+  border-radius: 22px;
+  background: var(--paper);
+}
+.editor-outs [data-mic]:hover { border-color: var(--blush); color: var(--blush-deep); }
+.editor-outs [data-mic][aria-pressed="true"] {
+  background: var(--rust);
+  border-color: var(--rust);
+  color: var(--cream);
+  font-weight: 500;
+}
 
 /* A clip that hands over says so on its face, so the shape of an
    arrangement can be read off the grid without opening every clip. */
