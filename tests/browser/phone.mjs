@@ -403,14 +403,79 @@ export async function check({ browser, at, say }) {
       + ` ${keyboard.grid}px of grid, starting ${keyboard.top}px down a`
       + ` ${keyboard.window}px window - ${keyboard.onScreen} of ${keyboard.of}`
       + ' steps above the fold');
-    // The whole claim of this orientation, in one line: the long keyboard
-    // fits. Held as well as the row height, because the two trade against
-    // each other and a check on only one of them is a check that can be
-    // satisfied by breaking the other.
+    // The claim of this orientation, held as well as the row height, because
+    // the two trade against each other and a check on only one of them can
+    // be satisfied by breaking the other.
     if (keyboard.onScreen < keyboard.of) {
       problems.push(`on its side, ${keyboard.of - keyboard.onScreen} of the piano's`
         + ` ${keyboard.of} steps are below the fold - "more of the keyboard on screen at`
         + ' once" is what this orientation has a section of its own for');
+    }
+  }
+
+  /* --- and the scale that never fitted ---------------------------------- */
+
+  // The claim above is about a seven-note scale, and this check only ever ran
+  // the default one. Chromatic is twelve steps to the octave: the same two
+  // octaves come out as 25 rows wanting 524 pixels of a 332-pixel window, so
+  // it has never fitted and never could at a row height worth tapping.
+  //
+  // So the claim for it is a different one, and the one that actually
+  // matters: nothing is out of reach, and what moves to reach it is the grid
+  // rather than the page - because scrolling the page takes the transport
+  // and the clip's name away with it.
+  await page.evaluate(async () => {
+    const { loadSketch, saveSketch } = await import('./src/sketch/store.js');
+    const { setProject } = await import('./src/sketch/project.js');
+    const had = loadSketch();
+    if (had) saveSketch(setProject(had, { key: { root: 0, scale: 'chromatic' } }));
+  });
+  await page.reload({ waitUntil: 'networkidle' });
+  await page.waitForTimeout(700);
+  await page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
+  await page.click('[data-view="sketch"]');
+  await page.waitForTimeout(400);
+  await openCell(PIANO, 0);
+
+  const wide = await page.evaluate(() => {
+    const steps = [...document.querySelectorAll('.steps [data-step]')];
+    const grid = document.querySelector('.steps');
+    const doc = document.documentElement;
+    if (!steps.length || !grid) return null;
+    return {
+      rows: new Set(steps.map((el) => el.dataset.step.split(':')[0])).size,
+      tall: Math.round(grid.scrollHeight),
+      seen: Math.round(grid.clientHeight),
+      gridScroll: grid.scrollHeight - grid.clientHeight,
+      pageScroll: doc.scrollHeight - doc.clientHeight,
+    };
+  });
+
+  if (!wide) {
+    problems.push('a chromatic sketch offers no steps at all on its side');
+  } else {
+    say(`\n  chromatic on its side: ${wide.rows} rows, ${wide.tall}px of grid in`
+      + ` ${wide.seen}px — the grid scrolls ${wide.gridScroll}px, the page ${wide.pageScroll}px`);
+
+    if (wide.rows < 20) {
+      problems.push(`a chromatic sketch shows ${wide.rows} rows, which is not a chromatic scale`);
+    }
+    if (!(wide.gridScroll > 0)) {
+      problems.push(`${wide.tall}px of keyboard sits in ${wide.seen}px and the grid does not`
+        + ' scroll - so the only way to a low note is to scroll the page, which takes the'
+        + ' transport and the clip name off the screen');
+    }
+    // And the rows really are reachable once it does scroll.
+    const reached = await page.evaluate(() => {
+      const grid = document.querySelector('.steps');
+      grid.scrollTop = grid.scrollHeight;
+      const steps = [...document.querySelectorAll('.steps [data-step]')];
+      const last = steps[steps.length - 1].getBoundingClientRect();
+      const box = grid.getBoundingClientRect();
+      return { inside: last.bottom <= box.bottom + 2 && last.top >= box.top - 2 };
+    });
+    if (!reached.inside) {
+      problems.push('scrolling the grid to its end does not bring the lowest row into it');
     }
   }
   await shot(page, 'phone-side-piano');

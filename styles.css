@@ -3701,6 +3701,38 @@ button.insert-name:hover { color: var(--charcoal); }
   .steps { gap: 1px; }
   .step-name { font-size: 9px; }
 
+  /* A keyboard too long for the window scrolls in itself, not by taking the
+     page with it.
+
+     "More of the keyboard on screen at once" was only ever true of a
+     seven-note scale. Chromatic is twelve steps to the octave, so the same
+     two octaves come out as 25 rows wanting 524 pixels of a 332-pixel
+     window - it has never fitted, at any row height worth tapping, and the
+     check that was meant to hold this only ever ran the default minor.
+
+     Nothing was unreachable: the page scrolled. But reaching a low note took
+     the transport and the clip's name off the screen with it, which is the
+     part worth fixing.
+
+     The cap is the room above the fold with the set-up folded, so it binds
+     only where it must. Measured at 932x430, how far the page has to scroll
+     and how much of the grid moves inside itself:
+
+                            page scroll        the grid
+       minor (15 rows)      296 -> 296         fits whole, no scroll area
+       chromatic (25)       506 -> 312         194 of 524 scrolls in place
+
+     So the four seven-and-under scales see no change and no nested scroll
+     region at all - with the content shorter than the cap, `auto` creates
+     none and the wheel goes to the page as before. Opening the clip's set-up
+     still pushes the page down; that is a disclosure somebody opened, and it
+     closes again. */
+  .steps {
+    max-height: calc(100vh - 100px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
   /* The furniture above the work, measured at 932x430: the header alone was
      218 of the 430, and the sheet's own prose and the dock took most of what
      was left, so the plugin began below the fold and ran 595 past it. Here
