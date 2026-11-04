@@ -3667,8 +3667,16 @@ button.insert-name:hover { color: var(--charcoal); }
   .panel-back { padding-bottom: 6px; }
   .panel-where { margin-bottom: 6px; }
 
-  /* Shorter rows, so more of the keyboard is on screen at once. */
-  .step { height: 17px; }
+  /* Shorter rows, so more of the keyboard is on screen at once - and 17 was
+     shorter than it needed to be for that. Measured at 932x430: the piano
+     offers 15 rows, the furniture above them takes 98 of the 430, so 332
+     remain. Fifteen rows of 20 with a pixel between them is 314, which fits
+     with room to spare; 24 would need 374 and would push the bottom of the
+     keyboard off the screen, which is the one thing this rule exists to
+     prevent. So 20 - the most the arithmetic allows, rather than a round
+     number chosen for caution. It is the shortest target in the app and the
+     widest: 103 pixels across here against 39 upright. */
+  .step { height: 20px; }
   .steps { gap: 1px; }
   .step-name { font-size: 9px; }
 

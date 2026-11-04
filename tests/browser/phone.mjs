@@ -33,6 +33,20 @@ const WIDE = 430;
 const TALL = 932;
 
 /**
+ * And the same phone on its side, which `styles.css:3649` calls "the right
+ * way up for this": a clip grid wants width and the step grid wants as many
+ * rows on screen as it can get. What is scarce there is height, and every
+ * rule in that section is something giving height back.
+ *
+ * Driven because that section was written and never pressed. It sets its own
+ * `.step` height - and at 17px it is below the 18 that portrait had before
+ * this check raised it, so the orientation somebody actually holds a phone in
+ * to work on a timeline had the smallest targets in the app.
+ */
+const LONG = 932;
+const SHORT = 430;
+
+/**
  * How big a thing a thumb has to hit should be.
  *
  * Forty-four, which is Apple's figure and has been since 2008. Not a style
@@ -43,6 +57,7 @@ const TALL = 932;
 const THUMB = 44;
 
 /** The starter project's tracks. */
+const PIANO = 0;
 const KIT = 2;
 const MIC = 4;
 
@@ -104,7 +119,7 @@ export async function check({ browser, at, say }) {
     .map((el) => {
       const box = el.getBoundingClientRect();
       return {
-        what: el.dataset.pad ?? el.dataset.grab ?? el.dataset.cell
+        what: el.dataset.pad ?? el.dataset.grab ?? el.dataset.cell ?? el.dataset.step
           ?? (el.textContent || '').trim().slice(0, 14) ?? el.tagName,
         w: Math.round(box.width),
         h: Math.round(box.height),
@@ -296,6 +311,117 @@ export async function check({ browser, at, say }) {
     }
   }
   await shot(page, 'phone-steps');
+
+  /* --- and the same phone on its side ----------------------------------- */
+
+  // Turned rather than reloaded, so the take recorded above is still there to
+  // measure the trim handles against. The media queries key on height, so
+  // this crosses into `@media (max-height: 560px)` and out of the
+  // `max-width: 560px` block - a different set of rules, not fewer.
+  await page.setViewportSize({ width: LONG, height: SHORT });
+  await page.waitForTimeout(700);
+
+  const turned = await sideways('on its side');
+  say(`\n  turned to ${LONG}x${SHORT} (page ${turned.scroll}px in ${turned.seen}px):`);
+
+  // Nothing open first. `styles.css:2516` hides the grid behind an open panel
+  // at this height as well as at this width, and for a reason it states: a
+  // 430-point window split two ways gives the grid half and the panel half
+  // and fits neither. So the grid is measured with nothing over it, which is
+  // the only state it is ever visible in here. Measuring it with the step
+  // panel still open is how this check first reported twenty slots of 0x0.
+  await page.tap('[data-back]').catch(() => {});
+  await page.waitForTimeout(500);
+  const sideCells = await boxes('[data-cell]');
+  if (sideCells.length) {
+    say(`    ${sideCells.length} cells, smallest ${Math.min(...sideCells.map((c) => c.w))}`
+      + `x${Math.min(...sideCells.map((c) => c.h))}px`);
+    const small = sideCells.filter((one) => one.w < THUMB || one.h < THUMB);
+    if (small.length) {
+      problems.push(`on its side, ${small.length} of ${sideCells.length} clip slots are under`
+        + ` ${THUMB}px - the smallest is ${small[0].w}x${small[0].h}`);
+    }
+  }
+  await shot(page, 'phone-side-grid');
+
+  // The step grid, which is the reason this orientation has a section at all.
+  await openCell(KIT, 0);
+  const sideSteps = await boxes('.steps [data-step]');
+  const sidePads = await boxes('[data-pad]');
+  const sideMic = await boxes('[data-mic]');
+
+  if (sideSteps.length) {
+    const tall = Math.min(...sideSteps.map((one) => one.h));
+    const rows = new Set(sideSteps.map((one) => one.what.split(':')[0])).size;
+    say(`    ${sideSteps.length} steps, smallest ${Math.min(...sideSteps.map((s) => s.w))}`
+      + `x${tall}px`);
+    say(`    and ${await page.evaluate(() => [...document
+      .querySelectorAll('.steps [data-step]')]
+      .filter((el) => el.getBoundingClientRect().bottom <= window.innerHeight).length)}`
+      + ` of them above the fold, over ${rows} rows`);
+    // Not the portrait floor, and not for want of trying. The piano offers 15
+    // rows and the furniture above them takes 98 of a 430-point window, so
+    // 332 remain: fifteen rows of 20 and a pixel between them is 314, and 24
+    // would need 374 and push the bottom of the keyboard off the screen.
+    // Twenty is what the arithmetic allows. The claim below is the one the
+    // number is really in service of.
+    if (tall < 20) {
+      problems.push(`on its side, the steps are ${tall}px tall - under 20, and this is the`
+        + ' orientation the step grid exists for');
+    }
+  }
+  for (const one of sidePads) {
+    if (one.h < THUMB) {
+      problems.push(`on its side, pad ${one.what} is ${one.w}x${one.h}px`);
+    }
+  }
+  await shot(page, 'phone-side-steps');
+
+  // The piano, which is the case the 17px was chosen for: a kit has three
+  // rows and a scale has ten or so, and "more of the keyboard on screen at
+  // once" is a claim about the long one. Measured rather than assumed, so the
+  // height is picked from what fits rather than from caution.
+  await openCell(PIANO, 0);
+  const keyboard = await page.evaluate(() => {
+    const steps = [...document.querySelectorAll('.steps [data-step]')];
+    if (!steps.length) return null;
+    const rows = new Set(steps.map((el) => el.dataset.step.split(':')[0]));
+    const box = document.querySelector('.steps')?.getBoundingClientRect();
+    return {
+      rows: rows.size,
+      tall: Math.round(steps[0].getBoundingClientRect().height),
+      grid: Math.round(box?.height ?? 0),
+      top: Math.round(box?.top ?? 0),
+      window: window.innerHeight,
+      onScreen: steps.filter((el) => el.getBoundingClientRect().bottom
+        <= window.innerHeight).length,
+      of: steps.length,
+    };
+  });
+  if (keyboard) {
+    say(`    the piano: ${keyboard.rows} rows at ${keyboard.tall}px =`
+      + ` ${keyboard.grid}px of grid, starting ${keyboard.top}px down a`
+      + ` ${keyboard.window}px window - ${keyboard.onScreen} of ${keyboard.of}`
+      + ' steps above the fold');
+    // The whole claim of this orientation, in one line: the long keyboard
+    // fits. Held as well as the row height, because the two trade against
+    // each other and a check on only one of them is a check that can be
+    // satisfied by breaking the other.
+    if (keyboard.onScreen < keyboard.of) {
+      problems.push(`on its side, ${keyboard.of - keyboard.onScreen} of the piano's`
+        + ` ${keyboard.of} steps are below the fold - "more of the keyboard on screen at`
+        + ' once" is what this orientation has a section of its own for');
+    }
+  }
+  await shot(page, 'phone-side-piano');
+
+  for (const one of sideMic) {
+    say(`    record button ${one.w}x${one.h}px`);
+    if (one.h < THUMB) {
+      problems.push(`on its side, the record button is ${one.w}x${one.h}px`);
+    }
+  }
+  await sideways('on its side, with a panel open');
 
   problems.push(...noise);
   await page.close();
