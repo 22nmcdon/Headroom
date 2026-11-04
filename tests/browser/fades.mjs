@@ -29,7 +29,7 @@
 // of those costs the middle of the clip any level, because a fade that quiets
 // what it is not shaping is a volume control.
 
-import { open } from './harness.mjs';
+import { open, shot } from './harness.mjs';
 
 export const name = 'fades';
 
@@ -206,6 +206,148 @@ export async function check({ browser, at, say }) {
   if (!(tenth.peak < fifth.peak && fifth.peak < full.peak)) {
     problems.push(`the fade does not climb: ${tenth.peak.toFixed(3)} at 0.1s,`
       + ` ${fifth.peak.toFixed(3)} at 0.2s, ${full.peak.toFixed(3)} at 0.3s`);
+  }
+
+  /* --- and the control that sets them ------------------------------------ */
+
+  // The arithmetic above is all offline. This is the slider a person reaches
+  // for: that it is there on a clip with a take in it, that moving it changes
+  // what is stored, and that the number beside it says what was set. A fade
+  // nobody can set is a constant with a comment.
+  const driven = await page.evaluate(async () => {
+    const { putTake } = await import('./src/sketch/takes.js');
+    const { newProject, setClip, clipOf, barTicks } = await import('./src/sketch/project.js');
+    const { saveSketch } = await import('./src/sketch/store.js');
+
+    const rate = 48000;
+    const channel = new Float32Array(rate * 3);
+    for (let i = 0; i < channel.length; i += 1) {
+      channel[i] = Math.sin((2 * Math.PI * 220 * i) / rate) * 0.7;
+    }
+    await putTake('take-for-fades', [channel], rate, { name: 'fades' });
+
+    let project = newProject();
+    project = setClip(project, 4, 0, clipOf({
+      take: 'take-for-fades', notes: [], fit: 'free', length: barTicks(project) * 2,
+    }));
+    saveSketch(project);
+    return true;
+  });
+
+  if (driven) {
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.waitForTimeout(500);
+    await page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
+    await page.click('[data-view="sketch"]');
+    await page.waitForTimeout(400);
+    // A gesture, so an audio context exists and the take can be decoded out
+    // of storage. Without it the panel opens with an empty box where the
+    // waveform goes - which is what the first screenshot of this showed,
+    // and what this check had no claim about.
+    await page.click('[data-play]');
+    await page.waitForTimeout(500);
+    await page.click('[data-play]');
+    await page.waitForTimeout(300);
+    await page.click('[data-cell="4:0"]');
+    await page.waitForTimeout(1200);
+    await page.click('[data-setup] summary').catch(() => {});
+    await page.waitForTimeout(400);
+
+    const before = await page.evaluate(() => ({
+      sliders: [...document.querySelectorAll('[data-fade]')].map((el) => el.dataset.fade),
+      read: [...document.querySelectorAll('[data-fade-read]')].map((el) => el.textContent.trim()),
+    }));
+    say(`\n  the control: ${before.sliders.length} sliders (${before.sliders.join(', ')}),`
+      + ` reading ${before.read.join(' / ')}`);
+
+    if (before.sliders.length !== 2) {
+      problems.push(`a clip with a take in it offers ${before.sliders.length} fade controls`
+        + ' rather than one for each of its two edges');
+    } else {
+      // Dragged by setting the value and dispatching the event the handler
+      // listens for, which is what a drag amounts to from the page's side.
+      const after = await page.evaluate(() => {
+        const el = document.querySelector('[data-fade="in"]');
+        el.value = '0.8';
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        return new Promise((ok) => setTimeout(() => ok({
+          read: document.querySelector('[data-fade-read="in"]')?.textContent.trim() ?? '',
+          label: document.querySelector('[data-fade="in"]')?.getAttribute('aria-label') ?? '',
+        }), 200));
+      });
+      say(`  dragged the fade-in to 0.8 of its travel: it reads "${after.read}"`);
+
+      const stored = await page.evaluate(async () => {
+        const { loadSketch } = await import('./src/sketch/store.js');
+        return loadSketch()?.tracks?.[4]?.slots?.[0]?.fade ?? null;
+      });
+      say(`  and what is saved: in ${stored?.in}, out ${stored?.out}`);
+
+      if (!stored || !(stored.in > 0.3)) {
+        problems.push(`the fade-in was dragged near the top of its travel and what was saved`
+          + ` is ${stored?.in} - the control does not reach the clip`);
+      }
+      if (stored && Math.abs(stored.out - 0.005) > 1e-9) {
+        problems.push(`setting the fade-in moved the fade-out to ${stored.out} as well`);
+      }
+      if (!/s$|ms$/.test(after.read)) {
+        problems.push(`the readout says "${after.read}", which is not a length`);
+      }
+      // And the picture of it. A fade that is stored and not drawn is a fade
+      // nobody can see the length of, which is most of why it is a control
+      // rather than a constant. Counted in the first fifth of the canvas,
+      // where a 0.44s fade on a 3s take has to leave ink.
+      const drawn = await page.evaluate(() => {
+        const canvas = document.querySelector('.clip-wave canvas');
+        if (!canvas) return null;
+        const { width, height } = canvas;
+        const c = canvas.getContext('2d');
+        // Away from the centre row, which is always drawn whether or not
+        // there is a take: `drawWave` lays down a centre line even when it
+        // has nothing to draw, so counting every lit pixel counts that line
+        // and passes on an empty box. A 354x70 canvas at 2x has about 708
+        // pixels of centre line in it, which is most of the 974 this check
+        // first called proof that a waveform was there.
+        const lit = (from, to) => {
+          const { data } = c.getImageData(from, 0, Math.max(1, to - from), height);
+          const wide = Math.max(1, to - from);
+          let on = 0;
+          for (let i = 3; i < data.length; i += 4) {
+            const row = Math.floor((i - 3) / 4 / wide);
+            if (Math.abs(row - height / 2) < 4) continue;
+            if (data[i] > 8) on += 1;
+          }
+          return on;
+        };
+        return {
+          head: lit(0, Math.round(width * 0.2)),
+          all: lit(0, width),
+          everything: (() => {
+            const { data } = c.getImageData(0, 0, width, height);
+            let on = 0;
+            for (let i = 3; i < data.length; i += 4) if (data[i] > 8) on += 1;
+            return on;
+          })(),
+          width,
+          height,
+        };
+      });
+      say(`  the canvas is ${drawn?.width}x${drawn?.height}: ${drawn?.everything} lit pixels`
+        + ` in all, ${drawn?.all} of them away from the centre line,`
+        + ` ${drawn?.head} in the first fifth where the fade is`);
+      if (!drawn?.all) {
+        problems.push('the take is not drawn at all, so neither is the fade over it');
+      } else if (!drawn.head) {
+        problems.push('nothing is drawn in the first fifth of the canvas, where a 0.44s fade'
+          + ' on a 3s take has to be - the fade is stored and invisible');
+      }
+
+      await shot(page, 'fades-panel');
+      if (!after.label.includes(after.read)) {
+        problems.push(`the slider is announced as "${after.label}" while it reads`
+          + ` "${after.read}" - a screen reader is told something else`);
+      }
+    }
   }
 
   problems.push(...noise);

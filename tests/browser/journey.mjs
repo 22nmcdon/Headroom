@@ -61,6 +61,34 @@ export async function check({ browser, at, say }) {
   const { page, noise } = await open(browser, at, { view: 'sketch', height: 1200 });
   await page.waitForTimeout(500);
 
+  // Ink on a waveform canvas, NOT counting the centre line.
+  //
+  // `drawWave` lays a centre line down whether or not it has anything to
+  // draw, and on this canvas that line is about 970 pixels. This check used
+  // to count every lit pixel and call 974 of them proof that a reloaded take
+  // had come back - 974 being the line, a stub, and no waveform at all. It
+  // was passing on exactly the bug it was written to catch: a reloaded
+  // sketch loaded none of its recordings until the view was left and
+  // re-entered, so the take was neither drawn nor playable.
+  await page.addInitScript(() => {
+    window.__inkAway = (canvas) => {
+      const { width, height } = canvas;
+      const { data } = canvas.getContext('2d').getImageData(0, 0, width, height);
+      let on = 0;
+      for (let i = 3; i < data.length; i += 4) {
+        const row = Math.floor((i - 3) / 4 / width);
+        if (Math.abs(row - height / 2) < 4) continue;
+        if (data[i] > 8) on += 1;
+      }
+      return on;
+    };
+  });
+  await page.reload({ waitUntil: 'networkidle' });
+  await page.waitForTimeout(500);
+  await page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
+  await page.click('[data-view="sketch"]');
+  await page.waitForTimeout(400);
+
   const able = await page.evaluate(async () => {
     const { canRecord } = await import('./src/sketch/record.js');
     return canRecord();
@@ -95,11 +123,7 @@ export async function check({ browser, at, say }) {
     ink: (() => {
       const canvas = document.querySelector('.clip-wave canvas');
       if (!canvas) return null;
-      const ctx = canvas.getContext('2d');
-      const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      let on = 0;
-      for (let i = 3; i < data.length; i += 4) if (data[i] > 8) on += 1;
-      return on;
+      return window.__inkAway(canvas);
     })(),
   }));
   say(`  1. recorded: "${recorded.said}"`);
@@ -395,10 +419,7 @@ export async function check({ browser, at, say }) {
   const drawn = await page.evaluate(() => {
     const canvas = document.querySelector('.clip-wave canvas');
     if (!canvas) return { none: true };
-    const { data } = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
-    let on = 0;
-    for (let i = 3; i < data.length; i += 4) if (data[i] > 8) on += 1;
-    return { on };
+    return { on: window.__inkAway(canvas) };
   });
   say(`     the reloaded take draws ${drawn.none ? 'no canvas at all' : `${drawn.on} lit pixels`}`);
   if (drawn.none || !drawn.on) {

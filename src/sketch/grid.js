@@ -33,6 +33,7 @@ import {
   newProject, setClip, setTrack, setProject, setNotes, setLength,
   clipAt, trackAt, sceneOf, sceneHasAnything, barTicks, sceneToMidi, isTake, setFit,
   clipKindOf, setKind, setTrim, takeWindow, setNudge, MOST_NUDGE, trimStep,
+  setFade, fadeAt, fadeSlide, fadeFor, saidFade,
   addScene, dropScene, MOST_SCENES, setFollow, MOST_PASSES,
   addTrack, dropTrack, MOST_TRACKS, moveInsert,
 } from './project.js';
@@ -810,6 +811,25 @@ export class SketchPage {
   }
 
   editorSlide(event) {
+    // Before the guard below: this one belongs to a clip panel, which has no
+    // owning track, so reading `this.owning` first would drop every one.
+    const fade = event.target.closest('[data-fade]');
+    if (fade && this.at) {
+      const edge = fade.dataset.fade;
+      const seconds = fadeAt(Number(fade.value));
+      const read = fade.parentElement.querySelector('[data-fade-read]');
+      // Written straight to the readout rather than through a redraw: the
+      // panel is rebuilt from a string, and rebuilding it under a finger
+      // that is still dragging takes the slider out from under it.
+      if (read) read.textContent = saidFade(seconds);
+      fade.setAttribute('aria-label',
+        `${edge === 'in' ? 'Fade in' : 'Fade out'}, ${saidFade(seconds)}`);
+      this.change(setFade(this.project, this.at.track, this.at.scene, { [edge]: seconds }),
+        { keep: true });
+      this.drawWave();
+      return;
+    }
+
     const track = this.owning;
     if (track === null) return;
 
@@ -1161,6 +1181,10 @@ export class SketchPage {
     if (this.stage) return this.stage;
     if (!this.building) {
       const ctx = this.engine.ensure();
+      // A context exists as of this line, which on a reload is the first
+      // moment one ever has. The stage is handed `this.takes` by reference,
+      // so filling it now fills what the stage will read.
+      this.warmTakes();
       this.building = makeStage(ctx, this.project, { out: this.engine.out, takes: this.takes })
         .then((stage) => { this.stage = stage; return stage; });
     }
@@ -1435,8 +1459,108 @@ export class SketchPage {
       c.fillRect(i * (width / count), top, Math.max(1, width / count), Math.max(1, bottom - top));
     }
 
+    this.drawFades(c, { width, height, mid, reach, line });
+
+    // After the fades, because they take the waveform away outside their
+    // envelope and would take the centre line with it.
     c.fillStyle = faint;
     c.fillRect(0, mid - 0.5, width, 1);
+  }
+
+  /**
+   * The two fades, drawn over the take they shape.
+   *
+   * Mirrored about the centre line rather than drawn as one diagonal, because
+   * the waveform is centred: a fade is an envelope on both halves of it, and
+   * one line across the top is a picture of something else.
+   *
+   * Drawn where the audio is actually cut, which for a loop is its bar line
+   * and not the end of the take. The stage works that out the same way, and
+   * a picture that put the fade-out at the end of a take the loop never
+   * reaches would be a picture of a fade nobody hears - which is exactly the
+   * bug the stage had.
+   */
+  drawFades(c, { width, height, mid, reach, line }) {
+    const clip = this.clip();
+    if (!clip?.take || this.recording) return;
+
+    const whole = this.takes.get(clip.take)?.duration ?? 0;
+    if (!(whole > 0)) return;
+
+    const { offset, length } = takeWindow(clip, whole);
+    // What is audible: a free take runs to the end of its window, a loop
+    // stops at its bar line. Seconds from ticks the way the clock does it.
+    const barsLong = (clip.length / PPQ) * (60 / this.project.bpm);
+    const heard = this.fitOf(clip) === 'free' ? length : Math.min(length, barsLong);
+    const fade = fadeFor(clip.fade, heard);
+
+    const at = (seconds) => (seconds / whole) * width;
+    const steps = 32;
+    const gainAt = (t, rising) => 0.5 - 0.5 * Math.cos(Math.PI * (rising ? t : 1 - t));
+
+    // Taken out of the waveform rather than drawn over it. The audio really
+    // is quieter there, so the picture of it should be shorter there - and a
+    // curve in the same ink as the waveform, over a waveform, is a curve
+    // nobody can see. Erased rather than painted over in the background
+    // colour, so it works whatever the page is wearing.
+    const taper = (from, seconds, rising) => {
+      if (!(seconds > 0)) return;
+      c.save();
+      c.globalCompositeOperation = 'destination-out';
+      for (const above of [true, false]) {
+        c.beginPath();
+        c.moveTo(at(from), above ? 0 : height);
+        for (let i = 0; i <= steps; i += 1) {
+          const t = i / steps;
+          const gain = gainAt(t, rising);
+          c.lineTo(at(from + seconds * t), above ? mid - gain * reach : mid + gain * reach);
+        }
+        c.lineTo(at(from + seconds), above ? 0 : height);
+        c.closePath();
+        c.fill();
+      }
+      c.restore();
+    };
+
+    // And the envelope itself over the top, so a fade across silence is
+    // still visible as a shape rather than as nothing at all.
+    const curve = (from, seconds, rising) => {
+      if (!(seconds > 0)) return;
+      for (const above of [true, false]) {
+        c.beginPath();
+        for (let i = 0; i <= steps; i += 1) {
+          const t = i / steps;
+          const gain = gainAt(t, rising);
+          const x = at(from + seconds * t);
+          const y = above ? mid - gain * reach : mid + gain * reach;
+          if (i === 0) c.moveTo(x, y); else c.lineTo(x, y);
+        }
+        c.stroke();
+      }
+    };
+
+    taper(offset, fade.in, true);
+    taper(offset + heard - fade.out, fade.out, false);
+
+    c.strokeStyle = line;
+    c.lineWidth = 1.25;
+    curve(offset, fade.in, true);
+    curve(offset + heard - fade.out, fade.out, false);
+
+    // And the bar line itself, where a loop is cut, so that a fade-out
+    // sitting in the middle of a long take reads as deliberate rather than
+    // as a drawing error.
+    if (heard < length - 0.001) {
+      c.save();
+      c.strokeStyle = line;
+      c.globalAlpha = 0.5;
+      c.setLineDash([3, 3]);
+      c.beginPath();
+      c.moveTo(at(offset + heard), 0);
+      c.lineTo(at(offset + heard), height);
+      c.stroke();
+      c.restore();
+    }
   }
 
   /**
@@ -2044,6 +2168,25 @@ export class SketchPage {
           </span>
         </div>`}
 
+      ${!isTake(clip) ? '' : (() => {
+        // Both edges, on the one row, because they are the same question
+        // asked twice and a fade-in without its fade-out beside it is a
+        // control somebody sets once and never finds again.
+        const fade = clip.fade ?? {};
+        return `
+        <div class="editor-row editor-fades">
+          <span class="editor-label">Edges</span>
+          ${[['in', 'Fade in'], ['out', 'Fade out']].map(([edge, label]) => `
+            <label class="field fade-field">
+              <span class="field-label">${label}</span>
+              <input type="range" data-fade="${edge}" min="0" max="1" step="0.001"
+                     value="${fadeSlide(fade[edge]).toFixed(3)}"
+                     aria-label="${label}, ${saidFade(fade[edge] ?? 0)}">
+              <span class="fade-read" data-fade-read="${edge}">${saidFade(fade[edge] ?? 0)}</span>
+            </label>`).join('')}
+        </div>`;
+      })()}
+
       ${!this.canSwap(clip) ? '' : `
         <div class="editor-row">
           <span class="editor-label">This clip</span>
@@ -2564,18 +2707,37 @@ export class SketchPage {
   show() {
     this.draw();
     if (this.stage?.playing) this.watch(true);
+    this.warmTakes();
+  }
 
-    // Only once a context exists: asking for one before a gesture is what
-    // browsers refuse, and the sketchpad is often the first thing opened.
-    if (this.engine.ctx && !this.loaded) {
-      this.loaded = true;
-      this.loadTakes().then((missing) => {
-        if (missing.length) {
-          this.tell(`${plural(missing.length, 'recording', 'recordings')} in this sketch `
-            + 'could not be found in this browser.');
-        }
-      });
-    }
+  /**
+   * Fetch this sketch's recordings out of storage, once a context exists.
+   *
+   * Asked at every point where one might have just appeared, rather than only
+   * on the way into the view. It used to be inside `show()` alone, guarded on
+   * `this.engine.ctx` - and on a reload there is no context, because a
+   * browser will not make one before a gesture. So the guard failed, nothing
+   * loaded, and nothing asked again: pressing play builds the stage without
+   * calling `show`, so a reloaded sketch played no recordings and drew no
+   * waveforms until somebody left the view and came back.
+   *
+   * Found by looking at a screenshot. The check that was meant to catch it
+   * counted lit pixels on the canvas and passed on 974 of them, every one of
+   * which was the centre line `drawWave` lays down when it has nothing to
+   * draw.
+   */
+  warmTakes() {
+    if (!this.engine.ctx || this.loaded) return;
+    this.loaded = true;
+    this.loadTakes().then((missing) => {
+      // Whatever arrived is drawn now rather than at the next redraw, or a
+      // panel that was already open keeps its empty box.
+      this.drawWave();
+      if (missing.length) {
+        this.tell(`${plural(missing.length, 'recording', 'recordings')} in this sketch `
+          + 'could not be found in this browser.');
+      }
+    });
   }
 
   /** Left for another view: the clock stops, because it is not background music. */

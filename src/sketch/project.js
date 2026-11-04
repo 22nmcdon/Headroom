@@ -169,6 +169,32 @@ export const fadeOf = (fade) => {
 };
 
 /**
+ * A fade as a slider position, and back.
+ *
+ * Logarithmic, because the range covers three decades and the interesting
+ * part is at the bottom of it. Linear from 1 ms to 2 s would put everything
+ * a declick fade ever needs - one to twenty milliseconds - in the first one
+ * per cent of the travel, which is a control that can only be set to "a lot"
+ * or "none". On a log scale the first half of the slider is 1 ms to 45 ms
+ * and the second half is 45 ms to two seconds, which is about the right
+ * division of attention between stopping a click and shaping a swell.
+ */
+export const fadeAt = (where) => {
+  const held = Math.max(0, Math.min(1, Number(where) || 0));
+  return FADE_LEAST * (FADE_MOST / FADE_LEAST) ** held;
+};
+
+export const fadeSlide = (seconds) => {
+  const held = Math.max(FADE_LEAST, Math.min(FADE_MOST, Number(seconds) || FADE_LEAST));
+  return Math.log(held / FADE_LEAST) / Math.log(FADE_MOST / FADE_LEAST);
+};
+
+/** A fade length, said the way somebody setting one would say it. */
+export const saidFade = (seconds) => (seconds < 0.1
+  ? `${Math.round(seconds * 1000)} ms`
+  : `${seconds.toFixed(seconds < 1 ? 2 : 1)} s`);
+
+/**
  * The two fades as they actually fit in the time available.
  *
  * A fade cannot be longer than what it is fading, and the two together cannot

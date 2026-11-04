@@ -2998,6 +2998,24 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
 .editor-dials .field { flex: 1 1 110px; }
 .editor-dials input[type="range"] { width: 100%; accent-color: var(--blush-deep); }
 
+/* The two edges of a clip. Side by side because they are the same question
+   asked twice, and with the length printed beside each because a fade is a
+   measurement - "about a third along" is not something anybody means. */
+.editor-fades { flex-wrap: wrap; }
+.fade-field { flex: 1 1 170px; min-width: 150px; }
+.fade-field input[type="range"] { width: 100%; accent-color: var(--blush-deep); }
+.fade-read {
+  /* On one line. Squeezed between two sliders it wrapped to "0.44" over "s",
+     which reads as two numbers and is the one thing a measurement must not
+     do. */
+  white-space: nowrap;
+  font-family: var(--sans);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  color: var(--text-soft);
+  font-variant-numeric: tabular-nums;
+}
+
 .sketch-foot {
   display: flex;
   flex-wrap: wrap;
