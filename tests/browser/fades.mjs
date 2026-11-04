@@ -145,10 +145,12 @@ export async function check({ browser, at, say }) {
     everyJump.sort((a, b) => b[0] - a[0]);
     const worst = everyJump.slice(0, 3).map(([jump, when]) => ({ jump, when }));
 
-    // A fade long enough to see, on a clip kept whole.
-    const swelled = await render({ fit: 'free', fade: { in: 0.3, out: 0.3 } }, bar * 2);
-    const envelope = [0.02, 0.1, 0.2, 0.3, 0.6].map((t) => ({
-      t, peak: peakIn(swelled, Math.round(t * rate) - 240, Math.round(t * rate) + 240),
+    // A fade long enough to be a gesture rather than a declick, sampled
+    // across its length. A second, because that is where the curve is fully
+    // the even one and where hanging-then-vanishing would be obvious.
+    const swelled = await render({ fit: 'free', fade: { in: 1, out: 0.3 } }, bar * 2);
+    const envelope = [0.1, 0.25, 0.5, 0.75, 1, 1.4].map((t) => ({
+      t, peak: peakIn(swelled, Math.round(t * rate) - 480, Math.round(t * rate) + 480),
     }));
 
     return {
@@ -189,23 +191,45 @@ export async function check({ browser, at, say }) {
     }
   }
 
-  say(`\n  a 0.3s fade in, on a clip kept whole (peak ${measured.swelledPeak.toFixed(3)}):`);
+  const top = measured.swelledPeak;
+  const asDb = (p) => (p > 0 ? 20 * Math.log10(p / top) : -Infinity);
+  say(`\n  a 1s fade in, on a clip kept whole (peak ${top.toFixed(3)}):`);
   for (const step of measured.envelope) {
-    say(`    at ${step.t.toFixed(2)}s  ${step.peak.toFixed(3)}`);
+    say(`    at ${step.t.toFixed(2)}s  ${step.peak.toFixed(3)}`
+      + `  ${asDb(step.peak) === -Infinity ? '  -inf' : asDb(step.peak).toFixed(1).padStart(6)} dB`);
   }
 
-  const [early, tenth, fifth, full] = measured.envelope;
+  const over = measured.envelope.filter((step) => step.t <= 1);
+  const full = measured.envelope[measured.envelope.length - 1];
   if (!(full.peak > 0.5)) {
     problems.push(`after the fade is over the clip peaks at ${full.peak.toFixed(3)}`
       + ' - a fade that quiets what it is not shaping is a volume control');
   }
-  if (!(early.peak < full.peak * 0.25)) {
-    problems.push(`20 ms into a 300 ms fade the clip is already at`
-      + ` ${(early.peak / full.peak * 100).toFixed(0)}% - the fade is not there`);
+
+  // The claim the curve was changed for. A fade of a second is a gesture, and
+  // what a gesture is judged on is falling - or climbing - at an even rate.
+  // The raised cosine this replaced moved 3 dB in the first 73% of a long
+  // fade and 32 dB in its last 10%, which reads as nothing happening and then
+  // the sound disappearing.
+  const climbs = [];
+  for (let i = 1; i < over.length; i += 1) {
+    const rise = asDb(over[i].peak) - asDb(over[i - 1].peak);
+    if (Number.isFinite(rise)) climbs.push(rise / (over[i].t - over[i - 1].t));
   }
-  if (!(tenth.peak < fifth.peak && fifth.peak < full.peak)) {
-    problems.push(`the fade does not climb: ${tenth.peak.toFixed(3)} at 0.1s,`
-      + ` ${fifth.peak.toFixed(3)} at 0.2s, ${full.peak.toFixed(3)} at 0.3s`);
+  if (climbs.length < 2) {
+    problems.push('the fade could not be read across its length at all');
+  } else {
+    const slowest = Math.min(...climbs);
+    const fastest = Math.max(...climbs);
+    say(`    it climbs between ${slowest.toFixed(1)} and ${fastest.toFixed(1)} dB a second`
+      + ` - a factor of ${(fastest / Math.max(0.01, slowest)).toFixed(1)}`);
+    if (!(slowest > 0)) {
+      problems.push(`part of the fade does not climb at all (${slowest.toFixed(1)} dB a second)`);
+    } else if (fastest / slowest > 4) {
+      problems.push(`the fade climbs between ${slowest.toFixed(1)} and ${fastest.toFixed(1)} dB`
+        + ` a second - a factor of ${(fastest / slowest).toFixed(1)}, so it hangs at one end`
+        + ' and rushes at the other rather than being a fade of one gesture');
+    }
   }
 
   /* --- and the control that sets them ------------------------------------ */

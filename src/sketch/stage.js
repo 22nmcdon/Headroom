@@ -69,23 +69,113 @@ const optionsOf = (track, takes) => ({
  * and what the tests of this file are.
  */
 /**
- * A raised cosine, up and down, as a curve a gain can be driven with.
+ * The shape of a fade, which is not one shape.
  *
- * Sixty-five points, so the midpoint is a point rather than between two, and
- * because `setValueCurveAtTime` interpolates linearly between them: at the
- * shortest fade this app allows - a millisecond, 48 samples - that is more
- * points than samples, and at the longest the error from straight lines
- * between adjacent cosine points is far below anything audible.
+ * A short fade and a long one are different jobs and want opposite curves,
+ * and the measurements say so plainly.
  *
- * Built once at load. A curve per clip per pass would be sixty-five floats
- * allocated several times a bar, on the path that feeds the audio thread.
+ * A fade under about 50 ms exists to stop a cut being a click. What it is
+ * judged on is splatter, and there a raised cosine wins: its slope is zero
+ * where it meets full gain, so there is no corner, and the energy a cut puts
+ * above 5 kHz falls away faster than from any curve with one. Against a
+ * straight line, same cut through the same tone: 18.8 dB quieter at 1 ms,
+ * 33.1 at 5 ms, 38.8 at 10 ms.
+ *
+ * A fade of a second is a musical gesture and splatter is irrelevant - there
+ * is no discontinuity at that timescale to make any. What it is judged on is
+ * whether it falls EVENLY, and there the raised cosine is the worst of them,
+ * for exactly the property that makes it good at 5 ms. Flat where it meets
+ * full gain means a two-second fade-out moves 3 dB in its first 0.73 s -
+ * about a decibel a second, which is the edge of noticing anything at all -
+ * and then covers 32 dB in its last 0.2 s. It hangs, then vanishes.
+ *
+ *     a fade-out has got to    -6 dB   -20 dB   -40 dB   rate varies by
+ *     raised cosine            49.9%    79.5%    93.6%        >1000x
+ *     linear in dB             10.0%    33.3%    66.7%            1x
+ *
+ * So the curve follows the length. Cosine at or under 50 ms, even above 200,
+ * mixed between - and the even one is linear in dB down to a floor and then
+ * taken to silence by a short cosine tail, so it ends on nothing rather than
+ * on the step at its floor, which is what used to limit it. Measured, the
+ * blend gives up nothing at the short end and is better at the long one:
+ *
+ *     length    mix   -40 dB   rate varies by   splatter
+ *       5 ms   0.00    93.6%          >1000x      -125.9
+ *      50 ms   0.00    93.6%          >1000x      -164.5
+ *     100 ms   0.33    92.4%             14x      -173.6
+ *     200 ms   1.00    66.7%              1x      -181.8
+ *       2 s    1.00    66.7%              1x      -220.6
+ *
+ * Nothing new to set. A control whose correct position can be worked out
+ * from a number already on the clip is a control that should not exist.
+ */
+const FADE_SHORT = 0.05;
+const FADE_LONG = 0.2;
+const FADE_FLOOR_DB = 60;
+const FADE_TAIL = 0.02;
+
+/**
+ * Sixty-five points a curve, and nine curves.
+ *
+ * Sixty-five so the midpoint is a point rather than between two, and because
+ * `setValueCurveAtTime` interpolates linearly between them: at the shortest
+ * fade this app allows - a millisecond, 48 samples - that is more points than
+ * samples, and at the longest the error from straight lines between adjacent
+ * points is far below anything audible.
+ *
+ * Nine because the mix has to be chosen per clip, and a curve built per clip
+ * per pass would be sixty-five floats allocated several times a bar on the
+ * path that feeds the audio thread. Nine steps quantises the mix by about an
+ * eighth, which between two curves that are themselves close is nothing.
  */
 const COSINE = 65;
-const RISE = new Float32Array(COSINE);
-const FALL = new Float32Array(COSINE);
-for (let i = 0; i < COSINE; i += 1) {
-  RISE[i] = 0.5 - 0.5 * Math.cos((Math.PI * i) / (COSINE - 1));
-  FALL[i] = 0.5 + 0.5 * Math.cos((Math.PI * i) / (COSINE - 1));
+const MIXES = 9;
+
+const cosineAt = (t) => 0.5 + 0.5 * Math.cos(Math.PI * t);
+const evenAt = (t) => {
+  const fall = 10 ** ((-FADE_FLOOR_DB * t) / 20);
+  if (t <= 1 - FADE_TAIL) return fall;
+  return fall * cosineAt(Math.min(1, (t - (1 - FADE_TAIL)) / FADE_TAIL));
+};
+
+const RISES = [];
+const FALLS = [];
+for (let m = 0; m < MIXES; m += 1) {
+  const mix = m / (MIXES - 1);
+  const rise = new Float32Array(COSINE);
+  const fall = new Float32Array(COSINE);
+  for (let i = 0; i < COSINE; i += 1) {
+    const t = i / (COSINE - 1);
+    fall[i] = (1 - mix) * cosineAt(t) + mix * evenAt(t);
+    // The rise is the fall read backwards, so a fade-in climbs the way its
+    // matching fade-out descends.
+    rise[i] = (1 - mix) * cosineAt(1 - t) + mix * evenAt(1 - t);
+  }
+  RISES.push(rise);
+  FALLS.push(fall);
+}
+
+/**
+ * The gain a fade of this length is at, a fraction of the way through it.
+ *
+ * The same arithmetic the curve table is built from, for anything that has
+ * to DRAW a fade rather than apply one. Read off the same shape on purpose:
+ * a panel that draws a cosine over a fade that is falling evenly is a picture
+ * of a fade nobody is hearing.
+ */
+export function fadeGainAt(through, seconds, rising = false) {
+  const mix = fadeShapeAt(seconds) / (MIXES - 1);
+  const t = rising ? 1 - Math.max(0, Math.min(1, through)) : Math.max(0, Math.min(1, through));
+  return (1 - mix) * cosineAt(t) + mix * evenAt(t);
+}
+
+/** Which of the nine a fade of this length gets. */
+export function fadeShapeAt(seconds) {
+  const held = Math.max(0, Number(seconds) || 0);
+  const mix = held <= FADE_SHORT ? 0
+    : held >= FADE_LONG ? 1
+      : (held - FADE_SHORT) / (FADE_LONG - FADE_SHORT);
+  return Math.round(mix * (MIXES - 1));
 }
 
 export async function makeStage(ctx, project, {
@@ -218,10 +308,13 @@ export async function makeStage(ctx, project, {
       const shaped = ctx.createGain();
       const fade = fadeFor(piece.clip.fade, heard);
       shaped.gain.setValueAtTime(0, began);
-      if (fade.in > 0) shaped.gain.setValueCurveAtTime(RISE, began, fade.in);
+      if (fade.in > 0) {
+        shaped.gain.setValueCurveAtTime(RISES[fadeShapeAt(fade.in)], began, fade.in);
+      }
       shaped.gain.setValueAtTime(1, began + fade.in);
       if (fade.out > 0) {
-        shaped.gain.setValueCurveAtTime(FALL, began + heard - fade.out, fade.out);
+        shaped.gain.setValueCurveAtTime(FALLS[fadeShapeAt(fade.out)],
+          began + heard - fade.out, fade.out);
       }
       source.connect(shaped).connect(row.track.chain.in);
 

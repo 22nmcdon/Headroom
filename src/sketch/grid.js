@@ -75,7 +75,7 @@ import {
  */
 const SAMPLE_NOTES = Array.from({ length: 61 }, (_, i) => i + 30);
 import { KIT_ROWS } from './steps.js';
-import { makeStage } from './stage.js';
+import { makeStage, fadeGainAt } from './stage.js';
 import { zipStems } from './stems.js';
 import { INSTRUMENT_IDS, isMic } from '../core/instrument.js';
 import { rootOf, rootSaid } from '../lib/root.js';
@@ -1496,7 +1496,11 @@ export class SketchPage {
 
     const at = (seconds) => (seconds / whole) * width;
     const steps = 32;
-    const gainAt = (t, rising) => 0.5 - 0.5 * Math.cos(Math.PI * (rising ? t : 1 - t));
+    // The stage's own arithmetic, not a cosine written out again here. The
+    // curve follows the fade's length now, so a panel drawing one shape over
+    // a fade of another would be a picture of something nobody hears - and
+    // two copies of a curve is how the two come to disagree.
+    const gainAt = (t, rising) => fadeGainAt(t, rising ? fade.in : fade.out, rising);
 
     // Taken out of the waveform rather than drawn over it. The audio really
     // is quieter there, so the picture of it should be shorter there - and a
