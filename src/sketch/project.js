@@ -183,6 +183,31 @@ export const trimOf = (trim) => {
 };
 
 /**
+ * One edge of a trim, moved.
+ *
+ * The one rule both ways of moving it obey. A drag and an arrow key are the
+ * same question asked with different hardware, and two copies of this clamp
+ * is how a control comes to behave differently depending on how it was
+ * touched - which is the fault the EQ had when eight places each decided for
+ * themselves what a clip was.
+ *
+ * A clip with no trim yet still has edges: they are the ends of the
+ * recording. Without that the first arrow key press would do nothing.
+ */
+export function trimStep(trim, duration, edge, by) {
+  const whole = Math.max(0, Number(duration) || 0);
+  const least = TRIM_FADE * 4;
+  const now = trim ?? { from: 0, to: whole };
+
+  if (edge === 'from') {
+    const from = Math.max(0, Math.min(now.from + by, now.to - least));
+    return { from, to: now.to };
+  }
+  const to = Math.min(whole, Math.max(now.to + by, now.from + least));
+  return { from: now.from, to };
+}
+
+/**
  * What the stage should actually play, given how long the take turned out.
  *
  * Clamped to the take rather than trusted, because a clip recorded over with

@@ -17,7 +17,7 @@ import {
   sceneToMidi, serialise, parse, PROJECT_FORMAT, SCENES, setLength,
   addScene, dropScene, MOST_SCENES, STARTER, setFollow, followOf, MOST_PASSES, keyRoutes,
   moveInsert, CLIP_KINDS, clipKindOf, setKind, takeWindow, setTrim, TRIM_FADE,
-  setNudge, MOST_NUDGE,
+  setNudge, MOST_NUDGE, trimStep,
 } from '../src/sketch/project.js';
 import { SAMPLE_ROOT } from '../src/core/instrument.js';
 import { readMidi, PPQ, DRUM_CHANNEL } from '../src/sketch/midi.js';
@@ -861,4 +861,48 @@ test('a nudge can be set and cleared', () => {
 
   project = setNudge(project, 0, 0, 0);
   assert.equal(clipAt(project, 0, 0).nudge, 0, 'back on the line');
+});
+
+/* --- moving one edge of a trim ------------------------------------------- */
+
+// Extracted because there are two ways to move a trim and they must obey one
+// rule. The drag worked this out inline; the keyboard would have needed its
+// own copy, and two copies of a clamp is how a control comes to behave
+// differently depending on how you touched it - which is the same fault the
+// EQ had when eight places each decided what a clip was.
+
+test('an edge moves by what it is given', () => {
+  const was = { from: 1, to: 5 };
+  assert.deepEqual(trimStep(was, 10, 'from', 0.5), { from: 1.5, to: 5 });
+  assert.deepEqual(trimStep(was, 10, 'to', -0.5), { from: 1, to: 4.5 });
+});
+
+test('neither edge passes the other', () => {
+  // A window of nothing is a clip that plays nothing while still looking
+  // like a take, which is worse than a clip that is obviously empty.
+  const was = { from: 1, to: 2 };
+  const squashed = trimStep(was, 10, 'from', 5);
+  assert.ok(squashed.from < squashed.to, `from ${squashed.from} to ${squashed.to}`);
+  const other = trimStep(was, 10, 'to', -5);
+  assert.ok(other.from < other.to);
+});
+
+test('neither edge leaves the take', () => {
+  assert.equal(trimStep({ from: 1, to: 5 }, 10, 'from', -99).from, 0);
+  assert.equal(trimStep({ from: 1, to: 5 }, 10, 'to', 99).to, 10);
+});
+
+test('a window short enough to be all fade is refused', () => {
+  // The fades need room at both ends; below about four of them the two meet
+  // in the middle and the take is a click with a gap in it.
+  const tight = trimStep({ from: 1, to: 5 }, 10, 'from', 3.99);
+  assert.ok(tight.to - tight.from >= TRIM_FADE * 4 - 1e-9,
+    `left ${(tight.to - tight.from).toFixed(4)}s, which is less than the fades need`);
+});
+
+test('moving an edge of nothing starts from the whole take', () => {
+  // A clip with no trim yet still has edges to move - they are the ends of
+  // the recording - or the first arrow key press would do nothing.
+  assert.deepEqual(trimStep(null, 8, 'from', 1), { from: 1, to: 8 });
+  assert.deepEqual(trimStep(null, 8, 'to', -1), { from: 0, to: 7 });
 });

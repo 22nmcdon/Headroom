@@ -32,7 +32,7 @@
 import {
   newProject, setClip, setTrack, setProject, setNotes, setLength,
   clipAt, trackAt, sceneOf, sceneHasAnything, barTicks, sceneToMidi, isTake, setFit,
-  clipKindOf, setKind, setTrim, takeWindow, setNudge, MOST_NUDGE,
+  clipKindOf, setKind, setTrim, takeWindow, setNudge, MOST_NUDGE, trimStep,
   addScene, dropScene, MOST_SCENES, setFollow, MOST_PASSES,
   addTrack, dropTrack, MOST_TRACKS, moveInsert,
 } from './project.js';
@@ -109,6 +109,21 @@ const LENGTHS = [1, 2, 4];
  * over half a second is somebody holding still, and it read as a drag.
  */
 const HOLD_SLOP = 10;
+
+/**
+ * How far an arrow key moves a trim handle, in seconds.
+ *
+ * (Named for the edge rather than the trim because `plugins/level/gain.js`
+ * already has a `TRIM_STEP`, about a gain trim. The artifact build refuses
+ * two modules declaring one top-level name, which is how that was found.)
+ *
+ * Fifty milliseconds, which is about two and a half pixels of a desktop
+ * waveform - fine enough to place an edge against a transient and coarse
+ * enough that crossing a ten-second take does not take two hundred presses.
+ * Shift is ten times that, for getting across one.
+ */
+const EDGE_STEP = 0.05;
+const EDGE_COARSE = 0.5;
 
 /** What each effect is called where there is room for four letters. */
 const EFFECT_LABELS = {
@@ -435,6 +450,37 @@ export class SketchPage {
         this.commitTrim();
       });
     }
+
+    // And by key, because a handle that can only be dragged is a handle
+    // nobody without a pointer can use. It took focus and did nothing: arrow
+    // keys inert, Enter inert, announced as a button with no value.
+    parts.editor.addEventListener('keydown', (event) => {
+      const grab = event.target.closest('[data-grab]');
+      if (!grab) return;
+
+      const clip = this.clip();
+      const whole = this.takes.get(clip?.take)?.duration ?? 0;
+      if (!(whole > 0)) return;
+
+      // Fine by default and coarse with shift, which is the way round every
+      // other control in this app works and the way round somebody trimming
+      // wants: the small move is the one made most often.
+      const step = event.shiftKey ? EDGE_COARSE : EDGE_STEP;
+      const by = { ArrowLeft: -step, ArrowRight: step, ArrowDown: -step, ArrowUp: step }[event.key];
+
+      let next = null;
+      if (by !== undefined) next = trimStep(clip.trim, whole, grab.dataset.grab, by);
+      else if (event.key === 'Home') next = trimStep(clip.trim, whole, grab.dataset.grab, -whole);
+      else if (event.key === 'End') next = trimStep(clip.trim, whole, grab.dataset.grab, whole);
+      if (!next) return;
+
+      event.preventDefault();
+      this.dragged = next;
+      this.commitTrim();
+      // Focus follows the handle through the redraw, or one arrow key is all
+      // anybody gets before the panel takes the control out from under them.
+      this.parts.editor.querySelector(`[data-grab="${grab.dataset.grab}"]`)?.focus();
+    });
 
     parts.editor.addEventListener('click', (event) => this.editorClick(event));
     // Ranges on `input` and everything else on `change`: a fader that only
@@ -1917,10 +1963,16 @@ export class SketchPage {
             return `
               <span class="wave-out" style="width: ${at(offset)}%"></span>
               <span class="wave-out is-after" style="right: 0; left: ${at(offset + length)}%"></span>
-              <button class="wave-grab" type="button" data-grab="from"
-                      style="left: ${at(offset)}%" aria-label="Where it starts"></button>
-              <button class="wave-grab" type="button" data-grab="to"
-                      style="left: ${at(offset + length)}%" aria-label="Where it ends"></button>`;
+              ${[['from', offset, 'Where it starts', 0, offset + length],
+                 ['to', offset + length, 'Where it ends', offset, whole]]
+                .map(([edge, where, label, least, most]) => `
+                  <button class="wave-grab" type="button" data-grab="${edge}"
+                          style="left: ${at(where)}%"
+                          role="slider" aria-label="${label}"
+                          aria-valuemin="${least.toFixed(2)}"
+                          aria-valuemax="${most.toFixed(2)}"
+                          aria-valuenow="${where.toFixed(2)}"
+                          aria-valuetext="${where.toFixed(2)} seconds"></button>`).join('')}`;
           })()}
         </div>`}
 
