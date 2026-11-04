@@ -134,6 +134,34 @@ export const CLIP_KINDS = ['notes', 'mic'];
 export const TRIM_FADE = 0.005;
 
 /**
+ * How far a clip may be nudged off its line, in ticks either way.
+ *
+ * One bar. Past that it is not a nudge, it is a different place in the
+ * sketch - and a clip dragged four bars early would start before the scene
+ * it belongs to.
+ */
+export const MOST_NUDGE = PPQ * 4;
+
+/**
+ * How far off its line a clip plays, in ticks.
+ *
+ * Trim says which part of a take to play; this says when to play it. A note
+ * sung a beat late is a note in the wrong place and no amount of trimming
+ * moves it - trimming the front only makes the take shorter and still late.
+ *
+ * Ticks rather than seconds, which is the opposite of the trim and for the
+ * same reason. A trim is a window into a RECORDING, which has no tempo. A
+ * nudge is a distance along the GRID, which is nothing but tempo. Sixteen
+ * ticks early stays sixteen ticks early when the sketch speeds up, and that
+ * is what anybody who lined it up by ear meant.
+ */
+export const nudgeOf = (nudge) => {
+  const ticks = Math.round(Number(nudge));
+  if (!Number.isFinite(ticks)) return 0;
+  return Math.max(-MOST_NUDGE, Math.min(MOST_NUDGE, ticks));
+};
+
+/**
  * A window into a take, or null for the whole of it.
  *
  * In the take's own seconds, because that is what a buffer is measured in and
@@ -180,7 +208,7 @@ export function takeWindow(clip, duration) {
 
 export const clipOf = ({
   id = null, length = PPQ * 4, notes = [], name = '', division = 'eighth', chords = '',
-  take = null, follow = null, fit = 'bars', kind = null, trim = null,
+  take = null, follow = null, fit = 'bars', kind = null, trim = null, nudge = 0,
 } = {}) => ({
   id: id ?? `clip-${Math.random().toString(36).slice(2, 8)}`,
   name,
@@ -201,6 +229,8 @@ export const clipOf = ({
   kind: CLIP_KINDS.includes(kind) ? kind : null,
   // A window into the take, or null for the whole of it.
   trim: trimOf(trim),
+  // And how far off its line it plays. Nought is on the line.
+  nudge: nudgeOf(nudge),
   follow: followOf(follow),
   // The line of chord symbols this clip was made from, when it was made from
   // one. Kept so that coming back to it shows what was typed rather than
@@ -616,6 +646,13 @@ export function clipKindOf(clip, track) {
   if (clip?.notes?.length) return 'notes';
   if (CLIP_KINDS.includes(clip?.kind)) return clip.kind;
   return track?.instrument === 'mic' ? 'mic' : 'notes';
+}
+
+/** Slide a clip off its line, or back onto it with nought. */
+export function setNudge(project, track, scene, nudge) {
+  const here = clipAt(project, track, scene);
+  if (!here) return project;
+  return setClip(project, track, scene, { ...here, nudge });
 }
 
 /** Put a window on a take, or take it off with null. */

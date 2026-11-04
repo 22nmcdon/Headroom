@@ -115,16 +115,37 @@ export function overriddenIn(settings) {
 }
 
 /**
- * How many channels a take is actually kept in.
+ * The most channels a take is ever kept in.
  *
- * One. The capture node is built `channelCount: 1, channelCountMode:
- * 'explicit'`, so whatever the device offers is folded down before it is
- * kept - which is right for one microphone and wrong for a stereo interface,
- * and is a thing to fix rather than a thing to hide. Until it is fixed, the
- * panel says so: a device offering two channels and a row reading "2
- * channels" would have somebody expect a stereo take and get a mono one.
+ * Two, which is what the stage, the stems and every reading in this app are
+ * built around. An interface with eight inputs is not eight tracks of
+ * sketchpad, so the first two are taken and the panel says which.
+ *
+ * This used to be one, and not as a maximum: the capture node was built
+ * `channelCount: 1, channelCountMode: 'explicit'`, so a stereo interface was
+ * folded to mono before anything was kept. Everything downstream already
+ * took a list of channels - `joinBlocks`, `createBuffer`, `writeWav`,
+ * `waveOf`, `oversIn`, `floorOf` - so the fold was that one line.
  */
-export const CAPTURE_CHANNELS = 1;
+export const CAPTURE_MOST = 2;
+
+/**
+ * How many channels to actually open, given what the device says it has.
+ *
+ * What it says, up to the cap - never more. Asking for two from a device
+ * that has one gives a duplicated mono at twice the storage, which is worse
+ * than asking for one, and a browser that reports nothing gets one rather
+ * than a guess.
+ *
+ * (A stereo take also doubles what the ten-minute cap costs, from 82 MB to
+ * 164. That is the price of keeping what was played, and the cap stays in
+ * seconds because that is what somebody recording is counting.)
+ */
+export function captureChannels(settings) {
+  const had = Number(settings?.channelCount);
+  if (!Number.isInteger(had) || had < 1) return 1;
+  return Math.min(CAPTURE_MOST, had);
+}
 
 /** What those are called out loud, rather than in the API's words. */
 export const PROCESSING_SAYS = {
@@ -155,9 +176,11 @@ export function saidInput(settings) {
   }
   if (Number.isFinite(channels)) {
     parts.push(`${channels} channel${channels === 1 ? '' : 's'}`);
-    // Said rather than quietly done. The fold is real and the row would
-    // otherwise promise a stereo take that never arrives.
-    if (channels > CAPTURE_CHANNELS) parts.push('kept as mono');
+    // Only when something really is left behind. The row used to say "kept as
+    // mono" of anything above one channel, which was true while everything
+    // was folded and would be a lie now that stereo is kept.
+    const keeping = captureChannels(settings);
+    if (channels > keeping) parts.push(`first ${keeping} kept`);
   }
   return parts.join(' · ');
 }
@@ -431,6 +454,8 @@ export class Recorder {
     this.beginAt = 0;
     /** What `getSettings` said, once there is a stream to ask. */
     this.settings = {};
+    /** How many channels are actually being kept. */
+    this.channels = 1;
     this.deviceId = null;
     /** Called on every block, so a face can draw what is arriving. */
     this.onLevel = null;
@@ -481,12 +506,18 @@ export class Recorder {
     const worklet = await installWorklet(this.ctx, captureSource());
     if (!worklet) { this.close(); return null; }
 
+    // As many channels as the device actually has, rather than one. Explicit
+    // still, so the count is this app's decision and not whatever the graph
+    // negotiates downstream - but the number comes from `getSettings` now.
+    const keeping = captureChannels(this.settings);
     this.node = new AudioWorkletNode(this.ctx, 'headroom-capture', {
       numberOfInputs: 1,
       numberOfOutputs: 1,
-      channelCount: 1,
+      channelCount: keeping,
       channelCountMode: 'explicit',
+      outputChannelCount: [keeping],
     });
+    this.channels = keeping;
     this.node.port.onmessage = (event) => {
       const { lo = 0, hi = 0, block = null } = event.data ?? {};
       const peak = Math.max(hi, -lo);

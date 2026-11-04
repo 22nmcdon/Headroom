@@ -432,14 +432,40 @@ export async function check({ browser, at, say }) {
     let peak = 0;
     for (let i = 0; i < data.length; i += 1) peak = Math.max(peak, Math.abs(data[i]));
 
-    return { decoded: { seconds: buffer.duration, channels: buffer.numberOfChannels, peak } };
+    // What the panel says the stream has, read here because it is the very
+    // stream this take came from. A second `getUserMedia` is not: asked
+    // plainly it reports one channel where the app's own request - which
+    // carries the three processing constraints - reports two, so comparing
+    // against it compares two different streams.
+    const row = [...document.querySelectorAll('.rec-about dt')]
+      .find((dt) => dt.textContent.trim() === 'Giving')?.nextElementSibling?.textContent ?? '';
+
+    return {
+      decoded: { seconds: buffer.duration, channels: buffer.numberOfChannels, peak },
+      offered: Number(row.match(/(\d+) channel/)?.[1] ?? 0),
+    };
   });
 
   if (heard.skipped) {
     problems.push(`the recording could not be played back: ${heard.skipped}`);
   } else {
     say(`  it decodes to ${heard.decoded.seconds.toFixed(2)}s,`
-      + ` ${heard.decoded.channels} channel(s), peaking at ${heard.decoded.peak.toFixed(3)}`);
+      + ` ${heard.decoded.channels} channel(s), peaking at ${heard.decoded.peak.toFixed(3)}`
+);
+    // What was stored, against what the device offered. The old capture node
+    // was fixed at one channel, so a two-channel device came back as one and
+    // the second was gone before anything could be done about it.
+    const offered = heard.offered;
+    say(`  the stream it came from offers ${offered || '?'} channel(s)`);
+
+    if (!(offered > 0)) {
+      problems.push('the panel does not say how many channels the stream has, so whether the'
+        + ' capture folded it cannot be told from here - and an assertion that cannot tell is'
+        + ' worse than none');
+    } else if (heard.decoded.channels < Math.min(2, offered)) {
+      problems.push(`the stream offers ${offered} channels and the take was stored with`
+        + ` ${heard.decoded.channels} - the capture is folding what it was given`);
+    }
     if (!(heard.decoded.seconds > 0.5)) {
       problems.push(`the stored recording decodes to ${heard.decoded.seconds.toFixed(2)}s`
         + ' after five seconds of input');
@@ -764,6 +790,14 @@ export async function check({ browser, at, say }) {
   say(`\n  what the browser handed over`);
   for (const [name, value] of Object.entries(gave.rows)) say(`    ${name.padEnd(12)} ${value}`);
   say(`    picker ${gave.picker}${gave.inputs.length ? `: ${gave.inputs.join(' · ')}` : ''}`);
+
+  // The fake device offers two channels, so a stereo take is what should
+  // come back - this is the case the old `channelCount: 1` folded flat, and
+  // the panel admitted to folding rather than stopping.
+  if (/kept as mono/.test(gave.rows.Giving ?? '')) {
+    problems.push(`the panel says "${gave.rows.Giving}" - a stereo device is kept in stereo`
+      + ' now, so admitting to a fold is admitting to one that no longer happens');
+  }
 
   if (!gave.rows.Giving) {
     problems.push('the panel never says what the browser handed over - a request for no gain'

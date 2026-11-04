@@ -148,7 +148,20 @@ export async function makeStage(ctx, project, {
       // trusted, because a clip recorded over with something shorter keeps
       // the trim it had.
       const { offset, length } = takeWindow(piece.clip, buffer.duration);
-      const began = clock.timeOf(at);
+
+      // Where the nudge puts it. Trim says which part of a take to play and
+      // this says when: a note sung a beat late is in the wrong place, and
+      // trimming the front only makes the take shorter and still late.
+      //
+      // Clamped to now, which bounds how early the FIRST pass can be. A
+      // window is booked `LOOKAHEAD` ahead - 0.12 s - so an early nudge is
+      // exact up to about 92 ticks at 96 bpm and clamps past that on the
+      // pass that is already starting. Every later pass of a loop is booked
+      // far enough ahead to be unaffected, and a one-shot has no later pass,
+      // so on one of those an early nudge is worth a fraction of a beat and
+      // no more. Said rather than silently dropped: the take still plays.
+      const want = clock.timeOf(at + (piece.clip.nudge ?? 0));
+      const began = Math.max(want, ctx.currentTime);
 
       // A fade at each edge, through a gain of its own. A cut through a
       // waveform is a step, and a step is a click: measured, a 220 Hz sine

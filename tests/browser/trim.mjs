@@ -48,14 +48,14 @@ export async function check({ browser, at, say }) {
       }
     }
 
-    const run = async (trim) => {
+    const run = async (trim, nudge = 0) => {
       const seconds = WHOLE + 0.5;
       const ctx = new OfflineAudioContext(1, Math.ceil(RATE * seconds), RATE);
       let project = newProject({ bpm: 120 });
       project.tracks.forEach((_, i) => { if (i > 0) project = setTrack(project, i, { muted: true }); });
       project = setTrack(project, 0, { instrument: 'mic' });
       project = setClip(project, 0, 0, clipOf({
-        take: 'one', notes: [], fit: 'free', length: barTicks(project) * 8, trim,
+        take: 'one', notes: [], fit: 'free', length: barTicks(project) * 8, trim, nudge,
       }));
 
       let clock = 0;
@@ -137,6 +137,9 @@ export async function check({ browser, at, say }) {
     return {
       whole: await run(null),
       middle: await run({ from: bursts[1] - 0.1, to: bursts[1] + burst + 0.1 }),
+      // The same window, played a half-beat late. At 120 bpm a beat is half
+      // a second, so the whole thing should arrive 0.25 s further on.
+      late: await run({ from: bursts[1] - 0.1, to: bursts[1] + burst + 0.1 }, 240),
       // A window that begins INSIDE a burst, so the first samples out are the
       // fade and nothing else. Cutting just before one measures the burst's
       // own attack instead, which is how the first version of this passed
@@ -169,6 +172,30 @@ export async function check({ browser, at, say }) {
       problems.push(`the trimmed take begins ${began.toFixed(2)}s in - the offset is being`
         + ' dropped, so the window plays from the start of the recording');
     }
+  }
+
+  /* --- and a nudge moves when it plays ------------------------------------ */
+
+  // Trim says which part of a take to play; nudge says when. A note sung a
+  // beat late is in the wrong place, and trimming the front only makes the
+  // take shorter and still late.
+  //
+  // 240 ticks is half a beat, and at 120 bpm a beat is half a second - so the
+  // burst has to arrive 0.25 s further on than the untouched one. Measured
+  // against the unnudged render rather than against an absolute time,
+  // because the launch quantises to a bar and the absolute is not the claim.
+  if (heard.middle.runs.length === 1 && heard.late.runs.length === 1) {
+    const moved = heard.late.runs[0].from - heard.middle.runs[0].from;
+    say(`\n  nudged half a beat late: the burst moves ${moved.toFixed(3)}s`
+      + ' (half a beat at 120 bpm is 0.250s)');
+
+    if (Math.abs(moved - 0.25) > 0.02) {
+      problems.push(`a half-beat nudge moved the take ${moved.toFixed(3)}s rather than 0.25s`
+        + ' - the nudge is a field on the clip and is not reaching the stage');
+    }
+  } else {
+    problems.push(`the nudged render came back as ${heard.late.runs.length} bursts against`
+      + ` ${heard.middle.runs.length} unnudged - a nudge must move a take, not lose it`);
   }
 
   /* --- and the cut is faded rather than stepped --------------------------- */

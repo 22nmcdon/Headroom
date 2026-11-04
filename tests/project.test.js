@@ -17,6 +17,7 @@ import {
   sceneToMidi, serialise, parse, PROJECT_FORMAT, SCENES, setLength,
   addScene, dropScene, MOST_SCENES, STARTER, setFollow, followOf, MOST_PASSES, keyRoutes,
   moveInsert, CLIP_KINDS, clipKindOf, setKind, takeWindow, setTrim, TRIM_FADE,
+  setNudge, MOST_NUDGE,
 } from '../src/sketch/project.js';
 import { SAMPLE_ROOT } from '../src/core/instrument.js';
 import { readMidi, PPQ, DRUM_CHANNEL } from '../src/sketch/midi.js';
@@ -815,4 +816,49 @@ test('the fade at each edge is long enough to kill the cut', () => {
   // Five is inaudible as a shortening and 79 dB down is inaudible as a click.
   assert.ok(TRIM_FADE >= 0.002, 'under about two milliseconds the cut is still audible');
   assert.ok(TRIM_FADE <= 0.02, 'and past twenty it is eating the take');
+});
+
+/* --- and sliding it against the grid -------------------------------------- */
+
+// Trim says which part of a take to play; nudge says when to play it. A note
+// sung a beat late is a note in the wrong place, and no amount of trimming
+// moves it - trimming the front only makes the take shorter and still late.
+//
+// Ticks rather than seconds, which is the opposite of the trim and for the
+// same reason. A trim is a window into a RECORDING, which has no tempo; a
+// nudge is a distance along the GRID, which is nothing but tempo. Sixteen
+// ticks early stays sixteen ticks early when the sketch speeds up, and that
+// is what somebody who lined it up by ear meant.
+
+test('a clip does not claim a nudge until somebody makes one', () => {
+  assert.equal(clipOf({}).nudge, 0);
+});
+
+test('a nudge is a whole number of ticks, either way', () => {
+  assert.equal(clipOf({ nudge: 120 }).nudge, 120);
+  assert.equal(clipOf({ nudge: -120 }).nudge, -120, 'early as well as late');
+  assert.equal(clipOf({ nudge: 7.6 }).nudge, 8, 'a tick is the smallest there is');
+});
+
+test('a nudge that is not a number is no nudge', () => {
+  assert.equal(clipOf({ nudge: 'late' }).nudge, 0);
+  assert.equal(clipOf({ nudge: NaN }).nudge, 0);
+  assert.equal(clipOf({ nudge: Infinity }).nudge, 0);
+});
+
+test('a nudge is capped at a bar either way', () => {
+  // Past a bar it is not a nudge, it is a different place in the sketch -
+  // and a clip dragged four bars early would play before the scene it is in.
+  assert.ok(Math.abs(clipOf({ nudge: 100000 }).nudge) <= MOST_NUDGE);
+  assert.ok(Math.abs(clipOf({ nudge: -100000 }).nudge) <= MOST_NUDGE);
+});
+
+test('a nudge can be set and cleared', () => {
+  let project = newProject();
+  project = setClip(project, 0, 0, clipOf({ take: 'one' }));
+  project = setNudge(project, 0, 0, -48);
+  assert.equal(clipAt(project, 0, 0).nudge, -48);
+
+  project = setNudge(project, 0, 0, 0);
+  assert.equal(clipAt(project, 0, 0).nudge, 0, 'back on the line');
 });

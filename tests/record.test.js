@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import {
   barsFor, barSeconds, fitTo, joinBlocks, loudestIn, MOST_BARS, SILENCE, canRecord,
   freeSeconds, ticksFor, MOST_SECONDS, saidLength, oversIn,
-  WANTED, overriddenIn, saidInput, CAPTURE_CHANNELS, headFrom, COUNT_INS,
+  WANTED, overriddenIn, saidInput, CAPTURE_MOST, captureChannels, headFrom, COUNT_INS,
 } from '../src/sketch/record.js';
 import { PPQ } from '../src/sketch/midi.js';
 
@@ -253,14 +253,14 @@ test('a setting the browser says nothing about is not a setting it ignored', () 
   assert.deepEqual(overriddenIn({ sampleRate: 48000 }), []);
 });
 
-test('a stereo input folded to mono says so, because it is not what is kept', () => {
+test('the most a take is ever kept in is what the app is built for', () => {
   // The capture node is fixed at one channel, so a device offering two is
   // being folded - and a row reading "2 channels" would have somebody expect
   // a stereo take and get a mono one. Measured on Chromium's fake device,
   // which offers 44.1 kHz and two channels.
-  assert.match(saidInput({ sampleRate: 44100, channelCount: 2 }), /kept as mono/);
-  assert.doesNotMatch(saidInput({ sampleRate: 48000, channelCount: 1 }), /kept as mono/);
-  assert.equal(CAPTURE_CHANNELS, 1, 'and if that ever changes, this says so');
+  // Superseded: a stereo device is kept in stereo now, and this case moved
+  // to "the panel only says it folded when it folded" below.
+  assert.equal(CAPTURE_MOST, 2, 'two is what the rest of this app is built around');
 });
 
 test('what the browser handed over is said in words, not in field names', () => {
@@ -335,4 +335,50 @@ test('a count-in is a whole number of bars, and off is a choice', () => {
   assert.ok(COUNT_INS.includes(0), 'off, because an idea does not always want counting in');
   assert.ok(COUNT_INS.includes(1));
   assert.ok(COUNT_INS.every((n) => Number.isInteger(n) && n >= 0));
+});
+
+/* --- and how many channels come back ------------------------------------- */
+
+// The capture node was built `channelCount: 1, channelCountMode: 'explicit'`,
+// so whatever a device offered was folded to mono before anything was kept.
+// Right for one microphone and wrong for a stereo interface or a stereo USB
+// microphone, and until now it was only SAID rather than fixed - the panel
+// admitted "kept as mono" and went on doing it.
+//
+// Everything downstream already handled more than one: `joinBlocks`,
+// `createBuffer`, `writeWav`, `waveOf`, `oversIn` and `floorOf` all take a
+// list of channels and always did. The fold was one line.
+
+test('a take keeps as many channels as the device actually gives', () => {
+  assert.equal(captureChannels({ channelCount: 1 }), 1);
+  assert.equal(captureChannels({ channelCount: 2 }), 2);
+});
+
+test('more than two is cut to two rather than kept', () => {
+  // An eight-in interface is not eight tracks of sketchpad. Two is what the
+  // stage, the stems and every reading in this app are built around, and the
+  // honest thing is to take the first two and say so.
+  assert.equal(captureChannels({ channelCount: 8 }), 2);
+  assert.equal(captureChannels({ channelCount: 4 }), 2);
+});
+
+test('a browser that says nothing gets one channel, not a guess', () => {
+  // Asking for two from a device that has one gives a duplicated mono at
+  // twice the storage, which is worse than asking for one.
+  assert.equal(captureChannels({}), 1);
+  assert.equal(captureChannels(null), 1);
+  assert.equal(captureChannels({ channelCount: 0 }), 1);
+  assert.equal(captureChannels({ channelCount: -2 }), 1);
+  assert.equal(captureChannels({ channelCount: 1.5 }), 1);
+});
+
+test('the panel only says it folded when it folded', () => {
+  // The old message was unconditional on anything above one channel, which
+  // was true while everything was folded and becomes a lie the moment stereo
+  // is kept.
+  assert.doesNotMatch(saidInput({ sampleRate: 48000, channelCount: 2 }), /mono/,
+    'a stereo device is kept in stereo now');
+  assert.match(saidInput({ sampleRate: 48000, channelCount: 2 }), /2 channels/);
+  assert.match(saidInput({ sampleRate: 48000, channelCount: 8 }), /first 2/,
+    'and an interface with more says which it took');
 });

@@ -32,7 +32,7 @@
 import {
   newProject, setClip, setTrack, setProject, setNotes, setLength,
   clipAt, trackAt, sceneOf, sceneHasAnything, barTicks, sceneToMidi, isTake, setFit,
-  clipKindOf, setKind, setTrim, takeWindow,
+  clipKindOf, setKind, setTrim, takeWindow, setNudge, MOST_NUDGE,
   addScene, dropScene, MOST_SCENES, setFollow, MOST_PASSES,
   addTrack, dropTrack, MOST_TRACKS, moveInsert,
 } from './project.js';
@@ -659,6 +659,17 @@ export class SketchPage {
       this.change(setClip(this.project, this.at.track, this.at.scene, {
         ...this.clip(), division: grid.dataset.division,
       }));
+      return;
+    }
+
+    const nudge = event.target.closest('[data-nudge]');
+    if (nudge && this.at) {
+      const ticks = Number(nudge.dataset.nudge);
+      this.change(setNudge(this.project, this.at.track, this.at.scene, ticks));
+      this.tell(ticks === 0
+        ? 'Back on the line.'
+        : `${Math.abs(ticks)} ticks ${ticks < 0 ? 'early' : 'late'}.`
+          + (ticks < 0 ? ' A loop moves every pass; a one-shot only its later ones.' : ''));
       return;
     }
 
@@ -1911,6 +1922,23 @@ export class SketchPage {
               <button class="wave-grab" type="button" data-grab="to"
                       style="left: ${at(offset + length)}%" aria-label="Where it ends"></button>`;
           })()}
+        </div>`}
+
+      ${!isTake(clip) ? '' : `
+        <div class="editor-row">
+          <span class="editor-label">Nudge</span>
+          <span class="chips">
+            ${[-PPQ / 2, -PPQ / 8, 0, PPQ / 8, PPQ / 2].map((ticks) => `
+              <button class="chip" type="button" data-nudge="${ticks}"
+                      aria-pressed="${(clip.nudge ?? 0) === ticks}"
+                      title="${ticks === 0 ? 'On the line'
+                        : `${Math.abs(ticks) === PPQ / 2 ? 'Half a beat' : 'An eighth of a beat'}`
+                          + ` ${ticks < 0 ? 'early' : 'late'}`}"
+                >${ticks === 0 ? 'on the line'
+                  : `${ticks < 0 ? '−' : '+'}${Math.abs(ticks) === PPQ / 2 ? '½' : '⅛'}`}</button>`).join('')}
+          </span>
+          ${!clip.nudge ? '' : `<span class="fine">${Math.abs(clip.nudge)} ticks
+            ${clip.nudge < 0 ? 'early' : 'late'}</span>`}
         </div>`}
 
       ${!(isTake(clip) && clip.trim) ? '' : `
