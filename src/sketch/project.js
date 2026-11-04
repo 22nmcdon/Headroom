@@ -194,6 +194,45 @@ export const saidFade = (seconds) => (seconds < 0.1
   ? `${Math.round(seconds * 1000)} ms`
   : `${seconds.toFixed(seconds < 1 ? 2 : 1)} s`);
 
+/** How long one tick lasts, at a tempo. */
+export const perTickAt = (bpm) => 60 / (Math.max(1, Number(bpm) || 120) * PPQ);
+
+/**
+ * How long a clip gets to sound before its bar line stops it.
+ *
+ * Its own length, less its nudge: a clip nudged early starts early and still
+ * stops where the scene says, so it is heard for longer - and one nudged late
+ * is heard for less. `stage.js` arrives at the same number from the clock,
+ * which it must, because the clock also knows about the clamp on the very
+ * first pass.
+ *
+ * Here so that the panel DRAWING a fade and the stage PLAYING one work from
+ * one rule. They did not: the panel took the clip's length straight and
+ * ignored the nudge entirely, so a clip nudged a bar early drew its fade-out
+ * a bar away from where anybody heard it. Two copies of one rule is how the
+ * picture and the sound come to disagree, which is the fault the EQ had when
+ * eight places each decided for themselves what a clip was.
+ */
+export const clipSeconds = (clip, bpm) => Math.max(
+  0,
+  ((Number(clip?.length) || 0) - nudgeOf(clip?.nudge)) * perTickAt(bpm),
+);
+
+/**
+ * How long a clip is audible for: its window into the take, or its bar line,
+ * whichever comes first.
+ *
+ * A take kept whole runs to the end of its window and has no bar line to meet.
+ * A loop is stopped at one, and a take longer than its clip never reaches its
+ * own end - so a fade placed at the end of the WINDOW is placed after the
+ * audio has already been cut off, and does nothing at all.
+ */
+export function heardFor(fit, windowSeconds, untilSeconds) {
+  const window = Math.max(0, Number(windowSeconds) || 0);
+  if (fit === 'free') return window;
+  return Math.max(0, Math.min(window, Math.max(0, Number(untilSeconds) || 0)));
+}
+
 /**
  * The two fades as they actually fit in the time available.
  *

@@ -22,7 +22,7 @@ import { transportFor, nextBar } from './transport.js';
 import { makeTrack, playPieces } from '../core/track.js';
 import { makeEffect } from '../core/effects.js';
 import { booking, following, queue, resting } from './launch.js';
-import { clipAt, isTake, keyRoutes, takeWindow, fadeFor } from './project.js';
+import { clipAt, isTake, keyRoutes, takeWindow, fadeFor, heardFor } from './project.js';
 import { optionsFor, paramsFor } from './knobs.js';
 import { makeLimiterNode } from '../lib/limiter-node.js';
 import { RIDE_STEPS } from '../lib/tempo.js';
@@ -302,8 +302,14 @@ export async function makeStage(ctx, project, {
       // cut off, and does nothing at all. That is how this check first failed
       // with the fade in place: every edge faded, and the loop still stepped
       // a full 0.64 between two samples at every wrap.
-      const stopsAt = once ? began + length : clock.timeOf(at + piece.clip.length);
-      const heard = Math.max(0, Math.min(length, stopsAt - began));
+      // From the clock rather than from `clipSeconds`, because the clock also
+      // knows about the clamp above: on the very first pass `began` can be
+      // later than the nudge asked for, and a fade placed from the nominal
+      // length would then sit past the end of what is heard. The panel works
+      // the same number out from the tempo, and `project.test.js` holds the
+      // two formulas against each other so they cannot drift apart.
+      const stopsAt = clock.timeOf(at + piece.clip.length);
+      const heard = heardFor(once ? 'free' : 'bars', length, stopsAt - began);
 
       const shaped = ctx.createGain();
       const fade = fadeFor(piece.clip.fade, heard);

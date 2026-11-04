@@ -33,7 +33,7 @@ import {
   newProject, setClip, setTrack, setProject, setNotes, setLength,
   clipAt, trackAt, sceneOf, sceneHasAnything, barTicks, sceneToMidi, isTake, setFit,
   clipKindOf, setKind, setTrim, takeWindow, setNudge, MOST_NUDGE, trimStep,
-  setFade, fadeAt, fadeSlide, fadeFor, saidFade,
+  setFade, fadeAt, fadeSlide, fadeFor, saidFade, clipSeconds, heardFor,
   addScene, dropScene, MOST_SCENES, setFollow, MOST_PASSES,
   addTrack, dropTrack, MOST_TRACKS, moveInsert,
 } from './project.js';
@@ -1490,8 +1490,7 @@ export class SketchPage {
     const { offset, length } = takeWindow(clip, whole);
     // What is audible: a free take runs to the end of its window, a loop
     // stops at its bar line. Seconds from ticks the way the clock does it.
-    const barsLong = (clip.length / PPQ) * (60 / this.project.bpm);
-    const heard = this.fitOf(clip) === 'free' ? length : Math.min(length, barsLong);
+    const heard = heardFor(this.fitOf(clip), length, clipSeconds(clip, this.project.bpm));
     const fade = fadeFor(clip.fade, heard);
 
     const at = (seconds) => (seconds / whole) * width;

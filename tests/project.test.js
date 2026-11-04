@@ -18,9 +18,11 @@ import {
   addScene, dropScene, MOST_SCENES, STARTER, setFollow, followOf, MOST_PASSES, keyRoutes,
   moveInsert, CLIP_KINDS, clipKindOf, setKind, takeWindow, setTrim, TRIM_FADE,
   setNudge, MOST_NUDGE, trimStep, fadeOf, fadeFor, setFade, FADE_LEAST, FADE_MOST,
+  clipSeconds, heardFor, perTickAt,
 } from '../src/sketch/project.js';
 import { SAMPLE_ROOT } from '../src/core/instrument.js';
 import { readMidi, PPQ, DRUM_CHANNEL } from '../src/sketch/midi.js';
+import { Transport } from '../src/sketch/transport.js';
 import { INSTRUMENT_IDS } from '../src/core/instrument.js';
 
 const BAR = PPQ * 4;
@@ -964,4 +966,71 @@ test('a fade survives being written down and read back', () => {
   project = setFade(project, 0, 0, { in: 0.4, out: 0.08 });
   const back = parse(serialise(project));
   assert.deepEqual(clipAt(back, 0, 0).fade, { in: 0.4, out: 0.08 });
+});
+
+/* --- how long a clip is heard for, which two files have to agree on ------ */
+
+// The panel draws a clip's fade and the stage plays it, and both need the
+// same answer to "when does this stop". They used to work it out separately,
+// and they already disagreed: the panel took the clip's length straight and
+// ignored the nudge, so a clip nudged a bar early drew its fade-out a bar
+// from where it was heard.
+
+test('a clip is heard for its own length, less whatever it was nudged', () => {
+  const bpm = 120;
+  const bar = PPQ * 4;
+  // A quarter note at 120 is half a second, so a four-four bar is two.
+  assert.ok(Math.abs(clipSeconds({ length: bar, nudge: 0 }, bpm) - 2) < 1e-9);
+
+  // Early is longer: it starts sooner and still stops where the scene says.
+  assert.ok(clipSeconds({ length: bar, nudge: -PPQ }, bpm)
+    > clipSeconds({ length: bar, nudge: 0 }, bpm));
+  // And late is shorter.
+  assert.ok(clipSeconds({ length: bar, nudge: PPQ }, bpm)
+    < clipSeconds({ length: bar, nudge: 0 }, bpm));
+  assert.ok(Math.abs(clipSeconds({ length: bar, nudge: PPQ }, bpm) - 1.5) < 1e-9);
+});
+
+test('a faster sketch gives every clip less time', () => {
+  const bar = PPQ * 4;
+  assert.ok(clipSeconds({ length: bar }, 240) < clipSeconds({ length: bar }, 120));
+  assert.ok(Math.abs(clipSeconds({ length: bar }, 240) - 1) < 1e-9);
+  // And nothing divides by nothing.
+  assert.ok(Number.isFinite(clipSeconds({ length: bar }, 0)));
+  assert.ok(Number.isFinite(clipSeconds({ length: bar }, NaN)));
+  assert.equal(clipSeconds({ length: -5 }, 120), 0);
+});
+
+test('the clock and the tempo agree about how long a clip lasts', () => {
+  // THE point of this one. `stage.js` works the audible length out from the
+  // transport, because the clock also knows about the clamp on the first
+  // pass; the panel works it out from the tempo. If those two formulas ever
+  // drift apart, a fade is drawn in one place and heard in another, and
+  // nothing else in the suite would say a word.
+  for (const bpm of [60, 96, 120, 174]) {
+    for (const nudge of [0, PPQ, -PPQ, PPQ * 2]) {
+      const clock = new Transport({
+        now: () => 0, every: () => null, clear: () => {},
+        lookahead: 0, bpm, beats: 4, value: 4,
+      });
+      const clip = { length: PPQ * 4, nudge };
+      const at = PPQ * 8;
+      const byClock = clock.timeOf(at + clip.length) - clock.timeOf(at + nudge);
+      const byTempo = clipSeconds(clip, bpm);
+      assert.ok(Math.abs(byClock - byTempo) < 1e-9,
+        `at ${bpm} bpm nudged ${nudge}: clock ${byClock}, tempo ${byTempo}`);
+    }
+  }
+});
+
+test('a take kept whole ignores the bar line, and a loop does not', () => {
+  // A free take has no next pass to run into, so it plays to the end of its
+  // window however long that is.
+  assert.equal(heardFor('free', 9, 2), 9);
+  // A loop stops at whichever comes first.
+  assert.equal(heardFor('bars', 9, 2), 2);
+  assert.equal(heardFor('bars', 1.5, 2), 1.5);
+  // And never a negative length, which is what `setValueCurveAtTime` throws on.
+  assert.equal(heardFor('bars', 9, -3), 0);
+  assert.equal(heardFor('bars', -9, 2), 0);
 });
