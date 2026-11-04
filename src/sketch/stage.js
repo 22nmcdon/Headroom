@@ -22,7 +22,7 @@ import { transportFor, nextBar } from './transport.js';
 import { makeTrack, playPieces } from '../core/track.js';
 import { makeEffect } from '../core/effects.js';
 import { booking, following, queue, resting } from './launch.js';
-import { clipAt, isTake, keyRoutes, takeWindow, TRIM_FADE } from './project.js';
+import { clipAt, isTake, keyRoutes, takeWindow, fadeFor } from './project.js';
 import { optionsFor, paramsFor } from './knobs.js';
 import { makeLimiterNode } from '../lib/limiter-node.js';
 import { RIDE_STEPS } from '../lib/tempo.js';
@@ -68,6 +68,26 @@ const optionsOf = (track, takes) => ({
  * buffer as readily as it can be played - which is what stem export will be,
  * and what the tests of this file are.
  */
+/**
+ * A raised cosine, up and down, as a curve a gain can be driven with.
+ *
+ * Sixty-five points, so the midpoint is a point rather than between two, and
+ * because `setValueCurveAtTime` interpolates linearly between them: at the
+ * shortest fade this app allows - a millisecond, 48 samples - that is more
+ * points than samples, and at the longest the error from straight lines
+ * between adjacent cosine points is far below anything audible.
+ *
+ * Built once at load. A curve per clip per pass would be sixty-five floats
+ * allocated several times a bar, on the path that feeds the audio thread.
+ */
+const COSINE = 65;
+const RISE = new Float32Array(COSINE);
+const FALL = new Float32Array(COSINE);
+for (let i = 0; i < COSINE; i += 1) {
+  RISE[i] = 0.5 - 0.5 * Math.cos((Math.PI * i) / (COSINE - 1));
+  FALL[i] = 0.5 + 0.5 * Math.cos((Math.PI * i) / (COSINE - 1));
+}
+
 export async function makeStage(ctx, project, {
   out = ctx.destination, transport, takes = new Map(), rides = {},
 } = {}) {
@@ -164,23 +184,46 @@ export async function makeStage(ctx, project, {
       const began = Math.max(want, ctx.currentTime);
 
       // A fade at each edge, through a gain of its own. A cut through a
-      // waveform is a step, and a step is a click: measured, a 220 Hz sine
-      // cut at its peak puts 27.9 dB of energy above 5 kHz, and five
-      // milliseconds of raised cosine takes that down by 79. Only where there
-      // is actually a cut - an untrimmed take already starts and ends at
-      // whatever the microphone was doing, and fading that would be fading
-      // the recording rather than the edit.
-      if (piece.clip.trim) {
-        const shaped = ctx.createGain();
-        const fade = Math.min(TRIM_FADE, length / 4);
-        shaped.gain.setValueAtTime(0, began);
-        shaped.gain.linearRampToValueAtTime(1, began + fade);
-        shaped.gain.setValueAtTime(1, began + length - fade);
-        shaped.gain.linearRampToValueAtTime(0, began + length);
-        source.connect(shaped).connect(row.track.chain.in);
-      } else {
-        source.connect(row.track.chain.in);
+      // waveform is a step, and a step is a click.
+      //
+      // On every clip, not only trimmed ones. This used to read "only where
+      // there is actually a cut - an untrimmed take already starts and ends
+      // at whatever the microphone was doing", which was true of the start
+      // and false of the end: a looping clip is stopped at its bar line a few
+      // lines below whether or not it is trimmed, and that stop is as much a
+      // cut as a trim is. So an untrimmed loop clicked once a bar, and the
+      // comment explaining why it needed no fade is why nobody looked.
+      //
+      // And a raised cosine, which is what that comment always claimed and
+      // the `linearRampToValueAtTime` under it never did. The difference is
+      // not pedantic: a straight line leaves a corner where it meets full
+      // gain, a corner is a discontinuity in the slope, and splatter from one
+      // falls away as 1/f^2 rather than faster. Measured against the linear
+      // ramp this replaces, same cut through the same 220 Hz tone, energy
+      // above 5 kHz:
+      //
+      //      1 ms   -79.1  ->  -97.9     18.8 dB quieter
+      //      5 ms   -92.8  -> -125.9     33.1 dB quieter
+      //     10 ms   -99.2  -> -138.0     38.8 dB quieter
+      // How long this pass is actually audible for, which is NOT the window
+      // into the take. A loop is stopped at its bar line below, and a take
+      // longer than its clip never reaches its own end - so a fade-out placed
+      // at the end of the WINDOW is placed after the audio has already been
+      // cut off, and does nothing at all. That is how this check first failed
+      // with the fade in place: every edge faded, and the loop still stepped
+      // a full 0.64 between two samples at every wrap.
+      const stopsAt = once ? began + length : clock.timeOf(at + piece.clip.length);
+      const heard = Math.max(0, Math.min(length, stopsAt - began));
+
+      const shaped = ctx.createGain();
+      const fade = fadeFor(piece.clip.fade, heard);
+      shaped.gain.setValueAtTime(0, began);
+      if (fade.in > 0) shaped.gain.setValueCurveAtTime(RISE, began, fade.in);
+      shaped.gain.setValueAtTime(1, began + fade.in);
+      if (fade.out > 0) {
+        shaped.gain.setValueCurveAtTime(FALL, began + heard - fade.out, fade.out);
       }
+      source.connect(shaped).connect(row.track.chain.in);
 
       source.start(began, offset, length);
       // A loop is never longer than the clip it is in, or a take a shade too

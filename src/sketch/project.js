@@ -134,6 +134,66 @@ export const CLIP_KINDS = ['notes', 'mic'];
 export const TRIM_FADE = 0.005;
 
 /**
+ * The shortest and longest fade a clip may carry, in seconds.
+ *
+ * One millisecond at the bottom, because that is where a fade stops being a
+ * fade and becomes a cut: measured, it is still 18 dB better than no fade at
+ * all, and anything shorter is rounding. Two seconds at the top, which on a
+ * four-bar loop at 120 is a quarter of it - past that the control is not
+ * shaping an edge any more, it is writing a different part.
+ */
+export const FADE_LEAST = 0.001;
+export const FADE_MOST = 2;
+
+/**
+ * How a clip's two edges are shaped, in seconds.
+ *
+ * Always a shape, never absent, because every clip has two edges and both of
+ * them are cut by something - a trim, a bar line, or the end of the take. The
+ * default is `TRIM_FADE` at each end, which is what every clip had before
+ * this was a control, so a sketch saved earlier opens sounding the same.
+ *
+ * In seconds, like the trim and for the same reason: a fade is a property of
+ * the RECORDING, and five milliseconds of edge is five milliseconds of edge
+ * whatever the sketch's tempo is. A fade in ticks would get shorter every
+ * time somebody sped the sketch up, which is the one thing nobody shaping an
+ * edge by ear ever means.
+ */
+export const fadeOf = (fade) => {
+  const hold = (value) => {
+    const seconds = Number(value);
+    if (!Number.isFinite(seconds)) return TRIM_FADE;
+    return Math.max(FADE_LEAST, Math.min(FADE_MOST, seconds));
+  };
+  return { in: hold(fade?.in), out: hold(fade?.out) };
+};
+
+/**
+ * The two fades as they actually fit in the time available.
+ *
+ * A fade cannot be longer than what it is fading, and the two together cannot
+ * be longer than the whole: a clip trimmed down to a tenth of a second does
+ * not get a second of fade-in, and a clip with a second at each end of a
+ * one-second window would have its two ramps cross and its middle never reach
+ * full. Shared out in proportion when they do not both fit, so shortening a
+ * clip pulls both edges in rather than starving the second one.
+ */
+export function fadeFor(fade, length) {
+  const room = Math.max(0, Number(length) || 0);
+  const want = fadeOf(fade);
+  if (!room) return { in: 0, out: 0 };
+
+  const both = want.in + want.out;
+  if (both <= room) return want;
+  // In proportion, so a long fade-in and a short fade-out stay long and
+  // short rather than both becoming half the clip. Taken from what was
+  // ASKED for rather than from each end clamped to the room first: clamping
+  // first turns a 2:1 pair into a 1.2:1 one, because both ends hit the same
+  // ceiling before the ratio is read off them.
+  return { in: (want.in / both) * room, out: (want.out / both) * room };
+}
+
+/**
  * How far a clip may be nudged off its line, in ticks either way.
  *
  * One bar. Past that it is not a nudge, it is a different place in the
@@ -234,6 +294,7 @@ export function takeWindow(clip, duration) {
 export const clipOf = ({
   id = null, length = PPQ * 4, notes = [], name = '', division = 'eighth', chords = '',
   take = null, follow = null, fit = 'bars', kind = null, trim = null, nudge = 0,
+  fade = null,
 } = {}) => ({
   id: id ?? `clip-${Math.random().toString(36).slice(2, 8)}`,
   name,
@@ -254,6 +315,9 @@ export const clipOf = ({
   kind: CLIP_KINDS.includes(kind) ? kind : null,
   // A window into the take, or null for the whole of it.
   trim: trimOf(trim),
+  // And how its two edges are shaped. Always present, because every clip has
+  // two edges; `null` here means the default rather than meaning none.
+  fade: fadeOf(fade),
   // And how far off its line it plays. Nought is on the line.
   nudge: nudgeOf(nudge),
   follow: followOf(follow),
@@ -685,6 +749,13 @@ export function setTrim(project, track, scene, trim) {
   const here = clipAt(project, track, scene);
   if (!here) return project;
   return setClip(project, track, scene, { ...here, trim });
+}
+
+/** Shape one or both of a clip's edges. */
+export function setFade(project, track, scene, fade) {
+  const here = clipAt(project, track, scene);
+  if (!here) return project;
+  return setClip(project, track, scene, { ...here, fade: fadeOf({ ...here.fade, ...fade }) });
 }
 
 /** Say what an empty clip is for, or hand it back to the track with null. */

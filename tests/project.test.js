@@ -17,7 +17,7 @@ import {
   sceneToMidi, serialise, parse, PROJECT_FORMAT, SCENES, setLength,
   addScene, dropScene, MOST_SCENES, STARTER, setFollow, followOf, MOST_PASSES, keyRoutes,
   moveInsert, CLIP_KINDS, clipKindOf, setKind, takeWindow, setTrim, TRIM_FADE,
-  setNudge, MOST_NUDGE, trimStep,
+  setNudge, MOST_NUDGE, trimStep, fadeOf, fadeFor, setFade, FADE_LEAST, FADE_MOST,
 } from '../src/sketch/project.js';
 import { SAMPLE_ROOT } from '../src/core/instrument.js';
 import { readMidi, PPQ, DRUM_CHANNEL } from '../src/sketch/midi.js';
@@ -905,4 +905,63 @@ test('moving an edge of nothing starts from the whole take', () => {
   // the recording - or the first arrow key press would do nothing.
   assert.deepEqual(trimStep(null, 8, 'from', 1), { from: 1, to: 8 });
   assert.deepEqual(trimStep(null, 8, 'to', -1), { from: 0, to: 7 });
+});
+
+/* --- the shape of a clip's two edges ------------------------------------- */
+
+// A cut through a waveform is a step and a step is a click, so every clip
+// edge is faded. What is held here is that the control cannot be set to
+// something that would not fade, and that it fits in the time it has.
+
+test('a clip comes with the fade every clip used to have', () => {
+  // Five milliseconds at each end, which is what was hard-coded before this
+  // was a control - so a sketch saved earlier opens sounding the same.
+  assert.deepEqual(clipOf({}).fade, { in: TRIM_FADE, out: TRIM_FADE });
+  assert.deepEqual(fadeOf(null), { in: TRIM_FADE, out: TRIM_FADE });
+  assert.deepEqual(fadeOf({ in: undefined, out: 'x' }), { in: TRIM_FADE, out: TRIM_FADE });
+});
+
+test('a fade is held between the shortest that is still a fade and the longest', () => {
+  assert.equal(fadeOf({ in: 0 }).in, FADE_LEAST, 'nothing is still a millisecond');
+  assert.equal(fadeOf({ in: -5 }).in, FADE_LEAST);
+  assert.equal(fadeOf({ out: 99 }).out, FADE_MOST);
+  // And in between it is kept exactly, because it is a measurement.
+  assert.equal(fadeOf({ in: 0.037 }).in, 0.037);
+});
+
+test('the two fades fit in what there is to fade', () => {
+  // A clip trimmed shorter than its own fades does not get ramps that cross.
+  const tight = fadeFor({ in: 1, out: 0.5 }, 0.6);
+  assert.ok(Math.abs(tight.in + tight.out - 0.6) < 1e-9, 'together they are the whole clip');
+  assert.ok(Math.abs(tight.in / tight.out - 2) < 1e-9, 'and in the proportion asked for');
+
+  // Which is the part that was wrong first time. Clamping each end to the
+  // room before taking the ratio turns a 2:1 pair into 1.2:1, because both
+  // ends hit the same ceiling before the ratio is read off them.
+  assert.ok(tight.in > tight.out);
+
+  assert.deepEqual(fadeFor({ in: 0.005, out: 0.005 }, 4), { in: 0.005, out: 0.005 },
+    'and where they fit, nothing is taken off them');
+  assert.deepEqual(fadeFor({ in: 1, out: 1 }, 0), { in: 0, out: 0 },
+    'a clip with no length has no edges to shape');
+});
+
+test('shaping one edge leaves the other alone', () => {
+  let project = newProject();
+  project = setClip(project, 0, 0, clipOf({ notes: [] }));
+  project = setFade(project, 0, 0, { in: 0.25 });
+  assert.equal(clipAt(project, 0, 0).fade.in, 0.25);
+  assert.equal(clipAt(project, 0, 0).fade.out, TRIM_FADE, 'the other end is untouched');
+
+  project = setFade(project, 0, 0, { out: 0.5 });
+  assert.equal(clipAt(project, 0, 0).fade.in, 0.25, 'and setting the second keeps the first');
+  assert.equal(clipAt(project, 0, 0).fade.out, 0.5);
+});
+
+test('a fade survives being written down and read back', () => {
+  let project = newProject();
+  project = setClip(project, 0, 0, clipOf({ notes: [] }));
+  project = setFade(project, 0, 0, { in: 0.4, out: 0.08 });
+  const back = parse(serialise(project));
+  assert.deepEqual(clipAt(back, 0, 0).fade, { in: 0.4, out: 0.08 });
 });
