@@ -156,9 +156,9 @@ export class EQPlugin {
     // exercise. An insert has neither, because a track's EQ is undone with
     // the sketchpad's own undo.
     const host = this.role === 'insert' ? '' : `
-      <div class="eq-transport host-row">
+      <div class="plugin-transport host-row">
         <button class="play-btn" type="button" data-eq="play">Play</button>
-        <div class="eq-ab" role="group" aria-label="What you are hearing">
+        <div class="plugin-ab" role="group" aria-label="What you are hearing">
           <button class="ab-btn is-on" type="button" data-hear="mine">Yours</button>
           <button class="ab-btn" type="button" data-hear="theirs" id="eqOther">Target</button>
         </div>
@@ -188,15 +188,15 @@ export class EQPlugin {
           <div class="eq-bay eq-bay-curve">
             <span class="panel-name">Curve
               <span class="rule-kit">
-                <div class="eq-ab" role="group" aria-label="Analyser tilt" id="eqTilt">
+                <div class="plugin-ab" role="group" aria-label="Analyser tilt" id="eqTilt">
                   ${TILTS.map((tilt) => `<button class="ab-btn${tilt.value === 0 ? ' is-on' : ''}"
                     type="button" data-tilt="${tilt.value}" title="${tilt.label}">${tilt.short}</button>`).join('')}
                 </div>
-                <div class="eq-ab" role="group" aria-label="Analyser ballistics" id="eqBallistics">
+                <div class="plugin-ab" role="group" aria-label="Analyser ballistics" id="eqBallistics">
                   ${BALLISTICS.map((b) => `<button class="ab-btn${b.value === 0.72 ? ' is-on' : ''}"
                     type="button" data-ballistics="${b.value}" title="${b.label}">${b.short}</button>`).join('')}
                 </div>
-                <div class="eq-ab" role="group" aria-label="Hold the peaks">
+                <div class="plugin-ab" role="group" aria-label="Hold the peaks">
                   <button class="ab-btn" type="button" data-eq="hold" aria-pressed="false">Hold</button>
                 </div>
               </span>
@@ -296,7 +296,7 @@ export class EQPlugin {
                     aria-pressed="${cut && slope === (band.slope ?? 12)}">${slope}</button>`).join('')}
         </div>
       </div>
-      <span class="eq-hint">1&ndash;6 picks a band · arrows nudge · shift for fine · [ ] for Q</span>`;
+      <span class="plugin-hint">1&ndash;6 picks a band · arrows nudge · shift for fine · [ ] for Q</span>`;
   }
 
   /**

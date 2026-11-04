@@ -306,9 +306,9 @@ export class AimedPlugin {
   build() {
     const mark = this.spec.mark;
     const host = this.role === 'insert' ? '' : `
-      <div class="eq-transport host-row">
+      <div class="plugin-transport host-row">
         <button class="play-btn" type="button" data-aim="play">Play</button>
-        <div class="eq-ab" role="group" aria-label="What you are hearing">
+        <div class="plugin-ab" role="group" aria-label="What you are hearing">
           <button class="ab-btn is-on" type="button" data-aim-hear="mine">Treated</button>
           <button class="ab-btn" type="button" data-aim-hear="theirs">${this.spec.other}</button>
         </div>
@@ -357,7 +357,7 @@ export class AimedPlugin {
               </select>
             </label>` : ''}
           <button class="ab-btn" type="button" data-aim="listen">${this.spec.listen}</button>
-          <span class="eq-hint">${this.spec.hint}</span>
+          <span class="plugin-hint">${this.spec.hint}</span>
         </div>
       </div>`;
 

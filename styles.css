@@ -670,7 +670,7 @@ body, .sheet, .dock, .top-bar, dialog { transition: background-color 280ms ease,
 .pick-btn[aria-pressed="true"] { background: var(--charcoal); color: var(--cream); }
 
 /* How to work it, said once and quietly, where the controls are. */
-.eq-hint {
+.plugin-hint {
   margin-left: auto;
   font-size: 10.5px;
   letter-spacing: 0.06em;
@@ -884,7 +884,7 @@ input.knob-value:focus {
   accent-color: var(--blush-deep);
 }
 
-.eq-transport {
+.plugin-transport {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -892,20 +892,20 @@ input.knob-value:focus {
 }
 
 /* Solo is a state you are in, and a loud one - it silences everything else. */
-.eq-transport .solo-btn {
+.plugin-transport .solo-btn {
   border: 1px solid var(--line);
   border-radius: 30px;
   padding: 7px 15px;
   color: var(--text-soft);
 }
-.eq-transport .solo-btn:hover { border-color: var(--blush); color: var(--blush-deep); }
-.eq-transport .solo-btn.is-on { background: var(--gold); border-color: var(--gold); color: var(--charcoal); }
+.plugin-transport .solo-btn:hover { border-color: var(--blush); color: var(--blush-deep); }
+.plugin-transport .solo-btn.is-on { background: var(--gold); border-color: var(--gold); color: var(--charcoal); }
 
 /* Your own material. A filled button, because it is the one thing here that
    reaches outside the page. */
 /* Not scoped to the transport any more: the analysis view has one of these
    too and it is not a plugin. Every plugin's transport is still an
-   `.eq-transport`, so nothing there changes. */
+   `.plugin-transport`, so nothing there changes. */
 .file-btn {
   display: inline-block;
   background: var(--charcoal);
@@ -924,7 +924,7 @@ input.knob-value:focus {
 .file-btn input { display: none; }
 
 /* The A/B. One of them is on, the way a switch on a desk is. */
-.eq-ab { display: flex; border: 1px solid var(--line); border-radius: 30px; overflow: hidden; }
+.plugin-ab { display: flex; border: 1px solid var(--line); border-radius: 30px; overflow: hidden; }
 .ab-btn {
   background: none;
   border: none;
@@ -956,7 +956,7 @@ input.knob-value:focus {
   .rail-btn { flex-direction: column; align-items: flex-start; gap: 0; }
   .plugin .rail-btn { padding-inline: 7px; }
   /* The hint is for a keyboard, and there is not one. */
-  .eq-hint { display: none; }
+  .plugin-hint { display: none; }
 }
 
 /* --- plugins ---------------------------------------------------------------- */
@@ -1064,7 +1064,7 @@ input.knob-value:focus {
 
 /* The monitoring strip along the bottom, which is the one part of the face
    that is about listening rather than about the sound. */
-.plugin > .eq-transport {
+.plugin > .plugin-transport {
   background: linear-gradient(180deg, #332c29, #272120);
   padding-block: 9px;
 }
@@ -1174,11 +1174,11 @@ input.knob-value:focus {
 
 .plugin .panel-name,
 .plugin .field-label,
-.plugin .eq-hint { color: var(--ink-faint); }
+.plugin .plugin-hint { color: var(--ink-faint); }
 .plugin .field-label { font-size: 8.5px; letter-spacing: 0.2em; }
 
 /* A switch milled into the panel: a pair of states, one of them on. */
-.plugin .eq-ab,
+.plugin .plugin-ab,
 .plugin .kind-switch {
   border: none;
   border-radius: 2px;
@@ -1211,7 +1211,7 @@ input.knob-value:focus {
 }
 
 /* The two that are a state you are in rather than a pair to choose from. */
-.plugin .eq-transport .solo-btn,
+.plugin .plugin-transport .solo-btn,
 .plugin .listen-btn {
   border: none;
   border-radius: 2px;
@@ -1222,7 +1222,7 @@ input.knob-value:focus {
   background: linear-gradient(180deg, #4b433d, #352e2b);
   box-shadow: 0 0 0 1px var(--cut), 0 1px 0 var(--lift);
 }
-.plugin .eq-transport .solo-btn.is-on,
+.plugin .plugin-transport .solo-btn.is-on,
 .plugin .listen-btn[aria-pressed="true"] {
   background: linear-gradient(180deg, #c9a469, var(--gold));
   color: #1a1615;
@@ -1338,7 +1338,10 @@ input.knob-value:focus {
 .is-locked .plugin-controls,
 .is-locked .comp-detector { opacity: 0.5; pointer-events: none; }
 
-/* --- the reverb ------------------------------------------------------------ */
+/* --- the reverb's controls -------------------------------------------------- */
+/* (Its two displays are further down, past the compressor, under a heading of
+   their own. Both sections used to be called "the reverb", which is how a
+   search for one of them lands in the other.) */
 /* The space row sits above the deck, the way the saturator's curve row does:
    it changes what the knobs mean and which of them are there, so it belongs
    over them rather than beside them. */
@@ -1356,7 +1359,7 @@ input.knob-value:focus {
    is a different instrument rather than a different setting, so the deck under
    it changes rather than its knobs being dimmed one at a time. */
 .comp-family { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; margin-bottom: 2px; min-width: 0; }
-.comp-family .eq-ab { flex-wrap: wrap; min-width: 0; }
+.comp-family .plugin-ab { flex-wrap: wrap; min-width: 0; }
 
 /* --- the compressor -------------------------------------------------------- */
 /* Three readings of the same thing, side by side, because a compressor is the
@@ -1484,7 +1487,7 @@ input.knob-value:focus {
   box-shadow: 0 0 7px rgba(111, 127, 99, 0.9), 0 0 0 1px #1a1614;
 }
 
-/* --- the reverb ------------------------------------------------------------ */
+/* --- the reverb's two displays ---------------------------------------------- */
 /* Two pictures of one room, because they answer different questions. The
    impulse is what the room is - the gap before it answers, the walls arriving
    one at a time, the wash closing over them. The decay is what it does, band
@@ -1539,7 +1542,7 @@ input.knob-value:focus {
 }
 
 /* What the widener and the pan mode are doing, said under the pickers that
-   set them. Its own line rather than an .eq-hint, which is hidden on a phone
+   set them. Its own line rather than an .plugin-hint, which is hidden on a phone
    because the hints there are about keyboards - this one is about what you
    are hearing, and a phone is where the dropdown label is the only other
    thing on the face that mentions it. */
@@ -1586,7 +1589,7 @@ input.knob-value:focus {
 /* Nothing upstream of a drill meters anything, so this bay has nothing to
    read there. Dimmed rather than taken away - the plugin somebody practises
    on has to be the plugin they later open somewhere else. */
-/* The host, on the paper. The base .eq-transport rules were written for a
+/* The host, on the paper. The base .plugin-transport rules were written for a
    cream card before there was a chassis, so taking this out of .plugin puts
    it back on the styling it was drawn for.
    Shared now rather than the saturator's own: all six faces keep their host
@@ -1619,7 +1622,7 @@ input.knob-value:focus {
 /* Six families, and Transformer is a long word: the group has to be allowed
    to wrap or it sets the width of the whole deck and the knobs under it go
    out through the side of the chassis. */
-.heat-modes .eq-ab { flex-wrap: wrap; min-width: 0; }
+.heat-modes .plugin-ab { flex-wrap: wrap; min-width: 0; }
 
 /* The chassis used to move a stop with the curve - three of the seven got a
    slightly cooler or warmer face, on the idea that it would say where you
@@ -3721,7 +3724,7 @@ button.insert-name:hover { color: var(--charcoal); }
   .notes { margin-bottom: 6px; }
   .notes-open { padding-block: 3px; }
   /* Which key does what is not something a phone on its side needs told. */
-  .eq-hint { display: none; }
+  .plugin-hint { display: none; }
 
   /* The dock on one line: what you did on the left, what to do about it on
      the right. It reserved 46 pixels for a verdict that is usually one line
@@ -3765,7 +3768,7 @@ button.insert-name:hover { color: var(--charcoal); }
 
     /* The title above both columns, the monitoring below both. */
     .plugin > .plugin-head,
-    .plugin > .eq-transport { grid-column: 1 / -1; border-left: none; }
+    .plugin > .plugin-transport { grid-column: 1 / -1; border-left: none; }
 
     /* The display takes the left column for as many rows as the deck needs.
        Spanning past the last of them costs nothing: the rows it opens are

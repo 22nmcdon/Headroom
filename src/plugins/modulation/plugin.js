@@ -101,9 +101,9 @@ export class ModulationPlugin {
 
   build() {
     const host = this.role === 'insert' ? '' : `
-      <div class="eq-transport host-row">
+      <div class="plugin-transport host-row">
         <button class="play-btn" type="button" data-mod="play">Play</button>
-        <div class="eq-ab" role="group" aria-label="What you are hearing">
+        <div class="plugin-ab" role="group" aria-label="What you are hearing">
           <button class="ab-btn is-on" type="button" data-mod-hear="mine">Yours</button>
           <button class="ab-btn" type="button" data-mod-hear="theirs">Target</button>
         </div>
@@ -167,7 +167,7 @@ export class ModulationPlugin {
               ${MOD_SHAPES.map((s) => `<option value="${s.id}">${s.label}</option>`).join('')}
             </select>
           </label>
-          <span class="eq-hint" id="modHint"></span>
+          <span class="plugin-hint" id="modHint"></span>
         </div>
       </div>`;
 

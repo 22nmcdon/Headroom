@@ -113,9 +113,9 @@ export class LevelPlugin {
 
   build() {
     const host = this.role === 'insert' ? '' : `
-      <div class="eq-transport host-row">
+      <div class="plugin-transport host-row">
         <button class="play-btn" type="button" data-level="play">Play</button>
-        <div class="eq-ab" role="group" aria-label="What you are hearing">
+        <div class="plugin-ab" role="group" aria-label="What you are hearing">
           ${LEVEL_SIDES.map((l) => `<button class="ab-btn${l.id === 'mine' ? ' is-on' : ''}" type="button" data-hear="${l.id}">${l.label}</button>`).join('')}
         </div>
         <label class="field">
@@ -153,7 +153,7 @@ export class LevelPlugin {
         <div class="plugin-controls" id="levelKnobs"></div>
 
         <div class="stereo-routing">
-          <span class="eq-hint">a level is a comparison — flip between the two and trust the gap, not the number</span>
+          <span class="plugin-hint">a level is a comparison — flip between the two and trust the gap, not the number</span>
         </div>
       </div>`;
 

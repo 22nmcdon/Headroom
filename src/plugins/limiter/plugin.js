@@ -139,9 +139,9 @@ export class LimiterPlugin {
 
   build() {
     const host = this.role === 'insert' ? '' : `
-      <div class="eq-transport host-row">
+      <div class="plugin-transport host-row">
         <button class="play-btn" type="button" data-ceil="play">Play</button>
-        <div class="eq-ab" role="group" aria-label="What you are hearing">
+        <div class="plugin-ab" role="group" aria-label="What you are hearing">
           ${CEIL_SIDES.map((l) => `<button class="ab-btn${l.id === 'mine' ? ' is-on' : ''}" type="button" data-hear="${l.id}">${l.label}</button>`).join('')}
         </div>
         <label class="field">
@@ -193,7 +193,7 @@ export class LimiterPlugin {
             </select>
           </label>
           <button class="ab-btn" type="button" data-ceil="match">Match</button>
-          <span class="eq-hint" id="ceilHint">match the level before you judge it — a limiter that made it louder will always seem to have helped</span>
+          <span class="plugin-hint" id="ceilHint">match the level before you judge it — a limiter that made it louder will always seem to have helped</span>
         </div>
       </div>`;
 

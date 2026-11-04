@@ -177,9 +177,9 @@ export class CompPlugin {
     // full of work belongs with the furniture that is about running an
     // exercise, not on the face.
     const host = this.role === 'insert' ? '' : `
-      <div class="eq-transport host-row comp-transport">
+      <div class="plugin-transport host-row comp-transport">
         <button class="play-btn" type="button" data-comp="play">Play</button>
-        <div class="eq-ab" role="group" aria-label="What you are hearing">
+        <div class="plugin-ab" role="group" aria-label="What you are hearing">
           <button class="ab-btn is-on" type="button" data-hear="mine">Yours</button>
           <button class="ab-btn" type="button" data-hear="theirs" id="compOther">Target</button>
         </div>
@@ -228,19 +228,19 @@ export class CompPlugin {
         <div class="comp-deck">
           <div class="comp-family">
             <span class="panel-name">Family</span>
-            <div class="eq-ab" role="group" aria-label="Which compressor">
+            <div class="plugin-ab" role="group" aria-label="Which compressor">
               ${Object.entries(COMP_FAMILIES).map(([id, fam]) => `<button
                 class="ab-btn${id === (this.settings.family ?? 'modern') ? ' is-on' : ''}"
                 type="button" data-family="${id}">${fam.label}</button>`).join('')}
             </div>
-            <div class="eq-ab" role="group" aria-label="Compress or limit" id="compOptoMode"
+            <div class="plugin-ab" role="group" aria-label="Compress or limit" id="compOptoMode"
                  ${this.settings.family === 'opto' ? '' : 'hidden'}>
               <button class="ab-btn${this.settings.optoMode !== 'limit' ? ' is-on' : ''}"
                       type="button" data-opto="compress">Compress</button>
               <button class="ab-btn${this.settings.optoMode === 'limit' ? ' is-on' : ''}"
                       type="button" data-opto="limit">Limit</button>
             </div>
-            <span class="eq-hint" ${this.settings.family === 'opto' ? '' : 'hidden'}>a photocell with a memory — no attack, no release, no threshold</span>
+            <span class="plugin-hint" ${this.settings.family === 'opto' ? '' : 'hidden'}>a photocell with a memory — no attack, no release, no threshold</span>
           </div>
           <div class="plugin-controls" id="compKnobs"></div>
         </div>
@@ -260,7 +260,7 @@ export class CompPlugin {
               <input type="checkbox" id="compSidechain"> Key from the ${this.player.key === 'kick' ? 'kick' : 'other track'}
             </label>
             <div class="plugin-controls comp-key-knobs" id="compKeyKnobs"></div>
-            <div class="eq-ab" role="group" aria-label="How the level is measured">
+            <div class="plugin-ab" role="group" aria-label="How the level is measured">
               <button class="ab-btn is-on" type="button" data-detector="peak">Peak</button>
               <button class="ab-btn" type="button" data-detector="rms">RMS</button>
             </div>
@@ -278,7 +278,7 @@ export class CompPlugin {
           <label class="toggle">
             <input type="checkbox" id="compAutoRelease"> Auto release
           </label>
-          <span class="eq-hint">isolated hits come back at the knob; a passage that stays loud rides a platform</span>
+          <span class="plugin-hint">isolated hits come back at the knob; a passage that stays loud rides a platform</span>
         </div>
       </div>`;
 

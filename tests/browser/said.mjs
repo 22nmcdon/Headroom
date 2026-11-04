@@ -30,7 +30,7 @@ export async function check({ browser, at, say }) {
   const problems = [];
 
   // Both sizes, because this line is the one thing on the face that explains
-  // a picker and `.eq-hint` - the other soft line on a plugin - is hidden on
+  // a picker and `.plugin-hint` - the other soft line on a plugin - is hidden on
   // a phone. If it ever picks up those rules it goes quiet exactly where the
   // dropdown label is the only other mention of what is running.
   for (const [label, width, height] of [['desktop', 1280, 1100], ['phone', 430, 932]]) {

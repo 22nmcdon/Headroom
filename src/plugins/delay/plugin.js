@@ -171,9 +171,9 @@ export class EchoPlugin {
     // full of work belongs with the furniture that is about running an
     // exercise, not on the face.
     const host = this.role === 'insert' ? '' : `
-      <div class="eq-transport host-row echo-transport">
+      <div class="plugin-transport host-row echo-transport">
         <button class="play-btn" type="button" data-echo="play">Play</button>
-        <div class="eq-ab" role="group" aria-label="What you are hearing">
+        <div class="plugin-ab" role="group" aria-label="What you are hearing">
           <button class="ab-btn is-on" type="button" data-hear="mine">Yours</button>
           <button class="ab-btn" type="button" data-hear="theirs" id="echoOther">Target</button>
         </div>
@@ -248,8 +248,8 @@ export class EchoPlugin {
               ${PING_FROM.map((side) => `<option value="${side}">${side}</option>`).join('')}
             </select>
           </label>
-          <span class="eq-hint" id="echoMedium" hidden></span>
-          <span class="eq-hint" ${this.tempo ? '' : 'hidden'}>repeats land on the beats when the note is right</span>
+          <span class="plugin-hint" id="echoMedium" hidden></span>
+          <span class="plugin-hint" ${this.tempo ? '' : 'hidden'}>repeats land on the beats when the note is right</span>
         </div>
       </div>`;
 

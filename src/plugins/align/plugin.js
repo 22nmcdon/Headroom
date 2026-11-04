@@ -118,9 +118,9 @@ export class AlignPlugin {
 
   build() {
     const host = this.role === 'insert' ? '' : `
-      <div class="eq-transport host-row">
+      <div class="plugin-transport host-row">
         <button class="play-btn" type="button" data-align="play">Play</button>
-        <div class="eq-ab" role="group" aria-label="What you are hearing">
+        <div class="plugin-ab" role="group" aria-label="What you are hearing">
           <button class="ab-btn is-on" type="button" data-align-hear="mine">Yours</button>
           <button class="ab-btn" type="button" data-align-hear="theirs">Aligned</button>
         </div>
@@ -167,7 +167,7 @@ export class AlignPlugin {
               ${HEARING.map((h) => `<option value="${h.id}">${h.label}</option>`).join('')}
             </select>
           </label>
-          <span class="eq-hint">the delay goes on the mic that heard it first — you cannot make a microphone hear something earlier</span>
+          <span class="plugin-hint">the delay goes on the mic that heard it first — you cannot make a microphone hear something earlier</span>
         </div>
       </div>`;
 

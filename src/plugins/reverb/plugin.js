@@ -179,9 +179,9 @@ export class VerbPlugin {
     // full of work belongs with the furniture that is about running an
     // exercise, not on the face.
     const host = this.role === 'insert' ? '' : `
-      <div class="eq-transport host-row verb-transport">
+      <div class="plugin-transport host-row verb-transport">
         <button class="play-btn" type="button" data-verb="play">Play</button>
-        <div class="eq-ab" role="group" aria-label="What you are hearing">
+        <div class="plugin-ab" role="group" aria-label="What you are hearing">
           <button class="ab-btn is-on" type="button" data-hear="mine">Yours</button>
           <button class="ab-btn" type="button" data-hear="theirs" id="verbOther">Target</button>
         </div>
@@ -222,7 +222,7 @@ export class VerbPlugin {
         <div class="verb-deck">
           <div class="verb-spaces">
             <span class="panel-name">Space</span>
-            <div class="eq-ab" role="group" aria-label="What kind of space">
+            <div class="plugin-ab" role="group" aria-label="What kind of space">
               ${SPACE_ORDER.map((id) => `<button class="ab-btn${id === spaceOf(this.settings) ? ' is-on' : ''}"
                 type="button" data-space="${id}">${SPACES[id].label}</button>`).join('')}
             </div>

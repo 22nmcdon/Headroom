@@ -70,7 +70,7 @@ export class Delivery {
           </select>
         </label>
         <button class="play-btn" type="button" data-delivery="play">Play</button>
-        <div class="eq-ab" role="group" aria-label="Which master you are hearing">
+        <div class="plugin-ab" role="group" aria-label="Which master you are hearing">
           <button class="ab-btn is-on" type="button" data-slot-hear="yours">Yours</button>
           <button class="ab-btn" type="button" data-slot-hear="reference">Reference</button>
         </div>

@@ -54,7 +54,7 @@ export async function check({ browser, at, say }) {
         w: Math.round(r.width), h: Math.round(r.height),
         canvases: canvases.length,
         stale: canvases.filter((c) => c.stale).length,
-        transport: Boolean(face.querySelector('.eq-transport')?.offsetParent),
+        transport: Boolean(face.querySelector('.plugin-transport')?.offsetParent),
         // And none of it beside the chassis either. This used to be a
         // question about what was hidden inside the face; it is now a
         // question about what was built at all, because every face keeps its

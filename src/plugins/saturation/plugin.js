@@ -215,9 +215,9 @@ export class HeatPlugin {
     // its face is not one anybody would recognise. The sketchpad is its own
     // host and has these already, so an insert gets none of it.
     const host = this.role === 'insert' ? '' : `
-      <div class="eq-transport host-row">
+      <div class="plugin-transport host-row">
         <button class="play-btn" type="button" data-heat="play">Play</button>
-        <div class="eq-ab" role="group" aria-label="What you are hearing">
+        <div class="plugin-ab" role="group" aria-label="What you are hearing">
           <button class="ab-btn is-on" type="button" data-hear="mine">Yours</button>
           <button class="ab-btn" type="button" data-hear="theirs" id="heatOther">Target</button>
         </div>
@@ -240,7 +240,7 @@ export class HeatPlugin {
           <span class="plugin-lamp"></span>
           <span class="plugin-name">Saturation</span>
           <span class="plugin-read" id="heatRead"></span>
-          <div class="eq-ab" role="group" aria-label="What you are monitoring">
+          <div class="plugin-ab" role="group" aria-label="What you are monitoring">
             ${HEAT_LISTENS.map((l) => `<button class="ab-btn${l.id === 'out' ? ' is-on' : ''}" type="button" data-listen="${l.id}">${l.label}</button>`).join('')}
           </div>
         </div>
@@ -265,7 +265,7 @@ export class HeatPlugin {
         <div class="heat-deck">
           <div class="heat-modes">
             <span class="panel-name">Curve</span>
-            <div class="eq-ab" role="group" aria-label="Which curve">
+            <div class="plugin-ab" role="group" aria-label="Which curve">
               ${CURVE_ORDER.map((id) => `<button class="ab-btn${id === this.settings.mode ? ' is-on' : ''}"
                 type="button" data-mode="${id}">${CURVES[id].label}</button>`).join('')}
             </div>

@@ -233,9 +233,9 @@ export class StereoPlugin {
     // full of work belongs with the furniture that is about running an
     // exercise, not on the face.
     const host = this.role === 'insert' ? '' : `
-      <div class="eq-transport host-row image-transport">
+      <div class="plugin-transport host-row image-transport">
         <button class="play-btn" type="button" data-stereo="play">Play</button>
-        <div class="eq-ab" role="group" aria-label="What you are hearing">
+        <div class="plugin-ab" role="group" aria-label="What you are hearing">
           <button class="ab-btn is-on" type="button" data-hear="mine">Yours</button>
           <button class="ab-btn" type="button" data-hear="theirs" id="stereoOther">Target</button>
         </div>
@@ -276,7 +276,7 @@ export class StereoPlugin {
 
         <div class="stereo-routing">
           <span class="panel-name">Listen</span>
-          <div class="eq-ab" role="group" aria-label="What you are monitoring">
+          <div class="plugin-ab" role="group" aria-label="What you are monitoring">
             ${LISTENS.map((l) => `<button class="ab-btn${l.id === 'stereo' ? ' is-on' : ''}" type="button" data-listen="${l.id}">${l.label}</button>`).join('')}
           </div>
           <!-- Beside Listen because it belongs to the Mono below knob, and
