@@ -11,7 +11,7 @@ import { serve, launch } from '../tests/browser/harness.mjs';
 
 const CHECKS = ['faces', 'inserts', 'chain', 'tracks', 'cells', 'pads', 'keys', 'wide', 'shape', 'knobs', 'decks',
   'eq-curve', 'restate', 'trim', 'stereo', 'tone', 'order', 'sampler', 'sides', 'align', 'modulation',
-  'match', 'carve', 'depth', 'arrange', 'listen', 'fix', 'ride', 'damage', 'said', 'root', 'turned', 'drills', 'work', 'analysis', 'mic', 'wave'];
+  'match', 'carve', 'depth', 'arrange', 'listen', 'fix', 'ride', 'damage', 'said', 'root', 'turned', 'drills', 'work', 'analysis', 'mic', 'wave', 'export'];
 
 const asked = process.argv.slice(2).filter((a) => !a.startsWith('-'));
 const wanted = asked.length ? CHECKS.filter((c) => asked.includes(c)) : CHECKS;
