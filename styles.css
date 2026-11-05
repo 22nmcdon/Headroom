@@ -1056,8 +1056,6 @@ input.knob-value:focus {
    above it - the title strip's own edge is already there. */
 .plugin > .plugin-panel,
 .plugin > .eq-meters,
-.plugin > .comp-display,
-.plugin > .heat-display,
 .plugin > .stereo-display,
 .plugin > .echo-display,
 .plugin > .verb-display { border-top: none; box-shadow: none; }
@@ -1083,8 +1081,6 @@ input.knob-value:focus {
 }
 /* The bezel is drawn outside the box, so the boxes need room between them. */
 .plugin .eq-meters,
-.plugin .comp-display,
-.plugin .heat-display,
 .plugin .stereo-display,
 .plugin .echo-display,
 .plugin .verb-display { gap: 14px; padding: 4px; }
@@ -1335,8 +1331,7 @@ input.knob-value:focus {
 .plugin-controls .knob.is-auto .knob-dial { pointer-events: none; }
 
 /* Once the round is over the plugin stops moving, and the answer is on screen. */
-.is-locked .plugin-controls,
-.is-locked .comp-detector { opacity: 0.5; pointer-events: none; }
+.is-locked .plugin-controls { opacity: 0.5; pointer-events: none; }
 
 /* --- the reverb's controls -------------------------------------------------- */
 /* (Its two displays are further down, past the compressor, under a heading of
@@ -1638,11 +1633,6 @@ input.knob-value:focus {
    reach for. */
 
 .heat-bay.is-idle { opacity: 0.4; }
-/* Beside the switch it belongs to, not at the other end of the face. */
-.heat-transport .toggle .plugin-trim {
-  font-family: var(--serif); font-size: var(--read);
-  color: var(--ink); font-variant-numeric: tabular-nums; margin-left: 2px;
-}
 .heat-bay.is-idle .heat-delta { font-family: var(--sans); font-size: var(--tag);
   letter-spacing: 0.13em; text-transform: uppercase; }
 .heat-delta { text-align: center; font-family: var(--serif); font-size: var(--read); color: var(--ink-soft); }
@@ -1682,22 +1672,6 @@ input.knob-value:focus {
 .gauge svg { width: 100%; height: 56px; display: block; }
 .gauge b { font-weight: 400; font-size: 10px; color: var(--text-soft); }
 
-.heat-display {
-  display: grid;
-  grid-template-columns: minmax(150px, 0.75fr) 1.6fr;
-  gap: 8px;
-  height: clamp(190px, 32vh, 290px);
-}
-
-.heat-routing {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px 14px;
-  padding-top: 10px;
-  border-top: 1px solid var(--line);
-}
-
 /* Names a panel within a plugin - the compressor's detector, the EQ's
    analyser. Shared, because a second rule for the same thing is a second rule
    to keep in step. */
@@ -1727,8 +1701,7 @@ input.knob-value:focus {
      here: they stack, and get the height back that they lost in width. */
   .verb-display,
   .echo-display,
-  .stereo-display,
-  .heat-display {
+  .stereo-display {
     grid-template-columns: 1fr;
     height: clamp(200px, 40vh, 320px);
   }
@@ -2409,8 +2382,6 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
    fill for what is sounding, blush for what is waiting for a bar line - which
    leaves sage, gold and rust meaning exactly what they mean everywhere else. */
 
-.sketch-head { margin-bottom: 18px; }
-
 /* The transport on the left, the sketch's name in the middle, the way to
    everything else on the right. Three columns rather than a flex row, so
    the name sits in the centre of the bar instead of wherever the controls
@@ -3019,17 +2990,6 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
   font-variant-numeric: tabular-nums;
 }
 
-.sketch-foot {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px 18px;
-  margin-top: 22px;
-  padding-top: 14px;
-  border-top: 1px solid var(--line);
-}
-
 @media (max-width: 560px) {
   .sketch-grid {
     --names: 78px;
@@ -3459,16 +3419,6 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
   color: var(--cream);
 }
 
-/* An audio clip has no grid to draw on, and says so rather than showing an
-   empty one. */
-.take-note {
-  font-size: 13px;
-  color: var(--text);
-  border-left: 2px solid var(--blush);
-  padding-left: 10px;
-  margin: 14px 0;
-  max-width: 52ch;
-}
 /* The record button, which was a text link.
    Measured at 430x932 it came out 161x16, which is a sixteen-pixel target for
    the one control this whole panel exists for - and, worse, the same text link
@@ -3539,7 +3489,6 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
    buttons that did nothing, which is worse than a button that is not
    there. The settings beside them stay: a detector is a setting, a
    ping-pong is a setting, and both do on a track what they do on a loop. */
-.plugin.is-insert > .heat-routing,
 .plugin.is-insert > .stereo-routing { display: none; }
 
 
@@ -3806,8 +3755,6 @@ button.insert-name:hover { color: var(--charcoal); }
        Spanning past the last of them costs nothing: the rows it opens are
        empty, and an empty row is no height at all. */
     .plugin > .eq-meters,
-    .plugin > .comp-display,
-    .plugin > .heat-display,
     .plugin > .stereo-display,
     .plugin > .echo-display,
     .plugin > .verb-display {
