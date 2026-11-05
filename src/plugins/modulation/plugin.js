@@ -570,8 +570,7 @@ export class ModulationPlugin {
     this.player.source = id;
     const picker = this.el.querySelector('#modSource');
     if (picker) picker.value = id;
-    await this.player.prepare().catch(() => {});
-    if (this.player.playing) await this.player.play();
+    await Promise.resolve(this.player.setSource?.(id)).catch(() => {});
     this.player.setSettings(this.settings);
     this.draw();
   }

@@ -1,12 +1,13 @@
 import { MOD_DEFAULTS } from './dsp.js';
 import { modReading } from './trace.js';
 import { LiveModulation } from './node.js';
+import { LoopPlayer } from '../../lib/loop-player.js';
 
 /**
  * The loop, running through two modulations you can flip between.
  *
  *   loop ─┬─ yours  ─┐
- *         └─ theirs ─┴─ out
+ *         └─ theirs ─┴─ meter ─ out
  *
  * Both are always running and always fed, so flipping is a pair of gains
  * rather than a rebuild. That matters more here than for most of the others:
@@ -20,67 +21,53 @@ import { LiveModulation } from './node.js';
  * a response - the whole device is the fact that it changes while the audio
  * goes past - and a loop rendered through one would start its sweep over at
  * every splice. See `node.js`.
+ *
+ * Starting, stopping, swapping the loop and taking it all down are
+ * lib/loop-player.js's; what is here is only what is this tool's. That
+ * includes the two flip gains, which this used to leave wired to the meter
+ * on every close - one more node each visit that nothing would ever free.
  */
-export class ModPlayer {
+export class ModPlayer extends LoopPlayer {
   constructor(engine, { source = 'instrument' } = {}) {
-    this.engine = engine;
-    this.source = source;
-    this.hearing = 'mine';
+    // The loop rendered in mono, as this has always asked for it: the two
+    // channels that come out are the modulation's, not the render's.
+    super(engine, { source, spread: false });
     this.settings = { ...MOD_DEFAULTS };
     this.target = null;
-    this.ready = false;
-    this.buffer = null;
     this.samples = null;
     this.reading = null;
     this.targetReading = null;
   }
 
-  /** The promise is kept, as EQPlayer's is, so two taps on Play build once. */
-  build() {
-    this.building ??= this.raise();
-    return this.building;
-  }
-
-  async raise() {
-    const ctx = this.engine.ensure();
-
-    this.meter = ctx.createAnalyser();
+  async raise(ctx) {
+    this.meter = this.own(ctx.createAnalyser());
     this.meter.fftSize = 1024;
     this.meter.connect(this.engine.out);
 
-    this.mine = await new LiveModulation(ctx).start();
-    this.theirs = await new LiveModulation(ctx).start();
+    // Each owned before its worklet is waited for, so a build that fails on
+    // the second still takes the first one down.
+    this.mine = this.own(new LiveModulation(ctx));
+    await this.mine.start();
+    this.theirs = this.own(new LiveModulation(ctx));
+    await this.theirs.start();
 
-    this.mineGain = ctx.createGain();
-    this.theirsGain = ctx.createGain();
-    this.mineGain.gain.value = 1;
-    this.theirsGain.gain.value = 0;
+    this.mineOut = this.own(ctx.createGain());
+    this.theirsOut = this.own(ctx.createGain());
+    this.mineOut.gain.value = 1;
+    this.theirsOut.gain.value = 0;
 
-    this.mine.connect(this.mineGain).connect(this.meter);
-    this.theirs.connect(this.theirsGain).connect(this.meter);
-
-    this.ready = true;
-    this.push();
+    this.mine.connect(this.mineOut).connect(this.meter);
+    this.theirs.connect(this.theirsOut).connect(this.meter);
   }
 
   /* ---------- the material ---------- */
 
   async prepare() {
-    const loop = this.source === 'yours'
-      ? this.yours
-      : await this.engine.renderLoop(this.source);
-    if (!loop) return false;
-
-    this.buffer = loop;
-    this.samples = loop.getChannelData(0);
+    if (!(await super.prepare())) return false;
+    this.samples = this.buffer.getChannelData(0);
+    // The reading names the material it was taken on; see `measure`.
     this.measure();
     return true;
-  }
-
-  async load(file) {
-    const ctx = this.engine.ensure();
-    this.yours = await ctx.decodeAudioData(await file.arrayBuffer());
-    return this.yours;
   }
 
   /* ---------- what the settings do ---------- */
@@ -109,6 +96,10 @@ export class ModPlayer {
     if (this.target) this.theirs.set(this.target);
   }
 
+  apply() {
+    this.push();
+  }
+
   setSettings(settings) {
     this.settings = { ...this.settings, ...settings };
     return this.measure();
@@ -121,49 +112,12 @@ export class ModPlayer {
 
   /* ---------- transport ---------- */
 
-  hear(which) {
-    this.hearing = which;
-    if (!this.ready) return;
-    const at = this.engine.ctx.currentTime;
-    this.mineGain.gain.setTargetAtTime(which === 'mine' ? 1 : 0, at, 0.008);
-    this.theirsGain.gain.setTargetAtTime(which === 'mine' ? 0 : 1, at, 0.008);
-  }
-
-  async play() {
-    await this.build();
-    if (!this.samples) await this.prepare();
-    if (!this.samples) return false;
-
-    this.stop();
-    const ctx = this.engine.ctx;
-    const at = ctx.currentTime + 0.08;
-
-    this.node = ctx.createBufferSource();
-    this.node.buffer = this.buffer;
-    this.node.loop = true;
-    this.node.connect(this.mine.input);
-    this.node.connect(this.theirs.input);
-    this.node.start(at);
-
-    this.playing = true;
-    return true;
-  }
-
-  stop() {
-    if (this.node) {
-      try { this.node.stop(); } catch { /* already stopped, which is fine */ }
-      this.node.disconnect();
-    }
-    this.node = null;
-    this.playing = false;
-  }
-
-  destroy() {
-    this.stop();
-    this.mine?.destroy();
-    this.theirs?.destroy();
-    try { this.meter?.disconnect(); } catch { /* already gone */ }
-    this.ready = false;
-    this.building = null;
+  // One source into both, so the two sweeps run over the same samples and
+  // the flip lands on the same moment of the loop.
+  wire(at) {
+    this.start(this.buffer, (node) => {
+      node.connect(this.mine.input);
+      node.connect(this.theirs.input);
+    }, at);
   }
 }

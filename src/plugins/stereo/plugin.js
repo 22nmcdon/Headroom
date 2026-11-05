@@ -202,7 +202,6 @@ export class StereoPlugin {
     this.reading = null;
 
     this.player = player ?? new StereoPlayer(engine, { source });
-    this.player.setFault(fault);
 
     this.build();
     this.draw();
@@ -211,7 +210,7 @@ export class StereoPlugin {
     // so it follows the sketchpad's transport from the moment it opens.
     if (this.role === 'insert') this.playing(true);
 
-    this.player.prepare()
+    Promise.resolve(this.player.setFault(fault))
       .then(() => { this.measure(); this.draw(); })
       .catch(() => { /* no audio yet; the knobs still work */ });
   }
@@ -487,22 +486,17 @@ export class StereoPlugin {
    */
   async setSource(id) {
     this.player.source = id;
-    this.player.buffer = null;
     const picker = this.el.querySelector('#stereoSource');
     if (picker) picker.value = id;
 
-    await this.player.prepare().catch(() => {});
-    if (this.player.playing) await this.player.play();
+    await Promise.resolve(this.player.setSource?.(id)).catch(() => {});
     this.measure();
     this.draw();
   }
 
   /** A width somebody else already applied, before it reached you. */
   async setFault(fault) {
-    this.player.setFault(fault ?? null);
-    this.player.buffer = null;
-    await this.player.prepare().catch(() => {});
-    if (this.player.playing) await this.player.play();
+    await Promise.resolve(this.player.setFault(fault ?? null)).catch(() => {});
     this.measure();
     this.draw();
   }
