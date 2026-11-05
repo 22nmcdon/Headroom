@@ -7,9 +7,8 @@
 // hand in an OfflineAudioContext where there is no wall clock and no
 // intervals.
 //
-// Two renders a round, one of the mix being worked on and one of the mix it
-// is being compared against, and the answer's render is cached by what made
-// it - the stems do not change within a round, and neither does the answer.
+// Two renders a mix, one of the master and one of the stems - see `readMix`
+// for why it is not one.
 
 import { makeStage } from '../sketch/stage.js';
 import { Transport } from '../sketch/transport.js';
@@ -25,7 +24,6 @@ import { shareReading } from './share.js';
 import { roomReading } from './room.js';
 import { rideReading } from './ride.js';
 import { renderStems } from '../sketch/stems.js';
-import { stampOf } from '../lib/read.js';
 
 /** Long enough for the tails, short enough that a round is not a wait. */
 export const TAIL = 1.6;
@@ -70,11 +68,14 @@ export async function renderMix(project, {
   stage.play();
 
   // `play` starts the clock a breath after zero, so the piece ends a breath
-  // after its own length. The last step lands on it exactly.
-  const ends = transport.startedAt + ticks * perTick;
-  for (clock = 0; clock < ends; clock = Math.min(ends, clock + 0.05)) {
+  // after its own length. The last step lands on it exactly - nudged under
+  // if rounding would put it a hair past, which would book the downbeat of
+  // the loop's second pass into the tail.
+  let ends = transport.startedAt + ticks * perTick;
+  while (transport.tickAt(ends) > ticks) ends -= ends * Number.EPSILON;
+  for (clock = 0; ; clock = Math.min(ends, clock + 0.05)) {
     transport.pass();
-    if (clock === ends) break;
+    if (clock >= ends) break;
   }
 
   const buffer = await ctx.startRendering();
@@ -87,16 +88,13 @@ export const channelsIn = (buffer) =>
   Array.from({ length: buffer.numberOfChannels }, (_, i) => buffer.getChannelData(i));
 
 /**
- * The readings a mix is marked on, in the order they are shown.
- *
- * `levels` is last and is the only one not taken on the master, because it is
- * the only one that can name a fader. The other five read the sum, which is
- * right - two sets of moves that come out sounding the same are the same
- * answer - and leaves the advice unable to say which part the energy belongs
- * to. "There is too much around 120 Hz" is true and is not an instruction.
- */
-/**
  * Every reading a mix can be marked on, in the order they are shown.
+ *
+ * The first five are taken on the master and the last four on the stems,
+ * because only the parts can name a fader. The master readings are right -
+ * two sets of moves that come out sounding the same are the same answer -
+ * and leave the advice unable to say which part the energy belongs to.
+ * "There is too much around 120 Hz" is true and is not an instruction.
  *
  * Not every tier is marked on all of them: `markMix` takes the list from the
  * tier's own tolerances, so a reading a tier has no tolerance for is not
@@ -109,17 +107,6 @@ export const MARKED = [
   'loudness', 'balance', 'placement', 'width', 'crest', 'levels', 'share', 'room', 'ride',
 ];
 
-/**
- * Everything worth saying about a master, in five readings.
- *
- * The four the analysis view takes - how loud, how dynamic, where the weight
- * is, how wide - and where things sit left to right, which is the one a pan
- * control moves and the one the other four are blind to.
- *
- * `source` goes into every reading's envelope, so two readings of two
- * different renders can never be compared by accident - `comparable` refuses
- * them on the axis, and the source says which is which when it does.
- */
 /**
  * Everything a mix is marked on: the five off the master, and the parts.
  *
@@ -168,10 +155,21 @@ export async function readMix(project, source, {
     // And the eighth, off the same taps again: each part's own shape over
     // the four bars. Read on the parts rather than on the master because on
     // the master a swell is too small to mark honestly - see `ride.js`.
-    ride: rideReading(stems, rate, { source }),
+    ride: rideReading(stems, rate, { source, bpm: project.bpm, beats: project.beats }),
   };
 }
 
+/**
+ * Everything worth saying about a master, in five readings.
+ *
+ * The four the analysis view takes - how loud, how dynamic, where the weight
+ * is, how wide - and where things sit left to right, which is the one a pan
+ * control moves and the one the other four are blind to.
+ *
+ * `source` goes into every reading's envelope, so two readings of two
+ * different renders can never be compared by accident - `comparable` refuses
+ * them on the axis, and the source says which is which when it does.
+ */
 export function readMaster(buffer, source) {
   const channels = channelsIn(buffer);
   const { sampleRate } = buffer;
@@ -185,31 +183,3 @@ export function readMaster(buffer, source) {
     seconds: buffer.duration,
   };
 }
-
-/**
- * What makes a render a different render: the material and the mix on it.
- *
- * `settings` as well as `inserts`, which is the difference between a stamp
- * and a bug. An insert's id says it is there and nothing about what it is
- * doing, so a desk with a +3 dB shelf on the bass and the same desk with a
- * -3 dB one stamped identically - and the second would have come back from
- * the cache as the first, which on a tone round is the answer being marked
- * against a render of something else.
- */
-export const mixStamp = (project, rides = {}) => stampOf({
-  bpm: project.bpm,
-  // The rides as well, and for the same reason the settings are here: a ride
-  // is not on the project - it is handed to the stage - so two renders of one
-  // project with two different rides on it would stamp the same, and the
-  // second would come back from the cache as the first.
-  rides,
-  tracks: project.tracks.map((track) => ({
-    gain: track.gain,
-    pan: track.pan,
-    send: track.send,
-    muted: track.muted,
-    inserts: track.inserts,
-    settings: track.settings,
-    notes: track.slots[0]?.notes.length ?? 0,
-  })),
-});

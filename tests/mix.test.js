@@ -18,7 +18,7 @@ import {
 } from '../src/mix/brief.js';
 import { EQ_REST } from '../src/sketch/knobs.js';
 import {
-  markMix, markReading, mixAdvice, howClose, MIX_TOLERANCE, toleranceFor,
+  markMix, markReading, mixAdvice, MIX_TOLERANCE, toleranceFor,
   READING_NAMES, HIT, NEAR, MISS,
 } from '../src/mix/score.js';
 import { placementOf, placementGap, placementReading, MOST_OFF_CENTRE } from '../src/mix/placement.js';
@@ -31,7 +31,9 @@ import {
   CHAIN_ORDERS, CHAIN_IDS, CHAIN_ON, chainMix, arrangementOf,
 } from '../src/mix/chain.js';
 import { MIX_FAULTS, MIX_FAULT_IDS, HOW_MANY } from '../src/mix/faults.js';
-import { rideAt, rideGain, rideGap, RIDE_AXIS, RIDE_BARS } from '../src/mix/ride.js';
+import {
+  rideAt, rideGain, rideGap, rideAxisOf, rideReading, RIDE_BARS,
+} from '../src/mix/ride.js';
 import {
   sumOf, mixLoudness, staleFor, matchTrim, anchorOf, gainOfTrim, MATCH_LIMIT,
   LISTEN_MODES, LISTEN_IDS, SMALL_SPEAKER,
@@ -42,6 +44,7 @@ import { barTicks, clipAt } from '../src/sketch/project.js';
 import { STEREO_BANDS } from '../src/plugins/stereo/field.js';
 import { THIRDS } from '../src/analysis/balance.js';
 import { toStep } from '../src/learn/work/scoring.js';
+import { mulberry32 } from '../src/lib/random.js';
 
 /* --- the material ---------------------------------------------------------- */
 
@@ -397,13 +400,23 @@ test('the advice says which way, not what the answer is', () => {
   assert.doesNotMatch(line, /\d/, 'the advice gave a number away');
 });
 
-test('closeness runs from nothing to one and never leaves it', () => {
-  const answer = master();
-  assert.equal(howClose(markMix(master(), answer, 'easy')), 1);
-  assert.equal(howClose(markMix(master({ balance: 100 }), answer, 'hard')), 0);
+test('an image off to one side is not called narrower', () => {
+  // `stereoGap` reports the whole image's balance when that is the bigger
+  // miss, with `wider` at nought - which used to read as "narrower".
+  const leaning = (balance) => ({
+    ...master(),
+    width: fake('width', {
+      whole: { width: 0, balance, mono: 0, correlation: 1, energy: -20 },
+      bands: Object.fromEntries(STEREO_BANDS.map((band) => [band.id, { width: 0, balance: 0 }])),
+    }, BANDS),
+  });
 
-  const middling = howClose(markMix(master({ balance: 3.6 }), answer, 'easy'));
-  assert.ok(middling > 0 && middling < 1, `read ${middling}`);
+  const left = markMix(leaning(12), master(), 'hard');
+  assert.equal(left.worst.kind, 'width');
+  assert.equal(left.worst.detail.placed, 12);
+  assert.match(mixAdvice(left), /too far to the left/);
+  assert.doesNotMatch(mixAdvice(left), /narrower|wider/);
+  assert.match(mixAdvice(markMix(leaning(-12), master(), 'hard')), /too far to the right/);
 });
 
 /* --- tone ----------------------------------------------------------------- */
@@ -1251,6 +1264,20 @@ test('what was done to a mix is always something the desk can undo', () => {
   }
 });
 
+test('every fix round has something wrong, and no fader past its top', () => {
+  // Swept rather than sampled: both used to fail on a few seeds in a
+  // thousand - 317 put the pad at +9.5 on a fader that stops at +9, and 2694
+  // had nothing done to it at all.
+  for (let seed = 1; seed <= 4000; seed += 1) {
+    const { faults, start } = mixBrief('fix', seed);
+    assert.ok(faults.length >= HOW_MANY.least, `seed ${seed} has nothing wrong with it`);
+    for (const id of MOVABLE) {
+      const db = dbOf(start[id].gain);
+      assert.ok(db <= TRIM.high + 1e-9 && db >= TRIM.low - 1e-9, `seed ${seed}: ${id} at ${db}`);
+    }
+  }
+});
+
 test('the capstone is marked on everything it could have broken', () => {
   const tolerance = toleranceFor('fix');
   for (const fault of MIX_FAULTS) assert.ok(tolerance[fault.hurts] > 0, fault.id);
@@ -1265,7 +1292,7 @@ test('the capstone is marked on everything it could have broken', () => {
 const shapes = (per) => ({
   kind: 'ride',
   ready: true,
-  of: { state: 'x', source: 'test', axis: RIDE_AXIS },
+  of: { state: 'x', source: 'test', axis: rideAxisOf() },
   values: {
     shapes: Object.fromEntries(STEM_IDS.map((id) => [id, per[id] ?? [0, 0, 0, 0]])),
   },
@@ -1288,6 +1315,36 @@ test('a swell is half up and half down, so it is not also a fader', () => {
   // As a gain, which is what the stage multiplies the fader by.
   assert.ok(Math.abs(rideGain(6, 1) - 10 ** (3 / 20)) < 1e-12);
   assert.equal(rideGain(0, 0.3), 1);
+});
+
+test('a swell reads the same on both pieces, whatever their tempo', () => {
+  // Bars are the piece's own: four 96-bpm bars of late-room, at 76, would
+  // cover the first ten seconds of its twelve and a half and read the swell
+  // a fifth shallow.
+  const rate = 8000;
+  const read = (id) => {
+    const { bpm } = PIECES[id];
+    const loop = Math.round(((HOW_LONG * 4 * 60) / bpm) * rate);
+    const rng = mulberry32(7);
+    const channel = new Float32Array(loop + rate);
+    for (let i = 0; i < loop; i += 1) channel[i] = (rng() * 2 - 1) * 0.1 * rideGain(6, i / loop);
+    const stems = [{ id: 'pad', kind: 'track', channels: [channel, channel], rate }];
+    return rideReading(stems, rate, { source: id, bpm, beats: 4 });
+  };
+
+  const fast = read('short-night');
+  const slow = read('late-room');
+  assert.equal(fast.of.axis.bpm, 96);
+  assert.equal(slow.of.axis.bpm, 76);
+
+  const expected = [-2.25, -0.75, 0.75, 2.25];
+  for (const reading of [fast, slow]) {
+    reading.values.shapes.pad.forEach((level, bar) => {
+      assert.ok(Math.abs(level - expected[bar]) < 0.15,
+        `${reading.of.source} bar ${bar + 1} read ${level.toFixed(2)}`);
+    });
+  }
+  assert.ok(rideGap(fast, slow).off < 0.15, 'the same swell read differently at 76');
 });
 
 test('the ride gap names the part and the bar', () => {

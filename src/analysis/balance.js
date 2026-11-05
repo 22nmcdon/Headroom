@@ -20,7 +20,7 @@ import { readingOf, stampOf } from '../lib/read.js';
  * stops.
  *
  * Third-octaves rather than octaves because this is a picture rather than a
- * question with chips under it: thirty-one points draw a curve and ten draw a
+ * question with chips under it: twenty-nine points draw a curve and ten draw a
  * bar chart. The grid is the standard one, built from 1 kHz outwards so that
  * 1k, 2k, 4k and the rest land on round numbers.
  */
@@ -135,8 +135,8 @@ const average = (bands, frequencies) =>
  * How far apart two spectra are: the worst third, in decibels.
  *
  * The worst rather than the average, for the reason the EQ found first.
- * Averaged across thirty-one bands, a mix whose whole low end is four
- * decibels heavy than the reference scores about half a decibel and reads as
+ * Averaged across twenty-nine bands, a mix whose whole low end is four
+ * decibels heavier than the reference scores about half a decibel and reads as
  * a match. What anybody means by two mixes having the same balance is that
  * they have it everywhere.
  */
