@@ -13,7 +13,7 @@
 // correlated signals cancels, which is a sound, which is a question.
 
 import {
-  ALIGN_DEFAULTS, farMic, alignPass, alignGap, crossLag, cmOf, msOf,
+  ALIGN_DEFAULTS, farMic, alignPass, crossLag, cmOf, msOf,
 } from '../../plugins/align/pair.js';
 import { distance } from '../../gap.js';
 import {
@@ -228,7 +228,7 @@ const PATHS = {
   hard: { ms: [0.3, 12], level: [-6, -2], flips: true },
 };
 
-export const ALIGN_EXERCISES = {
+const ALIGN_EXERCISES = {
   match: {
     id: 'match',
     // The target is the settings that win, so it can go on the controls
@@ -405,9 +405,9 @@ export const ALIGN_WORK = {
   exercises: ALIGN_EXERCISES,
 
   tiers: {
-    easy: { label: 'Easy', blurb: 'In time, and never backwards', guesses: 3 },
-    medium: { label: 'Medium', blurb: 'Polarity too, and further apart', guesses: 4 },
-    hard: { label: 'Hard', blurb: 'To a tenth of a millisecond', guesses: 4 },
+    easy: { label: 'Easy', blurb: 'In time, and never backwards' },
+    medium: { label: 'Medium', blurb: 'Polarity too, and further apart' },
+    hard: { label: 'Hard', blurb: 'To a tenth of a millisecond' },
   },
 
   /** Answered on the tool, except in the drills, which ask with chips. */

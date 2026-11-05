@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 
 import {
   HIT, NEAR, MISS,
-  onScale, distanceCell, dialled, toStep, toThirdOctave,
+  onScale, distanceCell, dialled, toStep, toThirdOctave, placeOn, placeSaid,
 } from '../src/learn/work/scoring.js';
 
 /* ---------- picking off an ordered list ---------- */
@@ -105,4 +105,21 @@ test('frequencies land on the third-octave grid an engineer works on', () => {
   assert.equal(Math.round(toThirdOctave(1230)), 1260); // the next third up
   assert.equal(Math.round(toThirdOctave(2000)), 2000); // an octave is three
   assert.equal(Math.round(toThirdOctave(63)), 63);
+});
+
+test('a place on a tier\'s list is read off that list, not off fixed cut-offs', () => {
+  // Four drills said "the far end" or "the middle" from numbers that only
+  // fitted one tier: on the level drill's easy [2, 4, 8], 2 dB was "the
+  // middle" and 4 dB "the far end".
+  assert.equal(placeOn([2, 4, 8], 2), 'least');
+  assert.equal(placeOn([2, 4, 8], 4), 'middle');
+  assert.equal(placeOn([2, 4, 8], 8), 'most');
+  assert.equal(placeOn([1, 2, 4, 8], 2), 'lower');
+  assert.equal(placeOn([1, 2, 4, 8], 4), 'upper');
+  assert.equal(placeOn([0, 1, 2, 3, 4, 5], 4), 'upper');
+  assert.equal(placeOn([3, 6, 12], 5), null);
+
+  assert.equal(placeSaid([6, 12, 40], 6, { least: 'the shallowest' }), 'the shallowest of what this tier offers');
+  assert.equal(placeSaid([3, 6, 12], 12), 'the far end of what this tier offers');
+  assert.equal(placeSaid([3, 6, 12], 6), 'the middle of what this tier offers');
 });

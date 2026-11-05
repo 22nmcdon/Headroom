@@ -139,15 +139,6 @@ export function getStats(mode, tier, kind = 'work') {
 }
 
 /**
- * Record a finished round.
- *
- * Finished means solved, or given up on and shown. A round being shown counts
- * as played and never as solved, and its attempts are not banded: it did not
- * take five attempts to get there, it took five attempts and then the answer.
- * Keeping that straight here is what lets the mastery table mean something
- * later, without a flag having to be invented for it.
- */
-/**
  * A mix round, recorded.
  *
  * Its own entry point rather than a sixth caller of `recordGame`, because a
@@ -181,11 +172,20 @@ export function recordMix({ tier, attempts, solved, worst, label }) {
 }
 
 /** What the mix exercise is called in a bucket key. */
-export const MIX_MODE = 'mix';
+const MIX_MODE = 'mix';
 
 /** What has been done at a tier of the mix exercise. */
 export const mixStats = (tier) => getStats(MIX_MODE, tier, MIX_MODE);
 
+/**
+ * Record a finished round.
+ *
+ * Finished means solved, or given up on and shown. A round being shown counts
+ * as played and never as solved, and its attempts are not banded: it did not
+ * take five attempts to get there, it took five attempts and then the answer.
+ * Keeping that straight here is what lets the mastery table mean something
+ * later, without a flag having to be invented for it.
+ */
 export function recordGame(game) {
   const { puzzle, guesses, status } = game;
   const spec = toolOf(puzzle.mode);
@@ -381,12 +381,14 @@ export function importProgress(file) {
 
   // Only buckets this app could have written. A key of any other shape is a
   // bucket for a tool, tier or kind that does not exist, and keeping it would
-  // mean carrying it forward for ever in every later export.
+  // mean carrying it forward for ever in every later export. The mix's own
+  // buckets are `mix:<tier>:mix`, written by `recordMix`.
   let buckets = 0;
   for (const [key, bucket] of Object.entries(file.buckets)) {
     const [mode, tier, kind] = key.split(':');
     if (!mode || !tier || key.split(':').length !== 3) continue;
-    if (kind !== 'work' && kind !== 'drill') continue;
+    const mix = kind === MIX_MODE && mode === MIX_MODE;
+    if (kind !== 'work' && kind !== 'drill' && !mix) continue;
     store.buckets[key] = mergeBucket(store.buckets[key], bucket);
     buckets += 1;
   }

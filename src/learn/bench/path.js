@@ -79,7 +79,7 @@ export const ENOUGH_MIXES = 1;
  *
  * Not derived from the label, which gives "read what a compression is for"
  * and "build it on the eq". A tool's name on a pill and its name in a
- * sentence are different words, and there are only seven of them.
+ * sentence are different words, and there are only twelve of them.
  */
 const CALLED = {
   level: { reading: 'what a decibel is worth', building: 'the trim' },
@@ -114,7 +114,7 @@ export function steps() {
         tool,
         step: 'read',
         label: `Read ${called.reading}`,
-        detail: 'Four sections on what it does to a record, not which button does what.',
+        detail: 'A few short sections on what it does to a record, not which button does what.',
       },
       {
         id: `${tool}:drill`,

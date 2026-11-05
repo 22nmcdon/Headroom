@@ -430,3 +430,28 @@ test('an import carries the confusions across, and refuses a bucket of an unknow
   assert.equal(stats.byAnswer['octave-2k'].confused['octave-4k'].n, 3);
   assert.equal(getStats('eq', 'easy', 'work').played, 0, 'a two-part key is not a v4 bucket');
 });
+
+test('the mix comes across an export too, and so does the last step of the path', async () => {
+  // `recordMix` writes `mix:<tier>:mix`, and the import used to keep only
+  // work and drill buckets - so a round trip lost every mix and left the
+  // path's final step undone.
+  const { recordMix, mixStats } = await import('../src/learn/stats.js');
+  const { progress } = await import('../src/learn/bench/path.js');
+  resetStats();
+  recordMix({ tier: 'easy', attempts: 2, solved: true, worst: 'balance', label: 'the balance' });
+  const file = exportProgress();
+  file.buckets['eq:easy:mix'] = file.buckets['mix:easy:mix'];
+
+  resetStats();
+  const result = importProgress(file);
+  assert.equal(result.ok, true);
+  assert.equal(result.buckets, 1, 'a mix kind on anything but the mix is still refused');
+  assert.equal(mixStats('easy').won, 1);
+  assert.equal(mixStats('easy').byAnswer.balance.seen, 1);
+
+  const path = progress({
+    solvesOf: (tool, tier, kind) => getStats(tool, tier, kind).won,
+    hasRead: () => false,
+  });
+  assert.equal(path.steps.find((step) => step.kind === 'mix').done, true);
+});

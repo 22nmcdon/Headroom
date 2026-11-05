@@ -115,7 +115,7 @@ function modDrillSettings(kind, rate) {
   };
 }
 
-export const MOD_EXERCISES = {
+const MOD_EXERCISES = {
   // No `faultOf` on any of the three, which is worth a line because every
   // other tool here has one: a fault is something wrong with the material
   // that the tool is for putting right, and a modulation is not that. The
@@ -297,9 +297,9 @@ export const MOD_WORK = {
   exercises: MOD_EXERCISES,
 
   tiers: {
-    easy: { label: 'Easy', blurb: 'Three effects, a tenth of the travel', guesses: 3 },
-    medium: { label: 'Medium', blurb: 'All six, a twentieth', guesses: 4 },
-    hard: { label: 'Hard', blurb: 'All six, a fortieth', guesses: 4 },
+    easy: { label: 'Easy', blurb: 'Three effects, a tenth of the travel' },
+    medium: { label: 'Medium', blurb: 'All six, a twentieth' },
+    hard: { label: 'Hard', blurb: 'All six, a fortieth' },
   },
 
   /** Answered on the tool, except in the drills, which ask with chips. */
@@ -506,7 +506,9 @@ export const MOD_WORK = {
           ? 'It moves once a beat or slower, so it is on the long end of the list.'
           : division.beats <= 0.25
             ? 'It moves four times a beat, which is the fast end of the list.'
-            : 'It moves two or three times a beat, which is the middle of the list.',
+            : division.beats > 0.5
+              ? 'It moves a little more than once a beat, so it drifts across the beat.'
+              : 'It moves two or three times a beat, which is the middle of the list.',
         `It is on ${division.label}, which is ${rateFor(division.beats).toFixed(2)} Hz.`,
       ];
     }

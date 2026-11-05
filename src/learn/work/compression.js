@@ -353,8 +353,9 @@ const RELEASE_DEPTH = 6;
  * the same threshold does a different amount of work to a different loop, and
  * the loop is rendered by the browser at a sample rate this code does not
  * choose. Bisection over the threshold, with the compressor run over the
- * material each time - fourteen passes, which is one more than enough to land
- * inside a tenth of a decibel.
+ * material each time - fourteen passes, which narrows sixty decibels to under
+ * a hundredth of one, far finer than the half-decibel step the answer is
+ * rounded to.
  *
  * This runs once per round, in `startOf`, which the session calls after the
  * material has arrived and been pinned. Before that there is nothing to solve
@@ -432,7 +433,7 @@ function releaseSettings(puzzle) {
  * two there is nothing there: what you compare against is the loop untouched,
  * which is what a bypass button is.
  */
-export const COMP_EXERCISES = {
+const COMP_EXERCISES = {
   match: {
     id: 'match',
     // The target is the settings that win, so it can go on the controls
@@ -447,9 +448,8 @@ export const COMP_EXERCISES = {
   },
   fix: {
     id: 'fix',
-    // The target is the settings that win, so it can go on the controls
-    // after the answer is shown. Measured: see `ontoTool` in main.js.
-    ontoTool: true,
+    // No `ontoTool`: marked on how still the loop sits, and the target here
+    // is the compressor switched out, which never wins.
     label: 'Even it out',
     source: 'drums',
     sourceOptions: { key: null },
@@ -657,9 +657,9 @@ export const COMP_WORK = {
   exercises: COMP_EXERCISES,
 
   tiers: {
-    easy: { label: 'Easy', blurb: 'Threshold and ratio', guesses: 4, timing: false, knee: false },
-    medium: { label: 'Medium', blurb: 'And the timing', guesses: 4, timing: true, knee: false },
-    hard: { label: 'Hard', blurb: 'And the knee', guesses: 4, timing: true, knee: true },
+    easy: { label: 'Easy', blurb: 'Threshold and ratio', timing: false, knee: false },
+    medium: { label: 'Medium', blurb: 'And the timing', timing: true, knee: false },
+    hard: { label: 'Hard', blurb: 'And the knee', timing: true, knee: true },
   },
 
   /**
@@ -946,8 +946,8 @@ export const COMP_WORK = {
           label: 'Recovery',
           value: stuck ? 'never comes back up'
                : `${Math.round(got.recovery)} ms, wanted ${Math.round(answer.recovery)}`,
-          how: 'How long it takes to climb back to within a couple of decibels of '
-             + 'where it started, averaged over the kicks in the loop.',
+          how: 'How long it takes to climb back to within a decibel of no '
+             + 'reduction at all, averaged over the kicks in the loop.',
         },
         {
           label: 'Time, as a ratio',
@@ -987,6 +987,24 @@ export const COMP_WORK = {
           : 'It is in the half you can hear without being told - the loop has '
             + 'visibly less room in it.',
         `An engineer would describe this one as ${amount.name}.`,
+      ];
+    }
+
+    if (exercise === 'release') {
+      const release = RELEASES[releaseAt(answer.release)];
+      return [
+        'Listen between the hits rather than to them. The amount is the same '
+          + 'whatever the release, so what changes is whether the loop comes '
+          + 'back up before the next hit.',
+        release.ms <= 80
+          ? 'It is in the quick half: the loop comes back between the hits and '
+            + 'moves with every one of them.'
+          : release.ms >= 300
+            ? 'It is in the slow half: the loop barely comes back between the '
+              + 'hits, so it sits still and the hits lose their edges.'
+            : 'It is in the middle: the loop comes part of the way back between '
+              + 'the hits.',
+        `An engineer would describe this one as ${release.name}.`,
       ];
     }
 
@@ -1034,6 +1052,16 @@ export const COMP_WORK = {
         symbol: `${amount.db} dB`,
         name: amount.db === 0 ? 'of gain reduction, which is to say none at all'
           : `of gain reduction, which an engineer would call ${amount.name}`,
+      };
+    }
+
+    if (exercise === 'release') {
+      const release = RELEASES[releaseAt(answer.release)];
+      return {
+        symbol: `${release.ms} ms`,
+        name: `of release, which an engineer would call ${release.name} - at `
+            + `${writeRatio(RELEASE_SHAPE.ratio)} with a ${writeTime(RELEASE_SHAPE.attack)} attack, `
+            + `doing ${RELEASE_DEPTH} dB with the level put back`,
       };
     }
 

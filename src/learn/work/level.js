@@ -18,7 +18,7 @@
 // sketchpad's shape, not a face's, and it belongs with the mix-craft modules.
 
 import { LEVEL_DEFAULTS, TRIM_RANGE, levelReading } from '../../plugins/level/gain.js';
-import { HIT, NEAR, MISS, onScale, toStep, pick } from './scoring.js';
+import { HIT, NEAR, MISS, onScale, toStep, pick, placeSaid } from './scoring.js';
 import { mulberry32 } from '../../lib/random.js';
 
 /**
@@ -202,9 +202,9 @@ export const LEVEL_WORK = {
   exercises: LEVEL_EXERCISES,
 
   tiers: {
-    easy: { label: 'Easy', blurb: 'Two decibels and up', guesses: 3 },
-    medium: { label: 'Medium', blurb: 'Down to one decibel', guesses: 4 },
-    hard: { label: 'Hard', blurb: 'Down to half a decibel', guesses: 4 },
+    easy: { label: 'Easy', blurb: 'Two decibels and up' },
+    medium: { label: 'Medium', blurb: 'Down to one decibel' },
+    hard: { label: 'Hard', blurb: 'Down to half a decibel' },
   },
 
   /** Answered on the plugin, except in the drill, which asks with chips. */
@@ -229,10 +229,13 @@ export const LEVEL_WORK = {
 
     // Either way off the loop, so that leaving the trim alone is never the
     // answer, and a whole number of tenths so a perfect answer exists on a
-    // knob that moves in tenths. Away from zero by at least a decibel at
-    // every tier, because a fault inside the tolerance arrives solved.
+    // knob that moves in tenths. At least a decibel further out than the tier
+    // forgives, because a fault inside the tolerance arrives solved - a flat
+    // one-decibel floor let the easy tier's 1.5 LU pass a trim of nothing in
+    // about one round in nine.
     const up = rng() < 0.5;
-    const size = toStep(1 + rng() * 5, 0.1);
+    const least = (MATCHED[tier] ?? MATCHED.medium) + 1;
+    const size = toStep(least + rng() * (6 - least), 0.1);
     return { fault: { trim: up ? size : -size }, answer: { trim: up ? -size : size } };
   },
 
@@ -345,9 +348,7 @@ export const LEVEL_WORK = {
           : db >= 1
             ? 'It is middling: clearly there, but you would have to point at it.'
             : 'It is small - around the edge of what anybody can reliably hear.',
-        `It is ${db} dB - ${db >= 4 ? 'the far end of what this tier offers'
-          : db >= 1 ? 'the middle of what this tier offers'
-          : 'the smallest step this tier offers'}.`,
+        `It is ${db} dB - ${placeSaid(LOUDER_BY[puzzle.tier] ?? LOUDER_BY.medium, db)}.`,
       ];
     }
 

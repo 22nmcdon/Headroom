@@ -278,7 +278,9 @@ export const ECHO_EXERCISES = {
     other: 'Dry',
     targetOf: () => ({ ...ECHO_DEFAULTS, mix: 0 }),
 
-    startOf: (puzzle, tier) => {
+    // The session asks with the puzzle alone, so the tier is the puzzle's;
+    // the second argument is only for a caller holding a bare answer.
+    startOf: (puzzle, tier = puzzle.tier) => {
       const spec = PATTERN_DRILL[tier] ?? PATTERN_DRILL.medium;
       return {
         ...ECHO_DEFAULTS,
@@ -519,13 +521,12 @@ export const ECHO_WORK = {
   exercises: ECHO_EXERCISES,
 
   tiers: {
-    easy: { label: 'Easy', blurb: 'Time and feedback', guesses: 4, tone: false, detail: false },
-    medium: { label: 'Medium', blurb: 'And their tone', guesses: 4, tone: true, detail: false },
-    hard: { label: 'Hard', blurb: 'And the routing', guesses: 4, tone: true, detail: true },
+    easy: { label: 'Easy', blurb: 'Time and feedback', tone: false, detail: false },
+    medium: { label: 'Medium', blurb: 'And their tone', tone: true, detail: false },
+    hard: { label: 'Hard', blurb: 'And the routing', tone: true, detail: true },
     expert: {
       label: 'Expert',
       blurb: 'And the machine',
-      guesses: 4,
       tone: true,
       detail: true,
       wander: true,
@@ -867,6 +868,20 @@ export const ECHO_WORK = {
       ];
     }
 
+    if ((puzzle?.settings?.exercise ?? 'match') === 'pattern') {
+      const heads = headsOf(answer.heads).taps.length;
+      return [
+        'Count the echoes before the figure starts over, not the echoes in total: '
+          + 'every pass of the tape plays the whole pattern again, quieter.',
+        heads === 1
+          ? 'Every echo is quieter than the one before it.'
+          : 'Several echoes come back at much the same level before the next, quieter round of them.',
+        heads === 1 ? 'One echo to a pass of the tape.'
+          : heads === 4 ? 'The echoes in a round are evenly spaced.'
+          : 'The echoes in a round are unevenly spaced.',
+      ];
+    }
+
     const settings = { ...ECHO_DEFAULTS, ...answer };
 
     if ((puzzle?.settings?.exercise ?? 'match') === 'find') {
@@ -909,6 +924,14 @@ export const ECHO_WORK = {
       return { symbol: division.label, name: `${writeMs(timeOf(division.beats))} at this tempo` };
     }
 
+    if ((puzzle?.settings?.exercise ?? 'match') === 'pattern') {
+      const heads = headsOf(answer.heads);
+      return {
+        symbol: HEAD_COUNT[answer.heads] ?? String(heads.taps.length),
+        name: `${heads.label}, every ${writeMs(answer.time)}`,
+      };
+    }
+
     const settings = { ...ECHO_DEFAULTS, ...answer };
 
     if ((puzzle?.settings?.exercise ?? 'match') === 'find') {
@@ -933,6 +956,10 @@ export const ECHO_WORK = {
 
   /** What a guess says it heard, in `weak`'s own words. */
   heard(guess, puzzle) {
+    if ((puzzle?.settings?.exercise ?? 'match') === 'pattern') {
+      if (!PATTERN_IDS.includes(guess.heads)) return null;
+      return { key: `heads-${guess.heads}`, label: headsOf(guess.heads).label.toLowerCase() };
+    }
     if ((puzzle?.settings?.exercise ?? 'match') !== 'drill') return null;
     const division = DIVISIONS[divisionAt(guess.division)];
     if (!division) return null;
@@ -944,6 +971,9 @@ export const ECHO_WORK = {
     if ((puzzle?.settings?.exercise ?? 'match') === 'drill') {
       const division = DIVISIONS[divisionAt(answer.division)];
       return { key: `division-${division.id}`, label: `the ${division.label} delay` };
+    }
+    if ((puzzle?.settings?.exercise ?? 'match') === 'pattern') {
+      return { key: `heads-${answer.heads}`, label: headsOf(answer.heads).label.toLowerCase() };
     }
     if ((puzzle?.settings?.exercise ?? 'match') === 'find') {
       return { key: answer.division, label: `the ${answer.division} delay` };

@@ -166,7 +166,7 @@ const PLACE_DRILL = {
  * is what lets one tool be handed from one exercise to the next without being
  * destroyed in between.
  */
-export const STEREO_EXERCISES = {
+const STEREO_EXERCISES = {
   place: {
     id: 'place',
     // The target is the settings that win, so it can go on the controls
@@ -191,9 +191,8 @@ export const STEREO_EXERCISES = {
   },
   mono: {
     id: 'mono',
-    // The target is the settings that win, so it can go on the controls
-    // after the answer is shown. Measured: see `ontoTool` in main.js.
-    ontoTool: true,
+    // No `ontoTool`: the target is the imager at rest, which leaves the
+    // spread bottom end in and never wins.
     label: 'Rescue the low end',
     source: 'mix',
     // Somebody spread the bottom end before it reached you. The other side of
@@ -313,9 +312,9 @@ export const STEREO_WORK = {
   exercises: STEREO_EXERCISES,
 
   tiers: {
-    easy: { label: 'Easy', blurb: 'Hard left, centre, hard right', guesses: 3, places: [-1, 0, 1], bands: 1 },
-    medium: { label: 'Medium', blurb: 'Anywhere, in quarters', guesses: 4, step: 0.25, bands: 2 },
-    hard: { label: 'Hard', blurb: 'Anywhere at all', guesses: 4, step: 0.1, bands: 3 },
+    easy: { label: 'Easy', blurb: 'Hard left, centre, hard right', places: [-1, 0, 1], bands: 1 },
+    medium: { label: 'Medium', blurb: 'Anywhere, in quarters', step: 0.25, bands: 2 },
+    hard: { label: 'Hard', blurb: 'Anywhere at all', step: 0.1, bands: 3 },
   },
 
   /** Answered on the plugin, except in the drill, which asks with chips. */
@@ -578,7 +577,7 @@ export const STEREO_WORK = {
         {
           label: 'Top left standing',
           value: `${top.toFixed(2)} against ${wasTop.toFixed(2)} untouched`,
-          how: `How wide the top three bands still are. Monoing everything makes `
+          how: `How wide the top two bands still are. Monoing everything makes `
              + `the low end perfectly safe and throws the record away, so the top `
              + `may not lose more than ${KEEP_THE_TOP} of its width.`,
         },

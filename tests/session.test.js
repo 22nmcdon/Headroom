@@ -376,3 +376,34 @@ test('a drill still undoes everything else an exercise imposes', async () => {
   assert.equal(after.label, 'Target', 'the A/B gets its old name back');
   assert.equal(after.source, 'mix');
 });
+
+test('an attach that fails half way takes back what it had put on', async () => {
+  // The fault and the source are on by the time the target throws. Undoing
+  // the previous exercise instead - which is what the bench used to fall back
+  // to - left this one's fault in the material and its name on the A/B.
+  const tool = fakeTool();
+  const desk = bench();
+  await desk.put(tool, exerciseOf({ id: 'first' }), { answer: { drive: 2 } });
+
+  const setTarget = tool.setTarget;
+  tool.setTarget = async (t) => {
+    if (t) throw new Error('no such target');
+    return setTarget(t);
+  };
+  await desk.put(tool, exerciseOf({ id: 'second', source: 'bass', other: 'Clean' }), {
+    fault: { hz: 250 }, answer: { drive: 14 },
+  });
+
+  assert.equal(desk.on, null, 'nothing is on the bench');
+  const after = tool.now;
+  assert.equal(after.fault, null, 'the fault came back out');
+  assert.equal(after.target, null);
+  assert.equal(after.locked, false);
+  assert.equal(after.source, 'mix', 'the source went back');
+  assert.equal(after.label, 'Target', 'and the A/B its name');
+
+  // And attach on its own still says why.
+  await assert.rejects(attach(tool, exerciseOf(), { fault: { hz: 1 }, answer: { drive: 1 } }),
+    /no such target/);
+  assert.equal(tool.now.fault, null);
+});

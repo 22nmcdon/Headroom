@@ -1220,3 +1220,24 @@ test('a freeze does not change the response either', () => {
     }
   }
 });
+
+test('the tail dial never starts on an answer', async () => {
+  // It started on 1.2 s, and the hard tier's 1.8 decay rings for 1.17 to
+  // 1.245 - so one round in seven arrived with the answer already dialled.
+  const { mulberry32 } = await import('../src/lib/random.js');
+  for (const tier of Object.keys(reverb.tiers)) {
+    const slot = reverb.slots(tier, { exercise: 'drill' }).find((s) => s.id === 'tail');
+    for (let n = 0; n < 60; n += 1) {
+      const { answer } = reverb.makePuzzle(mulberry32(n * 7919 + 1), tier, { exercise: 'drill' });
+      const off = Math.abs(Math.log2(slot.start / answer.tail));
+      assert.ok(off > slot.hit, `${tier}: starting on ${slot.start} s is ${off.toFixed(2)} oct from a ${answer.tail} s tail`);
+    }
+  }
+});
+
+test('a tail under a second is called under a second', () => {
+  const said = (tail) => reverb.hints({ tier: 'hard', settings: { exercise: 'drill' }, answer: { tail, size: 'large' } })[1];
+  assert.match(said(0.87), /under a second/);
+  assert.match(said(1.17), /between one and two/);
+  assert.match(said(2.31), /over two seconds/);
+});

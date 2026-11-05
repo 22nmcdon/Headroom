@@ -290,3 +290,41 @@ test('every hint rung is a sentence rather than a figure', () => {
     }
   }
 });
+
+test('no round of matching a level arrives solved, at any tier', () => {
+  // The fault was one to six decibels at every tier, and the easy tier
+  // forgives 1.5 LU - so about one round in nine was passed by a trim of
+  // nothing. Swept over seeds that differ, since `mulberry32` takes them raw.
+  for (const tier of Object.keys(LEVEL_WORK.tiers)) {
+    for (let seed = 1; seed <= 200; seed += 1) {
+      const puzzle = {
+        ...LEVEL_WORK.makePuzzle(mulberry32(seed * 2654435761), tier, { exercise: 'match' }),
+        tier,
+        settings: { exercise: 'match' },
+      };
+      // Read through the tier's own tolerance. A trim of nothing reads the
+      // fault exactly, since a gain is exact - the real loop is read once a
+      // tier below, because a reading of it is too slow for six hundred.
+      const clean = { values: { integrated: -20 } };
+      const untouched = { values: { integrated: -20 - puzzle.answer.trim } };
+      const nothing = LEVEL_WORK.scoreMatch(untouched, clean, puzzle.answer, tier);
+      assert.equal(nothing.correct, false, `${tier} seed ${seed}: a trim of ${-puzzle.answer.trim} dB passed untouched`);
+      assert.ok(nothing.error > 1, `${tier} seed ${seed}: only ${nothing.error.toFixed(2)} LU to find`);
+    }
+
+    const puzzle = {
+      ...LEVEL_WORK.makePuzzle(mulberry32(7), tier, { exercise: 'match' }),
+      tier,
+      settings: { exercise: 'match' },
+    };
+    assert.equal(LEVEL_WORK.score({ trim: 0 }, puzzle).correct, false, `${tier}: the loop itself passed untouched`);
+  }
+});
+
+test('the drill says where its answer sits on its own tier\'s ladder', () => {
+  const said = (tier, louder) => LEVEL_WORK.hints({ tier, settings: { exercise: 'drill' }, answer: { louder } }).at(-1);
+  assert.match(said('easy', 2), /smallest/);
+  assert.match(said('easy', 4), /middle/);
+  assert.match(said('easy', 8), /far end/);
+  assert.match(said('hard', 4), /upper half/);
+});

@@ -312,10 +312,12 @@ const keyOf = (answer) => `${answer.colour}:${answer.amount}`;
  * control, and bends everything the same.
  */
 const ENDS = [
-  { id: 'top', label: 'The top', symbol: 'Top' },
-  { id: 'even', label: 'Evenly', symbol: 'Evenly' },
-  { id: 'bottom', label: 'The bottom', symbol: 'Bottom' },
+  { id: 'top', label: 'The top', symbol: 'Top', where: 'at the top', what: 'tape, which lifts the highs into the curve' },
+  { id: 'even', label: 'Evenly', symbol: 'Evenly', where: 'evenly', what: 'a plain curve, which bends every frequency alike' },
+  { id: 'bottom', label: 'The bottom', symbol: 'Bottom', where: 'at the bottom', what: 'a transformer, whose core fills from the low end' },
 ];
+
+const endOf = (id) => ENDS.find((e) => e.id === id) ?? null;
 
 /**
  * The settings behind each, and what makes them a fair question.
@@ -407,13 +409,6 @@ function scoreEnds(state, puzzle) {
 }
 
 /**
- * Name the colour, name the amount.
- *
- * Three readings for two chips. The colour is exact or nothing - even and odd
- * are two kinds and there is no such thing as nearly warm - and the amount is
- * a scale, so being one step out on it is being one step out.
- */
-/**
  * Name what was done to it: exact, or nothing.
  *
  * There is no nearly here, and that is the honest shape rather than a
@@ -469,6 +464,13 @@ function scoreArtefact(state, puzzle) {
   };
 }
 
+/**
+ * Name the colour, name the amount.
+ *
+ * Three readings for two chips. The colour is exact or nothing - even and odd
+ * are two kinds and there is no such thing as nearly warm - and the amount is
+ * a scale, so being one step out on it is being one step out.
+ */
 function scoreColour(state, puzzle) {
   const { answer, tier } = puzzle;
   const spec = HEAT_DRILL[tier] ?? HEAT_DRILL.medium;
@@ -542,9 +544,9 @@ export const HEAT_WORK = {
   exercises: HEAT_EXERCISES,
 
   tiers: {
-    easy: { label: 'Easy', blurb: 'Drive and bias', guesses: 3, knobs: 2 },
-    medium: { label: 'Medium', blurb: 'And the hardness', guesses: 4, knobs: 3 },
-    hard: { label: 'Hard', blurb: 'The whole curve', guesses: 4, knobs: 5 },
+    easy: { label: 'Easy', blurb: 'Drive and bias', knobs: 2 },
+    medium: { label: 'Medium', blurb: 'And the hardness', knobs: 3 },
+    hard: { label: 'Hard', blurb: 'The whole curve', knobs: 5 },
   },
 
   /** Answered on the plugin, except in the drill, which asks with chips. */
@@ -863,6 +865,18 @@ export const HEAT_WORK = {
       ];
     }
 
+    if (exercise === 'ends') {
+      const end = endOf(answer.end) ?? ENDS[1];
+      return [
+        'Against the clean side, listen to the bottom of the mix and then the '
+          + 'top. They are matched for how much, so the only question is where.',
+        end.id === 'top' ? 'The low end comes through much as it went in.'
+          : end.id === 'bottom' ? 'The top comes through much as it went in.'
+          : 'Neither end is spared more than the other.',
+        `It is breaking up ${end.where}: ${end.what}.`,
+      ];
+    }
+
     if (exercise === 'drill') {
       const even = answer.colour === 'even';
       const amount = AMOUNTS[amountAt(answer.amount)];
@@ -919,6 +933,11 @@ export const HEAT_WORK = {
       return { symbol: want.symbol.toLowerCase(), name: want.name };
     }
 
+    if (exercise === 'ends') {
+      const end = endOf(answer.end) ?? ENDS[1];
+      return { symbol: end.symbol.toLowerCase(), name: end.what };
+    }
+
     if (exercise === 'drill') {
       const colour = COLOURS[colourAt(answer.colour)];
       const amount = AMOUNTS[amountAt(answer.amount)];
@@ -950,7 +969,16 @@ export const HEAT_WORK = {
 
   /** What a guess says it heard, in `weak`'s own words. */
   heard(guess, puzzle) {
-    if ((puzzle?.settings?.exercise ?? 'amount') !== 'drill') return null;
+    const exercise = puzzle?.settings?.exercise ?? 'amount';
+    if (exercise === 'ends') {
+      const end = endOf(guess.end);
+      return end ? { key: `end-${end.id}`, label: `breaking up ${end.where}` } : null;
+    }
+    if (exercise === 'artefact') {
+      if (!DAMAGE_IDS.includes(guess.artefact)) return null;
+      return { key: `artefact-${guess.artefact}`, label: damageOf(guess.artefact).symbol.toLowerCase() };
+    }
+    if (exercise !== 'drill') return null;
     if (colourAt(guess.colour) < 0) return null;
     return { key: `colour-${guess.colour}`, label: `${guess.colour} harmonics` };
   },
@@ -960,6 +988,13 @@ export const HEAT_WORK = {
     const exercise = puzzle?.settings?.exercise ?? 'amount';
     if (exercise === 'drill') {
       return { key: `colour-${answer.colour}`, label: `${answer.colour} harmonics` };
+    }
+    if (exercise === 'ends') {
+      const end = endOf(answer.end) ?? ENDS[1];
+      return { key: `end-${end.id}`, label: `breaking up ${end.where}` };
+    }
+    if (exercise === 'artefact') {
+      return { key: `artefact-${answer.artefact}`, label: damageOf(answer.artefact).symbol.toLowerCase() };
     }
     if (exercise === 'even') return { key: 'even', label: 'even harmonics' };
     if (exercise === 'match') return { key: 'colour', label: 'harmonic colour' };
