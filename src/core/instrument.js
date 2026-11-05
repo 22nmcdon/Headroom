@@ -25,16 +25,6 @@ import { midiToFreq } from './audio.js';
 import { mulberry32 } from '../lib/random.js';
 import { holdLength, canHoldLength } from '../lib/psola.js';
 
-/** What a caller may rely on. */
-export const INSTRUMENT_SHAPE = ['id', 'out', 'noteOn', 'noteOff', 'allOff', 'destroy'];
-
-export function isInstrument(instrument) {
-  if (!instrument || typeof instrument !== 'object') return false;
-  return INSTRUMENT_SHAPE.every((key) => (
-    key === 'out' || key === 'id' ? instrument[key] != null : typeof instrument[key] === 'function'
-  ));
-}
-
 /**
  * As many notes as may sound at once.
  *
@@ -84,6 +74,9 @@ function base(ctx, id) {
     live,
     get voices() { return [...live.values()].reduce((n, held) => n + held.length, 0); },
     get gone() { return gone; },
+    // Before the voice cap is read, not only in `hold`: once the cap is full
+    // nothing reaches `hold`, and offline nothing fires `onended` either.
+    sweep,
 
     /**
      * Remember a voice so `noteOff` and `destroy` can find it.
@@ -170,8 +163,8 @@ const loudness = (velocity) => (Math.max(1, Math.min(127, velocity)) / 127) ** 1
  * A voice that decays on its own, however long the note is held.
  *
  * Which is what a piano and a drum do: letting go of the key does not stop a
- * struck string, it damps it, and on a kick it does nothing at all. So
- * `noteOff` on these shortens the tail rather than ending the note, and a
+ * struck string, it damps it, and on a kick it does nothing at all. Here
+ * `noteOff` leaves these to their own decay rather than ending the note, so a
  * sequencer that never sends one still sounds right.
  */
 function struck(ctx, kit, { partials, decayOf, peak }) {
@@ -225,9 +218,11 @@ function sustaining(ctx, kit, { wave = 'sawtooth', cutoff = 2400, attack = 0.01,
 
     const gain = ctx.createGain();
     const top = loudness(velocity) * peak;
+    const settle = 0.12;
+    const sustain = top * 0.8;
     gain.gain.setValueAtTime(0, when);
     gain.gain.linearRampToValueAtTime(top, when + attack);
-    gain.gain.linearRampToValueAtTime(top * 0.8, when + attack + 0.12);
+    gain.gain.linearRampToValueAtTime(sustain, when + attack + settle);
 
     osc.connect(filter).connect(gain).connect(kit.out);
     osc.start(when);
@@ -238,17 +233,38 @@ function sustaining(ctx, kit, { wave = 'sawtooth', cutoff = 2400, attack = 0.01,
 
     // Far out, because a held voice has no end until it is let go - and a
     // number rather than nothing, so the sweep above can reason about it.
-    return [{ node: osc, gain, release, top, until: when + 30 }];
+    // The envelope as numbers too, so a release booked ahead knows where it
+    // starts from: `gain.value` is the value now, not at the note-off.
+    const envelope = { start: when, attack, top, settle, sustain };
+    return [{ node: osc, gain, release, envelope, until: when + 30 }];
   };
+}
+
+/** Where a held voice's envelope is at `t`, segment by segment as booked. */
+function envelopeAt({ start, attack, top, settle, sustain }, t) {
+  if (t <= start) return 0;
+  if (t < start + attack) return (top * (t - start)) / attack;
+  if (t < start + attack + settle) return top + ((sustain - top) * (t - start - attack)) / settle;
+  return sustain;
 }
 
 /** Stop a held voice, with its release. */
 function letGo(voice, when) {
-  const { gain, release } = voice;
+  const { gain, release, envelope } = voice;
   voice.until = when + (release ?? 0.1);
   try {
-    gain.gain.cancelScheduledValues(when);
-    gain.gain.setValueAtTime(Math.max(gain.gain.value, 1e-5), when);
+    // Held where the envelope is at `when`, so the release starts from there.
+    // cancelAndHoldAtTime does exactly that; where a browser lacks it, the
+    // same value is worked out from the envelope and ramped to - every
+    // segment is linear, so the ramp redraws the one the cancel cut short.
+    if (typeof gain.gain.cancelAndHoldAtTime === 'function') {
+      gain.gain.cancelAndHoldAtTime(when);
+    } else {
+      gain.gain.cancelScheduledValues(when);
+      const level = Math.max(envelope ? envelopeAt(envelope, when) : gain.gain.value, 1e-5);
+      if (envelope && when > envelope.start) gain.gain.linearRampToValueAtTime(level, when);
+      else gain.gain.setValueAtTime(level, when);
+    }
     gain.gain.exponentialRampToValueAtTime(1e-5, when + (release ?? 0.1));
     voice.node.stop(when + (release ?? 0.1) + 0.02);
   } catch { /* already stopped, or the time is in the past */ }
@@ -295,7 +311,7 @@ const BASS_PARTIALS = [
  * An instrument, out of a voice maker.
  *
  * `sustains` is the one thing that changes between the two kinds: a struck
- * voice ignores `noteOff` except to damp, a held one ends on it.
+ * voice ignores `noteOff`, a held one ends on it.
  */
 function instrumentOf(ctx, id, voicer, { sustains = false } = {}) {
   // One `base` per instrument, handed to the voice maker. Built twice - once
@@ -312,6 +328,7 @@ function instrumentOf(ctx, id, voicer, { sustains = false } = {}) {
 
     noteOn(pitch, velocity = 96, when = ctx.currentTime) {
       if (kit.gone) return null;
+      kit.sweep(when);
       if (kit.voices >= MOST_VOICES) return null;
 
       const made = makeVoice(pitch, velocity, when);
@@ -322,8 +339,8 @@ function instrumentOf(ctx, id, voicer, { sustains = false } = {}) {
     noteOff(pitch, when = ctx.currentTime) {
       const sounding = kit.take(pitch);
       if (!sustains) {
-        // A struck voice is already on its way out; damping it early is what
-        // a piano's dampers do, and on a drum it does nothing worth doing.
+        // A struck voice is already on its way out, so it is put back as it
+        // was and left to decay.
         for (const voice of sounding) kit.hold(pitch, voice);
         return;
       }
@@ -399,7 +416,9 @@ export function makeKit(ctx) {
     get voices() { return kit.voices; },
 
     noteOn(pitch, velocity = 96, when = ctx.currentTime) {
-      if (kit.gone || kit.voices >= MOST_VOICES) return null;
+      if (kit.gone) return null;
+      kit.sweep(when);
+      if (kit.voices >= MOST_VOICES) return null;
 
       const piece = PIECES[pieceFor(pitch)];
       const level = loudness(velocity) * piece.peak;
@@ -573,7 +592,9 @@ export function makeSampler(ctx, { buffer = null, root = SAMPLE_ROOT, hold = fal
     get hold() { return hold; },
 
     noteOn(pitch, velocity = 96, when = ctx.currentTime, seconds = null) {
-      if (!buffer || kit.gone || kit.voices >= MOST_VOICES) return null;
+      if (!buffer || kit.gone) return null;
+      kit.sweep(when);
+      if (kit.voices >= MOST_VOICES) return null;
 
       const node = ctx.createBufferSource();
       // The length-preserving path hands over a buffer that is already at

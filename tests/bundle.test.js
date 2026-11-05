@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { promisify } from 'node:util';
+import vm from 'node:vm';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -38,6 +39,55 @@ test('the bundle builds, parses, and carries the whole app', async () => {
     assert.ok(page.includes(`src/tools/${id}.js`), `${id} has no tool in the bundle`);
   }
   assert.ok(!/^export default /m.test(page), 'a default export would flatten to its basename');
+}, { timeout: 30000 });
+
+/**
+ * And it has to run, which parsing does not prove. A name nothing declares is
+ * a ReferenceError at load - `import * as svf` once flattened to no `svf` at
+ * all - and the build's `node --check` passed it. So the script is evaluated
+ * here against stubs that answer anything, and only a ReferenceError counts:
+ * that is the one the flattening can cause.
+ */
+test('the bundle evaluates without a name going undeclared', async () => {
+  const page = await readFile(join(root, 'dist', 'headroom.html'), 'utf8');
+  const script = page.slice(page.indexOf('<script type="module">') + '<script type="module">'.length,
+                            page.lastIndexOf('</script>'));
+
+  const stub = new Proxy(function () {}, {
+    get: (_, key) => (key === Symbol.toPrimitive ? () => '' : key === 'then' ? undefined : stub),
+    apply: () => stub,
+    construct: () => stub,
+  });
+  const context = {
+    console: { log() {}, warn() {}, error() {}, info() {}, debug() {} },
+    setTimeout: () => 0, clearTimeout() {}, setInterval: () => 0, clearInterval() {},
+    queueMicrotask, structuredClone, URL, Blob, TextEncoder, TextDecoder,
+  };
+  for (const name of ['window', 'document', 'location', 'localStorage', 'sessionStorage', 'navigator',
+    'requestAnimationFrame', 'cancelAnimationFrame', 'AudioContext', 'OfflineAudioContext',
+    'AudioWorkletNode', 'ResizeObserver', 'MutationObserver', 'IntersectionObserver',
+    'getComputedStyle', 'HTMLElement', 'Element', 'Node', 'Event', 'CustomEvent', 'KeyboardEvent',
+    'performance', 'matchMedia', 'addEventListener', 'removeEventListener', 'devicePixelRatio',
+    'webkitAudioContext', 'MediaRecorder', 'indexedDB', 'fetch', 'Image', 'crypto', 'history',
+    'alert', 'confirm', 'prompt', 'FileReader', 'File', 'FormData']) {
+    context[name] = stub;
+  }
+
+  // An async start-up that hits an undeclared name rejects rather than throws.
+  const late = [];
+  const listen = (error) => { if (error?.name === 'ReferenceError') late.push(error); };
+  process.on('unhandledRejection', listen);
+  try {
+    try {
+      vm.runInNewContext(script, context, { filename: 'headroom.html' });
+    } catch (error) {
+      assert.notEqual(error.name, 'ReferenceError', `the bundle throws at load: ${error.message}`);
+    }
+    await new Promise((done) => setImmediate(done));
+  } finally {
+    process.off('unhandledRejection', listen);
+  }
+  assert.deepEqual(late.map((e) => e.message), [], 'the bundle rejects at start-up');
 }, { timeout: 30000 });
 
 test('no two modules declare the same top-level name', async () => {

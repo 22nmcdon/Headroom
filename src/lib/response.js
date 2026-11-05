@@ -175,10 +175,10 @@ export function decayProfile(mono, rate, times = decayTimes()) {
  *
  * Summed rather than averaged, because this is a measurement and the two
  * channels of a room are very nearly uncorrelated: adding them keeps the
- * energy, and averaging them throws away about five and a half decibels of
- * it. That matters in one place and matters a lot there - `wetDryImpulse`
+ * energy, and averaging them - half the sum - throws away 6.02 dB of it.
+ * That matters in one place and matters a lot there - `wetDryImpulse`
  * weighs the room against a direct sound of a known size, so a room measured
- * five decibels quiet reads as five decibels drier than it is.
+ * six decibels quiet reads as six decibels drier than it is.
  */
 export function monoOf(impulse) {
   const [left, right] = impulse.channels;

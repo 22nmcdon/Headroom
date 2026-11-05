@@ -173,7 +173,8 @@ function squaresOf(channel) {
 function blocksOf(channels, rate, ms, prepared = null) {
   const length = Math.round((rate * ms) / 1000);
   const step = Math.round((rate * BLOCK_STEP_MS) / 1000);
-  const samples = Math.min(...channels.map((c) => c.length));
+  // No channels is no audio, not Infinity samples of it.
+  const samples = channels.length ? Math.min(...channels.map((c) => c.length)) : 0;
   // Handed in where a caller wants more than one window length off the same
   // audio: the running totals are a Float64Array per channel as long as the
   // track, and building them twice is eighty megabytes nobody needed.
@@ -421,11 +422,15 @@ export function truePeakOf(samples) {
   return 20 * Math.log10(best);
 }
 
-/** And the plain sample peak beside it, which is the one people quote. */
+/**
+ * And the plain sample peak beside it, which is the one people quote.
+ * -Infinity for silence, as `truePeakOf` is, so the true peak of a silent
+ * file is never under its sample peak.
+ */
 export function samplePeakOf(samples) {
   let peak = 0;
   for (let i = 0; i < samples.length; i += 1) peak = Math.max(peak, Math.abs(samples[i]));
-  return 20 * Math.log10(Math.max(peak, 1e-12));
+  return 20 * Math.log10(peak);
 }
 
 /**

@@ -131,6 +131,9 @@ export function wetDry(ctx, wetIn, wetOut = wetIn) {
 
   dry.gain.value = 1;
   wet.gain.value = 0;
+  // The first mix is set outright rather than approached, as a track's fader
+  // is - see track.js - or a new insert spends its first 50 ms nearly dry.
+  let placed = false;
 
   return {
     in: entry,
@@ -138,6 +141,12 @@ export function wetDry(ctx, wetIn, wetOut = wetIn) {
     /** 0 is dry, 1 is nothing but the effect. */
     setMix(amount, at = ctx.currentTime) {
       const mix = Math.max(0, Math.min(1, amount));
+      if (!placed) {
+        placed = true;
+        dry.gain.value = 1 - mix;
+        wet.gain.value = mix;
+        return;
+      }
       dry.gain.setTargetAtTime(1 - mix, at, 0.01);
       wet.gain.setTargetAtTime(mix, at, 0.01);
     },

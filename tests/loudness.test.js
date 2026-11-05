@@ -239,6 +239,23 @@ test('on a signal that lands on the grid the two peaks agree', () => {
   assert.ok(Math.abs(samplePeakOf(tone) + 6) < 0.01);
 });
 
+test('silence has no peak, sampled or true, and the two agree on it', () => {
+  // The sample peak used to floor at -240 while the true peak said -Infinity,
+  // which put the true peak of a silent file under its own sample peak.
+  const quiet = new Float64Array(RATE);
+  assert.equal(samplePeakOf(quiet), -Infinity);
+  assert.equal(truePeakOf(quiet), -Infinity);
+  assert.ok(!(truePeakOf(quiet) < samplePeakOf(quiet)));
+});
+
+test('no channels at all is a reading of nothing, not a hang', () => {
+  // Math.min() of no lengths is Infinity, and the block loop ran to it.
+  assert.equal(integrated([], RATE).lufs, -Infinity);
+  const reading = loudnessReading([], RATE);
+  assert.equal(reading.values.integrated, -Infinity);
+  assert.deepEqual(reading.values.short, []);
+});
+
 /* --- the envelope --------------------------------------------------------- */
 
 test('a loudness reading carries what it is a reading of', () => {

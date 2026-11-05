@@ -35,7 +35,7 @@ import { comparable, gapOf } from './lib/read.js';
 /**
  * How to compare two readings of each kind.
  *
- * Five kinds across six tools, because the reverb and the delay genuinely
+ * A kind or more per tool, and the reverb and the delay genuinely
  * share one - a room and a repeat are both described by how they decay, and
  * saying so here is what makes "is this delay as long as that room" a question
  * this app can answer.

@@ -50,7 +50,7 @@ const ui = {
   // 'work' or 'drill'. Not per tool: it is how you are practising, not what
   // you are practising, and it survives switching tools on purpose.
   kind: 'work',
-  // Which of the three this page is being used as. The top of the hierarchy:
+  // Which of the four this page is being used as. The top of the hierarchy:
   // different things to do with this app rather than different ways of doing
   // one. Each is built the first time it is asked for and kept after that.
   view: 'tools',
@@ -67,6 +67,9 @@ const ui = {
   onto: null,
   game: null,
   log: null, // what has been tried this round, newest first
+  // Bumped by every startGame, so a round that is still awaiting its tool can
+  // tell it has been overtaken and stop rather than finish over the new one.
+  round: 0,
 };
 
 const tool = () => toolOf(ui.mode);
@@ -171,7 +174,7 @@ function settleKind() {
   return undefined;
 }
 
-/** The three things this page is for. The ids match the sections and buttons. */
+/** The things this page is for. The ids match the sections and buttons. */
 const VIEWS = ['tools', 'analysis', 'mix', 'sketch'];
 
 /** What the chart's head says when the page is not a tool. */
@@ -182,12 +185,12 @@ const VIEW_HEAD = {
 };
 
 /**
- * Show one of the three things this app is.
+ * Show one of the things this app is.
  *
  * Everything above the sheet belongs to the tools, so all of it goes when the
  * page is not one: the tool strip, the work-or-drills pill, the difficulty
- * row, the status, and the dock with its submit button. Neither of the other
- * two has a round to submit.
+ * row, the status, and the dock with its submit button. None of the others
+ * has a round to submit.
  *
  * Each page is built the first time it is asked for and kept after that, the
  * same bargain the tools get: the analysis page holds decoded audio and the
@@ -338,6 +341,10 @@ async function openTool() {
  */
 async function putExercise() {
   const exercise = exerciseOf(ui.mode, settings());
+  // This round and its puzzle, held: by the time the tool is open `ui.game`
+  // may be a later round's.
+  const { round } = ui;
+  const { puzzle } = ui.game;
   const drilling = !!exercise.drill;
 
   // A drill puts the tool away and asks instead. The tool is still there and
@@ -356,12 +363,15 @@ async function putExercise() {
 
   $('#drillAsk').textContent = exercise.ask ?? '';
 
-  await desk.put(await openTool(), exercise, ui.game.puzzle);
+  const opened = await openTool();
+  if (round !== ui.round) return;
+  await desk.put(opened, exercise, puzzle);
+  if (round !== ui.round) return;
 
   // After the put, and it has to be. A drill that sets the tool's own
   // controls has only just set them, and what the clean A/B flips back to is
   // where they ended up - read before the put, it would be the last round's.
-  ui.clean = drilling ? cleanWay(exercise, ui.game.puzzle) : null;
+  ui.clean = drilling ? cleanWay(exercise, puzzle) : null;
   $('#drillClean').hidden = !ui.clean;
   setClean(false);
 
@@ -532,6 +542,18 @@ function buildNotes() {
 /* ---------- lifecycle ---------- */
 
 async function startGame({ fresh = false } = {}) {
+  ui.round += 1;
+  const round = ui.round;
+  // Caught here rather than at each caller: most of them fire and forget.
+  try {
+    await playRound(round, fresh);
+  } catch (error) {
+    console.error(error);
+    if (round === ui.round) say('That round did not load. Try another one.');
+  }
+}
+
+async function playRound(round, fresh) {
   const chosen = settings();
   // `fresh` is "another one" - a new puzzle of the same shape. Without it the
   // salt is the tier, so switching tool, tier or exercise and coming back
@@ -551,6 +573,7 @@ async function startGame({ fresh = false } = {}) {
   // on a loop that never stopped - which is the whole of what this stage is
   // for, heard rather than read.
   await putExercise();
+  if (round !== ui.round) return;
 
   // Nothing is restored into a round. What this replaces re-ran the scoring
   // over stored guesses and could print different text than had been shown,
@@ -744,8 +767,12 @@ function render() {
   status.textContent = tool().tiers[game.puzzle.tier].label;
   status.dataset.state = game.status === 'playing' ? 'playing' : 'done';
 
-  $('#modeMark').textContent = tool().label;
-  $('#modeBlurb').textContent = tool().blurb.toLowerCase();
+  // Only while the tools are what is showing: a round that finishes loading
+  // after a switch to another view must not write its head over that one's.
+  if (ui.view === 'tools') {
+    $('#modeMark').textContent = tool().label;
+    $('#modeBlurb').textContent = tool().blurb.toLowerCase();
+  }
 
   const solved = game.status === 'solved';
   $('#picker').classList.toggle('done', solved);
@@ -1301,7 +1328,10 @@ function wire() {
       e.preventDefault();
       Promise.resolve(ui.tool?.toggle?.()).then(syncTransport);
     }
-    if (e.key === 'Enter' && !$('#submit').disabled) onSubmit();
+    // A focused control answers Enter itself; submitting as well would submit
+    // twice from #submit, and by accident from #hint or #again.
+    const answers = e.target.closest('button, a, select, textarea, [role=radio], [contenteditable]');
+    if (e.key === 'Enter' && !answers && !$('#submit').disabled) onSubmit();
   });
 }
 

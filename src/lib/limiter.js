@@ -1,4 +1,4 @@
-import { peakPhases, peakProto } from './loudness.js';
+import { peakPhases, peakProto, PEAK_LAG } from './loudness.js';
 
 // A ceiling that is actually a ceiling.
 //
@@ -37,11 +37,12 @@ import { peakPhases, peakProto } from './loudness.js';
 //     gain is a click and a click is a peak of its own.
 //
 // The smoothing is where a lookahead limiter is usually got wrong: an average
-// of a minimum can come out above the minimum, which is exactly the overshoot
-// the whole structure exists to prevent. So the applied gain is the smaller of
-// the smoothed gain and the held minimum. That cannot overshoot by
-// construction rather than by calibration, and `tests/limit.test.js` holds it
-// to no sample over the ceiling on every signal it can think of.
+// of a minimum can come out above what the sample going out needs. It cannot
+// here because the average is shorter than the minimum's window: every value
+// in it has already seen the outgoing sample's request, so the average of
+// them is under it by construction rather than by calibration. The gain ramps
+// down across the lookahead instead of stepping, and `tests/limit.test.js`
+// holds it to no sample over the ceiling on every signal it can think of.
 //
 // Sample peak by default, and true peak when asked. What the sketch's own
 // ceiling protects is the converter, and a converter holds samples; that is
@@ -145,7 +146,7 @@ export const CEILING_DB = -1;
 /**
  * How long the gain takes to come back, in seconds.
  *
- * Only upward: downward is immediate, because the lookahead has already made
+ * Only upward: downward is spread over the lookahead, which has already made
  * room for it. Fifty milliseconds is slow enough not to pump on a bass note
  * and quick enough that one loud clip does not hold the whole sketch down
  * behind it.
@@ -153,19 +154,18 @@ export const CEILING_DB = -1;
 export const LIMIT_RELEASE = 0.05;
 
 /**
- * The detector's own lag, and why it does not need compensating.
+ * The detector's own lag, in samples, with one to spare.
  *
  * The interpolator's phase zero is a single unit tap at its centre, so the
  * reconstruction it reports at step i is of input sample i - PEAK_LAG, six
- * samples back. The gain request therefore arrives six steps late. It does
- * not matter: the audio is held for the whole lookahead, 240 samples at five
- * milliseconds and 48 kHz, so a request made at step i still lands 234 steps
- * before the sample it is for comes out. What it does mean is that the last
- * six samples of a stream never have their reconstruction looked at, which is
- * an eighth of a millisecond at the very end of the audio and is why this is
- * a note rather than a correction.
+ * samples back. The gain request therefore arrives six steps late. The audio
+ * is held for the whole lookahead, so the request still lands in time - but
+ * the smoothing is shortened by twice this, so that the gain over the samples
+ * either side of a late-reported peak is held down as well as the one it is
+ * reported against. The last six samples of a stream never have their
+ * reconstruction looked at, an eighth of a millisecond at the very end.
  */
-export const DETECTOR_LAG = 'absorbed by the lookahead';
+export const DETECTOR_LAG = PEAK_LAG + 1;
 
 /**
  * The interpolator, as numbers rather than as the function that builds them.
@@ -325,7 +325,6 @@ export function makeLimiter(rate, { lookahead = LIMIT_AHEAD, ceiling = CEILING_D
   const recent = [];
   let recentAt = 0;
 
-  // The box average of that minimum, kept as a running sum.
   // The clipper's two rings a channel: the input it interpolates from, and
   // the oversampled signal it filters back down. Built only when something
   // asks for the mode, because the sketch's own safety limiter runs on every
@@ -335,23 +334,30 @@ export function makeLimiter(rate, { lookahead = LIMIT_AHEAD, ceiling = CEILING_D
   // the filter, so that advancing it four at a time never straddles the end.
   const clipUp = [];
   const clipFast = [];
-  const clipTaps = Math.max(...LIMIT_PHASES.map((phase) => phase.length));
   const clipSpan = CLIP_DOWN.length + (LIMIT_PHASES.length
     - (CLIP_DOWN.length % LIMIT_PHASES.length));
   let clipAtUp = 0;
   let clipAtFast = 0;
 
-  const box = new Float64Array(ahead).fill(1);
+  // The box average of the sliding minimum, kept as a running sum. Shorter than
+  // the window by the detector's lag either side - see DETECTOR_LAG.
+  const boxSpan = Math.max(1, ahead - 2 * DETECTOR_LAG);
+  const box = new Float64Array(boxSpan).fill(1);
   let boxAt = 0;
-  let sum = ahead;
+  let sum = boxSpan;
 
   let gain = 1;
+  // The lowest the gain went in the last block, for a meter to read.
+  let floor = 1;
 
   return {
     ahead,
 
     /** The reduction the limiter is applying right now, in decibels. */
     get reduction() { return 20 * Math.log10(Math.max(gain, 1e-9)); },
+
+    /** The deepest reduction during the last block, in decibels. */
+    get deepest() { return 20 * Math.log10(Math.max(floor, 1e-9)); },
 
     /**
      * Move the ceiling, the release or the detector, without starting over.
@@ -406,7 +412,7 @@ export function makeLimiter(rate, { lookahead = LIMIT_AHEAD, ceiling = CEILING_D
      */
     clipBlock(channels) {
       while (clipUp.length < channels.length) {
-        clipUp.push(new Float64Array(clipTaps));
+        clipUp.push(new Float64Array(taps));
         clipFast.push(new Float64Array(clipSpan));
       }
 
@@ -427,7 +433,7 @@ export function makeLimiter(rate, { lookahead = LIMIT_AHEAD, ceiling = CEILING_D
             let sum = 0;
             for (let k = 0; k < tap.length; k += 1) {
               let from = clipAtUp - k;
-              if (from < 0) from += clipTaps;
+              if (from < 0) from += taps;
               sum += tap[k] * slow[from];
             }
             let at = clipAtFast + p;
@@ -459,12 +465,13 @@ export function makeLimiter(rate, { lookahead = LIMIT_AHEAD, ceiling = CEILING_D
           channels[c][i] = out;
         }
 
-        clipAtUp = (clipAtUp + 1) % clipTaps;
+        clipAtUp = (clipAtUp + 1) % taps;
         clipAtFast = (clipAtFast + over) % clipSpan;
       }
     },
 
     block(channels) {
+      floor = gain;
       if (clipping) this.clipBlock(channels);
       if (!limiting) return;
 
@@ -514,15 +521,25 @@ export function makeLimiter(rate, { lookahead = LIMIT_AHEAD, ceiling = CEILING_D
         sum -= box[boxAt];
         box[boxAt] = lowest;
         sum += lowest;
-        boxAt = (boxAt + 1) % ahead;
-        const smoothed = sum / ahead;
+        boxAt = (boxAt + 1) % boxSpan;
+        // Re-summed once a lap, so the running sum cannot drift upward.
+        if (boxAt === 0) { sum = 0; for (let k = 0; k < boxSpan; k += 1) sum += box[k]; }
+        const smoothed = sum / boxSpan;
 
-        // Down at once - the lookahead has already made room - and up slowly.
-        // Never above the held minimum, which is what makes the ceiling a
-        // guarantee rather than a hope: an average of a minimum can sit above
-        // that minimum, and that gap is exactly an overshoot.
-        const want = Math.min(smoothed, lowest);
-        gain = want < gain ? want : Math.min(lowest, up * gain + (1 - up) * want);
+        // The requests every value in the box has seen: the oldest in the
+        // ring. The average is under all of them already; this is only there
+        // so a rounding cannot put it a hair above.
+        let due = 1;
+        for (let k = 0; k <= ahead - boxSpan + 1 && k < hold; k += 1) {
+          const v = asked[(at + k) % hold];
+          if (v < due) due = v;
+        }
+
+        // Down along the averaged ramp - the lookahead has made room for it to
+        // slide rather than step - and up slowly.
+        const want = Math.min(smoothed, due);
+        gain = want < gain ? want : Math.min(want, up * gain + (1 - up) * want);
+        if (gain < floor) floor = gain;
 
         for (let c = 0; c < channels.length; c += 1) {
           const out = held[c][writeAt] * gain;

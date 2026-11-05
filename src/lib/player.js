@@ -1,3 +1,5 @@
+import { signalRms } from './dsp.js';
+
 /**
  * The loop, through two of something, with a switch between them.
  *
@@ -86,10 +88,7 @@ export class ImpulsePlayer {
     if (!signal) return false;
 
     this.buffer = signal;
-    const data = signal.getChannelData(0);
-    let sum = 0;
-    for (let i = 0; i < data.length; i += 1) sum += data[i] * data[i];
-    this.dryRms = Math.sqrt(sum / Math.max(1, data.length));
+    this.dryRms = signalRms(signal.getChannelData(0));
     return true;
   }
 
@@ -154,14 +153,12 @@ export class ImpulsePlayer {
       const from = rendered.getChannelData(c);
       const to = wet.getChannelData(c);
       for (let i = 0; i < loop; i += 1) to[i] = from[i];
-      // What was still ringing at the splice comes back round with it.
-      for (let i = 0; i + loop < from.length; i += 1) to[i] += from[i + loop];
+      // What was still ringing at the splice comes back round with it - every
+      // time round, for a tail longer than the loop.
+      for (let i = loop; i < from.length; i += 1) to[i % loop] += from[i];
     }
 
-    let sum = 0;
-    const left = wet.getChannelData(0);
-    for (let i = 0; i < loop; i += 1) sum += left[i] * left[i];
-    const rms = Math.sqrt(sum / Math.max(1, loop));
+    const rms = signalRms(wet.getChannelData(0));
 
     return { wet, impulse, rms };
   }

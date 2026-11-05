@@ -27,7 +27,8 @@ import { fft } from './fft.js';
  * other way round. Bin 150 of 16384 at 48 kHz is 439.45 Hz, which is a
  * musician's A for every purpose except a tuner's.
  *
- * At -12 dBFS, which leaves room for a curve that lifts before it bends.
+ * At -12 dBFS RMS - a peak of -9 - which leaves room for a curve that lifts
+ * before it bends.
  */
 export const PROBE_LENGTH = 16384;
 export const PROBE_BIN = 150;
@@ -214,8 +215,6 @@ export function seriesGap(mine, theirs) {
     detail: { harmonic: which, louder, thd: a.thd - b.thd },
   };
 }
-
-export const seriesDistance = (mine, theirs) => seriesGap(mine, theirs).off;
 
 /** 2nd, 3rd, 4th - how anybody says which harmonic they mean. */
 export function ordinal(n) {
