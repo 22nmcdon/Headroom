@@ -24,7 +24,7 @@ import { tidyAll } from './knobs.js';
 /** The shape of a stored project. Bumped when a file written today stops loading. */
 export const PROJECT_FORMAT = 1;
 
-/** What a new sketch opens with: four tracks, four scenes, nothing in them. */
+/** What a new sketch opens with: five tracks, four scenes, nothing in them. */
 export const STARTER = [
   { id: 'piano', name: 'Piano', instrument: 'piano', pan: -0.15 },
   { id: 'bass', name: 'Bass', instrument: 'bass', pan: 0 },
@@ -356,14 +356,26 @@ export function takeWindow(clip, duration) {
   return { offset, length: Math.min(length, Math.max(0, whole - offset)) || whole };
 }
 
+/**
+ * A number out of something that may be anything, or the fallback.
+ *
+ * Only a number or a numeric string counts. `Number(null)` is nought and
+ * `Number(true)` is one, and neither is a value anybody wrote down.
+ */
+const numberOr = (value, fallback) => {
+  const number = typeof value === 'number' ? value
+    : typeof value === 'string' && value.trim() ? Number(value) : NaN;
+  return Number.isFinite(number) ? number : fallback;
+};
+
 export const clipOf = ({
   id = null, length = PPQ * 4, notes = [], name = '', division = 'eighth', chords = '',
   take = null, follow = null, fit = 'bars', kind = null, trim = null, nudge = 0,
   fade = null,
 } = {}) => ({
-  id: id ?? `clip-${Math.random().toString(36).slice(2, 8)}`,
-  name,
-  length,
+  id: id === null || id === undefined ? `clip-${Math.random().toString(36).slice(2, 8)}` : String(id),
+  name: String(name ?? ''),
+  length: Math.max(0, numberOr(length, PPQ * 4)),
   // A recording, by the id it is stored under, or null for a clip of notes.
   // The audio itself is far too big for a project file, so what is kept
   // here is the thread back to it - and a clip whose take has gone is a
@@ -395,12 +407,15 @@ export const clipOf = ({
   // part in quarters are the same clip grid at two settings, and reopening
   // one at the other's is a clip whose notes sit between the lines.
   division: DIVISION_IDS.includes(division) ? division : 'eighth',
-  notes: notes
+  // Only the notes that have a pitch and a place: a file that says
+  // `notes: null`, or holds a note with no pitch, is not a reason to throw.
+  notes: (Array.isArray(notes) ? notes : [])
+    .filter((note) => numberOr(note?.pitch, null) !== null && numberOr(note?.start, null) !== null)
     .map((note) => ({
-      pitch: Math.max(0, Math.min(127, Math.round(note.pitch))),
-      start: Math.max(0, Math.round(note.start)),
-      length: Math.max(1, Math.round(note.length ?? PPQ / 2)),
-      velocity: Math.max(1, Math.min(127, Math.round(note.velocity ?? 96))),
+      pitch: Math.max(0, Math.min(127, Math.round(numberOr(note.pitch, 60)))),
+      start: Math.max(0, Math.round(numberOr(note.start, 0))),
+      length: Math.max(1, Math.round(numberOr(note.length, PPQ / 2))),
+      velocity: Math.max(1, Math.min(127, Math.round(numberOr(note.velocity, 96)))),
     }))
     // In tick order, because every consumer wants them that way and sorting
     // once here is cheaper than sorting in each of them.
@@ -451,6 +466,20 @@ const instrumentNamed = (id) => {
   return INSTRUMENT_IDS.includes(now) ? now : 'synth';
 };
 
+/** The longest a track's name may be, which is what the rename field allows. */
+export const MOST_NAME = 18;
+
+/**
+ * The top of the level fader and of the room send, as the track panel draws
+ * them. Held to by `parse`, not here: the mix exercise sets its stems with
+ * `setTrack` and dresses a fader past the panel's top on purpose.
+ */
+export const MOST_GAIN = 1.2;
+export const MOST_SEND = 1;
+
+/** An object, or nothing - never a null or an array to destructure. */
+const objectOr = (value) => (value && typeof value === 'object' && !Array.isArray(value) ? value : {});
+
 export const trackOf = ({
   id,
   name = id,
@@ -463,32 +492,39 @@ export const trackOf = ({
   send = 0,
   muted = false,
   slots = [],
-} = {}) => ({
-  id,
-  name,
-  // Through `RENAMED` first, so a saved sketch keeps the track it had rather
-  // than falling into the synth fallback below.
-  instrument: instrumentNamed(instrument),
-  inserts: inserts.filter((effect) => EFFECT_IDS.includes(effect)),
-  // What each insert is set to, kept whether or not that insert is on: take
-  // a delay off to hear the part dry, put it back, and it is the delay you
-  // dialled rather than a new one.
-  settings: tidyAll(settings),
-  // Kept the same way and for the same reason: switch a track to a synth to
-  // hear the part played, switch it back, and it is the recording you chose.
-  sample: sampleOf(sample),
-  gain,
-  pan,
-  send,
-  muted,
-  // As many slots as the track was given, or a new sketch's worth. Sized
-  // from what arrives rather than from a constant, so a project saved with
-  // six scenes comes back with six.
-  slots: Array.from(
-    { length: Math.max(1, Math.min(MOST_SCENES, slots.length || SCENES)) },
-    (_, i) => (slots[i] ? clipOf(slots[i]) : null),
-  ),
-});
+} = {}) => {
+  const given = Array.isArray(slots) ? slots : [];
+  return {
+    id,
+    // A string, and no longer than the field that renames it. Whatever a file
+    // says it is, it is drawn as text.
+    name: String(name ?? id ?? '').slice(0, MOST_NAME),
+    // Through `RENAMED` first, so a saved sketch keeps the track it had rather
+    // than falling into the synth fallback below.
+    instrument: instrumentNamed(instrument),
+    inserts: (Array.isArray(inserts) ? inserts : []).filter((effect) => EFFECT_IDS.includes(effect)),
+    // What each insert is set to, kept whether or not that insert is on: take
+    // a delay off to hear the part dry, put it back, and it is the delay you
+    // dialled rather than a new one.
+    settings: tidyAll(objectOr(settings)),
+    // Kept the same way and for the same reason: switch a track to a synth to
+    // hear the part played, switch it back, and it is the recording you chose.
+    sample: sampleOf(objectOr(sample)),
+    // Numbers, because each goes straight to an AudioParam, and one handed a
+    // string or a NaN throws or goes silent.
+    gain: Math.max(0, numberOr(gain, 0.8)),
+    pan: Math.max(-1, Math.min(1, numberOr(pan, 0))),
+    send: Math.max(0, numberOr(send, 0)),
+    muted: muted === true,
+    // As many slots as the track was given, or a new sketch's worth. Sized
+    // from what arrives rather than from a constant, so a project saved with
+    // six scenes comes back with six.
+    slots: Array.from(
+      { length: Math.max(1, Math.min(MOST_SCENES, given.length || SCENES)) },
+      (_, i) => (given[i] ? clipOf(objectOr(given[i])) : null),
+    ),
+  };
+};
 
 /** What key a sketch is in, which is what the editor's rows are built from. */
 export const sketchKey = ({ root = 0, scale = 'minor' } = {}) => ({
@@ -956,6 +992,19 @@ export function parse(text) {
   if (!raw || typeof raw !== 'object' || !Array.isArray(raw.tracks)) return null;
   if (raw.format !== PROJECT_FORMAT) return null;
 
+  const tracks = raw.tracks
+    .filter((track) => track && typeof track === 'object')
+    .slice(0, MOST_TRACKS)
+    .map((track, i) => trackOf({ ...track, id: String(track.id ?? `track-${i + 1}`) }))
+    // And held to what the panel can set, since a file is not the mix exercise.
+    .map((track) => ({
+      ...track,
+      gain: Math.min(MOST_GAIN, track.gain),
+      send: Math.min(MOST_SEND, track.send),
+    }));
+  // A grid with no rows has nowhere to put anything.
+  if (!tracks.length) return null;
+
   const bpm = Number(raw.bpm);
   const scenes = Array.isArray(raw.scenes) && raw.scenes.length
     ? raw.scenes.slice(0, MOST_SCENES).map((scene, i) => ({
@@ -972,8 +1021,6 @@ export function parse(text) {
     beats: Number.isInteger(raw.beats) && raw.beats > 0 ? raw.beats : 4,
     value: [1, 2, 4, 8, 16, 32].includes(raw.value) ? raw.value : 4,
     scenes,
-    tracks: raw.tracks
-      .filter((track) => track && typeof track === 'object')
-      .map((track, i) => trackOf({ ...track, id: String(track.id ?? `track-${i + 1}`) })),
+    tracks,
   });
 }

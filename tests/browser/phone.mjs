@@ -263,6 +263,36 @@ export async function check({ browser, at, say }) {
             + ` outside the waveform it trims (${canvasBox?.left}–${canvasBox?.right})`);
         }
       }
+      // And dragged with a pointer, which nothing here used to do: the drag
+      // read a constant `grid.js` never imported, so every move of a handle
+      // threw and the take could only be trimmed by keyboard.
+      const spot = await page.evaluate(() => {
+        document.querySelector('[data-trimmable]')?.scrollIntoView({ block: 'center' });
+        const grab = document.querySelector('[data-grab="from"]')?.getBoundingClientRect();
+        const wave = document.querySelector('[data-trimmable]')?.getBoundingClientRect();
+        return grab && wave && {
+          x: grab.left + grab.width / 2,
+          y: grab.top + grab.height / 2,
+          to: wave.left + wave.width * 0.4,
+          before: document.querySelector('[data-grab="from"]').getAttribute('aria-valuenow'),
+        };
+      });
+      if (spot) {
+        const errors = noise.length;
+        await page.mouse.move(spot.x, spot.y);
+        await page.mouse.down();
+        await page.mouse.move(spot.to, spot.y, { steps: 5 });
+        await page.mouse.up();
+        await page.waitForTimeout(400);
+        const after = await page.evaluate(() => document.querySelector('[data-grab="from"]')
+          ?.getAttribute('aria-valuenow'));
+        say(`    dragged the start handle: ${spot.before}s → ${after}s`);
+        if (noise.length > errors) {
+          problems.push(`dragging a trim handle threw: ${noise.slice(errors).join('; ')}`);
+        } else if (!(Number(after) > Number(spot.before))) {
+          problems.push(`dragging the start handle 40% in left it at ${after}s - a drag moved nothing`);
+        }
+      }
     }
     await shot(page, 'phone-trim');
   }

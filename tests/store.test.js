@@ -44,6 +44,18 @@ test('junk in the key reads as nothing', () => {
   assert.equal(loadSketch(shelf({ [SKETCH_KEY]: '{"format":99}' })), null);
 });
 
+test('a stored sketch with one bad field still opens, rather than being thrown away', () => {
+  // `loadSketch` catches, so a parse that threw on `inserts: null` did not
+  // crash - it quietly discarded the whole sketch for a new one.
+  const raw = JSON.parse(JSON.stringify(newProject({ name: 'Kept' })));
+  raw.tracks[0].inserts = null;
+  raw.tracks[1].slots = null;
+  const back = loadSketch(shelf({ [SKETCH_KEY]: JSON.stringify(raw) }));
+  assert.equal(back?.name, 'Kept');
+  assert.deepEqual(back.tracks[0].inserts, []);
+  assert.equal(readSketchFile(JSON.stringify(raw))?.name, 'Kept', 'and the same from a file');
+});
+
 test('storage that refuses to be written to is a false, not a throw', () => {
   const locked = {
     getItem: () => { throw new Error('blocked'); },

@@ -18,12 +18,16 @@
  * A tap in the last half-step of a clip belongs on its first line, not on a
  * line past the end: the clip is a loop, and the hit that lands a hair
  * before the one is the one.
+ *
+ * `anchor` is the tick the clip was launched at, which is where its playback
+ * counts from. A two-bar clip launched on bar two starts its first bar there,
+ * not on an even bar of the transport.
  */
-export function snap(tick, step, length) {
+export function snap(tick, step, length, anchor = 0) {
   if (!(step > 0) || !(length > 0)) return 0;
 
   const lines = Math.round(length / step);
-  const at = Math.round(tick / step);
+  const at = Math.round((tick - anchor) / step);
   return (((at % lines) + lines) % lines) * step;
 }
 
@@ -34,12 +38,12 @@ export function snap(tick, step, length) {
  * doubled: two notes at the same tick on the same drum is one hit at twice
  * the velocity, and nobody taps that on purpose.
  */
-export function tapInto(clip, pitch, tick, step, { velocity = 100 } = {}) {
+export function tapInto(clip, pitch, tick, step, { velocity = 100, anchor = 0 } = {}) {
   const notes = clip?.notes ?? [];
   const length = clip?.length ?? 0;
   if (!(length > 0)) return notes;
 
-  const at = snap(tick, step, length);
+  const at = snap(tick, step, length, anchor);
   if (notes.some((note) => note.pitch === pitch && note.start === at)) return notes;
 
   return [...notes, {
@@ -58,10 +62,10 @@ export function tapInto(clip, pitch, tick, step, { velocity = 100 } = {}) {
  * is somebody the interface can tell, and a run of these is the only
  * feedback a quantised pad can honestly give.
  */
-export function drift(tick, step, length) {
+export function drift(tick, step, length, anchor = 0) {
   if (!(step > 0) || !(length > 0)) return 0;
-  const to = snap(tick, step, length);
-  const raw = ((tick % length) + length) % length;
+  const to = snap(tick, step, length, anchor);
+  const raw = (((tick - anchor) % length) + length) % length;
   const off = raw - to;
   // Across the loop point, the short way round is the right way.
   if (off > length / 2) return off - length;

@@ -229,8 +229,8 @@ export const barSeconds = (bpm, beats = 4, value = 4) => (60 / bpm) * beats * (4
  *
  * Rounded to the nearest whole bar, never nothing and never more than eight.
  * A take is going to loop, and a loop that is three and a bit bars long is a
- * loop that falls over on its second pass - so the length is decided here
- * and the audio is cut to it, rather than the other way round.
+ * loop that falls over on its second pass - so the length is decided here.
+ * The audio is kept whole; the stage stops each pass at the clip's bar line.
  */
 export function barsFor(seconds, bpm, beats = 4, value = 4) {
   const per = barSeconds(bpm, beats, value);
@@ -536,9 +536,14 @@ export class Recorder {
         // architecture was chosen for and which used to be discarded: without
         // it there is nothing to measure a bar line against, and a take
         // begins wherever a finger landed.
-        if (this.firstAt === null) this.firstAt = event.data?.at ?? null;
+        //
+        // Off a block, not off any message: one posted before the worklet saw
+        // `{ on: true }` has no block and a stamp from before the take.
+        if (block) {
+          if (this.firstAt === null) this.firstAt = event.data?.at ?? null;
+          this.blocks.push(block);
+        }
         this.live.push(lo, hi);
-        if (block) this.blocks.push(block);
       }
 
       this.onLevel?.(this);
@@ -576,7 +581,6 @@ export class Recorder {
     this.resetPeak();
     this.taking = true;
     this.node.port.postMessage({ on: true });
-    this.startedAt = this.ctx.currentTime;
     return true;
   }
 
@@ -602,7 +606,6 @@ export class Recorder {
       channels,
       rate,
       seconds: channels[0].length / rate,
-      startedAt: this.startedAt,
       // What was cut off the front, so a caller can say so rather than
       // leaving somebody wondering where their count-in went.
       leadIn: (joined[0].length - channels[0].length) / rate,

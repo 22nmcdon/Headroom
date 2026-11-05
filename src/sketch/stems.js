@@ -129,9 +129,12 @@ export async function renderStems(project, scene, {
   stage.launchScene(scene);
   stage.play(0);
 
-  for (clock = 0; clock < ticks * perTick; clock = Math.min(ticks * perTick, clock + 0.05)) {
+  // The last pass lands on the end itself, or the final stretch of the
+  // scene is never booked.
+  const end = ticks * perTick;
+  for (clock = 0; ; clock = Math.min(end, clock + 0.05)) {
     transport.pass();
-    if (clock === ticks * perTick) break;
+    if (clock === end) break;
   }
 
   const rendered = await ctx.startRendering();

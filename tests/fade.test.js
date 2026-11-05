@@ -26,8 +26,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { fadeShapeAt, fadeGainAt } from '../src/sketch/stage.js';
-import { FADE_LEAST, FADE_MOST } from '../src/sketch/project.js';
+import { fadeShapeAt, fadeGainAt, fallOf } from '../src/sketch/stage.js';
+import { FADE_LEAST, FADE_MOST, fadeFor } from '../src/sketch/project.js';
 
 /** Gain as decibels, for reading a fade's trajectory rather than its shape. */
 const db = (gain) => (gain > 0 ? 20 * Math.log10(gain) : -Infinity);
@@ -142,4 +142,29 @@ test('a long fade is well down its range before it is half over', () => {
     'halfway through a one-second fade it is well on its way');
   assert.ok(db(fadeGainAt(0.5, 0.005)) > -12,
     'where the cosine, halfway through, has barely begun');
+});
+
+/* --- and where the fall goes ------------------------------------------- */
+
+test('a fade-out never starts before the fade-in has finished', () => {
+  // Two fades shared out to fit meet exactly in arithmetic and can miss by
+  // a rounding step in floats, and two overlapping value curves throw. A
+  // seeded walk rather than Math.random, so a failure can be reproduced.
+  let seed = 7;
+  const next = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  for (let i = 0; i < 20000; i += 1) {
+    const began = next() * 300;
+    const heard = 0.01 + next() * 4;
+    const fade = fadeFor({ in: FADE_LEAST + next() * 2, out: FADE_LEAST + next() * 2 }, heard);
+    const fall = fallOf(began, heard, fade);
+    assert.ok(fall.at >= began + fade.in, `the fall starts inside the rise at ${began}, ${heard}`);
+    assert.ok(fall.seconds > 0, 'and still has a length');
+    assert.ok(Math.abs(fall.at + fall.seconds - (began + heard)) < 1e-9, 'and ends where the pass does');
+  }
+});
+
+test('a fade-out with room to spare is exactly where it was asked for', () => {
+  const fall = fallOf(10, 2, { in: 0.005, out: 0.5 });
+  assert.equal(fall.at, 11.5);
+  assert.equal(fall.seconds, 0.5);
 });
