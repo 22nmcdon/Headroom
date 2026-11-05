@@ -771,11 +771,6 @@ function tail(channels, length, pre, rate, seconds, build) {
       highEnv *= steps.high;
     }
   }
-
-  // The rate the walls fall at. The mid band, because a reflection is a whole
-  // copy of the sound rather than a part of its spectrum, and the mid band is
-  // the one the decay knob names.
-  return -3 / seconds.mid;
 }
 
 /** The energy in a set of channels, which is what `early` is a share of. */
@@ -819,7 +814,7 @@ function roomBody(rate, settings, seconds, { tailFor }) {
   // itself: a burst that is over in a fifth of a second cannot spend half of
   // it arriving, whatever the walls are doing.
   const build = Math.max(0.004, Math.min(mixingTime(size), tailFor * 0.35));
-  const fall = tail(channels, length, pre, rate, seconds, build);
+  tail(channels, length, pre, rate, seconds, build);
 
   // The early reflections: the walls, one at a time, before the room turns to
   // a wash.
@@ -1206,8 +1201,9 @@ function stageDelay(hz, rate) {
  * No constant fixes that. What does is dividing the filter back out: a
  * one-pole y += (x - y)a has magnitude a / |1 - (1-a)e^-jw|, so asking for
  * the feedback that lands the *pair* on 60 dB over the decay is a matter of
- * evaluating it at the frequency the decay is quoted at. The mid band is
- * 400 to 3000, so that is 1095 Hz, its geometric centre.
+ * evaluating it at the frequency the decay is quoted at, which is
+ * `QUOTED_AT` - see above for why that is 500 Hz rather than the mid band's
+ * own centre.
  *
  * Held under one, because a loop at unity gain is a space that never stops.
  */
@@ -1250,7 +1246,7 @@ function springImpulse(rate, settings) {
       const skew = ratio * (1 + (c === 0 ? -0.018 : 0.018));
       const delay = Math.max(1, Math.round(((bounce * skew) / 1000) * rate));
       // One round trip at the frequency the decay is quoted at - not at DC,
-      // which is a different trip entirely. See `springTrip`.
+      // which is a different trip entirely. See `stageDelay`.
       const trip = delay + stages * stageDelay(QUOTED_AT, rate);
 
       voice.fill(0);

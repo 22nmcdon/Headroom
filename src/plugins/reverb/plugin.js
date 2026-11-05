@@ -21,8 +21,6 @@ import { dressKnobs } from '../../lib/knob.js';
  * the screen.
  */
 
-const keepIn = (value, low, high) => Math.min(high, Math.max(low, value));
-
 export const writeSeconds = (s) => (s >= 1 ? `${s.toFixed(2)} s` : `${Math.round(s * 1000)} ms`);
 
 /** Every knob, and how it reads. */
@@ -667,10 +665,6 @@ export class VerbPlugin {
 
   /* ---------- what the round does to it ---------- */
 
-  async setTarget(target) {
-    await this.player.setTarget(target);
-  }
-
   /** Draw the answer over yours, or take it back off. */
   showTarget(target) {
     if (!target) {
@@ -707,11 +701,6 @@ export class VerbPlugin {
 
   /** The other side of the A/B, named for what it actually is. */
   nameAB(label) {
-    const slot = this.el.querySelector('#verbOther');
-    if (slot) slot.textContent = label;
-  }
-
-  nameOther(label) {
     const slot = this.el.querySelector('#verbOther');
     if (slot) slot.textContent = label;
   }

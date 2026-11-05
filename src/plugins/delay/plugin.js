@@ -704,10 +704,6 @@ export class EchoPlugin {
 
   /* ---------- what the round does to it ---------- */
 
-  async setTarget(target) {
-    await this.player.setTarget(target);
-  }
-
   /** Draw the answer over yours, or take it back off. */
   showTarget(target) {
     if (!target) {
@@ -744,11 +740,6 @@ export class EchoPlugin {
 
   /** The other side of the A/B, named for what it actually is. */
   nameAB(label) {
-    const slot = this.el.querySelector('#echoOther');
-    if (slot) slot.textContent = label;
-  }
-
-  nameOther(label) {
     const slot = this.el.querySelector('#echoOther');
     if (slot) slot.textContent = label;
   }

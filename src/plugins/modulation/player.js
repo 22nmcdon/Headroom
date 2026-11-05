@@ -35,8 +35,13 @@ export class ModPlayer {
     this.targetReading = null;
   }
 
-  async build() {
-    if (this.ready) return;
+  /** The promise is kept, as EQPlayer's is, so two taps on Play build once. */
+  build() {
+    this.building ??= this.raise();
+    return this.building;
+  }
+
+  async raise() {
     const ctx = this.engine.ensure();
 
     this.meter = ctx.createAnalyser();
@@ -157,5 +162,8 @@ export class ModPlayer {
     this.stop();
     this.mine?.destroy();
     this.theirs?.destroy();
+    try { this.meter?.disconnect(); } catch { /* already gone */ }
+    this.ready = false;
+    this.building = null;
   }
 }

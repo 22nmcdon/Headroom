@@ -1,5 +1,5 @@
 import {
-  CEIL_DEFAULTS, CEIL_DRIVE, CEIL_OUTPUT, CEIL_RANGE, CEIL_RELEASE, heldTo,
+  CEIL_DEFAULTS, CEIL_DRIVE, CEIL_OUTPUT, ceilingOptions, heldTo,
 } from './ceiling.js';
 import { makeLimiterNode } from '../../lib/limiter-node.js';
 
@@ -35,22 +35,18 @@ export class CeilingPlayer {
     this.yours = null;
   }
 
-  /**
-   * What the limiter node is built with, as it reads it.
-   *
-   * Clamped with `ceiling.js`'s own clamp rather than a local one, so the
-   * audio and the meter cannot disagree about what a setting means.
-   */
+  /** What the limiter node is built with, from the same function as the reading. */
   limiterOptions() {
-    return {
-      ceiling: heldTo(this.settings.ceiling ?? CEIL_DEFAULTS.ceiling, CEIL_RANGE),
-      release: heldTo(this.settings.release ?? CEIL_DEFAULTS.release, CEIL_RELEASE) / 1000,
-      truePeak: (this.settings.peak ?? 'true') === 'true',
-    };
+    return ceilingOptions(this.settings);
   }
 
-  async build() {
-    if (this.ready) return;
+  /** The promise is kept, as EQPlayer's is, so two taps on Play build once. */
+  build() {
+    this.building ??= this.raise();
+    return this.building;
+  }
+
+  async raise() {
     const ctx = this.engine.ensure();
 
     this.drive = ctx.createGain();
@@ -222,5 +218,17 @@ export class CeilingPlayer {
     this.node = null;
     this.dry = null;
     this.playing = false;
+  }
+
+  destroy() {
+    this.stop();
+    this.limiter?.destroy?.();
+    for (const node of [
+      this.drive, this.limiter?.out, this.trim, this.bypass, this.mineOut, this.bypassOut,
+    ]) {
+      try { node?.disconnect(); } catch { /* already gone */ }
+    }
+    this.ready = false;
+    this.building = null;
   }
 }

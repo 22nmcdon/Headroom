@@ -122,7 +122,7 @@ const AIM_KNOBS = {
  * the way is a gate you can hear closing, and the fix is to let it close only
  * part of the way.
  *
- * The ratio is 8 rather than the compressor's 3, and the measurement says
+ * The ratio is 8 rather than the compressor's 4, and the measurement says
  * why only just. Under the knee the ratio is how steeply the gain falls away
  * once the signal is below the threshold, so what it decides is whether the
  * range is ever reached. Measured on the room bed at a threshold of -26 with
@@ -156,6 +156,8 @@ export const GATE_FACE = {
   // A gate has no band. What it has is a detector, and hearing what the
   // detector hears is how anybody finds out that it is opening on the hi-hat.
   listen: 'Hear the detector',
+  // What `figures` is handed: the frames it lets through, not the ones it cuts.
+  counts: 'open',
   hint: 'a gate shut all the way is a gate you can hear closing — the range is the knob that fixes that',
   figures: (values, open) => [
     ['deepest', `${values.deepest.toFixed(1)} dB`],
@@ -253,14 +255,19 @@ function aimPalette(el) {
   };
 }
 
-/** How much of the loop was worked on, and how many separate times. */
-function openingsOf(frames) {
+/**
+ * How much of the loop was worked on, and how many separate times.
+ *
+ * `open` counts the other frames instead: a gate is open where it is not
+ * reducing, so for it the frames being worked on are the closed ones.
+ */
+function openingsOf(frames, { open = false } = {}) {
   if (!frames?.length) return { share: 0, times: 0 };
   let worked = 0;
   let times = 0;
   let was = false;
   for (let i = 0; i < frames.length; i += 1) {
-    const now = frames[i] < AIM_OPEN;
+    const now = (frames[i] < AIM_OPEN) !== open;
     if (now) worked += 1;
     if (now && !was) times += 1;
     was = now;
@@ -270,7 +277,7 @@ function openingsOf(frames) {
 
 export class AimedPlugin {
   constructor(el, {
-    engine, settings, onChange, spec, source = null, fault = null,
+    engine, settings, onChange, spec, source = null,
     player = null, role = 'tool',
   }) {
     this.el = el;
@@ -603,7 +610,8 @@ export class AimedPlugin {
       return;
     }
 
-    const rows = this.spec.figures(values, openingsOf(this.frames()), this.settings);
+    const rows = this.spec.figures(values,
+      openingsOf(this.frames(), { open: this.spec.counts === 'open' }), this.settings);
     const line = Math.min(18, (height - 14) / (rows.length + 1));
 
     rows.forEach(([name, value], i) => {

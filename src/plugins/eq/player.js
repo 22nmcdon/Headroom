@@ -283,6 +283,22 @@ export class EQPlayer {
     return { input: read(this.inMeter), output: read(this.analyser) };
   }
 
+  destroy() {
+    this.stop();
+    for (const chain of [this.mine, this.theirs]) {
+      if (!chain) continue;
+      chain.destroy();
+      try { chain.gain.disconnect(); } catch { /* already gone */ }
+    }
+    for (const node of [
+      this.faultNode, this.soloFilter, this.soloGain, this.inMeter, this.analyser,
+    ]) {
+      try { node?.disconnect(); } catch { /* already gone */ }
+    }
+    this.ready = false;
+    this.building = null;
+  }
+
   /** The spectrum, in dB, for drawing behind the curve. */
   spectrum() {
     if (!this.ready) return null;

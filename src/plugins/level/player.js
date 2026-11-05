@@ -191,4 +191,12 @@ export class LevelPlayer {
     this.dry = null;
     this.playing = false;
   }
+
+  destroy() {
+    this.stop();
+    for (const node of [this.mine, this.theirs, this.mineOut, this.theirsOut]) {
+      try { node?.disconnect(); } catch { /* already gone */ }
+    }
+    this.ready = false;
+  }
 }

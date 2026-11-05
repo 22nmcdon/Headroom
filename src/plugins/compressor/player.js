@@ -42,8 +42,13 @@ export class CompPlayer {
     this.evenSamples = null; // the bed with the fault taken out, for marking
   }
 
-  async build() {
-    if (this.ready) return;
+  /** The promise is kept, as EQPlayer's is, so two taps on Play build once. */
+  build() {
+    this.building ??= this.raise();
+    return this.building;
+  }
+
+  async raise() {
     const ctx = this.engine.ensure();
 
     this.outMeter = ctx.createAnalyser();
@@ -287,5 +292,6 @@ export class CompPlayer {
     try { this.keyThrough?.disconnect(); } catch { /* already gone */ }
     try { this.outMeter?.disconnect(); } catch { /* already gone */ }
     this.ready = false;
+    this.building = null;
   }
 }

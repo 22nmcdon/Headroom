@@ -579,6 +579,7 @@ export class LevelPlugin {
   async setFault(fault) {
     this.player.setFault(fault);
     await this.player.prepare().catch(() => {});
+    if (this.player.playing) await this.player.play();
     this.measure();
     this.draw();
   }
@@ -598,6 +599,7 @@ export class LevelPlugin {
     const picker = this.el.querySelector('#levelSource');
     if (picker) picker.value = id;
     await this.player.prepare().catch(() => {});
+    if (this.player.playing) await this.player.play();
     this.measure();
     this.draw();
   }
@@ -613,6 +615,6 @@ export class LevelPlugin {
   destroy() {
     cancelAnimationFrame(this.frame);
     this.unwatch?.();
-    this.player.stop();
+    this.player.destroy();
   }
 }

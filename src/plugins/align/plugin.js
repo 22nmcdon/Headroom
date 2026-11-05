@@ -13,7 +13,7 @@
 
 import {
   ALIGN_DEFAULTS, ALIGN_LIMITS, ALIGN_HZ, MOST_LAG_MS,
-  alignReading, notchesOf, pairBands, cmOf,
+  alignReading, notchesOf, pairBands, cmOf, lowOf,
 } from './pair.js';
 import { PairPlayer } from './player.js';
 import { notReady, stampOf } from '../../lib/read.js';
@@ -456,8 +456,9 @@ export class AlignPlugin {
     const x = (ms) => ((ms + MOST_LAG_MS) / (2 * MOST_LAG_MS)) * width;
     const { step } = this.player.lag;
 
-    // Nought, and the quarter-metre marks either side of it, because the
-    // thing being read off this is a distance.
+    // Nought, and ten and twenty milliseconds either side of it - about three
+    // and a half and seven metres - because the thing being read off this is
+    // a distance.
     c.textAlign = 'center';
     c.fillStyle = ink.soft;
     for (const ms of [-20, -10, 0, 10, 20]) {
@@ -527,7 +528,7 @@ export class AlignPlugin {
     }
 
     const dry = this.dryBands();
-    const recovered = dry ? values.low - this.lowOfDry(dry) : null;
+    const recovered = dry ? values.low - lowOf(dry) : null;
     read.textContent = `${values.zero >= 0 ? '+' : ''}${values.zero.toFixed(2)} at zero`
       + (recovered === null ? '' : ` · low end ${recovered > 0 ? '+' : ''}${recovered.toFixed(1)} dB`);
     if (trim) {
@@ -536,17 +537,6 @@ export class AlignPlugin {
         ? 'in time'
         : `${Math.abs(cmOf(left)).toFixed(0)} cm ${left > 0 ? 'to go' : 'too far'}`;
     }
-  }
-
-  lowOfDry(dry) {
-    let sum = 0;
-    let n = 0;
-    ALIGN_HZ.forEach((hz, i) => {
-      if (hz > 200) return;
-      sum += 10 ** (dry[i] / 10);
-      n += 1;
-    });
-    return 10 * Math.log10(Math.max(1e-30, sum / Math.max(1, n)));
   }
 
   /* ---------- transport ---------- */
@@ -623,6 +613,7 @@ export class AlignPlugin {
 
   async setFault(fault) {
     await this.player.setPath(fault ?? { ms: 3.5, level: -4, flip: false });
+    if (this.player.playing) await this.player.play();
     this.player.setSettings(this.settings);
     this.dryStamp = null;
     this.draw();
@@ -644,6 +635,7 @@ export class AlignPlugin {
     if (picker) picker.value = id;
     this.dryStamp = null;
     await this.player.prepare().catch(() => {});
+    if (this.player.playing) await this.player.play();
     this.player.setSettings(this.settings);
     this.draw();
   }

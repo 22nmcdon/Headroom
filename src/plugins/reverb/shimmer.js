@@ -70,30 +70,6 @@ import { PITCH_WINDOW } from '../../lib/pitch.js';
 export const SHIMMER_WINDOW = PITCH_WINDOW;
 
 /**
- * The two heads' weights, and why they are a raised cosine over the whole
- * traverse rather than a fade at the seams.
- *
- * The obvious construction is to let each head sound at full weight through
- * the middle of its traverse and fade it only where it is about to overtake
- * the write head. That is wrong, and wrong in a way that hides: the two heads
- * are half a line apart, so both of them are in the middle at the same time,
- * and the pair has a gain of two. Measured, the summed weight runs between
- * 1.0 and 2.0 - six decibels at worst - and on noise it reads +2.09 dB.
- *
- * A raised cosine over the whole traverse sums to exactly one everywhere,
- * because (0.5 - 0.5cos x) + (0.5 - 0.5cos(x + pi)) is 1 for every x. So the
- * pair has unity gain by construction and needs no divide, and the knob in
- * front of it means what it says. On noise it reads -1.26 dB, which is not a
- * gain error - it is the two heads combing, and that is the algorithm.
- *
- * This cost a wrong answer before it was measured. With the six-decibel
- * version in the loop, a feedback of 0.85 ran away, and the conclusion drawn
- * was that the loop was unstable above 0.8. It was not: the knob was lying by
- * six decibels.
- */
-export const SHIMMER_SHAPE = 'raised cosine, whole traverse';
-
-/**
  * How far round the loop a shimmer may be sent.
  *
  * One, and there is real headroom above it. A feedback path around a

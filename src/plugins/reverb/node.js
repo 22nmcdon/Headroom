@@ -106,7 +106,7 @@ export class LiveShimmer {
   }
 
   async start() {
-    const ok = await installWorklet(this.ctx, shimmerSource(), 'headroom-shimmer');
+    const ok = await installWorklet(this.ctx, shimmerSource());
     if (ok) {
       this.node = new AudioWorkletNode(this.ctx, 'headroom-shimmer', {
         numberOfInputs: 1,
@@ -245,7 +245,7 @@ export class LiveFreeze {
   }
 
   async start() {
-    const ok = await installWorklet(this.ctx, freezeSource(), 'headroom-freeze');
+    const ok = await installWorklet(this.ctx, freezeSource());
     if (ok) {
       this.node = new AudioWorkletNode(this.ctx, 'headroom-freeze', {
         numberOfInputs: 1,

@@ -1,6 +1,6 @@
-import { shuffleCore, MONO_RANGE, MONO_SLOPES, SHUFFLE_RANGE, SHUFFLE_AT } from './shuffle.js';
+import { shuffleCore, MONO_RANGE, SHUFFLE_RANGE } from './shuffle.js';
 import {
-  widenCore, WIDEN_KINDS, WIDEN_AMOUNT, WIDEN_DELAY, WIDEN_CENTS,
+  widenCore, WIDEN_AMOUNT, WIDEN_DELAY, WIDEN_CENTS,
 } from './widen.js';
 import { pitchCore } from '../../lib/pitch.js';
 import {

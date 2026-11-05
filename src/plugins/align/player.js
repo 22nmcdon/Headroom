@@ -244,5 +244,13 @@ export class PairPlayer {
 
   destroy() {
     this.stop();
+    for (const side of [this.mine, this.theirs]) {
+      if (!side) continue;
+      for (const node of [side.delay, side.closeGain, side.farGain, side.out]) {
+        try { node.disconnect(); } catch { /* already gone */ }
+      }
+    }
+    try { this.meter?.disconnect(); } catch { /* already gone */ }
+    this.ready = false;
   }
 }

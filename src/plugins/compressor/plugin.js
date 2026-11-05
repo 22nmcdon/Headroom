@@ -84,6 +84,12 @@ const OPTO_KNOBS = [
   { id: 'mix', name: 'Mix', ...span(COMP_LIMITS.mix), step: 0.01, write: (v) => `${Math.round(v * 100)} %` },
 ];
 
+/** Every knob on either deck, once each: Makeup and Mix are on both, as the same spec. */
+const ALL_KNOBS = [
+  ...COMP_KNOBS,
+  ...OPTO_KNOBS.filter((knob) => !COMP_KNOBS.some((other) => other.id === knob.id)),
+];
+
 const COMP_FAMILIES = {
   modern: { label: 'Modern', knobs: null },
   opto: { label: 'Opto', knobs: OPTO_KNOBS },
@@ -178,10 +184,10 @@ export class CompPlugin {
     // exercise, not on the face.
     const host = this.role === 'insert' ? '' : `
       <div class="plugin-transport host-row comp-transport">
-        <button class="play-btn" type="button" data-comp="play">Play</button>
+        <button class="play-btn" type="button" data-comp="play">${this.player.playing ? 'Stop' : 'Play'}</button>
         <div class="plugin-ab" role="group" aria-label="What you are hearing">
-          <button class="ab-btn is-on" type="button" data-hear="mine">Yours</button>
-          <button class="ab-btn" type="button" data-hear="theirs" id="compOther">Target</button>
+          <button class="ab-btn${this.player.hearing === 'theirs' ? '' : ' is-on'}" type="button" data-hear="mine">Yours</button>
+          <button class="ab-btn${this.player.hearing === 'theirs' ? ' is-on' : ''}" type="button" data-hear="theirs" id="compOther">${this.abName ?? 'Target'}</button>
         </div>
         <label class="field">
           <span class="field-label">Sample</span>
@@ -261,15 +267,16 @@ export class CompPlugin {
             </label>
             <div class="plugin-controls comp-key-knobs" id="compKeyKnobs"></div>
             <div class="plugin-ab" role="group" aria-label="How the level is measured">
-              <button class="ab-btn is-on" type="button" data-detector="peak">Peak</button>
-              <button class="ab-btn" type="button" data-detector="rms">RMS</button>
+              <button class="ab-btn${this.settings.detector === 'rms' ? '' : ' is-on'}" type="button" data-detector="peak">Peak</button>
+              <button class="ab-btn${this.settings.detector === 'rms' ? ' is-on' : ''}" type="button" data-detector="rms">RMS</button>
             </div>
-            <button class="ab-btn listen-btn" type="button" data-comp="listen" aria-pressed="false">Listen to the key</button>
+            <button class="ab-btn listen-btn${this.settings.listen ? ' is-on' : ''}" type="button" data-comp="listen"
+                    aria-pressed="${this.settings.listen ? 'true' : 'false'}">Listen to the key</button>
           </div>
         </div>
         <div class="plugin-set">
           <label class="toggle">
-            <input type="checkbox" id="compAuto" checked> Auto gain
+            <input type="checkbox" id="compAuto"${this.player.auto ? ' checked' : ''}> Auto gain
           </label>
           <!-- Here rather than as a position on the release control, which is
                where a desk puts it. The release knob stays live as the fast
@@ -349,12 +356,17 @@ export class CompPlugin {
 
   /* ---------- working it ---------- */
 
+  /**
+   * The listeners. Everything inside the markup is new each time `build`
+   * runs - changing family runs it - so is wired each time; `this.el` itself
+   * survives `innerHTML`, so what hangs on it is wired once.
+   */
   wire() {
     for (const holder of ['#compKnobs', '#compKeyKnobs']) {
       this.el.querySelector(holder).addEventListener('input', (e) => {
         const dial = e.target.closest('[data-dial]');
         if (!dial || !this.interactive) return;
-        const knob = [...COMP_KNOBS, ...COMP_SIDECHAIN].find((k) => k.id === dial.dataset.dial);
+        const knob = [...ALL_KNOBS, ...COMP_SIDECHAIN].find((k) => k.id === dial.dataset.dial);
         this.settings[knob.id] = offDial(knob, dial.value);
         this.changed();
       });
@@ -372,38 +384,6 @@ export class CompPlugin {
     this.curve.addEventListener('pointermove', (e) => this.drag(e));
     this.curve.addEventListener('pointerup', (e) => this.drop(e));
     this.curve.addEventListener('pointercancel', (e) => this.drop(e));
-
-    this.el.addEventListener('click', (e) => {
-      const hear = e.target.closest('[data-hear]');
-      if (hear) {
-        this.player.hear(hear.dataset.hear);
-        for (const button of this.el.querySelectorAll('[data-hear]')) {
-          button.classList.toggle('is-on', button === hear);
-        }
-        return;
-      }
-
-      const detector = e.target.closest('[data-detector]');
-      if (detector && this.interactive) {
-        this.settings.detector = detector.dataset.detector;
-        this.showWindow();
-        for (const button of this.el.querySelectorAll('[data-detector]')) {
-          button.classList.toggle('is-on', button === detector);
-        }
-        this.changed();
-        return;
-      }
-
-      const action = e.target.closest('[data-comp]');
-      if (!action) return;
-      if (action.dataset.comp === 'play') this.toggle();
-      if (action.dataset.comp === 'listen') this.toggleListen();
-      if (action.dataset.comp === 'reset' && this.interactive) {
-        Object.assign(this.settings, COMP_DEFAULTS);
-        this.buildKnobs();
-        this.changed();
-      }
-    });
 
     this.el.querySelector('#compAuto').addEventListener('change', (e) => {
       this.player.setAuto(e.target.checked);
@@ -451,9 +431,45 @@ export class CompPlugin {
     this.el.querySelector('#compFile')
       ?.addEventListener('change', (e) => this.loadFile(e.target.files?.[0]));
 
+    if (this.wired) return;
+    this.wired = true;
+
+    this.el.addEventListener('click', (e) => {
+      const hear = e.target.closest('[data-hear]');
+      if (hear) {
+        this.player.hear(hear.dataset.hear);
+        for (const button of this.el.querySelectorAll('[data-hear]')) {
+          button.classList.toggle('is-on', button === hear);
+        }
+        return;
+      }
+
+      const detector = e.target.closest('[data-detector]');
+      if (detector && this.interactive) {
+        this.settings.detector = detector.dataset.detector;
+        this.showWindow();
+        for (const button of this.el.querySelectorAll('[data-detector]')) {
+          button.classList.toggle('is-on', button === detector);
+        }
+        this.changed();
+        return;
+      }
+
+      const action = e.target.closest('[data-comp]');
+      if (!action) return;
+      if (action.dataset.comp === 'play') this.toggle();
+      if (action.dataset.comp === 'listen') this.toggleListen();
+      if (action.dataset.comp === 'reset' && this.interactive) {
+        Object.assign(this.settings, COMP_DEFAULTS);
+        this.buildKnobs();
+        this.changed();
+      }
+    });
+
     this.resize = () => { this.restage(); this.draw(); };
     this.unwatch = watchSize(this.el, this.resize);
   }
+
 
   /**
    * The curve is a control surface, not a picture.
@@ -534,7 +550,7 @@ export class CompPlugin {
   }
 
   syncKnobs() {
-    for (const knob of [...COMP_KNOBS, ...COMP_SIDECHAIN]) {
+    for (const knob of [...ALL_KNOBS, ...COMP_SIDECHAIN]) {
       const value = this.settings[knob.id];
       const readout = this.el.querySelector(`#comp-${knob.id}-value`);
       const dial = this.el.querySelector(`#comp-${knob.id}`);
@@ -1181,11 +1197,8 @@ export class CompPlugin {
 
   /** The other side of the A/B, named for what it actually is. */
   nameAB(label) {
-    const slot = this.el.querySelector('#compOther');
-    if (slot) slot.textContent = label;
-  }
-
-  nameOther(label) {
+    // Kept, because changing family rebuilds the face and the host row with it.
+    this.abName = label;
     const slot = this.el.querySelector('#compOther');
     if (slot) slot.textContent = label;
   }

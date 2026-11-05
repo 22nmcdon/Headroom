@@ -25,7 +25,7 @@ import { makeBiquad, setBiquad, runBiquad } from '../../lib/dsp.js';
 // loop has a ceiling now - it has to, or a feedback over unity would have
 // nowhere to stop. A sustained input builds to `level / (1 - feedback)` round
 // the loop, so at the feedback this opens on the loop is exactly linear up to
-// six tenths of full scale and at the old cap of 0.8 it bends from four
+// six tenths of full scale and at the old cap of 0.8 it bends from two
 // tenths. What that costs is that a drawing understates how a loud, heavily
 // fed-back delay compresses; what it buys is that such a delay stops getting
 // louder, and that a delay can be made to howl at all.
@@ -331,9 +331,9 @@ export const MOST_FLUTTER = 25;
  * How much of the line the wander may use, less a few samples for the
  * interpolator's elbows.
  *
- * Fifty cents at 0.55 Hz wants ten milliseconds of displacement, which is
- * half of the shortest delay this offers - so at short times the line itself
- * is the limit, as it is on a tape loop.
+ * Fifty cents at 0.55 Hz wants about eight and a half milliseconds of
+ * displacement, which is nearly half of the shortest delay this offers - so
+ * at short times the line itself is the limit, as it is on a tape loop.
  *
  * A quarter and not a half, because a line dragged to half its length is not
  * the delay the knob says it is any more. The two depths share the one
@@ -751,13 +751,12 @@ export function echoCore(rate) {
   const lines = [new Float32Array(longest), new Float32Array(longest)];
   const ats = [0, 0];
 
-  // The all-passes diffusion is made of, and the lag that compensates for
-  // what they hold. Each allocated for its own widest case.
+  // The all-passes diffusion is made of, each allocated for its own widest
+  // case with room for its rounding on top.
   const apBuf = [0, 1].map(() => DIFFUSE_AT.map(
     (f) => new Float32Array(Math.ceil(f * longest) + 2),
   ));
   const apAt = [[0, 0, 0], [0, 0, 0]];
-  // Room for the three stages' own rounding on top of the sum of fractions.
   // One float32 a channel, which is all that is left of the lag buffer the
   // output used to come out of. It is not storage: the heads are summed into a
   // single-precision slot because each addition has to round the way it has
@@ -804,7 +803,6 @@ export function echoCore(rate) {
   let ducking = false;
   const steps = [0, 0];
   const spans = [0, 0];
-  const holds = [0, 0];
   const spread = [[0, 0, 0], [0, 0, 0]];
   const taps = [[], []];
 
@@ -827,24 +825,17 @@ export function echoCore(rate) {
         spread[c][k] = Math.max(1, Math.round(steps[c] * DIFFUSE_AT[k]));
         held += spread[c][k];
       }
-      holds[c] = Math.max(1, held);
       spans[c] = Math.max(1, steps[c] - held);
 
-      // Where each shorter head reads, in samples back from the write head.
-      // A head at a fraction of the loop has to come out at that fraction of
-      // the time, and everything read here goes out through the lag - so the
-      // offset into the line is the fraction of the whole loop less what the
-      // all-passes hold. Measured against the full step and not the shortened
-      // line, which is the mistake that put four heads at 76, 152, 228 ms
-      // instead of 100, 200, 300.
-      // Fractions of the whole loop, which is what they are: a head at a
-      // quarter of the time comes out a quarter of the time back. The filter
-      // is on what the shortened line can carry, because that is where the
-      // longest head reads and the shorter ones have to be inside it.
+      // Where each shorter head reads, in samples back from the write head:
+      // its fraction of the whole loop, which is what it is - a head at a
+      // quarter of the time comes out a quarter of the time back. Measured
+      // against the full step and not the shortened line, which is the
+      // mistake that put four heads at 76, 152, 228 ms instead of 100, 200,
+      // 300.
       taps[c] = headsOf(state.heads).taps
         .slice(0, -1)
-        .map((tap) => Math.round(steps[c] * tap))
-        .filter((d) => d - held >= 1 && d - held < spans[c]);
+        .map((tap) => Math.round(steps[c] * tap));
 
       setBiquad(tone[c], 'lowpass', state.tone, rate);
       setBiquad(cut[c], 'highpass', state.lowCut, rate);

@@ -66,31 +66,6 @@ export const FREEZE_SECONDS = 1;
 export const FREEZE_FADE = 0.025;
 
 /**
- * Why the crossfade is equal-power and not equal-gain.
- *
- * The two ends of a seam are uncorrelated - they are different parts of a
- * noise tail - so their energies add rather than their amplitudes. Weights
- * that sum to one in amplitude therefore leave a hole in the middle of the
- * fade, and weights that sum to one in power do not. That is the textbook
- * reason, and it is worth a number rather than a citation. Measured as the
- * level through the middle of the fade against the level beside it:
- *
- *     equal power, 10 ms     -0.01 dB
- *     equal gain, 10 ms      -2.95 dB
- *
- * Three decibels, which is exactly what two uncorrelated halves each at half
- * amplitude come to. The same measurement on the seam itself found the two
- * laws identical to three digits, so this is the only thing that chooses
- * between them - and it chooses clearly.
- *
- * Worth saying because the delay's time-change fade went the other way: there
- * the two sides are the same sound at two delays, which is correlated, and
- * no fade law avoids the dip. Correlated or not is the whole question, and it
- * has a different answer in the two places.
- */
-export const FREEZE_LAW = 'equal power';
-
-/**
  * The frozen loop, one sample in and one out, two channels.
  *
  * Shaped like the other cores here - `set` then `stereo`, answer on `left`
@@ -166,6 +141,12 @@ export function freezeCore(rate) {
       if (at < fade) {
         // The first samples of every pass cross with the last of the ring, so
         // the join is between two ends that were a whole loop apart.
+        //
+        // Equal power, because those two ends are different parts of a noise
+        // tail and uncorrelated, so their energies add. Measured through the
+        // middle of a 10 ms fade: -0.01 dB equal power, -2.95 dB equal gain.
+        // The delay's time-change fade is the other way round, because there
+        // the two sides are the same sound and correlated.
         const t = at / fade;
         w = Math.sin((t * Math.PI) / 2);
         tailWeight = Math.cos((t * Math.PI) / 2);

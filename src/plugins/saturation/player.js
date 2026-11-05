@@ -24,8 +24,13 @@ export class HeatPlayer {
     this.buffer = null;
   }
 
-  async build() {
-    if (this.ready) return;
+  /** The promise is kept, as EQPlayer's is, so two taps on Play build once. */
+  build() {
+    this.building ??= this.raise();
+    return this.building;
+  }
+
+  async raise() {
     const ctx = this.engine.ensure();
 
     this.mine = await this.side(ctx, 1);
@@ -222,8 +227,11 @@ export class HeatPlayer {
 
   destroy() {
     this.stop();
-    this.mine?.heat.destroy();
-    this.theirs?.heat.destroy();
+    for (const side of [this.mine, this.theirs]) {
+      side?.heat.destroy();
+      try { side?.gain.disconnect(); } catch { /* already gone */ }
+    }
     this.ready = false;
+    this.building = null;
   }
 }

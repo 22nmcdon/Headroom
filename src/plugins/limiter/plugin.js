@@ -856,6 +856,7 @@ export class LimiterPlugin {
   async setFault(fault) {
     this.player.setFault(fault);
     await this.player.prepare().catch(() => {});
+    if (this.player.playing) await this.player.play();
     this.measure();
     this.draw();
   }
@@ -875,6 +876,7 @@ export class LimiterPlugin {
     const picker = this.el.querySelector('#ceilSource');
     if (picker) picker.value = id;
     await this.player.prepare().catch(() => {});
+    if (this.player.playing) await this.player.play();
     this.measure();
     this.draw();
   }
@@ -891,6 +893,6 @@ export class LimiterPlugin {
     cancelAnimationFrame(this.frame);
     clearTimeout(this.soon);
     this.unwatch?.();
-    this.player.stop();
+    this.player.destroy();
   }
 }

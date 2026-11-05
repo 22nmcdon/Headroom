@@ -1094,11 +1094,6 @@ export class HeatPlugin {
     if (slot) slot.textContent = label;
   }
 
-  nameOther(label) {
-    const slot = this.el.querySelector('#heatOther');
-    if (slot) slot.textContent = label;
-  }
-
   lock() {
     this.interactive = false;
     this.el.querySelector('.heat').classList.add('is-locked');

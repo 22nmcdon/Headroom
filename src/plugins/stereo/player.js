@@ -5,7 +5,8 @@ import { LiveImager } from './node.js';
  * The loop, through two imagers you can flip between.
  *
  *   stereo loop ─┬─ fault ─┬─ yours  ─┐
- *                          └─ theirs ─┴─ split ─ out
+ *                          └─ theirs ─┴─ bus ─┬─ out
+ *                                             └─ split ─ eyes
  *
  * Both are always running and always fed, so flipping is a pair of gains.
  * The fault, when there is one, is baked into the loop rather than put in the
@@ -24,19 +25,29 @@ export class StereoPlayer {
     this.buffer = null;
   }
 
-  async build() {
-    if (this.ready) return;
+  /** The promise is kept, as EQPlayer's is, so two taps on Play build once. */
+  build() {
+    this.building ??= this.raise();
+    return this.building;
+  }
+
+  async raise() {
     const ctx = this.engine.ensure();
 
-    // Two analysers off a splitter, because a goniometer is a picture of the
-    // two channels against each other and needs them apart.
+    // Both sides meet on a stereo bus, which is what is heard. Two analysers
+    // hang off a splitter beside it, because a goniometer is a picture of the
+    // two channels against each other and needs them apart. The splitter is
+    // for the eyes only: connected onwards, it passes one output, which is
+    // the left channel alone.
+    this.bus = ctx.createGain();
+    this.bus.connect(this.engine.out);
     this.split = ctx.createChannelSplitter(2);
+    this.bus.connect(this.split);
     this.eyes = [ctx.createAnalyser(), ctx.createAnalyser()];
     for (const [i, eye] of this.eyes.entries()) {
       eye.fftSize = 2048;
       this.split.connect(eye, i);
     }
-    this.split.connect(this.engine.out);
 
     this.mine = await this.side(ctx, 1);
     this.theirs = await this.side(ctx, 0);
@@ -47,7 +58,7 @@ export class StereoPlayer {
     const imager = await new LiveImager(ctx).start();
     const gain = ctx.createGain();
     gain.gain.value = listening;
-    imager.connect(gain).connect(this.split);
+    imager.connect(gain).connect(this.bus);
     return { imager, gain };
   }
 
@@ -175,7 +186,10 @@ export class StereoPlayer {
     this.stop();
     this.mine?.imager.destroy();
     this.theirs?.imager.destroy();
-    try { this.split?.disconnect(); } catch { /* already gone */ }
+    for (const node of [this.mine?.gain, this.theirs?.gain, this.bus, this.split]) {
+      try { node?.disconnect(); } catch { /* already gone */ }
+    }
     this.ready = false;
+    this.building = null;
   }
 }
