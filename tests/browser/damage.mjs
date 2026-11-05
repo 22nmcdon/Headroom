@@ -213,13 +213,20 @@ export async function check({ browser, at, say }) {
   await page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
   await page.click('[data-view="tools"]');
   await page.waitForTimeout(400);
+  // Blanked first, so the verdict waited for below is this round's.
+  await page.evaluate(() => { const v = document.querySelector('#verdict'); if (v) v.textContent = ''; });
   await page.click('.modes button:text-is("Saturation")');
   await page.waitForSelector('.surface .plugin.heat', { timeout: 8000 });
-  // Opening a tool builds the face and then wires it, so the family button is
-  // on the page a moment before it does anything. Waiting for the knob the
-  // family brings with it is the end of that, rather than a guess at how long
-  // it takes.
-  await page.waitForTimeout(300);
+  // The face is on the page before the round that opened it has attached,
+  // and attaching puts the round's settings on it - so a family chosen in
+  // that moment is put back to the round's a beat later, and the dither knob
+  // is gone by the time it is turned. That was a fixed 300 ms pause, which
+  // lost on a loaded machine about two runs in five. The round says it is
+  // ready by putting its line in the verdict, which is what is waited for.
+  await page.waitForFunction(
+    () => (document.querySelector('#verdict')?.textContent.trim().length ?? 0) > 0,
+    null, { timeout: 20000 },
+  );
   await page.click('.surface [data-mode="crush"]');
   await page.waitForSelector('.surface [data-dial="bits"]', { timeout: 8000 });
 
