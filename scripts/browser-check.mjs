@@ -11,12 +11,12 @@ import { serve, launch } from '../tests/browser/harness.mjs';
 
 const CHECKS = ['faces', 'inserts', 'chain', 'tracks', 'cells', 'pads', 'keys', 'wide', 'shape', 'knobs', 'decks',
   'eq-curve', 'restate', 'trim', 'stereo', 'tone', 'order', 'sampler', 'sides', 'align', 'modulation',
-  'match', 'carve', 'depth', 'arrange', 'listen', 'fix', 'ride', 'damage', 'said', 'root', 'turned', 'drills', 'work', 'analysis', 'mic', 'wave', 'export', 'journey', 'phone', 'fades'];
+  'match', 'carve', 'depth', 'arrange', 'listen', 'fix', 'ride', 'damage', 'said', 'root', 'turned', 'drills', 'work', 'analysis', 'mic', 'wave', 'export', 'journey', 'phone', 'fades', 'lifecycle'];
 
 // Runnable by name, and left out of a plain run until they pass: a check
-// written ahead of the fix it is for. `lifecycle` is the contract every
-// tool's audio is held to, and it moves into CHECKS once the players meet it.
-const PENDING = ['lifecycle'];
+// written ahead of the fix it is for, which moves into CHECKS once the code
+// meets it. Empty: `lifecycle` was the last, and every player meets it now.
+const PENDING = [];
 
 const asked = process.argv.slice(2).filter((a) => !a.startsWith('-'));
 const wanted = asked.length ? [...CHECKS, ...PENDING].filter((c) => asked.includes(c)) : CHECKS;
