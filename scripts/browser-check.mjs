@@ -21,10 +21,13 @@ if (unknown.length) {
   process.exit(2);
 }
 
+// A skip is the right answer on a bare checkout and the wrong one in CI,
+// where it would be a green tick for a run that checked nothing - so with
+// CI set (GitHub sets it on every run) a missing browser is a failure.
 const { browser, skip } = await launch();
 if (skip) {
   console.log(`skipped — ${skip}`);
-  process.exit(0);
+  process.exit(process.env.CI ? 1 : 0);
 }
 
 const server = await serve();
