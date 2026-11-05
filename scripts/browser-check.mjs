@@ -13,9 +13,14 @@ const CHECKS = ['faces', 'inserts', 'chain', 'tracks', 'cells', 'pads', 'keys', 
   'eq-curve', 'restate', 'trim', 'stereo', 'tone', 'order', 'sampler', 'sides', 'align', 'modulation',
   'match', 'carve', 'depth', 'arrange', 'listen', 'fix', 'ride', 'damage', 'said', 'root', 'turned', 'drills', 'work', 'analysis', 'mic', 'wave', 'export', 'journey', 'phone', 'fades'];
 
+// Runnable by name, and left out of a plain run until they pass: a check
+// written ahead of the fix it is for. `lifecycle` is the contract every
+// tool's audio is held to, and it moves into CHECKS once the players meet it.
+const PENDING = ['lifecycle'];
+
 const asked = process.argv.slice(2).filter((a) => !a.startsWith('-'));
-const wanted = asked.length ? CHECKS.filter((c) => asked.includes(c)) : CHECKS;
-const unknown = asked.filter((a) => !CHECKS.includes(a));
+const wanted = asked.length ? [...CHECKS, ...PENDING].filter((c) => asked.includes(c)) : CHECKS;
+const unknown = asked.filter((a) => !CHECKS.includes(a) && !PENDING.includes(a));
 if (unknown.length) {
   console.error(`no such check: ${unknown.join(', ')}\nthere is: ${CHECKS.join(', ')}`);
   process.exit(2);
