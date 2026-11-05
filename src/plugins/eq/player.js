@@ -1,6 +1,7 @@
 import { liftFrequencies } from './filters.js';
 import { averageSpectrum } from './spectrum.js';
 import { eqSections, tuneSections } from './sections.js';
+import { LoopPlayer, GLIDE } from '../../lib/loop-player.js';
 
 /**
  * The loop, running through two EQ chains you can flip between.
@@ -17,37 +18,35 @@ import { eqSections, tuneSections } from './sections.js';
  * four. A band that is off, and a section its slope does not need, are left
  * transparent rather than unplugged: rebuilding the graph under a running
  * loop clicks.
+ *
+ * Starting, stopping, swapping the loop and taking it all down are
+ * lib/loop-player.js's; what is here is only what is this tool's.
  */
-export class EQPlayer {
-  constructor(engine, strip) {
-    this.engine = engine;
+export class EQPlayer extends LoopPlayer {
+  /**
+   * `source` is the sample's id, as it is on every player; the plugin calls
+   * it `monitoring`. The BufferSource that used to be called `this.source`
+   * is the base's now, and is not called anything.
+   */
+  constructor(engine, strip, { source = 'mix' } = {}) {
+    super(engine, { source, spread: false });
     this.strip = strip;
-    this.source = null;
-    this.hearing = 'mine';
     this.auto = true;
-    this.ready = false;
+    this.soloing = null;
   }
 
   /**
    * Builds the graph once the browser will let us make sound.
    *
-   * The promise is kept rather than the flag being checked, which matters now
-   * that there is an await inside: `if (this.ready) return` was enough while
-   * this was synchronous, and the moment it was not, two taps on Play would
-   * both get past it and build the whole graph twice - two analysers, four
-   * chains, the loop audible through both. The flag is still what every
-   * setter reads, because what they want to know is whether there is anything
-   * to tune yet.
+   * Built once however many ask, which mattered the moment there was an
+   * await in here: two taps on Play would both have got past a `ready` check
+   * and built the whole graph twice - two analysers, four chains, the loop
+   * audible through both. The base keeps the promise now. `ready` is still
+   * what every setter reads, because what they want to know is whether there
+   * is anything to tune yet.
    */
-  build() {
-    this.building ??= this.raise();
-    return this.building;
-  }
-
-  async raise() {
-    const ctx = this.engine.ensure();
-
-    this.analyser = ctx.createAnalyser();
+  async raise(ctx) {
+    this.analyser = this.own(ctx.createAnalyser());
     this.analyser.fftSize = 4096;
     this.analyser.smoothingTimeConstant = this.ballistics ?? 0.72;
     this.analyser.connect(this.engine.out);
@@ -61,24 +60,26 @@ export class EQPlayer {
     // quietly undoing the level change your curve made, which is what makes
     // an A/B honest, and a face with no meters leaves you to take that on
     // trust.
-    this.inMeter = ctx.createAnalyser();
+    this.inMeter = this.own(ctx.createAnalyser());
     this.inMeter.fftSize = 2048;
 
     this.mine = await this.chain(ctx);
     this.theirs = await this.chain(ctx);
 
     // One band, on its own, for listening to what lives there.
-    this.soloFilter = ctx.createBiquadFilter();
+    this.soloFilter = this.own(ctx.createBiquadFilter());
     this.soloFilter.type = 'bandpass';
     this.soloFilter.frequency.value = 1000;
     this.soloFilter.Q.value = 2;
-    this.soloGain = ctx.createGain();
+    this.soloGain = this.own(ctx.createGain());
     this.soloGain.gain.value = 0;
     this.soloFilter.connect(this.soloGain).connect(this.analyser);
     this.soloing = null;
     // The fault, when there is one, is in the sample rather than in the EQ -
     // so it sits ahead of both chains and is heard whichever way you flip.
-    this.faultNode = ctx.createBiquadFilter();
+    // It is a live filter rather than something baked into the loop, which
+    // is why a fault here retunes a node and does not restart anything.
+    this.faultNode = this.own(ctx.createBiquadFilter());
     this.faultNode.type = 'peaking';
     this.faultNode.frequency.value = 1000;
     this.faultNode.gain.value = 0;
@@ -88,12 +89,6 @@ export class EQPlayer {
     // Solo is taken before the EQ: the question it answers is what is in the
     // sample at that frequency, not what your bands have done to it.
     this.faultNode.connect(this.soloFilter);
-
-    // Ready before the first flip, not after: `hear` does nothing until the
-    // graph exists, so setting this afterwards left both chains at zero gain
-    // and the whole plugin silent.
-    this.ready = true;
-    this.hear('mine');
   }
 
   /**
@@ -103,11 +98,15 @@ export class EQPlayer {
    * EQ's own. This is the same chain the sketchpad puts on a track - it is
    * only that here it is handed a source and an analyser and there it is
    * handed whatever is upstream of it.
+   *
+   * The chain is kept whole, because it knows how to take itself down -
+   * worklet and trim - and the gain at its end is kept beside it, because
+   * that one is this player's and the chain has never heard of it.
    */
   async chain(ctx) {
-    const built = await eqSections(ctx, this.strip.length, { start: this.strip });
+    const built = this.own(await eqSections(ctx, this.strip.length, { start: this.strip }));
 
-    const gain = ctx.createGain();
+    const gain = this.own(ctx.createGain());
     gain.gain.value = 0;
     built.trim.connect(gain).connect(this.analyser);
 
@@ -127,6 +126,27 @@ export class EQPlayer {
   }
 
   /**
+   * Everything the graph is told, told again: both curves, with whatever
+   * weights the loop has given the auto gain, and the fault ahead of them.
+   *
+   * The base calls this once the graph is up and before every play, so a
+   * curve or a fault set before anybody pressed Play arrives with the graph
+   * rather than waiting for the next time it is touched. The fault did not:
+   * it was dropped if it came first, which is the order a round sets it in.
+   */
+  apply() {
+    if (!this.ready) return;
+    this.tune(this.mine, this.bands ?? this.strip);
+    if (this.targetBands) this.tune(this.theirs, this.targetBands);
+
+    const fault = this.fault;
+    const at = this.engine.ctx.currentTime;
+    this.faultNode.frequency.setTargetAtTime(fault ? fault.frequency : 1000, at, 0.01);
+    this.faultNode.Q.setTargetAtTime(fault ? fault.q : 1, at, 0.01);
+    this.faultNode.gain.setTargetAtTime(fault ? fault.gain : 0, at, 0.01);
+  }
+
+  /**
    * Whether the trim takes the curve's level change back off.
    *
    * On, an A/B is a comparison of two curves; off, it is a comparison of two
@@ -137,21 +157,18 @@ export class EQPlayer {
    */
   setAuto(on) {
     this.auto = on;
-    if (!this.ready) return;
-    if (this.bands) this.tune(this.mine, this.bands);
-    if (this.targetBands) this.tune(this.theirs, this.targetBands);
+    this.apply();
   }
 
+  /** Kept whether or not the graph is up yet, so it arrives with the graph. */
   setBands(bands) {
-    if (!this.ready) return;
     this.bands = bands;
-    this.tune(this.mine, bands);
+    if (this.ready) this.tune(this.mine, bands);
   }
 
   setTarget(bands) {
-    if (!this.ready) return;
     this.targetBands = bands;
-    this.tune(this.theirs, bands);
+    if (this.ready) this.tune(this.theirs, bands);
   }
 
   /** What the source is made of, so auto gain knows what a move is worth. */
@@ -161,8 +178,18 @@ export class EQPlayer {
     // first time Play is pressed. The chain already arrived with the strip on
     // it, so what this is really for is the auto gain: it is built with no
     // weights, and now there is material to weigh it against.
-    this.setBands(this.bands ?? this.strip);
-    if (this.targetBands) this.setTarget(this.targetBands);
+    this.apply();
+  }
+
+  /**
+   * The loop, and what it is made of. Measured here rather than in `play`,
+   * because a loop now changes under a running player - a new sample picked
+   * while it plays - and the weights have to follow it there too.
+   */
+  async prepare() {
+    const ok = await super.prepare();
+    if (ok) this.measure(this.buffer);
+    return ok;
   }
 
   /**
@@ -196,57 +223,53 @@ export class EQPlayer {
     this.theirs.gain.gain.setTargetAtTime(band ? 0 : (this.hearing === 'mine' ? 0 : 1), at, 0.01);
   }
 
-  /** The fault baked into the sample, or nothing. */
+  /**
+   * The fault in the sample, or nothing.
+   *
+   * Not the base's: that bakes a fault into the loop and plays it again, and
+   * this one is a filter ahead of both chains, so it is retuned where it
+   * stands and the loop carries on. Kept as `fault` all the same, with `bake`
+   * left as the base's nothing, so a prepare has nothing to do to the loop.
+   */
   setFault(fault) {
-    if (!this.ready) return;
-    const at = this.engine.ctx.currentTime;
-    this.faultNode.frequency.setTargetAtTime(fault ? fault.frequency : 1000, at, 0.01);
-    this.faultNode.Q.setTargetAtTime(fault ? fault.q : 1, at, 0.01);
-    this.faultNode.gain.setTargetAtTime(fault ? fault.gain : 0, at, 0.01);
+    this.fault = fault ?? null;
+    this.apply();
+    return Promise.resolve(true);
   }
 
-  /** Flip between your EQ and theirs, quickly enough to compare. */
-  hear(which) {
-    this.hearing = which;
+  /**
+   * Flip between your EQ and theirs, quickly enough to compare.
+   *
+   * The flip is the chains' own gains rather than the base's pair, and it
+   * waits while a band is soloed, because solo has both of them down.
+   */
+  flip() {
     if (!this.ready || this.soloing) return;
     const at = this.engine.ctx.currentTime;
-    this.mine.gain.gain.setTargetAtTime(which === 'mine' ? 1 : 0, at, 0.008);
-    this.theirs.gain.gain.setTargetAtTime(which === 'mine' ? 0 : 1, at, 0.008);
+    this.mine.gain.gain.setTargetAtTime(this.hearing === 'mine' ? 1 : 0, at, GLIDE);
+    this.theirs.gain.gain.setTargetAtTime(this.hearing === 'mine' ? 0 : 1, at, GLIDE);
   }
 
-  /** Something the player brought themselves, decoded and kept for the session. */
-  async load(file) {
-    const ctx = this.engine.ensure();
-    this.yours = await ctx.decodeAudioData(await file.arrayBuffer());
-    return this.yours;
+  /** The loop goes in ahead of the fault, which is ahead of everything. */
+  wire(at) {
+    this.start(this.buffer, (node) => node.connect(this.faultNode), at);
   }
 
+  /**
+   * Play `kind`, or the sample already chosen.
+   *
+   * The EQ has always been told what to play as it is asked to play it, so
+   * the id is still taken here - and taken as a new loop every time, rather
+   * than compared with the last one, because 'yours' is the same id whatever
+   * file was loaded under it. Letting go of the buffer is what has the base
+   * fetch the loop again, inside the same numbered play.
+   */
   async play(kind) {
-    await this.build();
-    const buffer = kind === 'yours' ? this.yours : await this.engine.renderLoop(kind);
-    if (!buffer) return false;
-
-    this.measure(buffer);
-    this.stop();
-
-    const source = this.engine.ctx.createBufferSource();
-    source.buffer = buffer;
-    source.loop = true;
-    source.connect(this.faultNode);
-    source.start();
-    this.source = source;
-    return true;
-  }
-
-  stop() {
-    if (!this.source) return;
-    try { this.source.stop(); } catch { /* already stopped */ }
-    this.source.disconnect();
-    this.source = null;
-  }
-
-  get playing() {
-    return this.source !== null;
+    if (kind !== undefined) {
+      this.source = kind;
+      this.buffer = null;
+    }
+    return super.play();
   }
 
   /**
@@ -281,22 +304,6 @@ export class EQPlayer {
       return 20 * Math.log10(peak + 1e-6);
     };
     return { input: read(this.inMeter), output: read(this.analyser) };
-  }
-
-  destroy() {
-    this.stop();
-    for (const chain of [this.mine, this.theirs]) {
-      if (!chain) continue;
-      chain.destroy();
-      try { chain.gain.disconnect(); } catch { /* already gone */ }
-    }
-    for (const node of [
-      this.faultNode, this.soloFilter, this.soloGain, this.inMeter, this.analyser,
-    ]) {
-      try { node?.disconnect(); } catch { /* already gone */ }
-    }
-    this.ready = false;
-    this.building = null;
   }
 
   /** The spectrum, in dB, for drawing behind the curve. */
