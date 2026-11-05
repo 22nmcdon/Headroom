@@ -3361,22 +3361,6 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
   font-variant-numeric: tabular-nums;
 }
 
-/* A line of chord symbols: the fastest way into the one part of a sketch
-   that is nearly always a chord part. */
-.chord-row { gap: 8px; }
-.chord-line {
-  flex: 1 1 180px;
-  min-width: 0;
-  font-family: var(--serif);
-  font-size: 14px;
-  padding: 5px 9px;
-  border: 1px solid var(--line);
-  border-radius: 3px;
-  background: var(--paper);
-  color: var(--charcoal);
-}
-.chord-line::placeholder { color: var(--line); font-style: italic; }
-.chord-said { margin: -4px 0 8px; min-height: 1em; }
 
 /* Pads, for the part of a sketch that is faster played than drawn. Written
    for three of them - a kit's kick, snare and hat - and never rendered at

@@ -1046,7 +1046,7 @@ export class SketchPage {
       this.takes.set(id, buffer);
 
       this.change(setClip(this.project, track, scene, {
-        ...(was ?? {}), take: id, notes: [], chords: '', fit, length, kind: 'mic',
+        ...(was ?? {}), take: id, notes: [], fit, length, kind: 'mic',
       }));
 
       // What is under it. Kept on the grid rather than in the project: it is a
@@ -2096,10 +2096,6 @@ export class SketchPage {
               <button class="pad" type="button" data-pad="${one.pitch}"
                 >${one.label}</button>`).join('')}
           </div>`}`}
-
-      ${!clip.chords ? '' : `
-        <p class="fine">Made from “${escapeHtml(clip.chords)}”. The chords went in as notes and
-        are yours to move now.</p>`}
 
       ${this.kindHere(clip, track) !== 'mic' ? '' : `
         <div class="clip-wave"${isTake(clip) ? ' data-trimmable' : ''}>
