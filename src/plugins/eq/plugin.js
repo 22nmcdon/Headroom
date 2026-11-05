@@ -124,7 +124,7 @@ export class EQPlugin {
     this.selected = this.bands.findIndex((band) => band.type === 'peaking');
     this.target = null; // drawn only once the round is over
     this.role = role;
-    this.player = player ?? new EQPlayer(engine, this.bands);
+    this.player = player ?? new EQPlayer(engine, this.bands, { source });
     this.interactive = true;
     this.autoGain = true; // whether the trim takes the curve's lift back off
     this.tilt = 0;        // decibels per octave added to the drawn spectrum
@@ -1196,8 +1196,8 @@ export class EQPlugin {
   }
 
   /** A resonance somebody else left in the sample, before it reached you. */
-  setFault(fault) {
-    this.player.setFault(fault ?? null);
+  async setFault(fault) {
+    await Promise.resolve(this.player.setFault(fault ?? null)).catch(() => {});
     this.draw();
   }
 
@@ -1217,7 +1217,10 @@ export class EQPlugin {
     this.monitoring = id;
     const picker = this.el.querySelector('#eqSource');
     if (picker) picker.value = id;
-    if (this.player.playing) await this.player.play(id);
+    // The player fetches the new loop, and starts it in place of the old one
+    // if the old one was playing. A track's player has no sample to change,
+    // and no `setSource` to say so with.
+    await Promise.resolve(this.player.setSource?.(id)).catch(() => {});
     this.draw();
   }
 

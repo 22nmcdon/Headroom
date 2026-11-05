@@ -771,8 +771,7 @@ export class AimedPlugin {
   }
 
   async setFault(fault) {
-    this.player.uneven = fault?.uneven ?? 0;
-    await this.player.prepare().catch(() => {});
+    await Promise.resolve(this.player.setFault(fault)).catch(() => {});
     this.player.setSettings(this.settings);
     this.draw();
   }
@@ -791,7 +790,11 @@ export class AimedPlugin {
     this.player.source = id;
     const picker = this.el.querySelector(`#${this.spec.mark}Source`);
     if (picker) picker.value = id;
-    await this.player.prepare().catch(() => {});
+    // Through the player's own setSource, which plays the new loop in place
+    // of the old one if it was playing. This used to render the new loop and
+    // never start it, which is how a sample picked mid-loop went unheard
+    // while the old one carried on.
+    await Promise.resolve(this.player.setSource?.(id)).catch(() => {});
     this.player.setSettings(this.settings);
     this.draw();
   }

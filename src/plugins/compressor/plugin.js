@@ -1007,8 +1007,6 @@ export class CompPlugin {
    */
   async setSource(id, { key, uneven } = {}) {
     this.player.source = id;
-    this.player.samples = null;
-    this.player.channels = null;
     // The key and the fault travel with the source because they are part of
     // what the material is: ducking needs a kick to duck to, and levelling
     // needs a bed that is actually uneven. They were constructor arguments,
@@ -1019,8 +1017,9 @@ export class CompPlugin {
     const picker = this.el.querySelector('#compSource');
     if (picker) picker.value = id;
 
-    await this.player.prepare().catch(() => {});
-    if (this.player.playing) await this.player.play();
+    // The player renders all of it again, and puts it in place of what was
+    // playing if anything was. A track's player has no material to change.
+    await Promise.resolve(this.player.setSource?.(id)).catch(() => {});
     this.restage();
     this.draw();
   }
@@ -1033,7 +1032,9 @@ export class CompPlugin {
    * re-rendering the material rather than changing a node.
    */
   async setFault(fault) {
-    await this.setSource(this.player.source, { uneven: fault?.uneven ?? fault ?? 0 });
+    await Promise.resolve(this.player.setFault(fault)).catch(() => {});
+    this.restage();
+    this.draw();
   }
 
   /**
