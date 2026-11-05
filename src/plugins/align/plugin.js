@@ -612,8 +612,7 @@ export class AlignPlugin {
   }
 
   async setFault(fault) {
-    await this.player.setPath(fault ?? { ms: 3.5, level: -4, flip: false });
-    if (this.player.playing) await this.player.play();
+    await Promise.resolve(this.player.setFault(fault)).catch(() => {});
     this.player.setSettings(this.settings);
     this.dryStamp = null;
     this.draw();
@@ -634,8 +633,7 @@ export class AlignPlugin {
     const picker = this.el.querySelector('#alignSource');
     if (picker) picker.value = id;
     this.dryStamp = null;
-    await this.player.prepare().catch(() => {});
-    if (this.player.playing) await this.player.play();
+    await Promise.resolve(this.player.setSource?.(id)).catch(() => {});
     this.player.setSettings(this.settings);
     this.draw();
   }
