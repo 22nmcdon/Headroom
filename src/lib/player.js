@@ -1,4 +1,5 @@
 import { signalRms } from './dsp.js';
+import { LoopPlayer } from './loop-player.js';
 
 /**
  * The loop, through two of something, with a switch between them.
@@ -28,13 +29,22 @@ import { signalRms } from './dsp.js';
  * folded back over the beginning, so the effect joins up instead of being cut
  * off at the splice. That is the same trick the bed itself is built with, and
  * a tail is where you would hear it missing.
+ *
+ * Starting, stopping, building once and taking it all down are
+ * lib/loop-player.js's. What is here is the two sides and the crossfade
+ * between wet loops, which the base has no word for: a swap starts a loop
+ * while the one it replaces is still fading out, so each wet loop comes in
+ * through a fade of its own, and the fade is let go when its loop ends. Those
+ * fades were half of a leak: stopping a loop unwired the loop and left its
+ * fade wired to the side, one more on every play and every swap. The other
+ * half was the sides themselves, which destroy never took down - it
+ * unwired the meter and nothing that fed it.
  */
-export class ImpulsePlayer {
+export class ImpulsePlayer extends LoopPlayer {
   constructor(engine, {
     source = 'instrument', impulseOf = null, wetOf = null, tailOf = null, defaults = {},
   } = {}) {
-    this.engine = engine;
-    this.source = source;
+    super(engine, { source, spread: false });
     this.impulseOf = impulseOf;
     // The two halves of the other way of making a wet loop: how long to keep
     // rendering after the loop has ended, and what to put in the middle. Two
@@ -44,58 +54,66 @@ export class ImpulsePlayer {
     this.wetOf = wetOf;
     this.tailOf = tailOf;
     this.defaults = defaults;
-    this.hearing = 'mine';
     this.settings = { ...defaults };
     this.target = null;
-    this.ready = false;
-    this.buffer = null;
     this.dryRms = 0;
+    // The loop the sources now sounding were started from, which a render
+    // has to be of to be faded in over them.
+    this.looping = null;
+
+    // The sides exist before the graph does, so that a render asked for
+    // before anything has played has somewhere to be kept. `raise` gives
+    // them their nodes.
+    this.mine = this.sideOf();
+    this.theirs = this.sideOf();
   }
 
-  async build() {
-    if (this.ready) return;
-    const ctx = this.engine.ensure();
+  /** One room's record: what was rendered for it, and what is playing it. */
+  sideOf() {
+    return { made: null, pending: null, asked: 0, voices: new Set() };
+  }
 
-    this.meter = ctx.createAnalyser();
+  async raise(ctx) {
+    this.meter = this.own(ctx.createAnalyser());
     this.meter.fftSize = 1024;
     this.meter.connect(this.engine.out);
 
-    this.mine = this.side(ctx, 1);
-    this.theirs = this.side(ctx, 0);
-    this.ready = true;
+    this.side(ctx, this.mine, this.hearing === 'mine' ? 1 : 0);
+    this.side(ctx, this.theirs, this.hearing === 'mine' ? 0 : 1);
+    // Each side's select is its place in the A/B, and so what the base flips.
+    this.mineOut = this.mine.select;
+    this.theirsOut = this.theirs.select;
   }
 
   /** One room: its own dry and wet balance, and its own place in the A/B. */
-  side(ctx, listening) {
-    const select = ctx.createGain();
-    select.gain.value = listening;
-    select.connect(this.meter);
+  side(ctx, side, listening) {
+    side.select = this.own(ctx.createGain());
+    side.select.gain.value = listening;
+    side.select.connect(this.meter);
 
-    const dry = ctx.createGain();
-    const wet = ctx.createGain();
-    dry.connect(select);
-    wet.connect(select);
-
-    return { select, dry, wet, sources: [] };
+    side.dry = this.own(ctx.createGain());
+    side.wet = this.own(ctx.createGain());
+    side.dry.connect(side.select);
+    side.wet.connect(side.select);
+    return side;
   }
 
   /* ---------- the material ---------- */
 
   async prepare() {
-    const signal = this.source === 'yours'
-      ? this.yours
-      : await this.engine.renderLoop(this.source);
-    if (!signal) return false;
-
-    this.buffer = signal;
-    this.dryRms = signalRms(signal.getChannelData(0));
-    return true;
-  }
-
-  async load(file) {
-    const ctx = this.engine.ensure();
-    this.yours = await ctx.decodeAudioData(await file.arrayBuffer());
-    return this.yours;
+    const was = this.buffer;
+    const ok = await super.prepare();
+    if (ok && this.buffer !== was) {
+      this.dryRms = signalRms(this.buffer.getChannelData(0));
+      // Both rooms were rendered into the old loop, and so is anything still
+      // rendering: none of it is any use now.
+      for (const side of [this.mine, this.theirs]) {
+        side.made = null;
+        side.pending = null;
+        side.asked += 1;
+      }
+    }
+    return ok;
   }
 
   /** An impulse response, as something Web Audio will convolve with. */
@@ -167,26 +185,56 @@ export class ImpulsePlayer {
 
   async setSettings(settings) {
     this.settings = { ...this.settings, ...settings };
-    return this.refresh('mine', this.settings);
+    return this.make('mine');
   }
 
   async setTarget(settings) {
     this.target = settings ? { ...this.defaults, ...settings } : null;
     if (!this.target) return null;
-    return this.refresh('theirs', this.target);
+    return this.make('theirs');
   }
 
-  /** Builds a room and, if anything is playing, fades into it. */
-  async refresh(which, settings) {
-    if (!this.buffer) return null;
+  /** What a side is set to now: yours, or the target. */
+  settingsOf(which) {
+    return which === 'mine' ? this.settings : this.target;
+  }
 
-    const made = await this.renderWet(settings);
-    const side = which === 'mine' ? this.mine : this.theirs;
-    if (!side) return made;
+  /**
+   * Builds a room and, if anything is playing, fades into it.
+   *
+   * Once per setting: asked again for what is already rendered, or already
+   * rendering, into the same loop, it hands back that rather than starting a
+   * second. And numbered: a render overtaken by a newer one for the same
+   * side, a new loop or a destroy by the time it is done is dropped, rather
+   * than faded in over the top of whatever came after it.
+   */
+  make(which, { swap = true } = {}) {
+    const side = this[which];
+    const settings = this.settingsOf(which);
+    if (!settings || !this.buffer || this.life) return Promise.resolve(null);
 
-    side.made = made;
-    this.balance(side, settings, made);
-    if (this.playing) this.swap(side, made.wet);
+    const key = JSON.stringify(settings);
+    const loop = this.buffer;
+    if (side.made?.key === key && side.made.loop === loop) return Promise.resolve(side.made);
+    if (side.pending?.key === key && side.pending.loop === loop) return side.pending.made;
+
+    const asked = (side.asked += 1);
+    const kept = { ...settings };
+    const made = (async () => {
+      try {
+        const wet = await this.renderWet(kept);
+        if (asked !== side.asked || loop !== this.buffer || this.life) return null;
+        side.made = { ...wet, key, loop, settings: kept };
+        this.balance(side, kept, side.made);
+        if (swap && this.playing && this.looping === loop) this.swap(side, side.made.wet);
+        return side.made;
+      } finally {
+        // Whichever way it went, it is not rendering any more - and a failed
+        // render left as the one in flight would be handed to everyone after.
+        if (side.pending?.made === made) side.pending = null;
+      }
+    })();
+    side.pending = { key, loop, made };
     return made;
   }
 
@@ -213,61 +261,87 @@ export class ImpulsePlayer {
     side.trim = trim;
   }
 
+  /** Each side at the balance of the room it has, once there is a graph to set. */
+  apply() {
+    for (const side of [this.mine, this.theirs]) {
+      if (side.made) this.balance(side, side.made.settings, side.made);
+    }
+  }
+
   /* ---------- transport ---------- */
 
-  hear(which) {
-    this.hearing = which;
-    if (!this.ready) return;
-    const at = this.engine.ctx.currentTime;
-    this.mine.select.gain.setTargetAtTime(which === 'mine' ? 1 : 0, at, 0.008);
-    this.theirs.select.gain.setTargetAtTime(which === 'mine' ? 0 : 1, at, 0.008);
-  }
-
+  /**
+   * The base's play, with the rooms rendered first - numbered the same way,
+   * so a play overtaken while it waits on a render does nothing.
+   */
   async play() {
+    if (this.life) return false;
+    const turn = (this.turn += 1);
     await this.build();
+    if (turn !== this.turn) return false;
     if (!this.buffer) await this.prepare();
-    if (!this.buffer) return false;
+    if (turn !== this.turn || !this.buffer) return false;
 
-    if (!this.mine.made) await this.refresh('mine', this.settings);
-    if (this.target && !this.theirs.made) await this.refresh('theirs', this.target);
-
-    this.stop();
-    const ctx = this.engine.ctx;
-    const at = ctx.currentTime + 0.08;
-    this.startedAt = at;
-
-    // One dry loop feeding both sides, so flipping between them is the
-    // effect changing and not the take changing.
-    this.dryNode = ctx.createBufferSource();
-    this.dryNode.buffer = this.buffer;
-    this.dryNode.loop = true;
-    this.dryNode.connect(this.mine.dry);
-    this.dryNode.connect(this.theirs.dry);
-    this.dryNode.start(at);
-
-    for (const side of [this.mine, this.theirs]) {
-      if (side.made) this.start(side, side.made.wet, at, 0);
-    }
-
-    this.running = true;
-    return true;
+    await this.rendered('mine');
+    if (this.target) await this.rendered('theirs');
+    if (turn !== this.turn) return false;
+    return super.play();
   }
 
-  /** Starts one wet loop into a side, at a given point of the loop. */
-  start(side, wet, at, offset) {
-    const ctx = this.engine.ctx;
-    const node = ctx.createBufferSource();
-    node.buffer = wet;
-    node.loop = true;
+  /**
+   * One side's room, rendered into the current loop if it is not already.
+   * Not faded in as it lands: the play waiting on it starts everything.
+   */
+  async rendered(which) {
+    const side = this[which];
+    // Round again while what came back was dropped - for a loop since
+    // replaced, or overtaken by newer settings, whose render is then the one
+    // joined.
+    while (this.buffer && !this.life && this.settingsOf(which) && side.made?.loop !== this.buffer) {
+      await this.make(which, { swap: false });
+    }
+    return side.made;
+  }
 
-    const gain = ctx.createGain();
+  // One dry loop feeding both sides, so flipping between them is the effect
+  // changing and not the take changing.
+  wire(at) {
+    this.looping = this.buffer;
+    this.start(this.buffer, (node) => {
+      node.connect(this.mine.dry);
+      node.connect(this.theirs.dry);
+    }, at);
+    for (const side of [this.mine, this.theirs]) {
+      if (side.made?.loop === this.buffer) this.enter(side, side.made.wet, at, 0);
+    }
+  }
+
+  /**
+   * Starts one wet loop into a side at a given point of the loop, through a
+   * fade of its own - let go when the loop ends, which for one swapped out is
+   * once its fade is over.
+   */
+  enter(side, wet, at, offset) {
+    const gain = this.engine.ctx.createGain();
     gain.gain.value = 0;
-    node.connect(gain).connect(side.wet);
-    node.start(at, offset);
+    const node = this.start(wet, (source) => source.connect(gain).connect(side.wet), at, { offset });
     gain.gain.setTargetAtTime(1, at, 0.02);
 
-    side.sources.push({ node, gain });
-    return { node, gain };
+    const voice = { node, gain };
+    side.voices.add(voice);
+    node.addEventListener('ended', () => this.release(side, voice));
+    return voice;
+  }
+
+  /**
+   * One wet loop and its fade, unwired. The loop as well, because one that
+   * ends on its own - swapped out - is let go of by the base but not
+   * disconnected, and would stay wired to its fade.
+   */
+  release(side, voice) {
+    try { voice.node.disconnect(); } catch { /* already gone */ }
+    try { voice.gain.disconnect(); } catch { /* already gone */ }
+    side.voices.delete(voice);
   }
 
   /**
@@ -281,46 +355,24 @@ export class ImpulsePlayer {
     const ctx = this.engine.ctx;
     const at = ctx.currentTime + 0.02;
     const length = this.buffer.duration;
-    const offset = (((at - this.startedAt) % length) + length) % length;
+    const offset = (((at - this.began) % length) + length) % length;
 
-    for (const old of side.sources) {
+    for (const old of side.voices) {
       old.gain.gain.cancelScheduledValues(at);
       old.gain.gain.setTargetAtTime(0, at, 0.02);
       try { old.node.stop(at + 0.25); } catch { /* already stopped */ }
     }
-    side.sources = [];
 
-    this.start(side, wet, at, offset);
+    this.enter(side, wet, at, offset);
   }
 
-  stop() {
+  /** Every source stopped as the base stops them, and their fades let go. */
+  silence() {
+    super.silence();
+    this.looping = null;
     for (const side of [this.mine, this.theirs]) {
-      if (!side) continue;
-      for (const { node } of side.sources) {
-        try { node.stop(); } catch { /* already stopped */ }
-        node.disconnect();
-      }
-      side.sources = [];
+      for (const voice of side.voices) this.release(side, voice);
     }
-
-    if (this.dryNode) {
-      try { this.dryNode.stop(); } catch { /* already stopped */ }
-      this.dryNode.disconnect();
-      this.dryNode = null;
-    }
-    this.running = false;
-  }
-
-  get playing() {
-    return Boolean(this.running && this.dryNode);
-  }
-
-  /** Where the loop has got to, as a fraction of it. */
-  get position() {
-    if (!this.playing || !this.buffer) return null;
-    const on = this.engine.ctx.currentTime - this.startedAt;
-    if (on < 0) return 0;
-    return (on % this.buffer.duration) / this.buffer.duration;
   }
 
   /** What is coming out, in dB, for a meter. */
@@ -334,11 +386,5 @@ export class ImpulsePlayer {
       if (value > peak) peak = value;
     }
     return 20 * Math.log10(peak + 1e-6);
-  }
-
-  destroy() {
-    this.stop();
-    try { this.meter?.disconnect(); } catch { /* already gone */ }
-    this.ready = false;
   }
 }
