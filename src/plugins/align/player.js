@@ -1,6 +1,10 @@
 import {
   ALIGN_DEFAULTS, ALIGN_LIMITS, heldIn, farMic, alignPass, crossLag,
 } from './pair.js';
+import { LoopPlayer, GLIDE } from '../../lib/loop-player.js';
+
+/** The pair a round has when it names none: a few metres, a little quieter. */
+const PATH = { ms: 3.5, level: -4, flip: false };
 
 /**
  * Two microphones on one source, through a delay and a polarity switch.
@@ -21,21 +25,27 @@ import {
  * - a delay, a gain and a one-pole - but then the material would depend on
  * the audio clock, and the reading the face draws is taken over the samples.
  * Rendering it once means the arithmetic and the audio are the same pair.
+ *
+ * Starting, stopping, swapping the loop and taking it all down are
+ * lib/loop-player.js's; what is here is only what is this tool's. This
+ * tool's fault is not baked into the loop but is a second loop beside it -
+ * the far microphone - so it is `path` rather than `fault`, and `prepare`
+ * renders it once the base has fetched the close one.
  */
-export class PairPlayer {
+export class PairPlayer extends LoopPlayer {
   constructor(engine, { source = 'drums', path = null } = {}) {
-    this.engine = engine;
-    this.source = source;
+    // Not spread: one microphone is one channel, and the far one is built
+    // from the first of them.
+    super(engine, { source, spread: false });
     // What the two microphones are: how far apart, how much quieter, and
     // whether one of them is wired backwards. The exercise sets this; the
     // settings cannot change it, which is the point of a fault.
-    this.path = path ?? { ms: 3.5, level: -4, flip: false };
-    this.hearing = 'mine';
+    this.path = path ?? { ...PATH };
     this.settings = { ...ALIGN_DEFAULTS };
     this.target = null;
-    this.ready = false;
     this.close = null;
     this.far = null;
+    this.farBuffer = null;
     this.reading = null;
     this.targetReading = null;
     // Where the two microphones line up, which is a property of the pair and
@@ -44,34 +54,33 @@ export class PairPlayer {
     this.lag = null;
   }
 
-  async build() {
-    if (this.ready) return;
-    const ctx = this.engine.ensure();
-
-    this.meter = ctx.createAnalyser();
+  async raise(ctx) {
+    this.meter = this.own(ctx.createAnalyser());
     this.meter.fftSize = 1024;
     this.meter.connect(this.engine.out);
 
     this.mine = this.side(ctx, 1);
     this.theirs = this.side(ctx, 0);
 
-    this.ready = true;
-    this.push();
+    // Each side's out is its place in the A/B, so the base's flip is this
+    // tool's as it stands.
+    this.mineOut = this.mine.out;
+    this.theirsOut = this.theirs.out;
   }
 
   /** One alignment: its own delay, its own polarity, its own place in the A/B. */
   side(ctx, listening) {
-    const out = ctx.createGain();
+    const out = this.own(ctx.createGain());
     out.gain.value = listening;
     out.connect(this.meter);
 
     // A second of maximum delay, which is forty times what the control can
     // ask for. A DelayNode cannot be lengthened after it is built.
-    const delay = ctx.createDelay(1);
+    const delay = this.own(ctx.createDelay(1));
     delay.delayTime.value = 0;
 
-    const closeGain = ctx.createGain();
-    const farGain = ctx.createGain();
+    const closeGain = this.own(ctx.createGain());
+    const farGain = this.own(ctx.createGain());
     closeGain.gain.value = 1;
     farGain.gain.value = 1;
 
@@ -83,15 +92,17 @@ export class PairPlayer {
 
   /* ---------- the material ---------- */
 
+  /**
+   * The close microphone, as the base fetches it, and the far one built
+   * from it down the path. Synchronous after the base's wait, so a prepare
+   * the base has let write is the one that builds the far mic too.
+   */
   async prepare() {
-    const loop = this.source === 'yours'
-      ? this.yours
-      : await this.engine.renderLoop(this.source);
-    if (!loop) return false;
+    if (!(await super.prepare())) return false;
 
     const ctx = this.engine.ensure();
+    const loop = this.buffer;
     const rate = loop.sampleRate;
-    this.closeBuffer = loop;
     this.close = loop.getChannelData(0);
 
     // The second microphone, built from the first one down a path.
@@ -105,12 +116,6 @@ export class PairPlayer {
 
     this.measure();
     return true;
-  }
-
-  async load(file) {
-    const ctx = this.engine.ensure();
-    this.yours = await ctx.decodeAudioData(await file.arrayBuffer());
-    return this.yours;
   }
 
   /**
@@ -145,6 +150,10 @@ export class PairPlayer {
     return this.reading;
   }
 
+  apply() {
+    this.push();
+  }
+
   /**
    * Both sides of the A/B, pointed at what they are set to.
    *
@@ -174,9 +183,9 @@ export class PairPlayer {
     const flip = settings.flip ? -1 : 1;
     const hear = settings.hear ?? 'sum';
 
-    side.delay.delayTime.setTargetAtTime(delay, at, 0.008);
-    side.closeGain.gain.setTargetAtTime(hear === 'far' ? 0 : 1, at, 0.008);
-    side.farGain.gain.setTargetAtTime(hear === 'close' ? 0 : blend * flip, at, 0.008);
+    side.delay.delayTime.setTargetAtTime(delay, at, GLIDE);
+    side.closeGain.gain.setTargetAtTime(hear === 'far' ? 0 : 1, at, GLIDE);
+    side.farGain.gain.setTargetAtTime(hear === 'close' ? 0 : blend * flip, at, GLIDE);
   }
 
   setSettings(settings) {
@@ -189,68 +198,32 @@ export class PairPlayer {
     this.measure();
   }
 
-  async setPath(path) {
+  /**
+   * A new pair, and heard if the loop is playing - a far mic changed under a
+   * playing loop and not restarted is the old pair still sounding.
+   */
+  setPath(path) {
     this.path = { ...this.path, ...path };
-    if (this.close) await this.prepare();
+    return this.refresh();
+  }
+
+  /** This tool's fault is its path; none is the pair a round has by default. */
+  setFault(fault) {
+    return this.setPath(fault ?? PATH);
   }
 
   /* ---------- transport ---------- */
 
-  hear(which) {
-    this.hearing = which;
-    if (!this.ready) return;
-    const at = this.engine.ctx.currentTime;
-    this.mine.out.gain.setTargetAtTime(which === 'mine' ? 1 : 0, at, 0.008);
-    this.theirs.out.gain.setTargetAtTime(which === 'mine' ? 0 : 1, at, 0.008);
-  }
-
-  async play() {
-    await this.build();
-    if (!this.close) await this.prepare();
-    if (!this.close) return false;
-
-    this.stop();
-    const ctx = this.engine.ctx;
-    const at = ctx.currentTime + 0.08;
-
-    this.closeNode = ctx.createBufferSource();
-    this.closeNode.buffer = this.closeBuffer;
-    this.closeNode.loop = true;
-    this.closeNode.connect(this.mine.delay);
-    this.closeNode.connect(this.theirs.delay);
-
-    this.farNode = ctx.createBufferSource();
-    this.farNode.buffer = this.farBuffer;
-    this.farNode.loop = true;
-    this.farNode.connect(this.mine.farGain);
-    this.farNode.connect(this.theirs.farGain);
-
-    this.closeNode.start(at);
-    this.farNode.start(at);
-    this.playing = true;
-    return true;
-  }
-
-  stop() {
-    for (const node of [this.closeNode, this.farNode]) {
-      if (!node) continue;
-      try { node.stop(); } catch { /* already stopped, which is fine */ }
-      node.disconnect();
-    }
-    this.closeNode = null;
-    this.farNode = null;
-    this.playing = false;
-  }
-
-  destroy() {
-    this.stop();
-    for (const side of [this.mine, this.theirs]) {
-      if (!side) continue;
-      for (const node of [side.delay, side.closeGain, side.farGain, side.out]) {
-        try { node.disconnect(); } catch { /* already gone */ }
-      }
-    }
-    try { this.meter?.disconnect(); } catch { /* already gone */ }
-    this.ready = false;
+  // Each microphone is one source feeding both sides, so the two sides of
+  // the A/B are one pair of sources and cannot drift apart.
+  wire(at) {
+    this.start(this.buffer, (node) => {
+      node.connect(this.mine.delay);
+      node.connect(this.theirs.delay);
+    }, at);
+    this.start(this.farBuffer, (node) => {
+      node.connect(this.mine.farGain);
+      node.connect(this.theirs.farGain);
+    }, at);
   }
 }
