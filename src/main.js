@@ -325,7 +325,17 @@ async function openTool() {
   ui.tool = null;
   surface.textContent = '';
 
-  ui.tool = toolOf(ui.mode).open(surface, { engine, onChange: () => syncAnswer() });
+  // An element of its own, rather than the surface itself. Every plugin
+  // listens on the element it is given, and none of them takes its listeners
+  // off again - so when they were all given #surface, every tool ever opened
+  // was still listening on it, and a click on Play played the loop once more
+  // for each earlier visit to that tool, each through a graph its player had
+  // just rebuilt. tests/browser/lifecycle.mjs is how that was found. A host
+  // per tool takes its listeners with it when the next one replaces it.
+  const host = document.createElement('div');
+  host.className = 'tool-host';
+  surface.append(host);
+  ui.tool = toolOf(ui.mode).open(host, { engine, onChange: () => syncAnswer() });
   ui.toolId = ui.mode;
   return ui.tool;
 }

@@ -40,7 +40,9 @@ const VISITS = 3;
 function probe() {
   const live = (node) => typeof AudioContext !== 'undefined' && node.context instanceof AudioContext;
   const wired = new Map();
-  const sounding = new Set();
+  // Each sounding source, with where it was started from - which is what a
+  // failure needs to say, since a count alone names no culprit.
+  const sounding = new Map();
   const ids = new WeakMap();
   let next = 0;
   let worklets = 0;
@@ -76,7 +78,9 @@ function probe() {
   const start = AudioBufferSourceNode.prototype.start;
   AudioBufferSourceNode.prototype.start = function (...args) {
     if (live(this)) {
-      sounding.add(this);
+      const where = (new Error().stack ?? '').split('\n').slice(2)
+        .find((line) => line.includes('/src/'))?.trim().replace(/^at /, '').replace(/https?:\/\/[^/]+\//, '') ?? '?';
+      sounding.set(this, where);
       this.addEventListener('ended', () => sounding.delete(this));
     }
     return start.apply(this, args);
@@ -104,7 +108,8 @@ function probe() {
       wired: wired.size,
       kinds,
       worklets,
-      sounding: [...sounding].map((source) => idOf(source.buffer)),
+      sounding: [...sounding.keys()].map((source) => idOf(source.buffer)),
+      where: [...sounding.values()],
     };
   };
 }
@@ -155,7 +160,10 @@ export async function check({ browser, at, say }) {
 
   say('  tool          grew by     left sounding   worklets 1 tap / 2 taps   swap');
 
-  for (const tool of TOOLS) {
+  // HEADROOM_TOOLS=Level,EQ narrows it to those, for working on one player
+  // without waiting for all twelve.
+  const only = process.env.HEADROOM_TOOLS?.split(',').map((t) => t.trim()).filter(Boolean);
+  for (const tool of only?.length ? TOOLS.filter((t) => only.includes(t)) : TOOLS) {
     const neutral = tool === NEUTRAL[0] ? NEUTRAL[1] : NEUTRAL[0];
     const row = { grew: '', left: '', taps: '', swap: '' };
 
@@ -171,7 +179,8 @@ export async function check({ browser, at, say }) {
       const left = await read();
       after.push(left);
       if (left.sounding.length) {
-        problems.push(`${tool}: ${left.sounding.length} source(s) still sounding after it was closed`);
+        const from = [...new Set(left.where)].join('; ');
+        problems.push(`${tool}: ${left.sounding.length} source(s) still sounding after it was closed, started at ${from}`);
         quiet = false;
       }
     }
