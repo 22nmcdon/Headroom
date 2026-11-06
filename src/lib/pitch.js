@@ -38,28 +38,25 @@
  */
 export const PITCH_WINDOW = 4096;
 
-/**
- * The two heads' weights, and why they are a raised cosine over the whole
- * traverse.
- *
- * Each head is weighted by a raised cosine over its whole traverse, and the
- * two are half a line apart, so the weights sum to exactly one at every
- * position - (0.5 - 0.5cos x) + (0.5 - 0.5cos(x + pi)) is 1 for every x.
- * Unity gain by construction, and no divide.
- *
- * The obvious alternative - full weight through the middle of the traverse,
- * fading only where a head is about to overtake the write head - is wrong in
- * a way that hides. Both heads are in the middle at the same time, so the
- * pair has a gain of two: measured, the summed weight runs between 1.0 and
- * 2.0 and on noise it reads +2.09 dB. That cost a wrong conclusion once,
- * before it was measured: with the six-decibel version inside the reverb's
- * feedback path, a loop gain of 0.85 ran away and the loop was blamed. The
- * loop was fine. The knob was lying by six decibels.
- *
- * On noise the correct version reads -1.26 dB, which is not a gain error -
- * it is the two heads combing, and that is the algorithm.
- */
-export const PITCH_SHAPE = 'raised cosine, whole traverse';
+// The two heads' weights, and why they are a raised cosine over the whole
+// traverse.
+//
+// Each head is weighted by a raised cosine over its whole traverse, and the
+// two are half a line apart, so the weights sum to exactly one at every
+// position - (0.5 - 0.5cos x) + (0.5 - 0.5cos(x + pi)) is 1 for every x.
+// Unity gain by construction, and no divide.
+//
+// The obvious alternative - full weight through the middle of the traverse,
+// fading only where a head is about to overtake the write head - is wrong in
+// a way that hides. Both heads are in the middle at the same time, so the
+// pair has a gain of two: measured, the summed weight runs between 1.0 and
+// 2.0 and on noise it reads +2.09 dB. That cost a wrong conclusion once,
+// before it was measured: with the six-decibel version inside the reverb's
+// feedback path, a loop gain of 0.85 ran away and the loop was blamed. The
+// loop was fine. The knob was lying by six decibels.
+//
+// On noise the correct version reads -1.26 dB, which is not a gain error -
+// it is the two heads combing, and that is the algorithm.
 
 /**
  * The shifter: one sample in, one out, two channels.
@@ -138,5 +135,3 @@ export function pitchCore(rate, window = PITCH_WINDOW) {
   return core;
 }
 
-/** A ratio from an interval in cents, which is how a detune is named. */
-export const ratioFromCents = (cents) => 2 ** (cents / 1200);

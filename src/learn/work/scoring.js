@@ -32,6 +32,31 @@ export function distanceCell(steps, unit) {
   };
 }
 
+/**
+ * Where an answer sits on the list its own tier offers.
+ *
+ * 'least' and 'most' at the ends, 'middle' on the centre of an odd list, and
+ * 'lower' or 'upper' either side of it - or null when it is not on the list.
+ * Asked of the list rather than of fixed cut-offs, because the lists differ
+ * by tier: 4 dB is the far end of one tier and the middle of the next.
+ */
+export function placeOn(list, value) {
+  const at = list.indexOf(value);
+  if (at < 0) return null;
+  if (at === 0) return 'least';
+  if (at === list.length - 1) return 'most';
+  const centre = (list.length - 1) / 2;
+  return at === centre ? 'middle' : at < centre ? 'lower' : 'upper';
+}
+
+/** The same, in a hint's words: "the far end of what this tier offers". */
+export function placeSaid(list, value, { least = 'the smallest', most = 'the far end' } = {}) {
+  const where = {
+    least, most, middle: 'the middle', lower: 'the lower half', upper: 'the upper half',
+  }[placeOn(list, value)] ?? 'outside';
+  return `${where} of what this tier offers`;
+}
+
 /** Pick one of a list, deterministically. */
 export const pick = (rng, list) => list[Math.floor(rng() * list.length)];
 

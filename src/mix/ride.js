@@ -36,14 +36,19 @@
 
 import { kWeight } from '../lib/loudness.js';
 import { readingOf, stampOf, gapOf } from '../lib/read.js';
-import { LOOP_BPM, LOOP_BEAT, RIDE_STEPS } from '../lib/tempo.js';
+import { LOOP_BPM, RIDE_STEPS } from '../lib/tempo.js';
 import { STEM_IDS, HOW_LONG } from './piece.js';
 
 /** How many bars a ride is a shape over, which is the loop. */
 export const RIDE_BARS = HOW_LONG;
 
-/** And how long one of them is, in seconds. */
-export const BAR_SECONDS = LOOP_BEAT * 4;
+/**
+ * And how long one of them is, in seconds, at the piece's own tempo.
+ *
+ * Not the app's 96: `late-room` is at 76, and four 96-bpm bars of it read
+ * the first ten seconds of a loop twelve and a half long.
+ */
+export const barSecondsOf = (bpm = LOOP_BPM, beats = 4) => (beats * 60) / bpm;
 
 /**
  * Where a ride is, as a fraction of the way through the loop.
@@ -70,9 +75,9 @@ export { RIDE_STEPS };
 /* --- what came out --------------------------------------------------------- */
 
 /** One part's level in each bar, in decibels, with its own mean taken out. */
-export function barsOf(channels, rate, bars = RIDE_BARS) {
+export function barsOf(channels, rate, { bars = RIDE_BARS, bpm = LOOP_BPM, beats = 4 } = {}) {
   const weighted = channels.map((channel) => kWeight(channel, rate));
-  const span = BAR_SECONDS * rate;
+  const span = barSecondsOf(bpm, beats) * rate;
 
   const levels = [];
   for (let bar = 0; bar < bars; bar += 1) {
@@ -94,29 +99,30 @@ export function barsOf(channels, rate, bars = RIDE_BARS) {
 }
 
 /** Every part's shape over the loop. */
-export function ridesOf(stems, rate, bars = RIDE_BARS) {
+export function ridesOf(stems, rate, tempo = {}) {
   const shapes = {};
   for (const stem of stems) {
     if (stem.kind !== 'track') continue;
     if (!STEM_IDS.includes(stem.id)) continue;
-    shapes[stem.id] = barsOf(stem.channels, stem.rate ?? rate, bars);
+    shapes[stem.id] = barsOf(stem.channels, stem.rate ?? rate, tempo);
   }
   return shapes;
 }
 
-/** What a ride reading is indexed by: the stems, bar by bar. */
-export const RIDE_AXIS = { kind: 'stem-bars', ids: STEM_IDS, bars: RIDE_BARS, bpm: LOOP_BPM };
+/** What a ride reading is indexed by: the stems, bar by bar, at a tempo. */
+export const rideAxisOf = (bpm = LOOP_BPM, beats = 4) =>
+  ({ kind: 'stem-bars', ids: STEM_IDS, bars: RIDE_BARS, bpm, beats });
 
-/** The shapes, in an envelope. */
-export function rideReading(stems, rate, { source = null } = {}) {
-  const shapes = ridesOf(stems, rate);
+/** The shapes, in an envelope. `bpm` and `beats` are the piece's own. */
+export function rideReading(stems, rate, { source = null, bpm = LOOP_BPM, beats = 4 } = {}) {
+  const shapes = ridesOf(stems, rate, { bpm, beats });
   return readingOf({
     tool: null,
     kind: 'ride',
     of: {
       state: stampOf({ parts: Object.keys(shapes).sort(), rate }),
       source,
-      axis: RIDE_AXIS,
+      axis: rideAxisOf(bpm, beats),
     },
     values: { shapes },
   });

@@ -202,7 +202,6 @@ export class StereoPlugin {
     this.reading = null;
 
     this.player = player ?? new StereoPlayer(engine, { source });
-    this.player.setFault(fault);
 
     this.build();
     this.draw();
@@ -211,7 +210,7 @@ export class StereoPlugin {
     // so it follows the sketchpad's transport from the moment it opens.
     if (this.role === 'insert') this.playing(true);
 
-    this.player.prepare()
+    Promise.resolve(this.player.setFault(fault))
       .then(() => { this.measure(); this.draw(); })
       .catch(() => { /* no audio yet; the knobs still work */ });
   }
@@ -487,22 +486,17 @@ export class StereoPlugin {
    */
   async setSource(id) {
     this.player.source = id;
-    this.player.buffer = null;
     const picker = this.el.querySelector('#stereoSource');
     if (picker) picker.value = id;
 
-    await this.player.prepare().catch(() => {});
-    if (this.player.playing) await this.player.play();
+    await Promise.resolve(this.player.setSource?.(id)).catch(() => {});
     this.measure();
     this.draw();
   }
 
   /** A width somebody else already applied, before it reached you. */
   async setFault(fault) {
-    this.player.setFault(fault ?? null);
-    this.player.buffer = null;
-    await this.player.prepare().catch(() => {});
-    if (this.player.playing) await this.player.play();
+    await Promise.resolve(this.player.setFault(fault ?? null)).catch(() => {});
     this.measure();
     this.draw();
   }
@@ -747,8 +741,8 @@ export class StereoPlugin {
     // Dimmed while it is behind, rather than blanked or - as before - drawn
     // at full strength as though it were current. Blanking would flicker on
     // every nudge; the bars still have the shape worth seeing, and the label
-    // below says they are catching up.
-    c.globalAlpha = reading.ready ? 1 : 0.4;
+    // below says they are catching up. Set per bar, as the saturator's are.
+    const behind = !reading.ready;
 
     const slot = width / STEREO_BANDS.length;
     const bar = Math.min(26, slot * 0.5);
@@ -760,7 +754,7 @@ export class StereoPlugin {
       const base = widthY(STEREO_FLOOR, height);
 
       c.fillStyle = agreement(read.correlation, ink);
-      c.globalAlpha = 0.75;
+      c.globalAlpha = behind ? 0.3 : 0.75;
       c.fillRect(x - bar / 2, top, bar, Math.max(1, base - top));
       c.globalAlpha = 1;
 
@@ -785,7 +779,6 @@ export class StereoPlugin {
     c.fillText(reading.ready
       ? 'width by band · green agrees, red argues'
       : 'width by band · measuring…', 6, 12);
-    c.globalAlpha = 1;
   }
 
   writeReadout() {
@@ -887,11 +880,6 @@ export class StereoPlugin {
 
   /** The other side of the A/B, named for what it actually is. */
   nameAB(label) {
-    const slot = this.el.querySelector('#stereoOther');
-    if (slot) slot.textContent = label;
-  }
-
-  nameOther(label) {
     const slot = this.el.querySelector('#stereoOther');
     if (slot) slot.textContent = label;
   }

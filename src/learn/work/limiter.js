@@ -42,7 +42,7 @@ import { TARGETS, targetOfId, ceilingAsked } from '../../lib/targets.js';
 import { distance } from '../../gap.js';
 import { materialStamp } from '../../lib/reduce.js';
 import { stampOf } from '../../lib/read.js';
-import { HIT, NEAR, MISS, onScale, pick } from './scoring.js';
+import { HIT, NEAR, MISS, onScale, pick, placeSaid } from './scoring.js';
 import { mulberry32 } from '../../lib/random.js';
 
 /**
@@ -511,22 +511,6 @@ function ceilTurnSettings(puzzle) {
 }
 
 /**
- * What the service actually took off, once the loop has been pinned.
- *
- * The ladder is what the round asked for; this is what it got, and on the
- * top rungs they come apart - a rung of five lands on five, but there is no
- * drive on this knob that lands on seven. Used by the scoring and the
- * reveal so that both report the measurement rather than the request.
- */
-function ceilTurnReached(puzzle) {
-  const material = ceilMaterial(puzzle);
-  const settings = ceilTurnSettings(puzzle);
-  const target = targetOfId(puzzle.answer?.service) ?? TARGETS[0];
-  const made = ceilMasterOf(material, { ...settings, output: 0 });
-  return { turndown: made.integrated - target.lufs, made, target };
-}
-
-/**
  * The drive that asks the probe for this much reduction, remembered.
  *
  * A target has to be a settings object - every tool-answered exercise here
@@ -736,7 +720,7 @@ function ceilSpecOf(puzzle) {
   };
 }
 
-export const CEIL_EXERCISES = {
+const CEIL_EXERCISES = {
   match: {
     id: 'match',
     // The target is the settings that win, so it can go on the controls
@@ -999,17 +983,14 @@ export const CEIL_WORK = {
     easy: {
       label: 'Easy',
       blurb: 'Moderate amounts, one delivery target, the release left alone',
-      guesses: 3,
     },
     medium: {
       label: 'Medium',
       blurb: 'More to take off, two targets, and the release moves',
-      guesses: 4,
     },
     hard: {
       label: 'Hard',
       blurb: 'Up to twelve decibels, four targets, and one of them is reached by turning down',
-      guesses: 4,
     },
   },
 
@@ -1259,9 +1240,8 @@ export const CEIL_WORK = {
             ? 'It is a working amount: the hits are being held but the loop still breathes.'
             : 'It is gentle - the sort of amount that catches the odd peak and little else.',
         `It is ${writeCeilGR(db)} at its deepest, which is `
-          + `${db >= 6 ? 'the heavy end of what this tier offers'
-            : db >= 3 ? 'the middle of what this tier offers'
-              : 'the lightest step this tier offers'}.`,
+          + `${placeSaid(CEIL_LADDER[puzzle.tier] ?? CEIL_LADDER.medium, db,
+            { least: 'the lightest', most: 'the heavy end' })}.`,
       ];
     }
 
@@ -1283,8 +1263,7 @@ export const CEIL_WORK = {
               + 'taken off the top of them and the loop still breathes underneath.',
         `${target.name} took ${writeCeilTurn(db)} off it, which is `
           + `${db < 0.05 ? 'nothing - it arrived on target'
-            : db >= 4 ? 'the far end of what this tier offers'
-              : 'the gentler end of what this tier offers'}.`,
+            : placeSaid(CEIL_TURNDOWN[puzzle.tier] ?? CEIL_TURNDOWN.medium, db)}.`,
       ];
     }
 
@@ -1304,7 +1283,9 @@ export const CEIL_WORK = {
               + 'shape.'
             : 'Nothing is moving, and the hits have grit on them. That is a '
               + 'shape being cut rather than a gain being turned.',
-        `It is ${wanted.symbol}, which is what was holding the ceiling.`,
+        wanted.id === 'none'
+          ? 'It is just turned up: nothing was holding the ceiling.'
+          : `It is ${wanted.symbol}, which is what was holding the ceiling.`,
       ];
     }
 
@@ -1356,7 +1337,10 @@ export const CEIL_WORK = {
 
     if (exercise === 'held') {
       const wanted = CEIL_HELD.find((h) => h.id === answer.held) ?? CEIL_HELD[1];
-      return { symbol: wanted.symbol, name: 'was holding the ceiling' };
+      return {
+        symbol: wanted.symbol,
+        name: wanted.id === 'none' ? 'and nothing holding the ceiling' : 'was holding the ceiling',
+      };
     }
 
     if (exercise === 'deliver') {

@@ -1,5 +1,7 @@
 import * as heat from './shape.js';
-import { shaperCore, overKernel, shape, rectify, foldOver, crushTo } from './shape.js';
+import {
+  shaperCore, overKernel, shape, rectify, foldOver, crushTo, tubeBend, bendOf,
+} from './shape.js';
 import { makeBiquad, setBiquad, runBiquad } from '../../lib/dsp.js';
 import { workletModule, installWorklet } from '../../lib/worklet.js';
 
@@ -18,7 +20,7 @@ import { workletModule, installWorklet } from '../../lib/worklet.js';
 
 const HEAT_PARTS = [
   makeBiquad, setBiquad, runBiquad,
-  shape, rectify, foldOver, crushTo, overKernel, shaperCore,
+  shape, rectify, foldOver, crushTo, tubeBend, bendOf, overKernel, shaperCore,
 ];
 
 /**

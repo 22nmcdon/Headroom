@@ -279,6 +279,12 @@ export function mixAdvice(marked) {
     case 'placement':
       return `Something${where} is further ${worst.detail?.side ?? 'over'} than it should be.`;
     case 'width':
+      // `placed` is the whole image's left-right balance, which `stereoGap`
+      // reports instead of a band when it is the bigger miss - positive is
+      // heavier on the left.
+      if (worst.detail?.placed) {
+        return `The whole image sits too far to the ${worst.detail.placed > 0 ? 'left' : 'right'}.`;
+      }
       return `The image is ${worst.detail?.wider > 0 ? 'wider' : 'narrower'} than it should be${where}.`;
     case 'crest':
       return 'The peaks sit differently against the body of it — usually a level, not a pan.';
@@ -339,18 +345,6 @@ export function mixAdvice(marked) {
     default:
       return 'Keep going.';
   }
-}
-
-/**
- * How close the whole thing is, as one number between 0 and 1.
- *
- * For a progress bar and nothing else. Every reading as a fraction of its own
- * tolerance, the worst one taken, and inverted - so 1 is the answer and 0 is
- * four times out. Never used to decide anything: `solved` does that.
- */
-export function howClose(marked) {
-  const worst = Math.max(...marked.readings.map((reading) => reading.off / reading.allowed));
-  return Math.max(0, Math.min(1, 1 - (worst - 1) / 3));
 }
 
 export { HIT, NEAR, MISS };

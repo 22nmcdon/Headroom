@@ -217,9 +217,9 @@ export function widenCore(rate, makeAP, setAP, runAP, pitch) {
     back = Math.max(1, Math.round((ms / 1000) * rate));
     amount = Math.max(WIDEN_AMOUNT[0], Math.min(WIDEN_AMOUNT[1], state.widenAmount ?? 0));
 
-    // The all-pass chain's corners, set from the tap lengths as frequencies -
-    // a first-order all-pass at 1/(2 pi t) turns through ninety degrees where
-    // a delay of t would turn through a quarter cycle.
+    // The all-pass chain's corners, set from the tap lengths as frequencies,
+    // 1/(2 pi t). `setBiquad` builds a second-order all-pass, which turns
+    // through a hundred and eighty degrees at its corner, not ninety.
     for (let k = 0; k < chain.length; k += 1) {
       setAP(chain[k], 'allpass', 1 / (2 * Math.PI * ALLPASS_TAPS[k]), rate);
     }

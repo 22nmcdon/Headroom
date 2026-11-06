@@ -12,8 +12,8 @@
 //
 // Twenty-four bit by default. Sixteen is what a CD is, and a stem is not a
 // CD: it is an intermediate, it will be summed with others and processed
-// again, and the fourteen decibels of extra floor cost nothing but a third
-// more disk for something that is about to be deleted.
+// again, and the forty-eight decibels of extra floor cost nothing but half as
+// much disk again for something that is about to be deleted.
 
 /** What the format field says for plain PCM. */
 const PCM = 1;

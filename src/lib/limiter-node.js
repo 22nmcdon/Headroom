@@ -51,10 +51,15 @@ const LIMITER_PROCESSOR = `class HeadroomLimiter extends AudioWorkletProcessor {
     this.limiter = makeLimiter(sampleRate, asked);
     this.deepest = 0;
     this.since = 0;
-    this.port.onmessage = (event) => this.limiter.set(event.data);
+    this.alive = true;
+    this.port.onmessage = (event) => {
+      if (event.data && event.data.stop) this.alive = false;
+      else this.limiter.set(event.data);
+    };
   }
 
   process(inputs, outputs) {
+    if (!this.alive) return false;
     const ins = inputs[0];
     const outs = outputs[0];
     if (!ins || !ins.length || !ins[0]) {
@@ -72,7 +77,7 @@ const LIMITER_PROCESSOR = `class HeadroomLimiter extends AudioWorkletProcessor {
     // The deepest reduction over the block rather than the one at the end of
     // it: a limiter's gain moves inside a block, and the figure anybody wants
     // off a limiter is how far down it went.
-    if (this.limiter.reduction < this.deepest) this.deepest = this.limiter.reduction;
+    if (this.limiter.deepest < this.deepest) this.deepest = this.limiter.deepest;
     this.since += outs[0].length;
     if (this.since >= ${LIMIT_REPORT}) {
       this.port.postMessage(this.deepest);
@@ -128,6 +133,12 @@ export async function makeLimiterNode(ctx, options = {}) {
       node,
       set: (settings) => node.port.postMessage(settings),
       readReduction,
+      // Stops the processor for good, so the audio thread lets it go.
+      destroy: () => {
+        node.port.postMessage({ stop: true });
+        node.port.onmessage = null;
+        node.disconnect();
+      },
     };
   }
 
@@ -145,7 +156,7 @@ export async function makeLimiterNode(ctx, options = {}) {
       outs.push(to);
     }
     engine.block(outs);
-    deepen(engine.reduction);
+    deepen(engine.deepest);
   };
   return {
     in: node,
@@ -153,5 +164,9 @@ export async function makeLimiterNode(ctx, options = {}) {
     node,
     set: (settings) => engine.set(settings),
     readReduction,
+    destroy: () => {
+      node.onaudioprocess = null;
+      node.disconnect();
+    },
   };
 }

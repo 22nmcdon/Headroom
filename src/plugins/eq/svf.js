@@ -260,7 +260,8 @@ export function svfRack(rate, slots, channels = 2) {
 
   return {
     /**
-     * Where the sections are going: five numbers each, laid out flat.
+     * Where the sections are going: `SECTION_WIDTH` numbers each, laid out
+     * flat.
      *
      * Flat because this crosses a port. `immediately` is for a render rather
      * than a performance - an offline render of a track with an EQ on it

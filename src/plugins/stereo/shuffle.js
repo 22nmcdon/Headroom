@@ -135,14 +135,13 @@ export const PHASE_MATCHED = false;
  * same whether this is doing anything or not.
  */
 export function shuffleCore(rate, make, set, run) {
-  // Four stages for the steepest slope on offer. The gentle one is a one-pole
+  // `STEEP_STAGES` biquads for the steep slope. The gentle one is a one-pole
   // and cannot be a biquad: a biquad at this file's Q is two poles whatever
   // you ask it for, and six decibels an octave is one.
-  const sideHP = [make(), make(), make(), make()];
+  const sideHP = Array.from({ length: STEEP_STAGES }, () => make());
   const sideShelf = make();
   const onePole = { a: 0, z: 0 };
 
-  let order = 0;
   let gentle = false;
   let cutting = false;
   let lifting = false;
@@ -154,7 +153,6 @@ export function shuffleCore(rate, make, set, run) {
     const hz = Math.max(MONO_RANGE[0], Math.min(MONO_RANGE[1], state.monoBelow || MONO_RANGE[0]));
     const slope = MONO_SLOPES.find((s) => s.id === state.monoSlope) ?? MONO_SLOPES[0];
     gentle = slope.order === 1;
-    order = slope.order;
 
     if (cutting) {
       if (gentle) onePole.a = Math.exp((-2 * Math.PI * hz) / rate);
@@ -190,7 +188,7 @@ export function shuffleCore(rate, make, set, run) {
           onePole.z = side * (1 - onePole.a) + onePole.z * onePole.a;
           side -= onePole.z;
         } else {
-          for (let k = 0; k < STEEP_STAGES; k += 1) side = run(sideHP[k], side);
+          for (const stage of sideHP) side = run(stage, side);
         }
       }
 

@@ -706,3 +706,24 @@ test('auto gain can be switched off, and then the trim is unity', () => {
   tuneSections(chain, bands, 0, rate, null, { glide: false, autoGain: false });
   assert.equal(chain.trim.gain.value, 1);
 });
+
+test('a fix round is filed under the zone its resonance was drawn from', async () => {
+  // Snapped to a third of an octave, a resonance drawn near a zone's edge
+  // lands over it: boxiness drawn at 410 Hz snaps to 397, which is mud, and
+  // honk drawn at 2480 snaps to 2520, which is no zone at all. The zone is
+  // named when the fault is drawn, so that is the one.
+  const { EQ_WORK } = await import('../src/learn/work/eq.js');
+  const { makePuzzle } = await import('../src/learn/game.js');
+  let crossed = 0;
+  for (const tier of Object.keys(EQ_WORK.tiers)) {
+    for (let n = 0; n < 300; n += 1) {
+      const puzzle = makePuzzle({ mode: 'eq', tier, settings: { exercise: 'fix' }, seed: `zone-${n}` });
+      assert.equal(EQ_WORK.weak(puzzle).key, puzzle.fault.name, `${tier} seed ${n}`);
+      const { frequency } = puzzle.fault;
+      if (!['mud', 'boxiness', 'honk', 'harshness'].some((zone, i) =>
+        zone === puzzle.fault.name
+        && frequency >= [150, 400, 1200, 3000][i] && frequency < [400, 900, 2500, 6500][i])) crossed += 1;
+    }
+  }
+  assert.ok(crossed > 0, 'the sweep should include faults that snapped over an edge');
+});

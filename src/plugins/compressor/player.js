@@ -1,6 +1,7 @@
 import { COMP_DEFAULTS } from './dsp.js';
 import { reductionPass } from './reading.js';
 import { LiveCompressor } from './node.js';
+import { LoopPlayer } from '../../lib/loop-player.js';
 
 /**
  * The loop, running through two compressors you can flip between.
@@ -19,71 +20,98 @@ import { LiveCompressor } from './node.js';
  * sidechain is a second recording: the kick that the bass has to get out of
  * the way of. It reaches both detectors, and it is also heard unprocessed,
  * because a duck you cannot hear the trigger for is just a level drop.
+ *
+ * Starting, stopping, swapping the loop and taking it all down are
+ * lib/loop-player.js's; what is here is only what is this tool's. The one
+ * place this player's material is more than the base's is that it is three
+ * renders rather than one - the signal, the key, and the bed without its
+ * fault - which is what `material` and `prepare` below are about.
+ *
+ * The compressor (and the Gate and De-esser faces in aimed.js, which are
+ * this player under other knobs) has no fault to bake: its fault is how
+ * uneven the bed was rendered, so `setFault` re-renders rather than bakes.
  */
-export class CompPlayer {
+export class CompPlayer extends LoopPlayer {
   constructor(engine, { source = 'drums', key = null, uneven = 0 } = {}) {
-    this.engine = engine;
-    this.source = source;
+    super(engine, { source, spread: false });
     this.key = key;
     this.uneven = uneven;
-    this.hearing = 'mine';
     this.settings = { ...COMP_DEFAULTS };
     this.target = null;
     this.auto = true;
-    this.ready = false;
     this.samples = null;
     // The material as channels, which is what a reading is taken over. One
     // entry for a bed, two for a stereo file somebody loaded - see
     // `analyseStereo` for why the second one matters.
     this.channels = null;
+    this.keyBuffer = null;
     this.keySamples = null;
     this.trace = null;      // reused between passes
     this.reading = null;    // what the last pass found
     this.evenSamples = null; // the bed with the fault taken out, for marking
   }
 
-  async build() {
-    if (this.ready) return;
-    const ctx = this.engine.ensure();
-
-    this.outMeter = ctx.createAnalyser();
+  async raise(ctx) {
+    this.outMeter = this.own(ctx.createAnalyser());
     this.outMeter.fftSize = 1024;
     this.outMeter.connect(this.engine.out);
 
-    this.inMeter = ctx.createAnalyser();
+    this.inMeter = this.own(ctx.createAnalyser());
     this.inMeter.fftSize = 1024;
 
-    this.mine = await new LiveCompressor(ctx).start();
-    this.theirs = await new LiveCompressor(ctx).start();
+    this.mine = this.own(await new LiveCompressor(ctx).start());
+    this.theirs = this.own(await new LiveCompressor(ctx).start());
 
-    this.mineGain = ctx.createGain();
-    this.mineGain.gain.value = 1;
-    this.theirsGain = ctx.createGain();
-    this.theirsGain.gain.value = 0;
+    // The A/B, under the base's names for it, so the base's flip is this one.
+    this.mineOut = this.own(ctx.createGain());
+    this.mineOut.gain.value = 1;
+    this.theirsOut = this.own(ctx.createGain());
+    this.theirsOut.gain.value = 0;
 
-    this.mine.connect(this.mineGain).connect(this.outMeter);
-    this.theirs.connect(this.theirsGain).connect(this.outMeter);
+    this.mine.connect(this.mineOut).connect(this.outMeter);
+    this.theirs.connect(this.theirsOut).connect(this.outMeter);
 
     // The trigger, heard as itself. It is the same on both sides of the A/B,
     // so it sits outside the switch.
-    this.keyThrough = ctx.createGain();
-    this.keyThrough.gain.value = this.key ? 1 : 0;
+    this.keyThrough = this.own(ctx.createGain());
     this.keyThrough.connect(this.outMeter);
-
-    this.ready = true;
-    this.push();
   }
 
   /* ---------- the material ---------- */
 
+  /**
+   * The signal, and beside it the key and the even bed, all rendered at once.
+   *
+   * The base asks for one loop and keeps whichever was asked for last; this
+   * one hands it the signal and leaves the other two where `prepare` will
+   * find them - but only when it is still the last one asked, so a slow
+   * render for a sample somebody has since moved off cannot leave its key
+   * beside the newer signal.
+   */
+  async material() {
+    const asked = this.asked;
+    const [signal, key, even] = await Promise.all([
+      this.source === 'yours'
+        ? this.yours
+        : this.engine.renderLoop(this.source, { uneven: this.uneven }),
+      this.key ? this.engine.renderLoop(this.key) : null,
+      // The same bed without the fault in it, and never played: it is what
+      // evening the loop out is aiming at, which makes it the answer rather
+      // than a clue. Rendered here because the fault is set here - the
+      // exercise used to render it itself, in an unawaited block, which is
+      // how scoring ended up able to fall back to a synthetic probe.
+      this.uneven && this.source !== 'yours' ? this.engine.renderLoop(this.source) : null,
+    ]);
+    if (asked === this.asked) this.alongside = { key, even };
+    return signal;
+  }
+
   /** Renders what this exercise runs on, without needing to play it. */
   async prepare() {
-    const signal = this.source === 'yours'
-      ? this.yours
-      : await this.engine.renderLoop(this.source, { uneven: this.uneven });
-    if (!signal) return false;
+    if (!(await super.prepare())) return false;
+    const signal = this.buffer;
+    const { key, even } = this.alongside ?? {};
 
-    this.buffer = signal;
     // Two at most: the compressor's gain is one gain across the channels, so
     // a pair is all the detector can be told apart by, and nothing upstream
     // of here has ever been more than stereo.
@@ -95,36 +123,44 @@ export class CompPlayer {
     // a picture rather than a measurement.
     this.samples = this.channels[0];
 
-    if (this.key) {
-      const key = await this.engine.renderLoop(this.key);
-      this.keyBuffer = key;
-      // The two stems are the same loop length, so they line up sample for
-      // sample; a key that drifted against the signal would duck the wrong beat.
-      this.keySamples = key.getChannelData(0);
-    } else {
-      this.keyBuffer = null;
-      this.keySamples = null;
-    }
+    // The two stems are the same loop length, so they line up sample for
+    // sample; a key that drifted against the signal would duck the wrong beat.
+    this.keyBuffer = key ?? null;
+    this.keySamples = key ? key.getChannelData(0) : null;
 
-    // The same bed without the fault in it, and never played: it is what
-    // evening the loop out is aiming at, which makes it the answer rather
-    // than a clue. Rendered here because the fault is set here - the exercise
-    // used to render it itself, in an unawaited block, which is how scoring
-    // ended up able to fall back to a synthetic probe.
-    this.evenBuffer = this.uneven && this.source !== 'yours'
-      ? await this.engine.renderLoop(this.source)
-      : signal;
+    this.evenBuffer = even ?? signal;
     this.evenSamples = this.evenBuffer.getChannelData(0);
 
     this.measure();
     return true;
   }
 
-  /** Something the player brought themselves. */
-  async load(file) {
-    const ctx = this.engine.ensure();
-    this.yours = await ctx.decodeAudioData(await file.arrayBuffer());
-    return this.yours;
+  /**
+   * Whatever was read off the last material, let go of as soon as the
+   * material is changing, so nothing is drawn or marked against a loop that
+   * is on its way out. The loop itself keeps playing until the new one is
+   * ready to take its place.
+   */
+  forget() {
+    this.samples = null;
+    this.channels = null;
+  }
+
+  setSource(id) {
+    this.forget();
+    return super.setSource(id);
+  }
+
+  /**
+   * How uneven the bed is, which is this tool's fault: not a filter in the
+   * path but how far apart the hits are before you touch them, so setting it
+   * renders the material again and plays the new one if the old was playing.
+   */
+  setFault(fault) {
+    this.fault = fault ?? null;
+    this.uneven = typeof fault === 'number' ? fault : (fault?.uneven ?? 0);
+    this.forget();
+    return this.refresh();
   }
 
   /* ---------- what the settings do ---------- */
@@ -177,6 +213,18 @@ export class CompPlayer {
     }
   }
 
+  /**
+   * What the base asks for once the graph is up and before every play: the
+   * settings onto the audio thread, and the key heard only when there is one.
+   * Per play rather than once, because the key travels with the source now
+   * and a round can take it away again.
+   */
+  apply() {
+    if (!this.ready) return;
+    this.keyThrough.gain.value = this.keyBuffer ? 1 : 0;
+    this.push();
+  }
+
   setSettings(settings) {
     this.settings = { ...this.settings, ...settings };
     return this.measure();
@@ -194,67 +242,25 @@ export class CompPlayer {
 
   /* ---------- transport ---------- */
 
-  hear(which) {
-    this.hearing = which;
-    if (!this.ready) return;
-    const at = this.engine.ctx.currentTime;
-    this.mineGain.gain.setTargetAtTime(which === 'mine' ? 1 : 0, at, 0.008);
-    this.theirsGain.gain.setTargetAtTime(which === 'mine' ? 0 : 1, at, 0.008);
-  }
-
-  async play() {
-    await this.build();
-    if (!this.samples) await this.prepare();
-    if (!this.samples) return false;
-
-    this.stop();
-    const ctx = this.engine.ctx;
-    // Both stems start on the same stamp, or the kick lands on the wrong
-    // eighth of the bass and the whole exercise is about a different bar.
-    const at = ctx.currentTime + 0.08;
-
-    this.signalNode = ctx.createBufferSource();
-    this.signalNode.buffer = this.buffer;
-    this.signalNode.loop = true;
-    this.signalNode.connect(this.inMeter);
-    this.signalNode.connect(this.mine.input, 0, 0);
-    this.signalNode.connect(this.theirs.input, 0, 0);
+  /**
+   * Both stems start on the same stamp, or the kick lands on the wrong
+   * eighth of the bass and the whole exercise is about a different bar. The
+   * base hands every `start` here the one `at`, which is what keeps them so.
+   */
+  wire(at) {
+    this.start(this.buffer, (node) => {
+      node.connect(this.inMeter);
+      node.connect(this.mine.input, 0, 0);
+      node.connect(this.theirs.input, 0, 0);
+    }, at);
 
     if (this.keyBuffer) {
-      this.keyNode = ctx.createBufferSource();
-      this.keyNode.buffer = this.keyBuffer;
-      this.keyNode.loop = true;
-      this.keyNode.connect(this.mine.keyIn, 0, this.mine.keyAt);
-      this.keyNode.connect(this.theirs.keyIn, 0, this.theirs.keyAt);
-      this.keyNode.connect(this.keyThrough);
-      this.keyNode.start(at);
+      this.start(this.keyBuffer, (node) => {
+        node.connect(this.mine.keyIn, 0, this.mine.keyAt);
+        node.connect(this.theirs.keyIn, 0, this.theirs.keyAt);
+        node.connect(this.keyThrough);
+      }, at);
     }
-
-    this.signalNode.start(at);
-    this.startedAt = at;
-    return true;
-  }
-
-  stop() {
-    for (const node of [this.signalNode, this.keyNode]) {
-      if (!node) continue;
-      try { node.stop(); } catch { /* already stopped */ }
-      node.disconnect();
-    }
-    this.signalNode = null;
-    this.keyNode = null;
-  }
-
-  get playing() {
-    return Boolean(this.signalNode);
-  }
-
-  /** Where the loop has got to, as a fraction of it - for the playhead. */
-  get position() {
-    if (!this.playing || !this.buffer) return null;
-    const on = this.engine.ctx.currentTime - this.startedAt;
-    if (on < 0) return 0;
-    return (on % this.buffer.duration) / this.buffer.duration;
   }
 
   /** The deepest reduction the audio thread has applied since last asked. */
@@ -278,14 +284,5 @@ export class CompPlayer {
       return 20 * Math.log10(peak + 1e-6);
     };
     return { input: read(this.inMeter), output: read(this.outMeter) };
-  }
-
-  destroy() {
-    this.stop();
-    this.mine?.destroy();
-    this.theirs?.destroy();
-    try { this.keyThrough?.disconnect(); } catch { /* already gone */ }
-    try { this.outMeter?.disconnect(); } catch { /* already gone */ }
-    this.ready = false;
   }
 }

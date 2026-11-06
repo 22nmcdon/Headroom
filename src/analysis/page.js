@@ -29,10 +29,10 @@ const OWN = [
   { id: 'noise', label: 'Pink noise' },
 ];
 
-/** What a slot is called, and what colour it is drawn in. */
+/** What a slot is called. Yours draws in `ink`, the reference in `accent`. */
 const SLOTS = [
-  { id: 'yours', label: 'Yours', tint: '--charcoal' },
-  { id: 'reference', label: 'Reference', tint: '--blush-deep' },
+  { id: 'yours', label: 'Yours' },
+  { id: 'reference', label: 'Reference' },
 ];
 
 /** A difference, with its sign on it. Named for what it is used for here. */
@@ -41,7 +41,7 @@ const writeOff = (db, places = 1) =>
 
 const writeLufs = (lufs) => (Number.isFinite(lufs) ? `${lufs.toFixed(1)}` : '—');
 
-/** The colours, read off the page so the view follows the analysisPalette. */
+/** The colours, read off the page so the view follows the theme. */
 function analysisPalette(el) {
   const style = getComputedStyle(el);
   const read = (name) => style.getPropertyValue(name).trim();
@@ -50,11 +50,7 @@ function analysisPalette(el) {
     line: read('--line'),
     soft: read('--text-soft'),
     accent: read('--blush-deep'),
-    blush: read('--blush'),
-    sage: read('--sage'),
     gold: read('--gold'),
-    rust: read('--rust'),
-    paper: read('--paper'),
   };
 }
 
@@ -88,6 +84,9 @@ export class AnalysisPage {
     this.engine = engine;
     this.slots = { yours: null, reference: null };
     this.names = { yours: '', reference: '' };
+    // One number per slot, taken by every pick, file and clear. A load that
+    // finds its number gone was overtaken and puts nothing in the slot.
+    this.loads = { yours: 0, reference: 0 };
     this.gone = false;
 
     this.build();
@@ -176,6 +175,9 @@ export class AnalysisPage {
 
   /** One of this app's own loops, rendered and read. */
   async putOwn(id, which) {
+    this.loads[id] += 1;
+    const load = this.loads[id];
+
     if (!which) {
       this.slots[id] = null;
       this.names[id] = '';
@@ -186,23 +188,33 @@ export class AnalysisPage {
 
     const own = OWN.find((o) => o.id === which);
     this.note(`Rendering ${own.label.toLowerCase()}…`);
-    const buffer = await this.engine.renderLoop(which, { spread: true });
-    this.take(id, buffer, own.label);
+    try {
+      const buffer = await this.engine.renderLoop(which, { spread: true });
+      if (this.loads[id] !== load) return;
+      this.take(id, buffer, own.label, load);
+    } catch (why) {
+      if (this.loads[id] === load) this.note(`${own.label} could not be rendered: ${why.message}`);
+    }
   }
 
   /** Something off somebody's disk, decoded and read. */
   async putFile(id, file) {
     if (!file) return;
 
+    this.loads[id] += 1;
+    const load = this.loads[id];
+
     this.note(`Reading ${file.name}…`);
     try {
       const ctx = this.engine.ensure();
       const buffer = await ctx.decodeAudioData(await file.arrayBuffer());
-      this.take(id, buffer, file.name);
+      if (this.loads[id] !== load) return;
+      this.take(id, buffer, file.name, load);
       // The dropdown no longer describes what is loaded, so it stops claiming to.
       const pick = this.el.querySelector(`[data-pick="${id}"]`);
       if (pick) pick.value = '';
     } catch {
+      if (this.loads[id] !== load) return;
       this.note(`${file.name} could not be decoded. A wav, an mp3 or an m4a will work.`);
     }
   }
@@ -216,14 +228,20 @@ export class AnalysisPage {
    * is told what is happening, and given a chance to paint it, before the
    * main thread stops answering.
    */
-  take(id, buffer, name) {
+  take(id, buffer, name, load = this.loads[id]) {
     // A frame to lay the message out, then a turn of the loop to paint it,
     // and only then the arithmetic. Doing the work inside the frame callback
     // blocks the very paint it was waiting for, and the message that says
     // what is happening appears after it has finished happening.
     requestAnimationFrame(() => setTimeout(() => {
-      if (this.gone) return;
-      const read = readAll(channelsOf(buffer), buffer.sampleRate, name);
+      if (this.gone || this.loads[id] !== load) return;
+      let read;
+      try {
+        read = readAll(channelsOf(buffer), buffer.sampleRate, name);
+      } catch (why) {
+        this.note(`${name} could not be read: ${why.message}`);
+        return;
+      }
       this.slots[id] = read;
       this.names[id] = name;
       // The buffer goes with the reading now. It used to be dropped here,
@@ -315,15 +333,29 @@ export class AnalysisPage {
     const gap = distance(mine.balance, theirs.balance);
     const loud = mine.loudness.values.integrated - theirs.loudness.values.integrated;
 
+    // Silence, or under one 400 ms block, has no integrated loudness - it is
+    // -Infinity, and the difference of two of them is not a sentence.
+    const silent = (read) => !Number.isFinite(read.loudness.values.truePeak);
+    const unread = (read, who) => {
+      if (silent(read)) return `${who} is silent, so there is no loudness to compare.`;
+      if (read.seconds < 0.4) return `${who} is under the 400 ms a loudness needs, so there is none to compare.`;
+      return `${who} is too quiet to have a loudness, so there is none to compare.`;
+    };
+
     // Anything under half of what gets printed is nothing. This sentence
     // shows one decimal, so "0.0 LU quieter" is a reading claiming a
     // direction it has just rounded away - and the same material in both
     // slots is the first thing anybody does to see what the page is for.
     const NIL = 0.05;
 
-    const level = Math.abs(loud) < NIL
-      ? 'Yours and the reference are the same loudness.'
-      : `Yours is ${Math.abs(loud).toFixed(1)} LU ${loud > 0 ? 'louder' : 'quieter'}.`;
+    let level;
+    if (!Number.isFinite(mine.loudness.values.integrated)) level = unread(mine, 'Yours');
+    else if (!Number.isFinite(theirs.loudness.values.integrated)) level = unread(theirs, 'The reference');
+    else if (Math.abs(loud) < NIL) level = 'Yours and the reference are the same loudness.';
+    else level = `Yours is ${Math.abs(loud).toFixed(1)} LU ${loud > 0 ? 'louder' : 'quieter'}.`;
+
+    // Nor is a spectrum of nothing: silence reads every band at the floor.
+    if (silent(mine) || silent(theirs)) return level;
 
     // `where` is null when not one band differs, which is what `balanceGap`
     // says about a thing against itself - every comparator here uses that
@@ -447,7 +479,8 @@ export class AnalysisPage {
 
     const pad = { left: 34, right: 34, top: 10, bottom: 18 };
     const plot = { w: width - pad.left - pad.right, h: height - pad.top - pad.bottom };
-    const span = Math.max(mine.seconds, 1);
+    // The longer of the two, or a longer reference draws off the right.
+    const span = Math.max(mine.seconds, this.slots.reference?.seconds ?? 0, 1);
     const x = (t) => pad.left + (t / span) * plot.w;
 
     // Loudness on the left at a fixed -40 to 0, crest on the right at 0 to 30.

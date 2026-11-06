@@ -1,7 +1,8 @@
 import {
-  CEIL_DEFAULTS, CEIL_DRIVE, CEIL_OUTPUT, CEIL_RANGE, CEIL_RELEASE, heldTo,
+  CEIL_DEFAULTS, CEIL_DRIVE, CEIL_OUTPUT, ceilingOptions, heldTo,
 } from './ceiling.js';
 import { makeLimiterNode } from '../../lib/limiter-node.js';
+import { LoopPlayer, GLIDE } from '../../lib/loop-player.js';
 
 /**
  * The loop, through a drive, a ceiling and a trim - and the same loop beside
@@ -19,43 +20,27 @@ import { makeLimiterNode } from '../../lib/limiter-node.js';
  * question nobody needed a limiter to settle.
  *
  * Both sides are always fed, so flipping is a pair of gains rather than a
- * rebuild - and both run off the same loop started at the same instant, so
- * the flip lands on the same bar of music rather than at the beginning.
+ * rebuild - and both run off the one source, so the flip lands on the same
+ * bar of music rather than at the beginning.
+ *
+ * Starting, stopping, swapping the loop and taking it all down are
+ * lib/loop-player.js's; what is here is only what is this tool's.
  */
-export class CeilingPlayer {
+export class CeilingPlayer extends LoopPlayer {
   constructor(engine, { source = 'mix' } = {}) {
-    this.engine = engine;
-    this.source = source;
-    this.hearing = 'mine';
+    super(engine, { source });
     this.settings = { ...CEIL_DEFAULTS };
-    this.fault = null;
-    this.ready = false;
-    this.buffer = null;
-    this.raw = null;
-    this.yours = null;
   }
 
-  /**
-   * What the limiter node is built with, as it reads it.
-   *
-   * Clamped with `ceiling.js`'s own clamp rather than a local one, so the
-   * audio and the meter cannot disagree about what a setting means.
-   */
+  /** What the limiter node is built with, from the same function as the reading. */
   limiterOptions() {
-    return {
-      ceiling: heldTo(this.settings.ceiling ?? CEIL_DEFAULTS.ceiling, CEIL_RANGE),
-      release: heldTo(this.settings.release ?? CEIL_DEFAULTS.release, CEIL_RELEASE) / 1000,
-      truePeak: (this.settings.peak ?? 'true') === 'true',
-    };
+    return ceilingOptions(this.settings);
   }
 
-  async build() {
-    if (this.ready) return;
-    const ctx = this.engine.ensure();
-
-    this.drive = ctx.createGain();
-    this.trim = ctx.createGain();
-    this.bypass = ctx.createGain();
+  async raise(ctx) {
+    this.drive = this.own(ctx.createGain());
+    this.trim = this.own(ctx.createGain());
+    this.bypass = this.own(ctx.createGain());
     this.drive.gain.value = 1;
     this.trim.gain.value = 1;
     this.bypass.gain.value = 1;
@@ -63,33 +48,23 @@ export class CeilingPlayer {
     // The real thing, off lib/limiter.js, with its knobs reachable while it
     // runs - which is why that file grew a `set`. Rebuilding the node per
     // step of a dragged ceiling would be a new delay line and a click a step.
-    this.limiter = await makeLimiterNode(ctx, this.limiterOptions());
+    // Its `destroy` stops the processor for good as well as unplugging it,
+    // and that is what `own` has called on it when the tool closes.
+    this.limiter = this.own(await makeLimiterNode(ctx, this.limiterOptions()));
 
-    this.mineOut = ctx.createGain();
-    this.bypassOut = ctx.createGain();
+    // The bypass side's out is `theirsOut`, so the base's flip is this
+    // tool's A/B as it stands.
+    this.mineOut = this.own(ctx.createGain());
+    this.theirsOut = this.own(ctx.createGain());
     this.mineOut.gain.value = 1;
-    this.bypassOut.gain.value = 0;
+    this.theirsOut.gain.value = 0;
 
     this.drive.connect(this.limiter.in);
     this.limiter.out.connect(this.trim).connect(this.mineOut).connect(this.engine.out);
-    this.bypass.connect(this.bypassOut).connect(this.engine.out);
-
-    this.ready = true;
-    this.setSettings(this.settings);
+    this.bypass.connect(this.theirsOut).connect(this.engine.out);
   }
 
   /* ---------- the material ---------- */
-
-  async prepare() {
-    const loop = this.source === 'yours'
-      ? this.yours
-      : await this.engine.renderLoop(this.source, { spread: true });
-    if (!loop) return false;
-
-    this.raw = this.fault ? this.bake(loop, this.fault) : loop;
-    this.buffer = this.raw;
-    return true;
-  }
 
   /**
    * The loop with somebody else's trim already on it.
@@ -99,6 +74,10 @@ export class CeilingPlayer {
    * doing six decibels is a limiter and not a faulty loop. What a fault is
    * for here is the case where the loop arrives too hot to begin with, which
    * is the ordinary state of a mix handed to a mastering engineer.
+   *
+   * Which is also why the bypass is fed the loop with the fault in it and
+   * not `raw`: the fault is the mix as it was handed over, and what the
+   * bypass is the other side of is the limiter, not the trim.
    */
   bake(loop, fault) {
     const ctx = this.engine.ctx;
@@ -111,12 +90,6 @@ export class CeilingPlayer {
       out.copyToChannel(Float32Array.from(from, (v) => v * g), c);
     }
     return out;
-  }
-
-  async load(file) {
-    const ctx = this.engine.ensure();
-    this.yours = await ctx.decodeAudioData(await file.arrayBuffer());
-    return this.yours;
   }
 
   /**
@@ -134,26 +107,22 @@ export class CeilingPlayer {
     return this.windowOf(this.buffer, seconds);
   }
 
-  /** And the same window of the loop as it arrived, for the bypass. */
+  /**
+   * And the same window of the loop as the bypass hears it: as it arrived at
+   * the limiter, fault and all - which is the same window as `sample`.
+   */
   untreated(seconds = 3) {
-    return this.windowOf(this.raw, seconds);
-  }
-
-  windowOf(buffer, seconds) {
-    if (!buffer) return null;
-    const rate = this.engine.ctx?.sampleRate ?? 48000;
-    const length = Math.min(buffer.length, Math.round(rate * seconds));
-    const left = buffer.getChannelData(0).subarray(0, length);
-    const right = (buffer.numberOfChannels > 1
-      ? buffer.getChannelData(1)
-      : buffer.getChannelData(0)).subarray(0, length);
-    return { left, right, rate };
+    return this.windowOf(this.buffer, seconds);
   }
 
   /* ---------- the settings ---------- */
 
   setSettings(settings) {
     this.settings = { ...this.settings, ...settings };
+    this.apply();
+  }
+
+  apply() {
     if (!this.ready) return;
 
     const at = this.engine.ctx.currentTime;
@@ -162,13 +131,9 @@ export class CeilingPlayer {
 
     // Ramped, because both of these are dragged and a gain that jumps between
     // blocks clicks. Eight milliseconds, as everywhere else here.
-    this.drive.gain.setTargetAtTime(drive, at, 0.008);
-    this.trim.gain.setTargetAtTime(trim, at, 0.008);
+    this.drive.gain.setTargetAtTime(drive, at, GLIDE);
+    this.trim.gain.setTargetAtTime(trim, at, GLIDE);
     this.limiter.set?.(this.limiterOptions());
-  }
-
-  setFault(fault) {
-    this.fault = fault;
   }
 
   /** The deepest reduction the audio thread has seen since this was asked. */
@@ -178,49 +143,12 @@ export class CeilingPlayer {
 
   /* ---------- transport ---------- */
 
-  hear(which) {
-    this.hearing = which;
-    if (!this.ready) return;
-    const at = this.engine.ctx.currentTime;
-    this.mineOut.gain.setTargetAtTime(which === 'mine' ? 1 : 0, at, 0.008);
-    this.bypassOut.gain.setTargetAtTime(which === 'mine' ? 0 : 1, at, 0.008);
-  }
-
-  async play() {
-    await this.build();
-    if (!this.buffer) await this.prepare();
-    if (!this.buffer) return false;
-
-    this.setSettings(this.settings);
-    this.stop();
-
-    const ctx = this.engine.ctx;
-    const at = ctx.currentTime + 0.08;
-
-    this.node = ctx.createBufferSource();
-    this.node.buffer = this.buffer;
-    this.node.loop = true;
-    this.node.connect(this.drive);
-    this.node.start(at);
-
-    this.dry = ctx.createBufferSource();
-    this.dry.buffer = this.raw;
-    this.dry.loop = true;
-    this.dry.connect(this.bypass);
-    this.dry.start(at);
-
-    this.playing = true;
-    return true;
-  }
-
-  stop() {
-    for (const node of [this.node, this.dry]) {
-      if (!node) continue;
-      try { node.stop(); } catch { /* already stopped, which is fine */ }
-      node.disconnect();
-    }
-    this.node = null;
-    this.dry = null;
-    this.playing = false;
+  // One source into both sides, so the two cannot be so much as a sample
+  // apart and the A/B is the limiter and nothing else.
+  wire(at) {
+    this.start(this.buffer, (node) => {
+      node.connect(this.drive);
+      node.connect(this.bypass);
+    }, at);
   }
 }

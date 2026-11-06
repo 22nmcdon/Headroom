@@ -3,7 +3,7 @@
 // The same page, with the stylesheet and the ES modules folded in: an artifact
 // is published as a single file, and a page that fetched ./src/learn/game.js from
 // somewhere it is not would simply do nothing. Nothing is minified and nothing
-// is rewritten beyond the module keywords, so the bundle is the source read
+// is rewritten beyond the module statements, so the bundle is the source read
 // top to bottom.
 
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
@@ -17,21 +17,90 @@ import { MODULES } from './modules.mjs';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 
+const NAME = '[A-Za-z_$][\\w$]*';
+
+/** `a, b as c` as [[a, a], [b, c]]: what is read, and the name it goes by. */
+const specifiers = (list) => list.split(',').map((s) => s.trim()).filter(Boolean)
+  .map((s) => { const [from, as = from] = s.split(/\s+as\s+/); return [from, as]; });
+
+/**
+ * What a module exports, as exported name -> the name it has once flattened.
+ *
+ * Needed for `import * as x`, which is an object of them: the worklet files
+ * read their dsp module's constants that way, by enumerating it.
+ */
+function exportsOf(source, name) {
+  const out = new Map();
+  for (const [, n] of source.matchAll(new RegExp(`^export\\s+(?:async\\s+)?(?:function\\*?|class|const|let|var)\\s+(${NAME})`, 'gm'))) out.set(n, n);
+  for (const [, list] of source.matchAll(/^export\s*\{([^}]*)\}/gm)) {
+    for (const [, as] of specifiers(list)) out.set(as, as);
+  }
+  if (/^export\s+default\s+/m.test(source)) out.set('default', name);
+  if (/^export\s*\*/m.test(source)) throw new Error(`export * is not flattened (${name})`);
+  return out;
+}
+
 /**
  * Strips the module keywords, so that files written to import and export each
  * other's names can share one scope instead.
  *
  * A default export has no name of its own, so it takes its file's - which is
- * exactly the name the importing file already uses for it, and is why nothing
- * in this tree imports anything under an alias.
+ * the name the importing file uses for it. A name that changes on the way in
+ * (`import * as x`, `import { a as b }`) is declared as a local, and the
+ * module is then wrapped in a function so that two files' `dsp` cannot
+ * collide; only its exports come back out. A renamed export
+ * (`export { a as b }`) is a `const b = a` at the top level, where the
+ * duplicate-name check below can see it.
  */
-function flatten(source, name) {
-  return source
-    .replace(/^export\s*\{[^}]*\}\s*from\s*['"][^'"]+['"];\s*$/gm, '')
-    .replace(/^import\s+[\s\S]*?from\s+['"][^'"]+['"];\s*$/gm, '')
+function flatten(source, path, exported) {
+  const name = path.split('/').pop().replace(/\.js$/, '');
+  const locals = [];
+
+  const code = source
+    .replace(/^export\s*\{([^}]*)\}\s*(?:from\s*['"][^'"]+['"])?;?[ \t]*$/gm, (_, list) =>
+      specifiers(list).filter(([from, as]) => from !== as)
+        .map(([from, as]) => `const ${as} = ${from};`).join('\n'))
+    .replace(/^import\s+([\s\S]*?)\s+from\s+['"]([^'"]+)['"];[ \t]*$/gm, (_, clause, target) => {
+      const from = resolve(path, target);
+      const base = from.split('/').pop().replace(/\.js$/, '');
+      const list = /\{([^}]*)\}/.exec(clause);
+      const star = new RegExp(`\\*\\s*as\\s+(${NAME})`).exec(clause);
+      const fallback = new RegExp(`^(${NAME})\\s*(?:,|$)`).exec(clause.trim());
+
+      if (fallback && fallback[1] !== base) locals.push(`const ${fallback[1]} = ${base};`);
+      if (list) {
+        for (const [from, as] of specifiers(list[1])) if (from !== as) locals.push(`const ${as} = ${from};`);
+      }
+      if (star) {
+        const names = [...(exported.get(from) ?? [])].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+        const fields = names.map(([key, local]) => (key === local ? key : `${key}: ${local}`));
+        locals.push(`const ${star[1]} = Object.freeze({ ${fields.join(', ')} });`);
+      }
+      return '';
+    })
     .replace(/^export\s+default\s+/gm, `const ${name} = `)
     .replace(/^export\s+/gm, '')
     .trim();
+
+  if (!locals.length) return code;
+  const out = [...exported.get(path).values()].join(', ');
+  // The locals are indented so that checkNames, which reads column 0, does
+  // not count them: they are this module's own, and cannot collide.
+  const head = locals.map((line) => `  ${line}`).join('\n');
+  return `const { ${out} } = (() => {\n${head}\n${code}\nreturn { ${out} };\n})();`;
+}
+
+/** Where a relative import lands, as a path under `src/`. */
+function resolve(from, target) {
+  const folder = from.includes('/') ? from.slice(0, from.lastIndexOf('/')) : '';
+  const parts = (folder ? folder.split('/') : []).concat(target.split('/'));
+  const out = [];
+  for (const part of parts) {
+    if (part === '.' || part === '') continue;
+    if (part === '..') out.pop();
+    else out.push(part);
+  }
+  return out.join('/');
 }
 
 /**
@@ -123,12 +192,12 @@ const fonts = /<link id="webfonts"[\s\S]*?>/.exec(page)[0];
 // the gallery card already prints underneath.
 const title = 'Headroom';
 
-const modules = [];
-for (const path of MODULES) {
-  const source = await readFile(join(root, 'src', path), 'utf8');
-  const name = path.split('/').pop().replace(/\.js$/, '');
-  modules.push({ path, source, code: flatten(source, name) });
-}
+const sources = [];
+for (const path of MODULES) sources.push({ path, source: await readFile(join(root, 'src', path), 'utf8') });
+
+const exported = new Map(sources.map(({ path, source }) =>
+  [path, exportsOf(source, path.split('/').pop().replace(/\.js$/, ''))]));
+const modules = sources.map(({ path, source }) => ({ path, source, code: flatten(source, path, exported) }));
 
 checkComplete(modules);
 checkNames(modules);

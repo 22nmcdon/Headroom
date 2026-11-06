@@ -1,4 +1,5 @@
 import { LEVEL_DEFAULTS, gainOf, runTrim } from './gain.js';
+import { LoopPlayer, GLIDE } from '../../lib/loop-player.js';
 
 /**
  * The loop, through two trims you can flip between.
@@ -15,26 +16,19 @@ import { LEVEL_DEFAULTS, gainOf, runTrim } from './gain.js';
  * be judged on its own - there is no absolute loudness scale in anybody's head
  * - so every exercise here is two things against each other, and the flip has
  * to be instant and gapless or the comparison is of memory rather than sound.
+ *
+ * Starting, stopping, swapping the loop and taking it all down are
+ * lib/loop-player.js's; what is here is only what is this tool's.
  */
-export class LevelPlayer {
+export class LevelPlayer extends LoopPlayer {
   constructor(engine, { source = 'mix' } = {}) {
-    this.engine = engine;
-    this.source = source;
-    this.hearing = 'mine';
+    super(engine, { source });
     this.settings = { ...LEVEL_DEFAULTS };
-    this.fault = null;
-    this.ready = false;
-    this.buffer = null;
-    this.raw = null;
-    this.yours = null;
   }
 
-  async build() {
-    if (this.ready) return;
-    const ctx = this.engine.ensure();
-
-    this.mine = ctx.createGain();
-    this.theirs = ctx.createGain();
+  async raise(ctx) {
+    this.mine = this.own(ctx.createGain());
+    this.theirs = this.own(ctx.createGain());
     this.mine.gain.value = gainOf(this.settings.trim ?? 0);
     this.theirs.gain.value = 1;
 
@@ -42,27 +36,13 @@ export class LevelPlayer {
     // than one, because the trim is what is being set and the flip is what is
     // being monitored, and folding them together would mean the trim knob
     // jumped whenever somebody pressed A/B.
-    this.mineOut = ctx.createGain();
-    this.theirsOut = ctx.createGain();
+    this.mineOut = this.own(ctx.createGain());
+    this.theirsOut = this.own(ctx.createGain());
     this.mineOut.gain.value = 1;
     this.theirsOut.gain.value = 0;
 
     this.mine.connect(this.mineOut).connect(this.engine.out);
     this.theirs.connect(this.theirsOut).connect(this.engine.out);
-    this.ready = true;
-  }
-
-  /* ---------- the material ---------- */
-
-  async prepare() {
-    const loop = this.source === 'yours'
-      ? this.yours
-      : await this.engine.renderLoop(this.source, { spread: true });
-    if (!loop) return false;
-
-    this.raw = loop;
-    this.buffer = this.fault ? this.bake(loop, this.fault) : loop;
-    return true;
   }
 
   /**
@@ -86,12 +66,6 @@ export class LevelPlayer {
     return out;
   }
 
-  async load(file) {
-    const ctx = this.engine.ensure();
-    this.yours = await ctx.decodeAudioData(await file.arrayBuffer());
-    return this.yours;
-  }
-
   /**
    * The material a reading is taken on.
    *
@@ -101,94 +75,31 @@ export class LevelPlayer {
    * passage that happens to be quiet costs blocks rather than just precision.
    */
   sample(seconds = 4) {
-    if (!this.buffer) return null;
-    const rate = this.engine.ctx?.sampleRate ?? 48000;
-    const length = Math.min(this.buffer.length, Math.round(rate * seconds));
-    const left = this.buffer.getChannelData(0).subarray(0, length);
-    const right = (this.buffer.numberOfChannels > 1
-      ? this.buffer.getChannelData(1)
-      : this.buffer.getChannelData(0)).subarray(0, length);
-    return { left, right, rate };
+    return this.windowOf(this.buffer, seconds);
   }
 
   /** And the same window of the material before the fault, for the A/B. */
   untreated(seconds = 4) {
-    if (!this.raw) return null;
-    const rate = this.engine.ctx?.sampleRate ?? 48000;
-    const length = Math.min(this.raw.length, Math.round(rate * seconds));
-    const left = this.raw.getChannelData(0).subarray(0, length);
-    const right = (this.raw.numberOfChannels > 1
-      ? this.raw.getChannelData(1)
-      : this.raw.getChannelData(0)).subarray(0, length);
-    return { left, right, rate };
+    return this.windowOf(this.raw, seconds);
   }
-
-  /* ---------- the settings ---------- */
 
   setSettings(settings) {
     this.settings = { ...this.settings, ...settings };
+    this.apply();
+  }
+
+  apply() {
     if (!this.ready) return;
     // Ramped rather than set, because a trim is dragged and a gain that jumps
     // between blocks clicks. Eight milliseconds is short enough that the A/B
     // is still a comparison of the same instant.
-    this.mine.gain.setTargetAtTime(
-      gainOf(this.settings.trim ?? 0), this.engine.ctx.currentTime, 0.008,
-    );
+    this.mine.gain.setTargetAtTime(gainOf(this.settings.trim ?? 0), this.engine.ctx.currentTime, GLIDE);
   }
 
-  setFault(fault) {
-    this.fault = fault;
-  }
-
-  /* ---------- transport ---------- */
-
-  hear(which) {
-    this.hearing = which;
-    if (!this.ready) return;
-    const at = this.engine.ctx.currentTime;
-    this.mineOut.gain.setTargetAtTime(which === 'mine' ? 1 : 0, at, 0.008);
-    this.theirsOut.gain.setTargetAtTime(which === 'mine' ? 0 : 1, at, 0.008);
-  }
-
-  async play() {
-    await this.build();
-    if (!this.buffer) await this.prepare();
-    if (!this.buffer) return false;
-
-    this.setSettings(this.settings);
-    this.stop();
-
-    const ctx = this.engine.ctx;
-    const at = ctx.currentTime + 0.08;
-
-    this.node = ctx.createBufferSource();
-    this.node.buffer = this.buffer;
-    this.node.loop = true;
-    this.node.connect(this.mine);
-    this.node.start(at);
-
-    // The untreated side runs from the raw loop, in step with the other, so
-    // the flip lands on the same bar of music rather than the beginning.
-    if (this.raw) {
-      this.dry = ctx.createBufferSource();
-      this.dry.buffer = this.raw;
-      this.dry.loop = true;
-      this.dry.connect(this.theirs);
-      this.dry.start(at);
-    }
-
-    this.playing = true;
-    return true;
-  }
-
-  stop() {
-    for (const node of [this.node, this.dry]) {
-      if (!node) continue;
-      try { node.stop(); } catch { /* already stopped, which is fine */ }
-      node.disconnect();
-    }
-    this.node = null;
-    this.dry = null;
-    this.playing = false;
+  // The untreated side runs from the raw loop, in step with the other, so the
+  // flip lands on the same bar of music rather than the beginning.
+  wire(at) {
+    this.start(this.buffer, (node) => node.connect(this.mine), at);
+    if (this.raw) this.start(this.raw, (node) => node.connect(this.theirs), at);
   }
 }

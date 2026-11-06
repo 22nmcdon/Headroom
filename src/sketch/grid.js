@@ -10,7 +10,7 @@
 // On the phone-versus-desktop question, which the plan left open and this is
 // the file that has to answer:
 //
-//   The grid is the same at both sizes. Four tracks by four scenes is sixteen
+//   The grid is the same at both sizes. Five tracks by four scenes is twenty
 //   buttons; at 430 px that is cells of about eighty, which is a comfortable
 //   target and legible. Nothing about launching needs a desktop.
 //
@@ -32,16 +32,17 @@
 import {
   newProject, setClip, setTrack, setProject, setNotes, setLength,
   clipAt, trackAt, sceneOf, sceneHasAnything, barTicks, sceneToMidi, isTake, setFit,
-  clipKindOf, setKind, setTrim, takeWindow, setNudge, MOST_NUDGE, trimStep,
+  clipKindOf, setKind, setTrim, takeWindow, setNudge, trimStep, TRIM_FADE,
   setFade, fadeAt, fadeSlide, fadeFor, saidFade, clipSeconds, heardFor,
   addScene, dropScene, MOST_SCENES, setFollow, MOST_PASSES,
-  addTrack, dropTrack, MOST_TRACKS, moveInsert,
+  addTrack, dropTrack, MOST_TRACKS, moveInsert, MOST_GAIN, MOST_SEND,
 } from './project.js';
 import {
   STEP_DIVISIONS, divisionOf, SCALES, SCALE_IDS, ROOT_NAMES,
   rowsFor, columnsOf, filled, toggleCell, clearRow, columnOf, pitchName,
 } from './steps.js';
-import { loadSketch, saveSketch, sketchFile, readSketchFile } from './store.js';
+import { loadSketch, saveSketch, sketchFile, readSketchFile, slug } from './store.js';
+import { escapeHtml } from './html.js';
 import { knobsFor, writeKnob, tidy, optionsFor, fromTone } from './knobs.js';
 import { insertPlayer } from './insert.js';
 import { EQPlugin } from '../plugins/eq/plugin.js';
@@ -62,19 +63,18 @@ import {
   inputsOf, saidInput, PROCESSING_SAYS, COUNT_INS,
 } from './record.js';
 import {
-  takeId, putTake, loadTake, dropTake, sweepTakes,
+  takeId, putTake, loadTake, sweepTakes,
 } from './takes.js';
 
 /**
  * The notes a recording may be said to sound at.
  *
- * Five octaves either side of middle C rather than all 128: the root is what
- * a hummed line or a plucked string already sounds at, and nothing anybody
- * records is at the very bottom or top of a MIDI keyboard. A shorter list is
- * a select somebody can actually find their note in.
+ * Two and a half octaves either side of middle C rather than all 128: the
+ * root is what a hummed line or a plucked string already sounds at, and
+ * nothing anybody records is at the very bottom or top of a MIDI keyboard. A
+ * shorter list is a select somebody can actually find their note in.
  */
 const SAMPLE_NOTES = Array.from({ length: 61 }, (_, i) => i + 30);
-import { KIT_ROWS } from './steps.js';
 import { makeStage, fadeGainAt } from './stage.js';
 import { zipStems } from './stems.js';
 import { INSTRUMENT_IDS, isMic } from '../core/instrument.js';
@@ -198,7 +198,7 @@ const headSays = (track) => {
 
 const options = (list, chosen) => list
   .map(({ value, label }) =>
-    `<option value="${value}"${String(value) === String(chosen) ? ' selected' : ''}>${label}</option>`)
+    `<option value="${escapeHtml(value)}"${String(value) === String(chosen) ? ' selected' : ''}>${escapeHtml(label)}</option>`)
   .join('');
 
 export class SketchPage {
@@ -716,7 +716,9 @@ export class SketchPage {
       this.tell(ticks === 0
         ? 'Back on the line.'
         : `${Math.abs(ticks)} ticks ${ticks < 0 ? 'early' : 'late'}.`
-          + (ticks < 0 ? ' A loop moves every pass; a one-shot only its later ones.' : ''));
+          + (ticks < 0
+            ? ' Early is exact up to about a tenth of a second; past that it starts as soon as it can.'
+            : ''));
       return;
     }
 
@@ -946,9 +948,14 @@ export class SketchPage {
     const clip = this.clip();
     const step = divisionOf(clip.division).ticks;
     const at = stage.tick;
+    // Counted from where the row launched this clip, which is where its
+    // playback counts from. Any other row's anchor, or none, is as good as
+    // nought: that clip is not the one being heard.
+    const row = stage.state[this.at.track];
+    const anchor = row?.scene === this.at.scene ? row.anchor : 0;
 
-    this.taps = [...this.taps, drift(at, step, clip.length)].slice(-8);
-    const notes = tapInto(clip, pitch, at, step);
+    this.taps = [...this.taps, drift(at, step, clip.length, anchor)].slice(-8);
+    const notes = tapInto(clip, pitch, at, step, { anchor });
 
     this.change(setNotes(
       this.project, this.at.track, this.at.scene,
@@ -982,12 +989,15 @@ export class SketchPage {
    * loop and a loop three and a bit bars long falls over on its second pass.
    */
   async record() {
-    if (!this.at) return;
-
     if (this.recording) {
+      // Into the slot the take was started in, whatever is open now: the
+      // panel can move on during a take or during the save below, and the
+      // cap and `hide` both stop a take with no panel open at all.
+      const { track, scene } = this.recordingInto;
       const got = this.mic?.stop();
       this.recording = false;
       this.recordingFrom = null;
+      this.recordingInto = null;
       this.watchLevel(false);
       clearTimeout(this.capping);
       this.capping = null;
@@ -1001,7 +1011,7 @@ export class SketchPage {
 
       // Recording over a take keeps how that take was kept; a fresh one takes
       // whatever the panel is set to.
-      const was = clipAt(this.project, this.at.track, this.at.scene);
+      const was = clipAt(this.project, track, scene);
       const fit = this.fitOf(was);
 
       // Stored whole, in both modes. Nothing is cut on the way in - which is
@@ -1035,8 +1045,8 @@ export class SketchPage {
       channels.forEach((channel, i) => buffer.copyToChannel(channel, i));
       this.takes.set(id, buffer);
 
-      this.change(setClip(this.project, this.at.track, this.at.scene, {
-        ...(was ?? {}), take: id, notes: [], chords: '', fit, length, kind: 'mic',
+      this.change(setClip(this.project, track, scene, {
+        ...(was ?? {}), take: id, notes: [], fit, length, kind: 'mic',
       }));
 
       // What is under it. Kept on the grid rather than in the project: it is a
@@ -1079,6 +1089,10 @@ export class SketchPage {
       return;
     }
 
+    if (!this.at) return;
+    // Taken now, because the permission prompt below can be answered after
+    // somebody has opened something else.
+    const into = { track: this.at.track, scene: this.at.scene };
     if (!this.mic) this.mic = new Recorder(this.engine.ensure());
     this.tell('Asking for the microphone…');
 
@@ -1114,6 +1128,7 @@ export class SketchPage {
     this.meterAt = 0;
     this.recording = true;
     this.recordingFrom = Date.now();
+    this.recordingInto = into;
     this.draw();
     this.watchLevel(true);
 
@@ -1122,15 +1137,16 @@ export class SketchPage {
     // it is to stop while somebody is watching, not to cut what they played
     // after they have finished playing it.
     clearTimeout(this.capping);
-    this.capping = setTimeout(() => {
+    this.capping = setTimeout(async () => {
       if (this.recording) {
-        this.record();
+        // After the save, or the save's own sentence lands on top of this.
+        await this.record();
         this.tell(`That is the longest one take can be — ${saidLength(MOST_SECONDS)} — so it `
           + 'stopped there and kept everything up to it.');
       }
     }, MOST_SECONDS * 1000);
 
-    const kept = this.fitOf(clipAt(this.project, this.at.track, this.at.scene)) === 'free'
+    const kept = this.fitOf(clipAt(this.project, into.track, into.scene)) === 'free'
       ? 'it is kept at whatever length you play'
       : 'it will be cut to the nearest whole bar';
     this.tell(from
@@ -1150,7 +1166,7 @@ export class SketchPage {
    * The stage, built on demand.
    *
    * On demand because a browser refuses audio before a gesture and because
-   * four tracks of instruments and inserts is a graph nobody looking at the
+   * five tracks of instruments and inserts is a graph nobody looking at the
    * grid for a moment should pay for. Built once and kept, like the tools.
    */
   /**
@@ -1186,7 +1202,13 @@ export class SketchPage {
       // so filling it now fills what the stage will read.
       this.warmTakes();
       this.building = makeStage(ctx, this.project, { out: this.engine.out, takes: this.takes })
-        .then((stage) => { this.stage = stage; return stage; });
+        .then((stage) => {
+          this.stage = stage;
+          // Anything edited while it was building went past `change`, which
+          // had no stage to tell.
+          if (stage.project !== this.project) stage.setProject(this.project);
+          return stage;
+        });
     }
     return this.building;
   }
@@ -1302,7 +1324,7 @@ export class SketchPage {
 
     const heads = `${project.scenes.map((scene, index) => `
       <button class="scene-head" type="button" data-scene-go="${index}"
-              title="Launch everything in scene ${scene.name}">${scene.name}</button>`).join('')}
+              title="Launch everything in scene ${escapeHtml(scene.name)}">${escapeHtml(scene.name)}</button>`).join('')}
       <span class="scene-edit">
         <button class="scene-more" type="button" data-add-scene
                 ${project.scenes.length >= MOST_SCENES ? 'disabled' : ''}
@@ -1315,12 +1337,12 @@ export class SketchPage {
     const rows = project.tracks.map((track, index) => `
       <div class="grid-track">
         <button class="track-open" type="button" data-open-track="${index}"
-                title="${track.name}: instrument, inserts and level">
-          <span class="track-name">${track.name}</span>
+                title="${escapeHtml(track.name)}: instrument, inserts and level">
+          <span class="track-name">${escapeHtml(track.name)}</span>
           <span class="track-what">${headSays(track)}</span>
         </button>
         <button class="track-mute" type="button" data-mute="${index}"
-                aria-pressed="${track.muted}" title="Mute ${track.name}">M</button>
+                aria-pressed="${track.muted}" title="Mute ${escapeHtml(track.name)}">M</button>
       </div>
       ${project.scenes.map((scene, column) => {
         const clip = clipAt(project, index, column);
@@ -1347,7 +1369,7 @@ export class SketchPage {
                 title="Another track">+</button>
         <button class="scene-more" type="button" data-drop-track
                 ${canDropTrack ? '' : 'disabled'}
-                title="${canDropTrack ? `Take ${spare.name} away` : 'Empty the last track first'}">−</button>
+                title="${canDropTrack ? `Take ${escapeHtml(spare.name)} away` : 'Empty the last track first'}">−</button>
       </span>`;
 
     this.parts.grid.style.setProperty('--scenes', project.scenes.length);
@@ -1814,7 +1836,7 @@ export class SketchPage {
     this.parts.editor.innerHTML = `
       ${this.back()}
       <p class="panel-where">
-        <button class="link-btn" type="button" data-to-track="${index}">${track.name}</button>
+        <button class="link-btn" type="button" data-to-track="${index}">${escapeHtml(track.name)}</button>
         <span>· ${EFFECT_LABELS[effect] ?? effect}</span>
       </p>
       <div class="plugin-host" data-plugin-host></div>`;
@@ -1995,8 +2017,8 @@ export class SketchPage {
     return `
       ${this.back()}
       <h3 class="editor-title">
-        <button class="link-btn" type="button" data-to-track="${index}">${track.name}</button>
-        <span class="editor-scene">· scene ${this.project.scenes[scene].name}</span>
+        <button class="link-btn" type="button" data-to-track="${index}">${escapeHtml(track.name)}</button>
+        <span class="editor-scene">· scene ${escapeHtml(this.project.scenes[scene].name)}</span>
       </h3>
 
       <details class="clip-setup"${this.setupOpen ? ' open' : ''} data-setup>
@@ -2074,10 +2096,6 @@ export class SketchPage {
               <button class="pad" type="button" data-pad="${one.pitch}"
                 >${one.label}</button>`).join('')}
           </div>`}`}
-
-      ${!clip.chords ? '' : `
-        <p class="fine">Made from “${clip.chords}”. The chords went in as notes and
-        are yours to move now.</p>`}
 
       ${this.kindHere(clip, track) !== 'mic' ? '' : `
         <div class="clip-wave"${isTake(clip) ? ' data-trimmable' : ''}>
@@ -2209,8 +2227,8 @@ export class SketchPage {
             <dt>Input</dt>
             <dd><select class="in-pick" data-input>
               ${this.inputs.map((one) => `
-                <option value="${one.id}"${one.id === this.mic?.deviceId ? ' selected' : ''}
-                  >${one.label}</option>`).join('')}
+                <option value="${escapeHtml(one.id)}"${one.id === this.mic?.deviceId ? ' selected' : ''}
+                  >${escapeHtml(one.label)}</option>`).join('')}
             </select></dd>`}
           <dt>Giving</dt><dd>${this.mic?.open
             ? saidInput(this.mic.settings)
@@ -2251,7 +2269,7 @@ export class SketchPage {
       ${this.back()}
       <div class="editor-head">
         <p class="eyebrow">The track</p>
-        <h3 class="editor-title">${track.name}</h3>
+        <h3 class="editor-title">${escapeHtml(track.name)}</h3>
         <p class="fine">What it plays with, and where it sits. Shared by all
           ${this.project.scenes.length} of its clips.</p>
       </div>
@@ -2260,7 +2278,7 @@ export class SketchPage {
         <div class="editor-row">
           <label class="field">
             <span class="field-label">Called</span>
-            <input class="track-rename" type="text" data-track-name value="${track.name}" maxlength="18">
+            <input class="track-rename" type="text" data-track-name value="${escapeHtml(track.name)}" maxlength="18">
           </label>
           <label class="field">
             <span class="field-label">Instrument</span>
@@ -2367,9 +2385,9 @@ export class SketchPage {
 
         <div class="editor-row editor-dials">
           ${[
-            { id: 'gain', label: 'Level', min: 0, max: 1.2, step: 0.01 },
+            { id: 'gain', label: 'Level', min: 0, max: MOST_GAIN, step: 0.01 },
             { id: 'pan', label: 'Pan', min: -1, max: 1, step: 0.02 },
-            { id: 'send', label: 'Room', min: 0, max: 1, step: 0.02 },
+            { id: 'send', label: 'Room', min: 0, max: MOST_SEND, step: 0.02 },
           ].map((dial) => `
             <label class="field">
               <span class="field-label">${dial.label}</span>
@@ -2604,7 +2622,7 @@ export class SketchPage {
     }
 
     const bytes = sceneToMidi(this.project, scene, { bars: 4 });
-    const name = `${this.project.name.replace(/[^\w-]+/g, '-').toLowerCase() || 'sketch'}-scene-${scene + 1}.mid`;
+    const name = `${slug(this.project.name) || 'sketch'}-scene-${scene + 1}.mid`;
     this.give(new Blob([bytes], { type: 'audio/midi' }), name);
 
     this.tell(`Saved ${plural(written.length, 'track', 'tracks')} as ${name} `
@@ -2664,7 +2682,12 @@ export class SketchPage {
 
   async openFile(file) {
     if (!file) return;
-    const next = readSketchFile(await file.text());
+    let next = null;
+    try {
+      next = readSketchFile(await file.text());
+    } catch {
+      next = null;
+    }
     this.parts.file.value = '';
 
     if (!next) {
@@ -2676,6 +2699,10 @@ export class SketchPage {
     this.stage?.stopScene();
     this.change(next);
     this.tell(`Opened ${file.name}.`);
+    // A different sketch is different recordings, which have not been asked
+    // for yet.
+    this.loaded = false;
+    this.warmTakes();
   }
 
   fresh() {
@@ -2747,7 +2774,9 @@ export class SketchPage {
   hide() {
     this.watch(false);
     this.closePlugin();
-    if (this.recording) { this.mic?.stop(); this.recording = false; }
+    // Stopped and kept, as the button would: a take is what somebody played,
+    // and leaving the view is not asking for it to be thrown away.
+    if (this.recording) this.record();
     this.stage?.stop();
     this.paint();
   }
@@ -2755,6 +2784,10 @@ export class SketchPage {
   destroy() {
     this.watch(false);
     this.watchLevel(false);
+    clearTimeout(this.capping);
+    this.capping = null;
+    this.recording = false;
+    this.recordingInto = null;
     this.unwatchWave?.();
     this.unwatchWave = null;
     this.closePlugin();

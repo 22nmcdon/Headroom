@@ -1,9 +1,9 @@
 // What a compressor's settings do to a piece of audio, in an envelope.
 //
-// Its own file, and the only kind of reading that has one. `comp/dsp.js`
-// promises that every function in it closes over nothing outside its own body,
-// because `comp/node.js` stringifies five of them and hands them to the audio
-// thread - a function that quietly referenced an import would fail there and
+// Its own file, and the only kind of reading that has one. `dsp.js` promises
+// that every function in it closes over nothing outside its own body, because
+// `node.js` stringifies the ones in its `COMPRESSOR_PARTS` and hands them to
+// the audio thread - a function that quietly referenced an import would fail there and
 // nowhere else. That promise is worth more than the symmetry of putting this
 // beside the maths, so this sits next door instead.
 //

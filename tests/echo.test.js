@@ -2519,3 +2519,36 @@ test('the ducking reading resolves a depth, and knows what it cannot compare', (
   assert.throws(() => distance(read(12), repeatsReading(rate, ECHO_DEFAULTS)),
     /compare/, 'a ducking reading against an arrival reading should be refused');
 });
+
+test('the pattern drill sets each tier\'s material when asked the way the session asks', async () => {
+  // `attach` calls `startOf(puzzle)` with nothing else, and the tier lives on
+  // the puzzle. Read as a second argument, it was undefined there and every
+  // tier played the medium tier's feedback and diffusion.
+  const { attach } = await import('../src/learn/bench/session.js');
+  const asked = {};
+  for (const tier of ['easy', 'medium', 'hard', 'expert']) {
+    const puzzle = gameOf({ mode: 'delay', tier, settings: { exercise: 'pattern' }, seed: `heads-${tier}` });
+    let set = null;
+    const tool = {
+      state: () => ({}), showTarget() {}, async setSource() {}, async setTarget() {},
+      nameAB() {}, setState(next) { set = next; },
+    };
+    await attach(tool, delay.exercises.pattern, puzzle);
+    assert.deepEqual(set, delay.exercises.pattern.startOf(puzzle, tier), `${tier} was not set up as itself`);
+    asked[tier] = set;
+  }
+  assert.ok(asked.easy.feedback < asked.medium.feedback && asked.medium.feedback < asked.hard.feedback,
+    'the feedback climbs with the tier');
+  assert.equal(asked.easy.diffusion, 0);
+  assert.ok(asked.expert.diffusion > asked.hard.diffusion, 'and the expert tier is the most smeared');
+});
+
+test('the pattern drill reveals and files the head count, not a feedback amount', () => {
+  for (const heads of ['single', 'heads3', 'heads4']) {
+    const puzzle = { tier: 'medium', settings: { exercise: 'pattern' }, answer: { heads, time: timeOf(0.75), division: 'dotted8' } };
+    assert.equal(delay.reveal(puzzle).symbol, { single: '1', heads3: '3', heads4: '4' }[heads]);
+    assert.equal(delay.weak(puzzle).key, `heads-${heads}`);
+    assert.equal(delay.heard({ heads }, puzzle).key, `heads-${heads}`);
+    assert.ok(delay.hints(puzzle).every((rung) => !/feedback|going back in/.test(rung)));
+  }
+});

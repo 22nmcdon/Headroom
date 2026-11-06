@@ -80,3 +80,15 @@ test('a run of drifts averages to whether somebody is early', () => {
   assert.equal(timing([-10, -14, -12]), -12);
   assert.equal(timing([-10, 10]), 0);
 });
+
+test('a tap counts from where the clip was launched, not from the transport', () => {
+  // A two-bar clip launched on bar two plays its first bar there - the
+  // stage counts a clip from its anchor - so a hit on that downbeat is the
+  // clip's first line, not its second bar.
+  const clip = clipOf({ length: BAR * 2 });
+  assert.equal(snap(BAR, EIGHTH, BAR * 2), BAR, 'counted from nought, it lands a bar out');
+  assert.equal(snap(BAR, EIGHTH, BAR * 2, BAR), 0);
+  const [note] = tapInto(clip, 36, BAR + PPQ + 7, EIGHTH, { anchor: BAR });
+  assert.equal(note.start, PPQ);
+  assert.equal(drift(BAR * 3 - 12, EIGHTH, BAR * 2, BAR), -12, 'and early is still early');
+});

@@ -51,8 +51,8 @@ const sizeAt = (id) => SIZES.findIndex((size) => size.id === id);
  *
  * The answer is the RT60 this app measures off the room it built, not the
  * number on the decay control - they are not the same, and the ear hears the
- * first. Measured: a decay of 0.5 rings for 0.35-0.44 s, 1.2 for 0.78-1.04,
- * 2.6 for 1.67-1.88 and 5.0 for 3.15-3.32, the spread across the three sizes.
+ * first. Measured: a decay of 0.5 rings for 0.32-0.48 s, 1.2 for 0.77-0.87,
+ * 2.6 for 1.70-1.74 and 5.0 for 3.21-3.27, the spread across the three sizes.
  * So the control reads about half again as long as the room actually rings,
  * and a drill marked on the control would be teaching that number.
  *
@@ -151,7 +151,7 @@ const PRE_DIVISIONS = [
  * exercise there is nothing there: what you compare against is the loop with
  * no room on it at all.
  */
-export const VERB_EXERCISES = {
+const VERB_EXERCISES = {
   match: {
     id: 'match',
     // The target is the settings that win, so it can go on the controls
@@ -241,8 +241,8 @@ function scoreRoom(state, puzzle) {
         value: `${writeSeconds(answer.tail)} measured`,
         how: 'The RT60 of the room this round built, measured off its own '
            + 'impulse rather than read off the decay control - the two are not '
-           + 'the same. A decay of 1.2 rings for 0.78 to 1.04 s and one of 5.0 '
-           + 'for 3.15 to 3.32, so the control reads about half again as long '
+           + 'the same. A decay of 1.2 rings for 0.77 to 0.87 s and one of 5.0 '
+           + 'for 3.21 to 3.27, so the control reads about half again as long '
            + 'as the room actually rings.',
       },
       {
@@ -282,9 +282,9 @@ export const VERB_WORK = {
   exercises: VERB_EXERCISES,
 
   tiers: {
-    easy: { label: 'Easy', blurb: 'Decay and mix', guesses: 4, shape: false, detail: false },
-    medium: { label: 'Medium', blurb: 'And the gap before it', guesses: 4, shape: true, detail: false },
-    hard: { label: 'Hard', blurb: 'And the walls and the tone', guesses: 4, shape: true, detail: true },
+    easy: { label: 'Easy', blurb: 'Decay and mix', shape: false, detail: false },
+    medium: { label: 'Medium', blurb: 'And the gap before it', shape: true, detail: false },
+    hard: { label: 'Hard', blurb: 'And the walls and the tone', shape: true, detail: true },
   },
 
   /**
@@ -306,7 +306,9 @@ export const VERB_WORK = {
         // Dialled in log space, so a given distance along it is the same
         // ratio wherever you are - which is how the ear hears a decay.
         log: true,
-        start: 1.2,
+        // The short end, because it is outside every tier's tolerance of
+        // every tail: 1.2 sat on the hard tier's 1.17-1.25 s rooms.
+        start: 0.2,
         format: (seconds) => writeSeconds(seconds),
         unit: 'x',
         hit: spec.hit,
@@ -497,8 +499,7 @@ export const VERB_WORK = {
       why: [
         {
           label: 'Left when the next hit lands',
-          value: `${left.toFixed(1)} dB, wanted ${CLEARED} give or take `
-               + `${STILL_A_ROOM[tier]}`,
+          value: `${left.toFixed(1)} dB, wanted ${floor} to ${CLEARED}`,
           how: 'Your room is built and read at exactly the moment the next hit '
              + 'arrives. A range rather than a number, because a range is what '
              + 'the ear gives you: nobody hears "thirty decibels down", what '
@@ -531,9 +532,9 @@ export const VERB_WORK = {
       return [
         'Flip to dry and back. The gap before the room answers is the size of '
           + 'it, and how long it takes to disappear is the tail.',
-        answer.tail < 0.8 ? 'The tail is under a second - it is gone quickly.'
+        answer.tail < 1 ? 'The tail is under a second - it is gone quickly.'
           : answer.tail < 2 ? 'The tail runs somewhere between one and two seconds.'
-          : 'The tail runs well over two seconds, which is a long space.',
+          : 'The tail runs over two seconds, which is a long space.',
         `The gap before it answers puts it at about ${size.metres} metres across, `
           + `which is ${size.name}.`,
       ];

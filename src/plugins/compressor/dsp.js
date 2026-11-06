@@ -20,7 +20,7 @@
 // worklet by stringifying these functions, so none of them may close over
 // anything outside its own body.
 
-import { makeBiquad, setBiquad, runBiquad, signalRms } from '../../lib/dsp.js';
+import { makeBiquad, setBiquad, runBiquad } from '../../lib/dsp.js';
 /**
  * How many decibels of gain to apply to a signal sitting at @p inputDb -
  * the compressor with the time taken out of it, which is the curve drawn on
@@ -106,6 +106,66 @@ export const COMP_DEFAULTS = {
 
 /** The longest lookahead any of this offers, in seconds. */
 export const MOST_LOOKAHEAD = 0.02;
+
+/*
+ * `range`: how much reduction this compressor is allowed to do at all.
+ *
+ * Every knob here says how hard to work on what is over the threshold, and
+ * none of them says when to stop. A desk bus compressor has that control -
+ * Cytomic's Glue calls it Range and gives it 0 to -82 dB - and it turns a
+ * compressor into something that catches the loud parts and then gets out of
+ * the way rather than riding everything.
+ *
+ * The range runs to 60 dB because that is past anything this compressor can
+ * be asked for. Measured on a full-scale tone at the corners of its own knob
+ * ranges, the deepest it reaches is 57.0 dB - the threshold on its -60 floor
+ * at 20:1 - so at 60 the control is not in the signal path at all, and a test
+ * holds that the top of the knob is the compressor that was there before this
+ * existed.
+ *
+ *     threshold   ratio 4   ratio 8   ratio 20
+ *       -10 dB        7.5       8.7        9.5
+ *       -30 dB       22.5      26.2       28.5
+ *       -60 dB       45.0      52.5       57.0
+ *
+ * It is on the modern family only. An opto already has a ceiling and it is
+ * the cell's rather than a control: a photoresistor runs out at MOST_OPTO,
+ * which is the whole reason that loop is safe, and a knob in front of it
+ * would be two limits arguing.
+ */
+
+/*
+ * `rmsTime`: what an RMS window costs, and why it is a knob rather than a
+ * constant.
+ *
+ * It was twelve milliseconds, fixed and invisible, and that is not a bug in
+ * the value - an averaging window is what RMS detection is - but it was the
+ * one time constant on this compressor nobody could see or set. With the peak
+ * path honest, it was also the only dishonest thing left: at ratio 4 a 0.1 ms
+ * attack measured 2.46 ms and a 1 ms release measured 41, where the peak path
+ * reads 0.17 and 6.1. The two detector modes answered the same knob
+ * differently by up to thirty-five milliseconds and the face said nothing.
+ *
+ * Measured across the window, at ratio 4:
+ *
+ *     window    attack 0.1   attack 10   release 20   release 200   50 Hz ripple
+ *      0.5 ms        0.29       10.23         26.8         206.1       1.32 dB
+ *        1 ms        0.35       10.42         28.0         207.3       1.05
+ *        2 ms        0.50       10.83         30.4         209.7       0.71
+ *        5 ms        1.17       12.13         38.3         216.8       0.34
+ *       12 ms        2.46       14.63         58.9         233.6       0.15
+ *       20 ms        4.19       16.96         83.0         253.4       0.09
+ *       50 ms       10.23       23.90        171.0         333.0       0.04
+ *
+ * which is a real trade and the reason it earns a control: short reads the
+ * knobs truthfully and lets the waveform through, long rides over the
+ * waveform and makes both knobs slower than they say. Neither end is wrong -
+ * that is the whole of what choosing an averaging time is.
+ *
+ * It still rests at twelve. The fault was that the number could not be seen
+ * or moved, not that it was the wrong number, so nothing anybody has saved
+ * changes its sound.
+ */
 
 /**
  * How far each of those may be moved, which is where a plugin's knob ends.
@@ -227,33 +287,6 @@ export const OPTO_KNEE = 12;
 export const OPTO_RATIOS = { compress: 4, limit: 20 };
 
 /**
- * How much reduction this compressor is allowed to do at all.
- *
- * Every knob here says how hard to work on what is over the threshold, and
- * none of them says when to stop. A desk bus compressor has that control -
- * Cytomic's Glue calls it Range and gives it 0 to -82 dB - and it turns a
- * compressor into something that catches the loud parts and then gets out of
- * the way rather than riding everything.
- *
- * The range runs to 60 dB because that is past anything this compressor can
- * be asked for. Measured on a full-scale tone at the corners of its own knob
- * ranges, the deepest it reaches is 57.0 dB - the threshold on its -60 floor
- * at 20:1 - so at 60 the control is not in the signal path at all, and a test
- * holds that the top of the knob is the compressor that was there before this
- * existed.
- *
- *     threshold   ratio 4   ratio 8   ratio 20
- *       -10 dB        7.5       8.7        9.5
- *       -30 dB       22.5      26.2       28.5
- *       -60 dB       45.0      52.5       57.0
- *
- * It is on the modern family only. An opto already has a ceiling and it is
- * the cell's rather than a control: a photoresistor runs out at MOST_OPTO,
- * which is the whole reason that loop is safe, and a knob in front of it
- * would be two limits arguing.
- */
-
-/**
  * The slow half of a program-dependent release, in seconds.
  *
  * A compressor with one release time treats a snare hit and a loud chorus the
@@ -304,38 +337,6 @@ export const CHARGE = 1.5;
 export const PLATFORM = 3;
 
 /**
- * What an RMS window costs, and why it is a knob rather than a constant.
- *
- * It was twelve milliseconds, fixed and invisible, and that is not a bug in
- * the value - an averaging window is what RMS detection is - but it was the
- * one time constant on this compressor nobody could see or set. With the peak
- * path honest, it was also the only dishonest thing left: at ratio 4 a 0.1 ms
- * attack measured 2.46 ms and a 1 ms release measured 41, where the peak path
- * reads 0.17 and 6.1. The two detector modes answered the same knob
- * differently by up to thirty-five milliseconds and the face said nothing.
- *
- * Measured across the window, at ratio 4:
- *
- *     window    attack 0.1   attack 10   release 20   release 200   50 Hz ripple
- *      0.5 ms        0.29       10.23         26.8         206.1       1.32 dB
- *        1 ms        0.35       10.42         28.0         207.3       1.05
- *        2 ms        0.50       10.83         30.4         209.7       0.71
- *        5 ms        1.17       12.13         38.3         216.8       0.34
- *       12 ms        2.46       14.63         58.9         233.6       0.15
- *       20 ms        4.19       16.96         83.0         253.4       0.09
- *       50 ms       10.23       23.90        171.0         333.0       0.04
- *
- * which is a real trade and the reason it earns a control: short reads the
- * knobs truthfully and lets the waveform through, long rides over the
- * waveform and makes both knobs slower than they say. Neither end is wrong -
- * that is the whole of what choosing an averaging time is.
- *
- * It still rests at twelve. The fault was that the number could not be seen
- * or moved, not that it was the wrong number, so nothing anybody has saved
- * changes its sound.
- */
-
-/**
  * How long the release stage holds a peak before it starts letting go.
  *
  * This used to be PEAK_DECAY, a fixed ten milliseconds on a separate peak
@@ -370,15 +371,6 @@ export const PLATFORM = 3;
 export const PEAK_HOLD = 0;
 
 /**
- * A compressor, one sample at a time.
- *
- * `step(signal, key)` returns the processed sample and leaves the gain
- * reduction it just applied on `reduction`, in decibels, at or below zero.
- * `stereo(left, right, key)` is the same thing with two channels, leaving
- * what came out on `left` and `right`; one of the two is the other's body, so
- * there is no second copy of any of this to keep in step.
- */
-/**
  * One photocell, one sample at a time.
  *
  * Closes over nothing but its own state, because node.js stringifies it onto
@@ -411,6 +403,15 @@ export function optoCell(rate) {
   };
 }
 
+/**
+ * A compressor, one sample at a time.
+ *
+ * `step(signal, key)` returns the processed sample and leaves the gain
+ * reduction it just applied on `reduction`, in decibels, at or below zero.
+ * `stereo(left, right, key)` is the same thing with two channels, leaving
+ * what came out on `left` and `right`; one of the two is the other's body, so
+ * there is no second copy of any of this to keep in step.
+ */
 export function compressorCore(rate) {
   const state = {
     threshold: -18, ratio: 4, attack: 10, release: 120, knee: 6,
@@ -950,22 +951,4 @@ export function analyseStereo(left, right, rate, params, key = null, into = null
 /** Just the makeup gain, for when that is all anybody wanted. */
 export function autoGain(input, rate, params, key = null) {
   return analyse(input, rate, params, key).makeup;
-}
-
-/** The loudest sample in each short frame, in dB - how a meter reads. */
-export function peakEnvelope(samples, rate, frameMs = 5) {
-  const span = Math.max(1, Math.round((frameMs / 1000) * rate));
-  const out = new Float32Array(Math.ceil(samples.length / span));
-
-  for (let f = 0; f < out.length; f += 1) {
-    let peak = 0;
-    const end = Math.min(samples.length, (f + 1) * span);
-    for (let i = f * span; i < end; i += 1) {
-      const level = samples[i] < 0 ? -samples[i] : samples[i];
-      if (level > peak) peak = level;
-    }
-    out[f] = 20 * Math.log10(peak + 1e-9);
-  }
-
-  return out;
 }

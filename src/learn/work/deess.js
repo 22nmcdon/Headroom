@@ -281,7 +281,7 @@ function essAimSettings(puzzle) {
  * is the depth and one of which is not, and the measurement said which.
  */
 
-export const ESS_EXERCISES = {
+const ESS_EXERCISES = {
   match: {
     id: 'match',
     // The target is the settings that win, so it can go on the controls
@@ -379,9 +379,9 @@ export const ESS_WORK = {
   exercises: ESS_EXERCISES,
 
   tiers: {
-    easy: { label: 'Easy', blurb: 'One crossover, one release', guesses: 3 },
-    medium: { label: 'Medium', blurb: 'The crossover and the release move', guesses: 4 },
-    hard: { label: 'Hard', blurb: 'Tight enough that the crossover counts', guesses: 4 },
+    easy: { label: 'Easy', blurb: 'One crossover, one release' },
+    medium: { label: 'Medium', blurb: 'The crossover and the release move' },
+    hard: { label: 'Hard', blurb: 'Tight enough that the crossover counts' },
   },
 
   slots(tier, settings) {

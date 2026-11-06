@@ -1379,3 +1379,28 @@ test('the aim drill offers one difference that is not the depth', () => {
   const quiet = analyse(signal, RATE, { ...COMP_DEFAULTS, ...none });
   assert.ok(quiet.deepest < 0.01, `the bypass reduced by ${quiet.deepest.toFixed(2)} dB`);
 });
+
+test('the release drill reveals and hints at the drill it is, not at a match', () => {
+  // It used to fall through to the match branch, which revealed the default
+  // compressor - 4:1 over -18 dB - and opened its hints on "a working ratio".
+  for (const release of ['40', '150', '600']) {
+    const puzzle = { tier: 'easy', settings: { exercise: 'release' }, answer: { release } };
+    const shown = compression.reveal(puzzle);
+    assert.equal(shown.symbol, `${release} ms`);
+    assert.match(shown.name, /8\.0 : 1/, 'the drill plays 8:1, and says so');
+    assert.doesNotMatch(shown.name, /-18/);
+
+    const ladder = compression.hints(puzzle);
+    assert.ok(ladder.every((rung) => !/ratio/.test(rung)), `${release} ms hints about a ratio`);
+    assert.match(ladder.at(-1), new RegExp(compression.weak(puzzle).label.match(/\((.*)\)/)[1]));
+  }
+  assert.ok(!compression.exercises.fix.ontoTool, 'the fix target is the compressor switched out');
+});
+
+test('the gate drill places its answer on its own tier\'s list', () => {
+  const said = (tier, depth) => gate.hints({ tier, settings: { exercise: 'drill' }, answer: { depth } }).at(-1);
+  assert.match(said('easy', 6), /shallowest/, 'six is the least the easy tier offers');
+  assert.match(said('easy', 12), /middle/);
+  assert.match(said('medium', 24), /upper half/);
+  assert.match(said('medium', 40), /deep end/);
+});

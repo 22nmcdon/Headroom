@@ -5,8 +5,10 @@
 # than a bundle - `npm run artifact` makes a single-file version for publishing
 # as an artifact, which is a different thing for a different place.
 #
-# The tests run first, and a red test does not deploy. They need no browser and
-# no install: node --test over the modes, the round and the readings.
+# The tests run first, and a red test does not deploy. There are two jobs:
+# node --test over the modes, the round and the readings, which needs no
+# browser and no install, and the browser checks, which install playwright
+# and a Chromium and drive the app in it.
 #
 # One-time setup, which is a settings toggle and not something a workflow can
 # do for itself: Settings -> Pages -> Build and deployment -> Source -> GitHub
@@ -38,8 +40,40 @@ jobs:
           node-version: 22
       - run: npm test
 
+  # The app in a real Chromium: every check under tests/browser, at the
+  # sizes they ask for. These are the ones that have caught layout faults,
+  # class names in strings, a tool playing one channel and a handler that
+  # threw on every drag - none of which `npm test` can see - and until this
+  # job they ran only when somebody remembered to. Beside the unit tests
+  # rather than after them, so a red one does not hide the other.
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      # The browser that matches the pinned playwright, and the system
+      # libraries it needs on a bare runner.
+      - run: npx playwright install --with-deps chromium
+      # CI is set on every Actions run, which makes a skipped check a failure
+      # rather than a green tick for nothing. The pictures are only written
+      # when a check takes one, and only kept when something failed.
+      - run: mkdir -p shots && npm run check:browser
+        env:
+          HEADROOM_SHOTS: shots
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-shots
+          path: shots/
+          if-no-files-found: ignore
+
   deploy:
-    needs: test
+    needs: [test, browser]
     # Only the deploy job needs these, so only the deploy job is given them.
     permissions:
       contents: read

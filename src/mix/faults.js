@@ -22,7 +22,7 @@
 // the tone controls only reach the band each part lives in, so nothing in
 // here colours a part anywhere else.
 
-import { STEPS, ROOM_FOR, TONE_BANDS, gainFor, dbOf } from './desk.js';
+import { STEPS, TRIM, ROOM_FOR, TONE_BANDS, gainFor, dbOf } from './desk.js';
 import { toStep } from '../learn/work/scoring.js';
 
 /**
@@ -50,8 +50,9 @@ export const MIX_FAULTS = [
     // part reads 3.00 on share against a tolerance of 0.5.
     hurts: 'share',
     size: [4, 6],
-    /** Needs a part whose fader moves, which is anything but the anchor. */
-    can: (id, set) => dbOf(set.gain) < 4,
+    // Room for the whole of it under the top of the fader, or a part at +3.5
+    // goes to +9.5 on a fader that stops at +9 and cannot be put back.
+    can: (id, set) => dbOf(set.gain) + 6 <= TRIM.high + 1e-9,
     apply: (set, amount) => ({ ...set, gain: gainFor(toStep(dbOf(set.gain) + amount, STEPS.gain)) }),
   },
   {
@@ -139,16 +140,20 @@ export const howManyIn = (rng) =>
  * cannot both be named, because the chips are kinds; two on one part would
  * hide each other, which is a fair thing for a mix to do and an unfair thing
  * for a round that asks you to name them.
+ *
+ * A kind with nowhere to go is made up with one of the kinds not asked for,
+ * so the round has as many as it asked: a round with nothing done to it can
+ * never be won.
  */
 export function injure(mix, ids, rng, stems) {
   const hurt = Object.fromEntries(Object.entries(mix).map(([id, set]) => [id, { ...set }]));
   const done = [];
   const used = new Set();
 
-  for (const id of ids) {
+  const tryOne = (id) => {
     const fault = mixFaultOf(id);
     const open = stems.filter((stem) => !used.has(stem) && fault.can(stem, hurt[stem]));
-    if (!open.length) continue;
+    if (!open.length) return;
 
     const on = open[Math.floor(rng() * open.length)];
     const [low, high] = fault.size;
@@ -158,6 +163,13 @@ export function injure(mix, ids, rng, stems) {
     hurt[on] = fault.apply(hurt[on], amount * side, on);
     used.add(on);
     done.push({ fault: fault.id, on });
+  };
+
+  for (const id of ids) tryOne(id);
+
+  const spare = MIX_FAULT_IDS.filter((id) => !ids.includes(id));
+  while (done.length < Math.max(HOW_MANY.least, ids.length) && spare.length) {
+    tryOne(spare.splice(Math.floor(rng() * spare.length), 1)[0]);
   }
 
   return { mix: hurt, done };

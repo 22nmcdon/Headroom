@@ -18,7 +18,7 @@ import {
   addScene, dropScene, MOST_SCENES, STARTER, setFollow, followOf, MOST_PASSES, keyRoutes,
   moveInsert, CLIP_KINDS, clipKindOf, setKind, takeWindow, setTrim, TRIM_FADE,
   setNudge, MOST_NUDGE, trimStep, fadeOf, fadeFor, setFade, FADE_LEAST, FADE_MOST,
-  clipSeconds, heardFor, perTickAt,
+  clipSeconds, heardFor, perTickAt, MOST_TRACKS, MOST_NAME, MOST_GAIN, MOST_SEND,
 } from '../src/sketch/project.js';
 import { SAMPLE_ROOT } from '../src/core/instrument.js';
 import { readMidi, PPQ, DRUM_CHANNEL } from '../src/sketch/midi.js';
@@ -291,6 +291,75 @@ test('a project with nonsense in it loads with the nonsense taken out', () => {
   assert.equal(loaded.tracks.length, 1, 'and the things that are not tracks are dropped');
   assert.equal(loaded.tracks[0].instrument, 'synth');
   assert.deepEqual(loaded.tracks[0].inserts, ['eq']);
+});
+
+test('a file with the wrong shapes in it loads rather than throwing', () => {
+  // Every one of these threw out of `parse`, whose whole promise is that it
+  // returns null or a project and never an exception.
+  const one = (track) => parse(JSON.stringify({ format: PROJECT_FORMAT, tracks: [{ id: 'a', ...track }] }));
+  for (const track of [
+    { inserts: {} }, { inserts: null }, { slots: null }, { slots: {} },
+    { settings: null }, { sample: null }, { slots: [{ notes: null }] },
+    { slots: [{ notes: [null, 7, { pitch: 60, start: 0 }] }] }, { slots: [7] },
+  ]) {
+    let back;
+    assert.doesNotThrow(() => { back = one(track); }, JSON.stringify(track));
+    assert.ok(back, `${JSON.stringify(track)} did not load`);
+    assert.ok(Array.isArray(back.tracks[0].inserts));
+    for (const clip of back.tracks[0].slots) if (clip) assert.ok(Array.isArray(clip.notes));
+  }
+  const kept = one({ slots: [{ notes: [null, { pitch: 'x', start: 0 }, { pitch: 60, start: 0 }] }] });
+  assert.deepEqual(kept.tracks[0].slots[0].notes.map((note) => note.pitch), [60],
+    'and only the notes with a pitch and a place survive');
+});
+
+test('a track out of a file is numbers where it goes to audio, and a short string of a name', () => {
+  const back = parse(JSON.stringify({
+    format: PROJECT_FORMAT,
+    tracks: [
+      { id: 'a', name: 42, gain: 'loud', pan: null, send: Infinity, muted: 'no' },
+      { id: 'b', name: 'x'.repeat(200), gain: 9, pan: -4, send: 3, muted: true },
+      { id: 'c', gain: -1, send: -1 },
+    ],
+  }));
+  const [a, b, c] = back.tracks;
+
+  assert.equal(a.name, '42');
+  assert.equal(a.gain, 0.8, 'a level that is not a number is the default');
+  assert.equal(a.pan, 0);
+  assert.equal(a.send, 0);
+  assert.equal(a.muted, false, 'only true is muted');
+
+  assert.equal(b.name.length, MOST_NAME, 'no longer than the rename field allows');
+  assert.equal(b.gain, MOST_GAIN, 'and no further than the fader goes');
+  assert.equal(b.pan, -1);
+  assert.equal(b.send, MOST_SEND);
+  assert.equal(b.muted, true);
+
+  assert.equal(c.gain, 0);
+  assert.equal(c.send, 0);
+});
+
+test('a file with more tracks than a sketch holds is cut to the most it holds', () => {
+  const back = parse(JSON.stringify({
+    format: PROJECT_FORMAT,
+    tracks: Array.from({ length: MOST_TRACKS * 2 }, (_, i) => ({ id: `t${i}` })),
+  }));
+  assert.equal(back.tracks.length, MOST_TRACKS);
+  assert.deepEqual(back.tracks.map((track) => track.id),
+    Array.from({ length: MOST_TRACKS }, (_, i) => `t${i}`), 'the first ones, in order');
+});
+
+test('a file whose tracks are all junk is not a sketch', () => {
+  assert.equal(parse(JSON.stringify({ format: PROJECT_FORMAT, tracks: [null, 'x', 3] })), null);
+});
+
+test('the mix exercise may still dress a fader past the panel', () => {
+  // `parse` holds a file to the panel; `setTrack` does not, because the mix
+  // exercise sets its stems through it and turns some of them up.
+  const up = setTrack(newProject(), 0, { gain: 2 });
+  assert.equal(up.tracks[0].gain, 2);
+  assert.equal(setTrack(newProject(), 0, { gain: 'loud' }).tracks[0].gain, 0.8);
 });
 
 test('a sketch is in a key, and nonsense in it reads as the default', () => {

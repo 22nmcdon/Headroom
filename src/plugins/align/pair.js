@@ -89,13 +89,15 @@ export function farMic(close, rate, {
   const gain = 10 ** (level / 20) * (flip ? -1 : 1);
 
   // One pole, which is all an air path is to within a decibel over the range
-  // that matters, and is what the player's BiquadFilterNode is set to match.
+  // that matters. The player plays this buffer, so there is no node to match.
   const a = 1 - Math.exp((-2 * Math.PI * tilt) / rate);
   let low = 0;
 
   for (let i = 0; i < close.length; i += 1) {
     const at = i - whole;
-    const delayed = at <= 0 ? 0 : close[at] * (1 - frac) + close[at - 1] * frac;
+    // Before the first sample is silence, so at `at` 0 only its own share is
+    // left - not nothing, or a delay of zero would drop the first sample.
+    const delayed = at < 0 ? 0 : close[at] * (1 - frac) + (at > 0 ? close[at - 1] * frac : 0);
     low += (delayed - low) * a;
     out[i] = low * gain;
   }
@@ -130,7 +132,7 @@ export function pairSum(close, far, rate, { delay = 0, blend = 0, flip = false }
 
   for (let i = 0; i < close.length; i += 1) {
     const at = i - whole;
-    const held = at <= 0 ? 0 : close[at] * (1 - frac) + close[at - 1] * frac;
+    const held = at < 0 ? 0 : close[at] * (1 - frac) + (at > 0 ? close[at - 1] * frac : 0);
     out[i] = held + (far[i] ?? 0) * gain;
   }
 

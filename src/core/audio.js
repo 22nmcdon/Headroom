@@ -21,8 +21,6 @@ export function midiToFreq(midi) {
   return 440 * 2 ** ((midi - 69) / 12);
 }
 
-export const dbToGain = (db) => 10 ** (db / 20);
-
 /**
  * The kit, as recipes: where the noise is filtered and how long it rings.
  *
@@ -598,7 +596,9 @@ export class Engine {
     scratch.master.gain.value = 1;
     scratch.master.connect(offline.destination);
 
-    if (kind === 'noise') scratch.playNoiseBed(length + tail, bpm);
+    // To the splice and no further, for the reason `bleed` gives: noise run
+    // into the tail would be folded back over the start as a second layer.
+    if (kind === 'noise') scratch.playNoiseBed(length, bpm);
     else scratch.playBed(kind, { seconds: length, at: 0, bpm, uneven, spread });
 
     const rendered = await offline.startRendering();

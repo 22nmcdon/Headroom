@@ -69,8 +69,8 @@ export const SHELF_QS = [0.25, 2];
  * filter unlocked. Web Audio's shelves ignore the number and are fixed at the
  * steepest shelf that does not overshoot; the state-variable shelf takes it.
  * Measured, a shelf still contributes exactly half its gain at its corner at
- * every Q in the range - 6.000 dB of a 12 dB shelf at 0.2, at root-half and
- * at 12 - so nothing about the handle changes, which is why this entry is one
+ * every Q in the range - 6.000 dB of a 12 dB shelf at 0.25, at root-half and
+ * at 2 - so nothing about the handle changes, which is why this entry is one
  * flag and a range rather than a special case.
  *
  * `qRange` is where that control stops, and the two ranges are different
@@ -292,7 +292,6 @@ export function bandGainAt(band, frequency, rate) {
   return db;
 }
 
-/** The whole strip's curve: what the bands come to, band by band, in dB. */
 /** What one band adds at its own corner - the height its handle sits at. */
 export function contributionOf(band, rate = 48000) {
   if (band.on === false) return 0;
@@ -332,20 +331,6 @@ export function curveReading(bands, rate = 48000, { source = null } = {}) {
 }
 
 /**
- * How far two curves are apart, at their worst point.
- *
- * The worst point rather than the average: averaged across the spectrum a
- * single band is a small part of a wide range, so doing nothing at all
- * measured about two decibels and very nearly passed. What "matched" means to
- * anybody looking at two curves is that they sit on each other everywhere,
- * which is exactly what the largest gap between them measures.
- *
- * This was inside the EQ exercise's `score`, taking two sets of bands and
- * building both curves itself. Taking readings instead means the same
- * comparison works between anything that produces a curve - a guess against an
- * answer, yours against a reference, this chain against that one.
- */
-/**
  * How wide a mismatch is worth, against how deep it is.
  *
  * Measured, because the two are not the same thing and the scoring used to
@@ -376,13 +361,24 @@ export const OCTAVE_EQUIVALENT = (octaves) =>
   Math.min(3, Math.max(1, Math.sqrt(1 / Math.max(octaves, 1e-3))));
 
 /**
- * The worst point, and how wide the miss is around it.
+ * How far two curves are apart, at their worst point - and how wide the miss
+ * is around it.
+ *
+ * The worst point rather than the average: averaged across the spectrum a
+ * single band is a small part of a wide range, so doing nothing at all
+ * measured about two decibels and very nearly passed. What "matched" means to
+ * anybody looking at two curves is that they sit on each other everywhere,
+ * which is exactly what the largest gap between them measures.
+ *
+ * This was inside the EQ exercise's `score`, taking two sets of bands and
+ * building both curves itself. Taking readings instead means the same
+ * comparison works between anything that produces a curve - a guess against an
+ * answer, yours against a reference, this chain against that one.
  *
  * Still the worst point, deliberately: an average cannot say where you went
  * wrong, and where is half of what makes the answer useful. What is new is
- * `octaves`, the width of the mismatch measured the way a bandwidth is always
- * measured - outwards from the peak until it has fallen by half - and `off`,
- * which is now that worst point expressed as the octave-wide move it is worth.
+ * `octaves`, the width of the mismatch - its whole area over its own peak,
+ * for the reason given inside - and `off`, which is now that worst point expressed as the octave-wide move it is worth.
  * `peak` is the raw decibels, for anything that wants to print them.
  */
 export function curveGap(mine, theirs) {
@@ -427,6 +423,7 @@ export function curveGap(mine, theirs) {
   };
 }
 
+/** The whole strip's curve: what the bands come to, band by band, in dB. */
 export function curveOf(bands, frequencies, rate = 48000) {
   const curve = new Float64Array(frequencies.length);
 

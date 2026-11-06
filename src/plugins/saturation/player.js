@@ -1,6 +1,7 @@
 import { HEAT_DEFAULTS, heatTrim, runShaper } from './shape.js';
 import { damageOf } from '../../lib/damage.js';
 import { LiveSaturator } from './node.js';
+import { LoopPlayer } from '../../lib/loop-player.js';
 
 /**
  * The loop, through two saturators you can flip between.
@@ -10,54 +11,50 @@ import { LiveSaturator } from './node.js';
  *
  * Both are always running and always fed, so flipping is a pair of gains,
  * and the two are level-matched before you ever hear them.
+ *
+ * Starting, stopping, swapping the loop and taking it all down are
+ * lib/loop-player.js's; what is here is only what is this tool's.
  */
-export class HeatPlayer {
+export class HeatPlayer extends LoopPlayer {
   constructor(engine, { source = 'mix' } = {}) {
-    this.engine = engine;
-    this.source = source;
-    this.hearing = 'mine';
+    super(engine, { source });
     this.auto = true;
     this.settings = { ...HEAT_DEFAULTS };
     this.target = null;
-    this.fault = null;
-    this.ready = false;
-    this.buffer = null;
+    this.other = null;
+    this.samples = null;
   }
 
-  async build() {
-    if (this.ready) return;
-    const ctx = this.engine.ensure();
-
-    this.mine = await this.side(ctx, 1);
-    this.theirs = await this.side(ctx, 0);
-    this.ready = true;
+  async raise(ctx) {
+    [this.mine, this.mineOut] = await this.side(ctx, 1);
+    [this.theirs, this.theirsOut] = await this.side(ctx, 0);
   }
 
+  /**
+   * One saturator, and the gain that is its half of the flip. The saturator
+   * is owned before its worklet is waited for, so a build that fails on the
+   * second side still takes the first one down.
+   */
   async side(ctx, listening) {
-    const heat = await new LiveSaturator(ctx).start();
-    const gain = ctx.createGain();
+    const heat = this.own(new LiveSaturator(ctx));
+    await heat.start();
+    const gain = this.own(ctx.createGain());
     gain.gain.value = listening;
     heat.connect(gain).connect(this.engine.out);
-    return { heat, gain };
+    return [heat, gain];
   }
 
   /* ---------- the material ---------- */
 
   async prepare() {
-    const loop = this.source === 'yours'
-      ? this.yours
-      : await this.engine.renderLoop(this.source, { spread: true });
-    if (!loop) return false;
-
-    this.raw = loop;
-    this.buffer = this.fault ? this.bake(loop, this.fault) : loop;
+    if (!(await super.prepare())) return false;
 
     // What the far side of the A/B plays. Normally the same thing - a fault
     // is baked in so that it cannot be switched off - but a round about
     // naming damage can ask for the material itself over there, which is a
     // different question from a fault to be fixed: one asks what to do about
     // it and the other asks what it is.
-    this.other = this.fault?.against === 'clean' ? loop : this.buffer;
+    this.other = this.fault?.against === 'clean' ? this.raw : this.buffer;
 
     // A second of it, mono, is what every reading is taken on. The shaping
     // runs eight times oversampled, which is the most expensive arithmetic
@@ -65,8 +62,13 @@ export class HeatPlayer {
     // in its first bar.
     const rate = this.engine.ctx?.sampleRate ?? 48000;
     const length = Math.min(this.buffer.length, rate);
-    const left = this.buffer.getChannelData(0);
-    this.samples = left.subarray(0, length);
+    this.samples = this.buffer.getChannelData(0).subarray(0, length);
+
+    // And the trim follows the material it is a trim for. It used to be
+    // taken again at every Play, which is when a new loop or fault reached
+    // the sound - and now that a new one is heard the moment it is ready,
+    // so is its level.
+    this.measure();
     return true;
   }
 
@@ -98,36 +100,23 @@ export class HeatPlayer {
     return out;
   }
 
-  async load(file) {
-    const ctx = this.engine.ensure();
-    this.yours = await ctx.decodeAudioData(await file.arrayBuffer());
-    return this.yours;
-  }
-
   /* ---------- what the settings do ---------- */
 
   /**
-   * The harmonic series both sides make, and the trim each needs to come out
-   * as loud as it went in.
+   * The trim each side needs to come out as loud as it went in.
    *
-   * The series comes off a sine rather than off the loop, which is the only
-   * way to get a clean one: harmonics are only harmonics of something, and a
-   * drum loop has no single fundamental for them to be harmonics of. What
-   * the curve does to a sine is a complete description of what it does to
-   * anything, so nothing is lost by asking it that way.
+   * The harmonic series is not measured here any more. It used to be -
+   * twice, once for each side - in the same timeout body that had the
+   * plugin measure it again, with no ordering expressed anywhere between
+   * them, and with nothing at all reading what this stored. Three passes of
+   * the most expensive measurement in the app, two of them for nobody.
+   *
+   * What is genuinely this player's is the trim: how much gain each side
+   * needs to come out as loud as it went in, which is measured over the
+   * actual loop rather than off the curve. The plugin owns the reading.
    */
   measure() {
     const rate = this.engine.ctx?.sampleRate ?? 48000;
-
-    // The harmonic series is not measured here any more. It used to be -
-    // twice, once for each side - in the same timeout body that had the
-    // plugin measure it again, with no ordering expressed anywhere between
-    // them, and with nothing at all reading what this stored. Three passes of
-    // the most expensive measurement in the app, two of them for nobody.
-    //
-    // What is genuinely this player's is the trim: how much gain each side
-    // needs to come out as loud as it went in, which is measured over the
-    // actual loop rather than off the curve. The plugin owns the reading.
     if (this.samples) {
       this.trim = heatTrim(this.samples, rate, this.settings);
       this.targetTrim = this.target ? heatTrim(this.samples, rate, this.target) : 0;
@@ -140,10 +129,14 @@ export class HeatPlayer {
   /** Hands the current settings, and the level they need, to the audio thread. */
   push() {
     if (!this.ready) return;
-    this.mine.heat.set({ ...this.settings, trim: this.auto ? (this.trim ?? 0) : 0 });
+    this.mine.set({ ...this.settings, trim: this.auto ? (this.trim ?? 0) : 0 });
     if (this.target) {
-      this.theirs.heat.set({ ...this.target, trim: this.auto ? (this.targetTrim ?? 0) : 0 });
+      this.theirs.set({ ...this.target, trim: this.auto ? (this.targetTrim ?? 0) : 0 });
     }
+  }
+
+  apply() {
+    this.push();
   }
 
   setSettings(settings) {
@@ -161,69 +154,14 @@ export class HeatPlayer {
     this.push();
   }
 
-  setFault(fault) {
-    this.fault = fault;
-  }
-
   /* ---------- transport ---------- */
 
-  hear(which) {
-    this.hearing = which;
-    if (!this.ready) return;
-    const at = this.engine.ctx.currentTime;
-    this.mine.gain.gain.setTargetAtTime(which === 'mine' ? 1 : 0, at, 0.008);
-    this.theirs.gain.gain.setTargetAtTime(which === 'mine' ? 0 : 1, at, 0.008);
-  }
-
-  async play() {
-    await this.build();
-    if (!this.buffer) await this.prepare();
-    if (!this.buffer) return false;
-
-    this.measure();
-    this.stop();
-
-    const ctx = this.engine.ctx;
-    const at = ctx.currentTime + 0.08;
-
-    // One source a side, started together, because the two sides are not
-    // always playing the same material: see `prepare`. When they are, which
-    // is every round but one, the two buffers are the same object and the
-    // crossfade between them is a crossfade between a signal and itself.
-    this.node = ctx.createBufferSource();
-    this.node.buffer = this.buffer;
-    this.node.loop = true;
-    this.node.connect(this.mine.heat.input);
-    this.node.start(at);
-
-    this.far = ctx.createBufferSource();
-    this.far.buffer = this.other ?? this.buffer;
-    this.far.loop = true;
-    this.far.connect(this.theirs.heat.input);
-    this.far.start(at);
-
-    this.startedAt = at;
-    return true;
-  }
-
-  stop() {
-    for (const source of [this.node, this.far]) {
-      if (!source) continue;
-      try { source.stop(); } catch { /* already stopped */ }
-      source.disconnect();
-    }
-    this.node = null;
-    this.far = null;
-  }
-
-  get playing() {
-    return Boolean(this.node);
-  }
-
-  destroy() {
-    this.stop();
-    this.mine?.heat.destroy();
-    this.theirs?.heat.destroy();
-    this.ready = false;
+  // One source a side, started together, because the two sides are not
+  // always playing the same material: see `prepare`. When they are, which
+  // is every round but one, the two buffers are the same object and the
+  // crossfade between them is a crossfade between a signal and itself.
+  wire(at) {
+    this.start(this.buffer, (node) => node.connect(this.mine.input), at);
+    this.start(this.other ?? this.buffer, (node) => node.connect(this.theirs.input), at);
   }
 }

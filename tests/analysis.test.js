@@ -15,6 +15,8 @@ import {
 } from '../src/analysis/balance.js';
 import { widthReading, widthGap } from '../src/analysis/width.js';
 import { distance } from '../src/gap.js';
+import { loudnessReading } from '../src/lib/loudness.js';
+import { AnalysisPage } from '../src/analysis/page.js';
 
 const RATE = 48000;
 
@@ -200,7 +202,7 @@ test('the summary says where the weight is', () => {
 });
 
 test('two spectra are compared at their worst third, not averaged', () => {
-  // Averaged across thirty-one bands, one band four decibels out is a tenth
+  // Averaged across twenty-nine bands, one band four decibels out is a tenth
   // of a decibel and reads as a match.
   const flat = balanceReading([noise(-12, 3)], RATE);
   const bumped = balanceReading([noise(-12, 3)], RATE);
@@ -306,4 +308,27 @@ test('every analysis reading carries the same envelope, and refuses the wrong pa
       assert.throws(() => distance(a, b), /cannot be compared/);
     }
   }
+});
+
+test('the comparison line says why there is no loudness rather than printing Infinity', () => {
+  const read = (channel) => ({
+    loudness: loudnessReading([channel, channel], RATE),
+    balance: balanceReading([channel, channel], RATE),
+    seconds: channel.length / RATE,
+  });
+  const say = (yours, reference) => AnalysisPage.prototype.say.call({ slots: { yours, reference } });
+
+  const long = read(noise(-20, 3));
+  const hit = read(noise(-20, 0.3));
+  const silence = read(new Float32Array(RATE * 2));
+
+  for (const line of [say(hit, long), say(long, silence), say(silence, silence)]) {
+    assert.doesNotMatch(line, /Infinity|NaN/, line);
+  }
+  assert.match(say(hit, long), /^Yours is under the 400 ms/);
+  assert.match(say(long, silence), /^The reference is silent/);
+  // A short hit still has a spectrum worth comparing; silence does not.
+  assert.match(say(hit, long), /spectra/);
+  assert.doesNotMatch(say(silence, long), /spectra/);
+  assert.match(say(long, long), /same loudness/);
 });

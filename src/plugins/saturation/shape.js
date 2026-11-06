@@ -1,4 +1,4 @@
-import { makeBiquad, setBiquad, runBiquad } from '../../lib/dsp.js';
+import { makeBiquad, setBiquad, runBiquad, signalRms } from '../../lib/dsp.js';
 import { readingOf, stampOf } from '../../lib/read.js';
 import {
   PROBE_BIN, HARMONIC_AXIS, spectrumThrough, seriesOf, foldbackIn,
@@ -72,7 +72,6 @@ export const DC_CORNER = 5;
 export const LEAST_TONE = 800;
 export const MOST_TONE = 9000;
 
-/** Every control, and where it starts. */
 /**
  * The families of curve, and what each one is for.
  *
@@ -249,6 +248,7 @@ export const TAPE_SPEEDS = [
 /** The order they are offered in: gentlest first, least analogue last. */
 export const CURVE_ORDER = ['soft', 'tape', 'iron', 'tube', 'rectify', 'fold', 'crush'];
 
+/** Every control, and where it starts. */
 export const HEAT_DEFAULTS = {
   mode: 'soft',    // which family of curve - see CURVES
   drive: 0,        // dB into the curve
@@ -414,11 +414,54 @@ export function overKernel() {
 export const HEAT_LATENCY = (OVER_TAPS - 1) / OVERSAMPLE;
 
 /**
+ * The tube's curve with its operating point at `at`. A declaration, as
+ * `bendOf` is, because both are stringified onto the audio thread.
+ */
+export function tubeBend(v, at) {
+  return shape(v + at, TUBE_KNEE) - shape(at, TUBE_KNEE);
+}
+
+/**
+ * The bend a family puts a sample through, and the constant put on the input
+ * ahead of it, for every family that is one sample in and one out.
+ *
+ * One function for `shaperCore`, which runs it, and `transferCurve`, which
+ * draws it, so the picture is the sound's own arithmetic. The tube's is its
+ * curve at rest; the core adds the envelope that moves it. Iron and crush are
+ * not here: one is all memory, and the other happens after the oversampling.
+ */
+export function bendOf(state) {
+  if (state.mode === 'rectify') {
+    const amount = state.amount;
+    const middle = rectify(0, amount);
+    return { offset: 0, curve: (v) => rectify(v, amount) - middle };
+  }
+  if (state.mode === 'fold') {
+    const folds = state.folds;
+    return { offset: 0, curve: (v) => foldOver(v, folds) };
+  }
+  if (state.mode === 'tube') {
+    const at = state.bias * TUBE_MOST;
+    return { offset: 0, curve: (v) => tubeBend(v, at) };
+  }
+  // Bias is the soft curve's, and tape's, which bends through the same one.
+  // The other families have no use for a constant on the input.
+  //
+  // The bias comes out of the curve as a constant on the output - a DC
+  // offset that would sit under the sound doing nothing audible except
+  // eating headroom. Subtracting what the curve does to silence leaves the
+  // asymmetry and takes the offset away.
+  const offset = state.mode === 'soft' || state.mode === 'tape' ? state.bias * MOST_BIAS : 0;
+  const hardness = state.hardness;
+  const centre = shape(offset, hardness);
+  return { offset, curve: (v) => shape(v, hardness) - centre };
+}
+
+/**
  * The saturator, one sample at a time.
  *
  * `step(x)` leaves what came out on `out`.
- */
-/**
+ *
  * `blockDc` is false only for the probe, and only because of what a filter
  * does when it starts rather than what it does. See `spectrumOf`.
  */
@@ -485,7 +528,6 @@ export function shaperCore(rate, blockDc = true) {
   let filtered = false;
   let gain = 1;
   let offset = 0;
-  let centre = 0;
   let level = 1;
   let curve = (v) => v;
   let crushing = false;
@@ -494,16 +536,10 @@ export function shaperCore(rate, blockDc = true) {
 
   function retune() {
     gain = Math.pow(10, state.drive / 20);
-    // Bias is the soft curve's. The other families have no use for a constant
-    // on the input, and one would only move them off centre.
-    // The tube works out its own, because for it the point moves while the
-    // sound is playing and the generic one is a constant.
-    offset = ['soft', 'tape'].includes(state.mode) ? state.bias * MOST_BIAS : 0;
-    // The bias puts a constant on the input, which comes out of the curve as
-    // a constant on the output - a DC offset that would sit under the sound
-    // doing nothing audible except eating headroom. Subtracting what the
-    // curve does to silence leaves the asymmetry and takes the offset away.
-    centre = shape(offset, state.hardness);
+    // Only the soft curve and tape put a constant on the input - see
+    // `bendOf`. The tube works out its own, because for it the point moves
+    // while the sound is playing.
+    offset = 0;
 
     // Which family, resolved once here rather than branched per sample - the
     // inner loop runs eight times for every sample that arrives.
@@ -519,14 +555,7 @@ export function shaperCore(rate, blockDc = true) {
       setBiquad(bump, 'peaking', at.bumpHz, rate, at.bump);
       setBiquad(loss, 'lowpass', Math.min(at.loss, rate * 0.45), rate);
     }
-    if (state.mode === 'rectify') {
-      const amount = state.amount;
-      const middle = rectify(0, amount);
-      curve = (v) => rectify(v, amount) - middle;
-    } else if (state.mode === 'fold') {
-      const folds = state.folds;
-      curve = (v) => foldOver(v, folds);
-    } else if (crushing) {
+    if (crushing) {
       // Nothing happens in the oversampled loop. The filters either side of
       // it are flat to 21 kHz, so the signal comes out of the round trip as
       // it went in, and the crushing is done below at the rate it belongs to.
@@ -542,7 +571,7 @@ export function shaperCore(rate, blockDc = true) {
         // Where the curve is sitting this instant: the static point, plus as
         // much of what is left above it as the envelope has earned.
         const at = base + room * (charge > 1 ? 1 : charge);
-        return shape(v + at, TUBE_KNEE) - shape(at, TUBE_KNEE);
+        return tubeBend(v, at);
       };
     } else if (ironing) {
       // Integrate to get the flux, saturate the flux, differentiate to get
@@ -560,8 +589,7 @@ export function shaperCore(rate, blockDc = true) {
         return out;
       };
     } else {
-      const hardness = state.hardness;
-      curve = (v) => shape(v, hardness) - centre;
+      ({ offset, curve } = bendOf(state));
     }
     level = Math.pow(10, state.trim / 20);
     // At the top of its travel the tone control is not a gentle filter near
@@ -717,32 +745,14 @@ export function heatTrim(samples, rate, settings) {
     ? samples.subarray(0, Math.round(rate * GAIN_WINDOW))
     : samples;
 
-  const quiet = rms(excerpt);
+  const quiet = signalRms(excerpt);
   if (quiet < 1e-6) return 0;
-  const loud = rms(runShaper(excerpt, rate, { ...settings, trim: 0, listen: 'out' }));
+  const loud = signalRms(runShaper(excerpt, rate, { ...settings, trim: 0, listen: 'out' }));
   if (loud < 1e-9) return 0;
   return Math.max(-24, Math.min(24, 20 * Math.log10(quiet / loud)));
 }
 
-function rms(samples) {
-  let sum = 0;
-  for (let i = 0; i < samples.length; i += 1) sum += samples[i] * samples[i];
-  return Math.sqrt(sum / Math.max(1, samples.length));
-}
-
 /* ---------- reading the harmonics ---------- */
-
-// A tone chosen so that every harmonic lands exactly on a bin.
-//
-// This matters more than it looks. A sine at a frequency that falls between
-// two bins smears across the whole spectrum, and the smear from a fundamental
-// at 0 dB buries harmonics at -60. Put the fundamental on bin PROBE_BIN of a
-// PROBE_LENGTH transform and harmonic m is exactly on bin PROBE_BIN * m, with
-// nothing either side of it, and the numbers that come back are the real ones
-// rather than the window's.
-//
-// Which bin decides what the reading can see. The first one tried put the
-// tone at 220 Hz, where the tenth harmonic is 2.2 kHz - so every tone setting
 
 /**
  * What a sine comes out of a setting as: the harmonic series, in decibels
@@ -837,39 +847,32 @@ export const curveReach = (drive) => 1 / Math.sqrt(Math.max(1, Math.pow(10, driv
  * visible lopsidedness is exactly what the even harmonics are.
  */
 export function transferCurve(settings, points = 129) {
-  const mode = settings.mode ?? HEAT_DEFAULTS.mode;
-  const drive = settings.drive ?? 0;
+  const state = { ...HEAT_DEFAULTS };
+  for (const key in settings) if (settings[key] != null) state[key] = settings[key];
+  const { mode, drive, mix } = state;
   const gain = Math.pow(10, drive / 20);
-  const hardness = settings.hardness ?? HEAT_DEFAULTS.hardness;
-  const offset = mode === 'soft' ? (settings.bias ?? 0) * MOST_BIAS : 0;
-  const mix = settings.mix ?? 1;
-  const centre = shape(offset, hardness);
   const reach = curveReach(drive);
 
   // Every family draws a different shape here, which makes this panel the
   // plainest statement of which one you are in: a soft S, a V with one side
   // folded up, a line that turns back on itself, a staircase. Nothing else on
   // the face has to say it.
-  const amount = settings.amount ?? HEAT_DEFAULTS.amount;
-  const folds = settings.folds ?? HEAT_DEFAULTS.folds;
-  const bits = settings.bits ?? HEAT_DEFAULTS.bits;
-  const middle = rectify(0, amount);
+  //
   // The transformer is the one family whose panel is not input against
   // output, because for it those two are not a fixed pair - what comes out
   // depends on how long the signal has been going in. What is fixed is the
   // core: flux in, saturated flux out, which is the shape that decides
   // everything else. The face says which it is drawing.
-  const core = settings.core ?? HEAT_DEFAULTS.core;
+  const { core, bits } = state;
+  let offset = 0;
   let curve;
   if (mode === 'iron') curve = (v) => Math.tanh(v / core) * core;
-  else if (mode === 'rectify') curve = (v) => rectify(v, amount) - middle;
-  else if (mode === 'fold') curve = (v) => foldOver(v, folds);
   // The bare ladder, with no dither on it. A dithered staircase drawn as a
   // curve is a fuzzy band that is different every repaint, and what the panel
   // is for is saying which family you are in - the dither's own lesson is a
   // number, and the head readout is where it goes.
   else if (mode === 'crush') curve = (v) => crushTo(v, bits);
-  else curve = (v) => shape(v, hardness) - centre;
+  else ({ offset, curve } = bendOf(state));
 
   const out = new Float64Array(points);
   for (let i = 0; i < points; i += 1) {

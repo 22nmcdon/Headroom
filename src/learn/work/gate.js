@@ -16,7 +16,7 @@ import { COMP_DEFAULTS, expandGain } from '../../plugins/compressor/dsp.js';
 import { reductionReading } from '../../plugins/compressor/reading.js';
 import { GATE_FACE } from '../../plugins/compressor/aimed.js';
 import { distance } from '../../gap.js';
-import { HIT, NEAR, MISS, onScale, pick, toStep } from './scoring.js';
+import { HIT, NEAR, MISS, onScale, pick, toStep, placeSaid } from './scoring.js';
 import { mulberry32 } from '../../lib/random.js';
 
 /**
@@ -198,7 +198,7 @@ function gateDrillSettings(puzzle) {
   };
 }
 
-export const GATE_EXERCISES = {
+const GATE_EXERCISES = {
   match: {
     id: 'match',
     // The target is the settings that win, so it can go on the controls
@@ -292,9 +292,9 @@ export const GATE_WORK = {
   exercises: GATE_EXERCISES,
 
   tiers: {
-    easy: { label: 'Easy', blurb: 'One release, and a decibel forgiven', guesses: 3 },
-    medium: { label: 'Medium', blurb: 'The release varies too', guesses: 4 },
-    hard: { label: 'Hard', blurb: 'The release varies, and the threshold is exact', guesses: 4 },
+    easy: { label: 'Easy', blurb: 'One release, and a decibel forgiven' },
+    medium: { label: 'Medium', blurb: 'The release varies too' },
+    hard: { label: 'Hard', blurb: 'The release varies, and the threshold is exact' },
   },
 
   /** Answered on the tool, except in the drill, which asks with chips. */
@@ -427,9 +427,8 @@ export const GATE_WORK = {
           : db >= 6
             ? 'There is still something in the gaps, and it is clearly quieter.'
             : 'It is barely closing - the room is still there, just a little further back.',
-        `It is ${db} dB, which is ${db >= 24 ? 'the deep end of what this tier offers'
-          : db >= 6 ? 'the middle of what this tier offers'
-            : 'the shallowest step this tier offers'}.`,
+        `It is ${db} dB, which is ${placeSaid(GATE_DEPTHS[puzzle.tier] ?? GATE_DEPTHS.medium, db,
+          { least: 'the shallowest', most: 'the deep end' })}.`,
       ];
     }
 

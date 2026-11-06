@@ -140,7 +140,7 @@ export function addClick(samples, rate, { at = 1.2, size = 1 } = {}) {
 /**
  * Band-limiting: no bottom and no top, which is a codec or a telephone.
  *
- * Two one-pole filters each way, run forwards only. Not a good filter and
+ * Two one-pole low-passes and one one-pole high-pass, run forwards only. Not a good filter and
  * not meant to be: what is being asked is whether somebody can hear that the
  * ends are gone, and a steeper one would only make that easier.
  */

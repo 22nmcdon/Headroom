@@ -21,8 +21,6 @@ import { dressKnobs } from '../../lib/knob.js';
  * the screen.
  */
 
-const keepIn = (value, low, high) => Math.min(high, Math.max(low, value));
-
 export const writeSeconds = (s) => (s >= 1 ? `${s.toFixed(2)} s` : `${Math.round(s * 1000)} ms`);
 
 /** Every knob, and how it reads. */
@@ -667,10 +665,6 @@ export class VerbPlugin {
 
   /* ---------- what the round does to it ---------- */
 
-  async setTarget(target) {
-    await this.player.setTarget(target);
-  }
-
   /** Draw the answer over yours, or take it back off. */
   showTarget(target) {
     if (!target) {
@@ -711,11 +705,6 @@ export class VerbPlugin {
     if (slot) slot.textContent = label;
   }
 
-  nameOther(label) {
-    const slot = this.el.querySelector('#verbOther');
-    if (slot) slot.textContent = label;
-  }
-
   /* ---------- the lifecycle ---------- */
 
   /**
@@ -744,19 +733,15 @@ export class VerbPlugin {
    * able to call it.
    */
   async reload() {
-    this.player.buffer = null;
-    await this.player.prepare().catch(() => {});
-
-    // Both sides may not exist yet. A room is rendered into the material
-    // rather than filtered over it, so the two chains are built the first
-    // time anything plays - and this is now called at attach, which is
-    // before that. It used to be the body of a change handler, which by
-    // definition only ran once somebody had already been working.
-    if (this.player.mine) this.player.mine.made = null;
-    if (this.player.theirs) this.player.theirs.made = null;
+    // The player fetches the loop again, drops both rooms if the loop is a
+    // new one, and if it was playing starts again over rooms rendered into
+    // it. A room it already has for this loop and these settings is not
+    // rendered twice, so asking for both afterwards costs nothing when that
+    // play has just made them - and when nothing is playing, which is the
+    // case at attach, it is what has them ready before anything does.
+    await Promise.resolve(this.player.refresh()).catch(() => {});
     await this.player.setSettings(this.settings);
     if (this.player.target) await this.player.setTarget(this.player.target);
-    if (this.player.playing) await this.player.play();
     this.draw();
   }
 

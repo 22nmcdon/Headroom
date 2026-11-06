@@ -210,7 +210,6 @@ export function insertPlayer(ctx, effect, { transport = null, before = null } = 
     setSolo() {},
     setTarget() {},
     setFault() {},
-    setAuto() {},
     hear() {},
     load: async () => null,
 

@@ -83,6 +83,7 @@ export class MixPage {
     this.tier = 'easy';
     this.stage = null;
     this.building = null;
+    this.destroyed = false;
 
     this.round = null;     // { brief, piece, answer: readings|null }
     this.mine = flatMix(); // what the faders are on
@@ -280,7 +281,7 @@ export class MixPage {
   deal() {
     const brief = mixBrief(this.tier, roundSeed('mix', this.tier, Math.random()));
 
-    this.round = { brief, piece: pieceOf(brief.piece), answer: null, stamp: null };
+    this.round = { brief, piece: pieceOf(brief.piece), answer: null };
     this.mine = this.start();
     this.monitor = {};
     this.listening = 'mine';
@@ -754,11 +755,26 @@ export class MixPage {
       // rendered from the project, and the project ends at the stage.
       // `speakers` and not `monitor`: this page already has a `monitor`, and
       // it is the mute and solo map, which is a different kind of listening.
-      this.speakers = makeMonitor(ctx, this.engine.out);
-      this.speakers.setListen(this.listening_on);
+      const speakers = makeMonitor(ctx, this.engine.out);
+      this.speakers = speakers;
+      speakers.setListen(this.listening_on);
       this.building = makeStage(ctx, this.dressed(), {
-        out: this.speakers.input, rides: this.rides,
-      }).then((stage) => { this.stage = stage; return stage; });
+        out: speakers.input, rides: this.rides,
+      }).then((stage) => {
+        // Closed while it was building: nobody else will ever destroy it.
+        if (this.destroyed) {
+          stage.destroy();
+          return null;
+        }
+        this.stage = stage;
+        return stage;
+      }, (error) => {
+        // Not kept, or every Play after this hands back the same failure.
+        this.building = null;
+        speakers.destroy();
+        if (this.speakers === speakers) this.speakers = null;
+        throw error;
+      });
     }
     return this.building;
   }
@@ -784,6 +800,7 @@ export class MixPage {
 
   async toggle() {
     const stage = await this.ready();
+    if (!stage) return;
     if (stage.playing) {
       stage.stop();
       this.watch(false);
@@ -936,14 +953,12 @@ export class MixPage {
       : `It was ${how.symbol.toLowerCase()} — ${how.name}. Listen again with the`
         + ' A/B: the question is what happens to the loudest hits.';
 
-    // Being shown is never a solve, which is the rule the drills keep as well:
-    // what the record is for is what you can hear, and nobody can hear a
-    // button that says "show me".
-    if (shown) this.attempts = Math.max(1, this.attempts);
-
     this.parts.submit.disabled = true;
     this.parts.submit.textContent = right ? 'That is it' : 'Shown';
 
+    // Being shown is never a solve, which is the rule the drills keep as well:
+    // what the record is for is what you can hear, and nobody can hear a
+    // button that says "show me".
     recordMix({
       tier: this.tier,
       attempts: this.attempts,
@@ -1017,15 +1032,21 @@ export class MixPage {
     this.measuring = true;
     this.drawMatch();
 
+    // A new round mid-render is a new pair, and this one's numbers are not
+    // about it - so every await checks it is still the round it started on.
+    const { round } = this;
     try {
-      const theirs = await this.answerRead();
-      const mine = await readMix(dress(this.round.piece, this.mine), 'yours', {
+      const theirs = await this.answerRead(round);
+      if (this.round !== round) return;
+      const mine = await readMix(dress(round.piece, this.mine), 'yours', {
         rides: this.rides,
       });
+      if (this.round !== round) return;
       this.reference = theirs.loudness.values.integrated;
       this.anchor = anchorOf(this.mine, mine);
       this.matching = true;
     } catch (why) {
+      if (this.round !== round) return;
       this.matching = false;
       this.anchor = null;
       this.parts.advice.hidden = false;
@@ -1090,14 +1111,14 @@ export class MixPage {
    * Once a round, because neither the stems nor the answer change within one,
    * and a render is a second and a half nobody should pay for twice.
    */
-  async answerRead() {
-    if (!this.round.answer) {
-      const theirs = dress(this.round.piece, this.round.brief.target);
-      this.round.answer = await readMix(theirs, 'answer', {
-        rides: this.round.brief.rides ?? {},
+  async answerRead(round = this.round) {
+    if (!round.answer) {
+      const theirs = dress(round.piece, round.brief.target);
+      round.answer = await readMix(theirs, 'answer', {
+        rides: round.brief.rides ?? {},
       });
     }
-    return this.round.answer;
+    return round.answer;
   }
 
   async submit() {
@@ -1108,11 +1129,15 @@ export class MixPage {
     this.parts.submit.disabled = true;
     this.parts.submit.textContent = 'Listening to it…';
 
+    // As in `measureMatch`: a round dealt mid-render is not this one.
+    const { round } = this;
     try {
-      const theirs = await this.answerRead();
-      const mine = await readMix(dress(this.round.piece, this.mine), 'yours', {
+      const theirs = await this.answerRead(round);
+      if (this.round !== round) return;
+      const mine = await readMix(dress(round.piece, this.mine), 'yours', {
         rides: this.rides,
       });
+      if (this.round !== round) return;
 
       this.attempts += 1;
       this.marked = markMix(mine, theirs, this.tier);
@@ -1138,12 +1163,16 @@ export class MixPage {
         this.drawRecord();
       }
     } catch (why) {
+      if (this.round !== round) return;
       this.parts.advice.hidden = false;
       this.parts.advice.textContent = `That could not be measured: ${why.message}`;
     } finally {
       this.busy = false;
-      this.parts.submit.disabled = this.over;
-      this.parts.submit.textContent = this.over ? 'That is the mix' : 'Submit the mix';
+      // A new round has already set the button for itself.
+      if (this.round === round) {
+        this.parts.submit.disabled = this.over;
+        this.parts.submit.textContent = this.over ? 'That is the mix' : 'Submit the mix';
+      }
     }
   }
 
@@ -1253,9 +1282,11 @@ export class MixPage {
   }
 
   destroy() {
+    this.destroyed = true;
     this.watch(false);
     this.stage?.destroy();
     this.stage = null;
+    this.building = null;
     this.speakers?.destroy();
     this.speakers = null;
   }

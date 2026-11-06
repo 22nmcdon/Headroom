@@ -303,6 +303,9 @@ export class Delivery {
 
   stop() {
     for (const node of Object.values(this.sources ?? {})) {
+      // Before `stop`, whose `ended` arrives later and would otherwise stop
+      // whatever a `restart` has just started.
+      node.onended = null;
       try { node.stop(); } catch { /* already stopped, which is fine */ }
       node.disconnect();
     }

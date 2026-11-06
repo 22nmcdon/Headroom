@@ -170,19 +170,27 @@ export const CEIL_DEFAULTS = {
  */
 export const heldTo = (value, [low, high]) => Math.max(low, Math.min(high, value));
 
+/**
+ * What the knobs say, as the limiter's own options.
+ *
+ * One function for the reading and the player both. They used to build these
+ * separately, and the player's copy had no mode and no knee in it - so the
+ * clipper and the knee moved the harmonics on the face and did nothing at all
+ * to the sound - and fell back to a different release from the reading's.
+ */
+export const ceilingOptions = (settings) => ({
+  ceiling: heldTo(settings.ceiling ?? CEIL_DEFAULTS.ceiling, CEIL_RANGE),
+  release: heldTo(settings.release ?? CEIL_DEFAULTS.release, CEIL_RELEASE) / 1000,
+  truePeak: (settings.peak ?? CEIL_DEFAULTS.peak) === 'true',
+  mode: CEIL_SHAPES.some((shape) => shape.id === settings.mode)
+    ? settings.mode
+    : CEIL_DEFAULTS.mode,
+  knee: heldTo(settings.knee ?? CEIL_DEFAULTS.knee, CEIL_KNEE),
+});
+
 /** One limiter, built from what the knobs say. */
-export function ceilingFor(rate, settings) {
-  return makeLimiter(rate, {
-    ceiling: heldTo(settings.ceiling ?? CEILING_DB, CEIL_RANGE),
-    release: heldTo(settings.release ?? CEIL_RELEASE[0], CEIL_RELEASE) / 1000,
-    truePeak: (settings.peak ?? 'true') === 'true',
-    lookahead: LIMIT_AHEAD,
-    mode: CEIL_SHAPES.some((shape) => shape.id === settings.mode)
-      ? settings.mode
-      : CEIL_DEFAULTS.mode,
-    knee: heldTo(settings.knee ?? 0, CEIL_KNEE),
-  });
-}
+export const ceilingFor = (rate, settings) =>
+  makeLimiter(rate, { ...ceilingOptions(settings), lookahead: LIMIT_AHEAD });
 
 /**
  * A pair through the drive and the ceiling, with the reduction recorded.

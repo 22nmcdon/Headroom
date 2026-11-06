@@ -169,6 +169,20 @@ export function fadeGainAt(through, seconds, rising = false) {
   return (1 - mix) * cosineAt(t) + mix * evenAt(t);
 }
 
+/**
+ * Where a pass's fade-out starts, and for how long it runs.
+ *
+ * Never before the fade-in has finished. When the two are shared out to fit,
+ * the fall starts where the rise ends in exact arithmetic and can come out a
+ * rounding step before it in floats - and a value curve with another event
+ * inside it is a NotSupportedError, thrown out of the transport's pass, which
+ * then never advances and books the same window again on every tick.
+ */
+export function fallOf(began, heard, fade) {
+  const at = Math.max(began + fade.in, began + heard - fade.out);
+  return { at, seconds: began + heard - at };
+}
+
 /** Which of the nine a fade of this length gets. */
 export function fadeShapeAt(seconds) {
   const held = Math.max(0, Number(seconds) || 0);
@@ -214,6 +228,10 @@ export async function makeStage(ctx, project, {
 
   let current = project;
   const rows = [];
+  // Which edit each row's slot last answered, so that a build overtaken by a
+  // later one is torn down when it lands rather than left subscribed.
+  const asked = [];
+  let gone = false;
 
   /**
    * One pass of a recording, booked.
@@ -263,13 +281,13 @@ export async function makeStage(ctx, project, {
       // this says when: a note sung a beat late is in the wrong place, and
       // trimming the front only makes the take shorter and still late.
       //
-      // Clamped to now, which bounds how early the FIRST pass can be. A
-      // window is booked `LOOKAHEAD` ahead - 0.12 s - so an early nudge is
-      // exact up to about 92 ticks at 96 bpm and clamps past that on the
-      // pass that is already starting. Every later pass of a loop is booked
-      // far enough ahead to be unaffected, and a one-shot has no later pass,
-      // so on one of those an early nudge is worth a fraction of a beat and
-      // no more. Said rather than silently dropped: the take still plays.
+      // Clamped to now, which bounds how early any pass can be. A pass is
+      // booked with the window its un-nudged tick falls in, which is at most
+      // `LOOKAHEAD` ahead - 0.12 s - so an early nudge is exact up to about
+      // 92 ticks at 96 bpm and clamps past that, on every pass of a loop as
+      // well as on a one-shot. Booking from the nudged tick instead would
+      // book a loop's next pass before anyone could still launch something
+      // over it. Said rather than silently dropped: the take still plays.
       const want = clock.timeOf(at + (piece.clip.nudge ?? 0));
       const began = Math.max(want, ctx.currentTime);
 
@@ -318,9 +336,9 @@ export async function makeStage(ctx, project, {
         shaped.gain.setValueCurveAtTime(RISES[fadeShapeAt(fade.in)], began, fade.in);
       }
       shaped.gain.setValueAtTime(1, began + fade.in);
-      if (fade.out > 0) {
-        shaped.gain.setValueCurveAtTime(FALLS[fadeShapeAt(fade.out)],
-          began + heard - fade.out, fade.out);
+      const fall = fallOf(began, heard, fade);
+      if (fade.out > 0 && fall.seconds > 0) {
+        shaped.gain.setValueCurveAtTime(FALLS[fadeShapeAt(fade.out)], fall.at, fall.seconds);
       }
       source.connect(shaped).connect(row.track.chain.in);
 
@@ -359,11 +377,14 @@ export async function makeStage(ctx, project, {
    * `RIDE_STEPS` in `lib/tempo.js` - where both ends of this can reach it,
    * since `sketch` may not import `mix` and the exercise lives over there.
    */
-  const bookRide = (row, spec, from, to) => {
-    const depth = rides[spec.id];
+  const bookRide = (row, index, from, to) => {
+    // The track as it is now, not as it was when the row was built: a fader
+    // move replaces the track object without rebuilding the row.
+    const spec = current.tracks[index];
+    const depth = spec && rides[spec.id];
     if (!depth) return;
 
-    const clip = clipAt(current, current.tracks.indexOf(spec), 0);
+    const clip = clipAt(current, index, 0);
     const loop = clip?.length ?? clock.perBar;
     const step = Math.max(1, Math.round(clock.perBar / RIDE_STEPS));
 
@@ -406,7 +427,7 @@ export async function makeStage(ctx, project, {
     };
 
     row.off = playPieces(clock, track, (from, to) => {
-      bookRide(row, spec, from, to);
+      bookRide(row, index, from, to);
 
       // Asked before the window is booked, not after: a follow landing
       // inside it has to be queued first so that `booking` splits there -
@@ -478,7 +499,9 @@ export async function makeStage(ctx, project, {
 
     /** Where each row is and what it is waiting for, for the grid to draw. */
     get state() {
-      return rows.map(({ launch }) => ({ scene: launch.scene, next: launch.next }));
+      return rows.map(({ launch }) => ({
+        scene: launch.scene, anchor: launch.anchor, next: launch.next,
+      }));
     },
 
     /** The recordings this stage can play, by id. Shared, so it is live. */
@@ -515,17 +538,22 @@ export async function makeStage(ctx, project, {
         clock.setTempo(next.bpm, next.beats, next.value);
       }
 
+      // Every slot this edit speaks for, including the ones it takes away,
+      // so a build still running from an earlier edit is overtaken.
+      const slots = Math.max(next.tracks.length, rows.length, asked.length);
+      for (let index = 0; index < slots; index += 1) asked[index] = (asked[index] ?? 0) + 1;
+
       await Promise.all(next.tracks.map(async (spec, index) => {
         const row = rows[index];
-        if (!row) {
-          rows[index] = await build(spec, index);
-          return;
-        }
-        if (graphStamp(spec) !== row.stamp) {
-          const launch = row.launch;
-          tear(row);
-          rows[index] = await build(spec, index);
-          rows[index].launch = launch;
+        if (!row || graphStamp(spec) !== row.stamp) {
+          const mine = asked[index];
+          const built = await build(spec, index);
+          if (gone || asked[index] !== mine) { tear(built); return; }
+          // The old row plays on until its replacement is ready, and hands
+          // over where it had got to.
+          const old = rows[index];
+          if (old) { built.launch = old.launch; tear(old); }
+          rows[index] = built;
           return;
         }
         row.track.set({
@@ -606,12 +634,15 @@ export async function makeStage(ctx, project, {
     },
 
     destroy() {
+      gone = true;
       clock.stop();
       for (const row of rows) tear(row);
       rows.length = 0;
       verb.destroy();
-      for (const node of [bus, limiter, returns]) {
-        try { node.disconnect(); } catch { /* already gone */ }
+      // The limiter is a wrapper, not a node: its worklet is `node`.
+      try { limiter.destroy?.(); } catch { /* already gone */ }
+      for (const node of [bus, limiter.node, returns]) {
+        try { node?.disconnect(); } catch { /* already gone */ }
       }
     },
   };

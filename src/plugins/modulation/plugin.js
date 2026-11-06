@@ -570,7 +570,7 @@ export class ModulationPlugin {
     this.player.source = id;
     const picker = this.el.querySelector('#modSource');
     if (picker) picker.value = id;
-    await this.player.prepare().catch(() => {});
+    await Promise.resolve(this.player.setSource?.(id)).catch(() => {});
     this.player.setSettings(this.settings);
     this.draw();
   }
@@ -596,5 +596,5 @@ const MOD_HINTS = {
   vibrato: 'no dry signal at all, which is why it bends rather than thickens',
   phaser: 'six all-passes, so three notches — the feedback is what makes them whistle',
   tremolo: 'a gain, not a filter: nothing about the tone changes, only how much of it there is',
-  autopan: 'the same gain twice, pulling opposite ways — in mono it disappears entirely',
+  autopan: 'the same gain twice, pulling opposite ways — in mono what is left is a dip of up to 3 dB, twice a cycle',
 };

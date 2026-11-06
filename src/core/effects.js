@@ -33,7 +33,6 @@
 // 0.000001 dB - across a plain peak, two shelves, an off band, and the 48 dB
 // an octave cut that is a cascade of four.
 
-import { sectionsOf, averageLift, MOST_SECTIONS } from '../plugins/eq/filters.js';
 import { eqSections, tuneSections } from '../plugins/eq/sections.js';
 import { LiveCompressor } from '../plugins/compressor/node.js';
 import { LiveSaturator } from '../plugins/saturation/node.js';
@@ -192,10 +191,7 @@ async function heatEffect(ctx, { settings = HEAT_DEFAULTS } = {}) {
     out: live.out,
     params: () => ({ ...live.settings }),
     set(next) { live.set({ ...live.settings, ...next }); return this; },
-    destroy() {
-      try { live.out.disconnect(); } catch { /* gone */ }
-      try { live.node?.disconnect(); } catch { /* gone */ }
-    },
+    destroy: () => live.destroy(),
   };
 }
 
@@ -210,10 +206,7 @@ async function stereoEffect(ctx, { settings = STEREO_DEFAULTS } = {}) {
     out: live.out,
     params: () => ({ ...live.settings }),
     set(next) { live.set({ ...live.settings, ...next }); return this; },
-    destroy() {
-      try { live.out.disconnect(); } catch { /* gone */ }
-      try { live.node?.disconnect(); } catch { /* gone */ }
-    },
+    destroy: () => live.destroy(),
   };
 }
 
@@ -230,9 +223,10 @@ async function stereoEffect(ctx, { settings = STEREO_DEFAULTS } = {}) {
  * Rebuilding the buffer is not free and the control that changes it moves
  * continuously, so a set that does not change the impulse only moves the
  * mix. Which settings matter is the impulse builder's business, so the whole
- * settings object is stamped and compared.
+ * settings object is stamped and compared - less `mix` and whatever `loose`
+ * names, which are settings other nodes handle and the impulse never reads.
  */
-function convolverEffect(ctx, id, impulseOf, defaults, settings) {
+function convolverEffect(ctx, id, impulseOf, defaults, settings, loose = []) {
   const convolver = ctx.createConvolver();
   convolver.normalize = false;
   // The wet side is summed rather than taken straight off the convolver, so
@@ -254,7 +248,7 @@ function convolverEffect(ctx, id, impulseOf, defaults, settings) {
   };
 
   const apply = (at = ctx.currentTime) => {
-    const next = JSON.stringify({ ...current, mix: 0 });
+    const next = JSON.stringify({ ...current, mix: 0, ...Object.fromEntries(loose.map((key) => [key, 0])) });
     if (next !== stamp) { stamp = next; build(); }
     pair.setMix(current.mix ?? 0.3, at);
   };
@@ -306,7 +300,10 @@ function convolverEffect(ctx, id, impulseOf, defaults, settings) {
  * it has always been - one convolver and a wet/dry pair, nothing in a loop.
  */
 async function verbEffect(ctx, { settings = {} } = {}) {
-  const base = convolverEffect(ctx, 'reverb', makeImpulse, VERB_DEFAULTS, settings);
+  // The shimmer, its interval and the freeze are the nodes below, not the
+  // room, so moving them must not rebuild the response under a ringing tail.
+  const base = convolverEffect(ctx, 'reverb', makeImpulse, VERB_DEFAULTS, settings,
+    ['shimmer', 'interval', 'freeze']);
   let current = { ...VERB_DEFAULTS, ...settings };
 
   // The loop: the convolver's own output, through a gain and a shifter, back
@@ -426,8 +423,8 @@ export const EFFECTS = {
   eq: eqEffect,
   compression: compEffect,
   panning: stereoEffect,
-  reverb: async (ctx, options) => verbEffect(ctx, options),
-  delay: async (ctx, options) => echoEffect(ctx, options),
+  reverb: verbEffect,
+  delay: echoEffect,
   saturation: heatEffect,
 };
 

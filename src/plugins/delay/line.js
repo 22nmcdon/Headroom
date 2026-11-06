@@ -570,12 +570,10 @@ const WANDER_POLES = 3;
  * four-head pattern at 375 ms reported 6669 cents of wow where 50 was asked
  * for, which is not a wander, it is a tracker reading noise.
  *
- * What one head costs is a corner: the line's limit on how deep the wander
- * may go is held against the nearest head, so a short multi-head delay really
- * does wander less than this reading says. Measured, asked for fifty cents -
- * four heads at 20 ms gets 20.1 against the 27.4 one head gets, and at 40 ms
- * 40.4 against 50.0. Above sixty milliseconds there is no difference at all,
- * and the shortest delay any exercise asks for is a sixteenth note.
+ * One head costs nothing here. The line's limit on how deep the wander may
+ * go is held against the nearest head as well as the line, but the line's
+ * own share is always the tighter of the two: asked for fifty cents, 20 ms
+ * gets 27.4 on one head or four, and 40 ms gets 50.0 on either.
  */
 export function wanderTrack(rate, settings) {
   const whole = { ...ECHO_DEFAULTS, ...settings };

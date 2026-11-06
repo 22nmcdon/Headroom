@@ -11,20 +11,28 @@ import { serve, launch } from '../tests/browser/harness.mjs';
 
 const CHECKS = ['faces', 'inserts', 'chain', 'tracks', 'cells', 'pads', 'keys', 'wide', 'shape', 'knobs', 'decks',
   'eq-curve', 'restate', 'trim', 'stereo', 'tone', 'order', 'sampler', 'sides', 'align', 'modulation',
-  'match', 'carve', 'depth', 'arrange', 'listen', 'fix', 'ride', 'damage', 'said', 'root', 'turned', 'drills', 'work', 'analysis', 'mic', 'wave', 'export', 'journey', 'phone', 'fades'];
+  'match', 'carve', 'depth', 'arrange', 'listen', 'fix', 'ride', 'damage', 'said', 'root', 'turned', 'drills', 'work', 'analysis', 'mic', 'wave', 'export', 'journey', 'phone', 'fades', 'lifecycle'];
+
+// Runnable by name, and left out of a plain run until they pass: a check
+// written ahead of the fix it is for, which moves into CHECKS once the code
+// meets it. Empty: `lifecycle` was the last, and every player meets it now.
+const PENDING = [];
 
 const asked = process.argv.slice(2).filter((a) => !a.startsWith('-'));
-const wanted = asked.length ? CHECKS.filter((c) => asked.includes(c)) : CHECKS;
-const unknown = asked.filter((a) => !CHECKS.includes(a));
+const wanted = asked.length ? [...CHECKS, ...PENDING].filter((c) => asked.includes(c)) : CHECKS;
+const unknown = asked.filter((a) => !CHECKS.includes(a) && !PENDING.includes(a));
 if (unknown.length) {
   console.error(`no such check: ${unknown.join(', ')}\nthere is: ${CHECKS.join(', ')}`);
   process.exit(2);
 }
 
+// A skip is the right answer on a bare checkout and the wrong one in CI,
+// where it would be a green tick for a run that checked nothing - so with
+// CI set (GitHub sets it on every run) a missing browser is a failure.
 const { browser, skip } = await launch();
 if (skip) {
   console.log(`skipped — ${skip}`);
-  process.exit(0);
+  process.exit(process.env.CI ? 1 : 0);
 }
 
 const server = await serve();

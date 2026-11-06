@@ -209,6 +209,75 @@ test('every mode can say what the answer was, and what kind of answer it is', ()
   }
 });
 
+test('every exercise answers its hints, reveal and weak spot from its own branch', () => {
+  // A drill added to a tool falls through to whatever the tool's last branch
+  // was written for, and it reads fine: the delay's pattern drill revealed a
+  // time and was filed under "working feedback", the compressor's release
+  // drill revealed the 4:1 it never plays. What a wrong branch cannot do is
+  // name the drill's own answer - so a drill's weak spot has to be what its
+  // answer is heard as, and two different answers have to reveal differently.
+  const broken = /undefined|NaN|\[object/;
+  for (const [id, spec] of Object.entries(MODES)) {
+    for (const [which, exercise] of Object.entries(spec.exercises)) {
+      for (const tier of Object.keys(spec.tiers)) {
+        const where = `${id}/${which}/${tier}`;
+        const revealed = new Map();
+
+        for (let n = 0; n < 5; n += 1) {
+          const puzzle = makePuzzle({ mode: id, tier, settings: { exercise: which }, seed: `branch-${n}` });
+
+          const ladder = spec.hints(puzzle);
+          assert.ok(ladder.length > 0, `${where} has no hints`);
+          for (const rung of ladder) assert.ok(rung && !broken.test(rung), `${where}: "${rung}"`);
+
+          const shown = spec.reveal(puzzle);
+          const said = `${shown.symbol} ${shown.name}`;
+          assert.ok(shown.symbol && !broken.test(said), `${where} reveals "${said}"`);
+
+          const kind = spec.weak(puzzle);
+          assert.ok(kind.key && kind.label && !broken.test(kind.label), `${where} files under "${kind.label}"`);
+
+          if (!exercise.drill) continue;
+
+          // And none of the three is what the tool says when it does not
+          // know the exercise, which is the branch a forgotten drill lands in.
+          const astray = { ...puzzle, settings: { ...puzzle.settings, exercise: 'nonesuch' } };
+          const fallback = (fn) => { try { return JSON.stringify(spec[fn](astray)); } catch { return null; } };
+          assert.notEqual(JSON.stringify(ladder), fallback('hints'), `${where} hints from another exercise's branch`);
+          assert.notEqual(JSON.stringify(shown), fallback('reveal'), `${where} reveals from another exercise's branch`);
+          assert.notEqual(JSON.stringify(kind), fallback('weak'), `${where} files under another exercise's branch`);
+
+          const heard = spec.heard?.(answerAsGuess(puzzle), puzzle);
+          assert.ok(heard, `${where} cannot say what its own answer was heard as`);
+          assert.equal(heard.key, kind.key, `${where} files its answer under a different key from the one it hears it as`);
+
+          const answer = JSON.stringify(puzzle.answer);
+          for (const [other, text] of revealed) {
+            assert.ok(other === answer || text !== said, `${where} reveals ${other} and ${answer} both as "${said}"`);
+          }
+          revealed.set(answer, said);
+        }
+      }
+    }
+  }
+});
+
+test('an exercise that offers its target on the controls has a target that wins', () => {
+  // "Put it on the controls" then lock in has to be a solve. Compression's
+  // fix and the imager's mono offered it with a target of the tool switched
+  // out, which loses every round. Taken the way main.js takes it.
+  for (const [id, spec] of Object.entries(MODES)) {
+    for (const [which, exercise] of Object.entries(spec.exercises)) {
+      if (!exercise.ontoTool) continue;
+      for (const tier of Object.keys(spec.tiers)) {
+        const puzzle = makePuzzle({ mode: id, tier, settings: { exercise: which }, seed: `onto-${tier}` });
+        const target = exercise.targetOf?.(puzzle) ?? exercise.answerOf?.(puzzle) ?? puzzle.answer;
+        assert.ok(spec.score(target, puzzle).correct, `${id}/${which}/${tier}: its own target does not win`);
+      }
+    }
+  }
+});
+
 test('the EQ fix exercise hands you a fault, and the answer cures it', () => {
   for (const tier of Object.keys(MODES.eq.tiers)) {
     const puzzle = makePuzzle({ mode: 'eq', tier, settings: { exercise: 'fix' }, seed: `fix-${tier}` });

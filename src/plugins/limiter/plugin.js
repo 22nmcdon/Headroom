@@ -123,14 +123,13 @@ export class LimiterPlugin {
     this.live = 0;
 
     this.player = player ?? new CeilingPlayer(engine, { source });
-    this.player.setFault(fault);
 
     this.build();
     this.draw();
 
     if (this.role === 'insert') this.playing(true);
 
-    this.player.prepare()
+    Promise.resolve(this.player.setFault(fault))
       .then(() => { this.measure(); this.draw(); })
       .catch(() => { /* no audio yet; the knobs still work */ });
   }
@@ -854,8 +853,7 @@ export class LimiterPlugin {
   }
 
   async setFault(fault) {
-    this.player.setFault(fault);
-    await this.player.prepare().catch(() => {});
+    await Promise.resolve(this.player.setFault(fault)).catch(() => {});
     this.measure();
     this.draw();
   }
@@ -874,7 +872,7 @@ export class LimiterPlugin {
     this.player.source = id;
     const picker = this.el.querySelector('#ceilSource');
     if (picker) picker.value = id;
-    await this.player.prepare().catch(() => {});
+    await Promise.resolve(this.player.setSource?.(id)).catch(() => {});
     this.measure();
     this.draw();
   }
@@ -891,6 +889,6 @@ export class LimiterPlugin {
     cancelAnimationFrame(this.frame);
     clearTimeout(this.soon);
     this.unwatch?.();
-    this.player.stop();
+    this.player.destroy();
   }
 }

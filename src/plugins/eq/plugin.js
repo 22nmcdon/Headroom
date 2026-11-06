@@ -124,7 +124,7 @@ export class EQPlugin {
     this.selected = this.bands.findIndex((band) => band.type === 'peaking');
     this.target = null; // drawn only once the round is over
     this.role = role;
-    this.player = player ?? new EQPlayer(engine, this.bands);
+    this.player = player ?? new EQPlayer(engine, this.bands, { source });
     this.interactive = true;
     this.autoGain = true; // whether the trim takes the curve's lift back off
     this.tilt = 0;        // decibels per octave added to the drawn spectrum
@@ -267,8 +267,8 @@ export class EQPlugin {
    * draws and what the scoring already reads - the curve does not care how
    * you arrived at it.
    *
-   * Slope is here rather than on the deck because it is three values, and
-   * three buttons say that where a knob with three detents would not. It is
+   * Slope is here rather than on the deck because it is five values, and
+   * five buttons say that where a knob with five detents would not. It is
    * dimmed rather than hidden on a band that has no slope: hiding it moved
    * everything to its right every time somebody changed a band's type, and a
    * control that comes and goes is harder to find than one that is simply
@@ -1196,8 +1196,8 @@ export class EQPlugin {
   }
 
   /** A resonance somebody else left in the sample, before it reached you. */
-  setFault(fault) {
-    this.player.setFault(fault ?? null);
+  async setFault(fault) {
+    await Promise.resolve(this.player.setFault(fault ?? null)).catch(() => {});
     this.draw();
   }
 
@@ -1217,7 +1217,10 @@ export class EQPlugin {
     this.monitoring = id;
     const picker = this.el.querySelector('#eqSource');
     if (picker) picker.value = id;
-    if (this.player.playing) await this.player.play(id);
+    // The player fetches the new loop, and starts it in place of the old one
+    // if the old one was playing. A track's player has no sample to change,
+    // and no `setSource` to say so with.
+    await Promise.resolve(this.player.setSource?.(id)).catch(() => {});
     this.draw();
   }
 
@@ -1247,7 +1250,6 @@ export class EQPlugin {
     }
   }
 
-  /** The other side of the A/B, named for what it actually is. */
   /**
    * What the monitor is set to.
    *
@@ -1267,11 +1269,6 @@ export class EQPlugin {
 
   /** The other side of the A/B, named for what it actually is. */
   nameAB(label) {
-    const slot = this.el.querySelector('#eqOther');
-    if (slot) slot.textContent = label;
-  }
-
-  nameOther(label) {
     const slot = this.el.querySelector('#eqOther');
     if (slot) slot.textContent = label;
   }
@@ -1297,9 +1294,9 @@ export class EQPlugin {
    */
   read() {
     const state = stampOf(this.state());
-    if (!this.reading || this.reading.of.state !== state) {
-      this.reading = curveReading(this.state(), this.rate(),
-        { source: this.player?.source ?? null });
+    const source = this.source();
+    if (!this.reading || this.reading.of.state !== state || this.reading.of.source !== source) {
+      this.reading = curveReading(this.state(), this.rate(), { source });
     }
     return this.reading;
   }
@@ -1332,8 +1329,9 @@ export class EQPlugin {
     this.gone = true;
     this.player.stop();
     // Whatever the player is, it is told to let go of what it made. An
-    // insert's adapter drops an analyser; a tool's player stops a loop. The
-    // effect itself belongs to the track and is not this view's to end.
+    // insert's adapter drops an analyser; a tool's player takes its own graph
+    // down. The effect itself belongs to the track and is not this view's to
+    // end.
     this.player.destroy?.();
     cancelAnimationFrame(this.frame);
     this.unwatch?.();

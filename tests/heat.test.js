@@ -865,3 +865,20 @@ test('nothing in the library changes how loud it is', () => {
       `${one.id} moved the loudness by ${(now - was).toFixed(2)} dB`);
   }
 });
+
+test('the ends and artefact drills reveal and file their own answers', () => {
+  // Both fell through: the ends drill revealed "0 dB · 0% bias" and hinted
+  // at drive, and both filed every miss under "how much drive".
+  for (const end of ['top', 'even', 'bottom']) {
+    const puzzle = { tier: 'easy', settings: { exercise: 'ends' }, answer: { end } };
+    assert.doesNotMatch(saturation.reveal(puzzle).symbol, /dB|bias/);
+    assert.ok(saturation.hints(puzzle).every((rung) => !/drive|bias/.test(rung)), `${end} hints about the knobs`);
+    assert.equal(saturation.weak(puzzle).key, `end-${end}`);
+    assert.equal(saturation.heard({ end }, puzzle).key, `end-${end}`);
+  }
+  for (const artefact of ['clip', 'hum', 'band']) {
+    const puzzle = { tier: 'easy', settings: { exercise: 'artefact' }, answer: { artefact } };
+    assert.equal(saturation.weak(puzzle).key, `artefact-${artefact}`);
+    assert.equal(saturation.heard({ artefact }, puzzle).key, `artefact-${artefact}`);
+  }
+});

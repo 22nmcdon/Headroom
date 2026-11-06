@@ -84,27 +84,9 @@ export function waveOf(channels, columns) {
 export function rescaleWave(peaks, columns) {
   const had = Math.floor(peaks.length / 2);
   const count = Math.min(Math.floor(columns), had);
-  if (!(count > 0)) return new Float32Array(0);
-  if (count === had) return peaks;
-
-  const out = new Float32Array(count * 2);
-
-  for (let c = 0; c < count; c += 1) {
-    const from = Math.floor((c * had) / count);
-    const to = Math.max(from + 1, Math.floor(((c + 1) * had) / count));
-
-    let lo = Infinity;
-    let hi = -Infinity;
-    for (let i = from; i < to; i += 1) {
-      if (peaks[i * 2] < lo) lo = peaks[i * 2];
-      if (peaks[i * 2 + 1] > hi) hi = peaks[i * 2 + 1];
-    }
-
-    out[c * 2] = Number.isFinite(lo) ? lo : 0;
-    out[c * 2 + 1] = Number.isFinite(hi) ? hi : 0;
-  }
-
-  return out;
+  if (count > 0 && count === had) return peaks;
+  // Never more than it holds, and then the same cut by the extremes.
+  return spreadWave(peaks, count);
 }
 
 /**

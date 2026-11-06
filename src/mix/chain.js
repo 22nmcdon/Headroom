@@ -154,9 +154,8 @@ export const arrangementOf = (id) => CHAIN_ORDERS.find((one) => one.id === id) ?
  *
  * Both effects' settings go on whichever arrangement it is, including the one
  * that is not in the chain. An insert that is not in the list is not built, so
- * what the settings say about it does not matter - and carrying both means the
- * project stamp in `render.js` changes when the order changes, which it would
- * not if the settings were pruned to match.
+ * what the settings say about it does not matter - and carrying both means
+ * two arrangements differ in their order and in nothing else.
  */
 export function chainMix(mix, id) {
   const how = arrangementOf(id);

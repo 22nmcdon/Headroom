@@ -108,7 +108,7 @@ const MOVES = [
  * what lets one tool be handed from one exercise to the next without being
  * destroyed in between.
  */
-export const EQ_EXERCISES = {
+const EQ_EXERCISES = {
   match: {
     id: 'match',
     // The target is the settings that win, so it can go on the controls
@@ -244,9 +244,9 @@ export const EQ_WORK = {
   exercises: EQ_EXERCISES,
 
   tiers: {
-    easy: { label: 'Easy', blurb: 'One band, and a big move', guesses: 4, bands: 1, size: [7, 11] },
-    medium: { label: 'Medium', blurb: 'Two bands', guesses: 4, bands: 2, size: [4, 8] },
-    hard: { label: 'Hard', blurb: 'Three bands, and subtle', guesses: 4, bands: 3, size: [2.5, 5] },
+    easy: { label: 'Easy', blurb: 'One band, and a big move', bands: 1, size: [7, 11] },
+    medium: { label: 'Medium', blurb: 'Two bands', bands: 2, size: [4, 8] },
+    hard: { label: 'Hard', blurb: 'Three bands, and subtle', bands: 3, size: [2.5, 5] },
   },
 
   /**
@@ -483,6 +483,11 @@ export const EQ_WORK = {
       const octave = OCTAVES[octaveAt(puzzle.answer.band)];
       return { key: `octave-${octave.id}`, label: `${octave.symbol} (${octave.name})` };
     }
+
+    // The fix exercise names the zone it drew from. Worked out again from the
+    // frequency it would be wrong, because snapping to a third of an octave
+    // can carry a resonance over the edge of the zone it was drawn in.
+    if (puzzle?.fault?.name) return { key: puzzle.fault.name, label: puzzle.fault.name };
 
     const { answer } = puzzle;
     const band = puzzle?.fault ?? answer[0];

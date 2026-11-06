@@ -48,6 +48,9 @@ function snapshotOf(tool) {
  *   4. fault, then target, then the A/B's name
  *   5. the starting settings last, so `onChange` fires once, at the end
  *
+ * A step that throws takes back whatever the steps before it put on, and
+ * then the error goes up: a failed attach leaves nothing of itself behind.
+ *
  * `startOf` is the fifth step asked of the puzzle rather than fixed on the
  * exercise, and it is deliberately after the material. A drill that asks how
  * much a compressor is doing has to set a compressor that does that much to
@@ -63,26 +66,14 @@ function snapshotOf(tool) {
 export async function attach(tool, exercise, puzzle = {}) {
   const before = snapshotOf(tool);
 
-  // Nothing is drawn from the last exercise while this one is arriving.
-  tool.showTarget(null);
-  tool.unlock?.();
-
-  if (exercise.source) await tool.setSource(exercise.source, exercise.sourceOptions ?? {});
-
-  // What a guess is marked against, rendered once and pinned. The monitor
-  // source stays free after this: changing what you listen to must not change
-  // what you are scored on, or the way to pass is to switch to pink noise
-  // where every setting does much the same thing.
-  await materialFor(tool, exercise, puzzle);
-
-  if (exercise.faultOf) await tool.setFault(exercise.faultOf(puzzle));
-  if (exercise.targetOf) await tool.setTarget(exercise.targetOf(puzzle));
-  if (exercise.other) tool.nameAB(exercise.other);
-
-  tool.setState(exercise.startOf?.(puzzle) ?? exercise.start ?? before.state);
+  // What has been started on the tool, so that an attach that fails half way
+  // takes back what it put on rather than leaving it for the next exercise.
+  // Marked before each step rather than after, because a step that threw may
+  // still have got part of the way.
+  const started = { source: false, fault: false, ab: false, state: false };
 
   let done = false;
-  return async function detach() {
+  async function detach() {
     // Idempotent, and awaitable. Half of what it undoes is asynchronous -
     // taking a fault out of the material means rendering the loop again - and
     // a detach that fired those and returned left them to land on a tool that
@@ -99,16 +90,47 @@ export async function attach(tool, exercise, puzzle = {}) {
     // exercise that drives the tool's own controls is a drill, the controls
     // are the answer, and leaving them where they were put means the next
     // exercise opens with the last drill's answer sitting on the knobs.
-    if (exercise.restores) tool.setState(before.state);
+    if (exercise.restores && started.state) tool.setState(before.state);
     tool.showTarget(null);
     tool.unlock?.();
     await tool.setTarget(null);
-    if (exercise.faultOf) await tool.setFault(null);
-    if (exercise.other && before.abLabel) tool.nameAB(before.abLabel);
-    if (exercise.source && before.source && before.source !== exercise.source) {
+    if (exercise.faultOf && started.fault) await tool.setFault(null);
+    if (exercise.other && started.ab && before.abLabel) tool.nameAB(before.abLabel);
+    if (exercise.source && started.source && before.source && before.source !== exercise.source) {
       await tool.setSource(before.source);
     }
-  };
+  }
+
+  try {
+    // Nothing is drawn from the last exercise while this one is arriving.
+    tool.showTarget(null);
+    tool.unlock?.();
+
+    started.source = true;
+    if (exercise.source) await tool.setSource(exercise.source, exercise.sourceOptions ?? {});
+
+    // What a guess is marked against, rendered once and pinned. The monitor
+    // source stays free after this: changing what you listen to must not change
+    // what you are scored on, or the way to pass is to switch to pink noise
+    // where every setting does much the same thing.
+    await materialFor(tool, exercise, puzzle);
+
+    started.fault = true;
+    if (exercise.faultOf) await tool.setFault(exercise.faultOf(puzzle));
+    if (exercise.targetOf) await tool.setTarget(exercise.targetOf(puzzle));
+    started.ab = true;
+    if (exercise.other) tool.nameAB(exercise.other);
+
+    started.state = true;
+    tool.setState(exercise.startOf?.(puzzle) ?? exercise.start ?? before.state);
+  } catch (why) {
+    // Taken back off before the reason goes up, and a failure in the undoing
+    // does not replace the reason it was being undone for.
+    await detach().catch(() => {});
+    throw why;
+  }
+
+  return detach;
 }
 
 /**
