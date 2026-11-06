@@ -24,12 +24,6 @@ on:
   push:
   workflow_dispatch:
 
-# One deploy at a time, and a newer push waits rather than cancelling: half a
-# site is worse than an old one.
-concurrency:
-  group: pages
-  cancel-in-progress: false
-
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -46,9 +40,18 @@ jobs:
   # threw on every drag - none of which `npm test` can see - and until this
   # job they ran only when somebody remembered to. Beside the unit tests
   # rather than after them, so a red one does not hide the other.
+  #
+  # Four machines, each taking a quarter of the checks by time rather than
+  # by count (scripts/checks.mjs): on one machine they took nineteen
+  # minutes, and four of them are half of that. Every shard runs to the end
+  # whatever the others do, so one red shard does not hide another's result.
   browser:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -62,18 +65,27 @@ jobs:
       # CI is set on every Actions run, which makes a skipped check a failure
       # rather than a green tick for nothing. The pictures are only written
       # when a check takes one, and only kept when something failed.
-      - run: mkdir -p shots && npm run check:browser
+      - run: mkdir -p shots && npm run check:browser -- --shard=${{ matrix.shard }}/4
         env:
           HEADROOM_SHOTS: shots
       - if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: browser-shots
+          name: browser-shots-${{ matrix.shard }}
           path: shots/
           if-no-files-found: ignore
 
   deploy:
     needs: [test, browser]
+    # One deploy at a time, and a newer one waits rather than cancelling: half
+    # a site is worse than an old one. On this job and not the workflow,
+    # where it was: there it queued every push's tests behind every other
+    # run - fifteen minutes and more behind a deploy, measured - and GitHub
+    # keeps one pending run per group, so a second push in that time silently
+    # cancelled the first one's tests altogether.
+    concurrency:
+      group: pages
+      cancel-in-progress: false
     # Only the deploy job needs these, so only the deploy job is given them.
     permissions:
       contents: read
