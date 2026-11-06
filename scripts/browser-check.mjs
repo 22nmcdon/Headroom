@@ -1,29 +1,44 @@
 // The browser checks, all of them, against a server this starts itself.
 //
-//   npm run check:browser               every check
+//   npm run check:browser                      every check
 //   npm run check:browser -- faces eq-curve    only those
+//   npm run check:browser -- --shard=2/4       the second of four even shares,
+//                                              which is how CI runs them
 //
 // Exits non-zero on a problem, and zero with a message if there is no browser
 // to run in - a checkout without playwright is not a checkout with a broken
-// test suite.
+// test suite. The list, and how it is split, are in scripts/checks.mjs.
 
 import { serve, launch } from '../tests/browser/harness.mjs';
+import { CHECKS, PENDING, shardsOf, shardArgument } from './checks.mjs';
 
-const CHECKS = ['faces', 'inserts', 'chain', 'tracks', 'cells', 'pads', 'keys', 'wide', 'shape', 'knobs', 'decks',
-  'eq-curve', 'restate', 'trim', 'stereo', 'tone', 'order', 'sampler', 'sides', 'align', 'modulation',
-  'match', 'carve', 'depth', 'arrange', 'listen', 'fix', 'ride', 'damage', 'said', 'root', 'turned', 'drills', 'work', 'analysis', 'mic', 'wave', 'export', 'journey', 'phone', 'fades', 'lifecycle', 'arrive'];
-
-// Runnable by name, and left out of a plain run until they pass: a check
-// written ahead of the fix it is for, which moves into CHECKS once the code
-// meets it. Empty: `lifecycle` was the last, and every player meets it now.
-const PENDING = [];
-
-const asked = process.argv.slice(2).filter((a) => !a.startsWith('-'));
-const wanted = asked.length ? [...CHECKS, ...PENDING].filter((c) => asked.includes(c)) : CHECKS;
+const args = process.argv.slice(2);
+const asked = args.filter((a) => !a.startsWith('-'));
 const unknown = asked.filter((a) => !CHECKS.includes(a) && !PENDING.includes(a));
 if (unknown.length) {
   console.error(`no such check: ${unknown.join(', ')}\nthere is: ${CHECKS.join(', ')}`);
   process.exit(2);
+}
+
+let shard;
+try {
+  shard = shardArgument(args);
+} catch (err) {
+  console.error(err.message);
+  process.exit(2);
+}
+if (shard && asked.length) {
+  console.error('--shard splits the whole list; it cannot be given checks by name as well');
+  process.exit(2);
+}
+
+const share = shard ? shardsOf(CHECKS, shard.count)[shard.index] : null;
+const wanted = asked.length ? [...CHECKS, ...PENDING].filter((c) => asked.includes(c))
+  : share ? CHECKS.filter((c) => share.checks.includes(c))
+    : CHECKS;
+if (share) {
+  console.log(`shard ${shard.index + 1} of ${shard.count}: ${wanted.length} checks, `
+    + `about ${Math.round(share.seconds / 60)} min on a GitHub runner`);
 }
 
 // A skip is the right answer on a bare checkout and the wrong one in CI,
