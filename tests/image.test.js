@@ -489,19 +489,22 @@ test('the kinds differ in where they put the damage', () => {
   // Measured at an amount of 0.8 and a delay of 12 ms, as how uneven the
   // spectrum is - the standard deviation in dB at a twelfth of an octave,
   // which resolves a comb's teeth rather than averaging them away - of the
-  // mono sum and of the worse of the two channels, each against the input:
+  // mono sum and of the worse of the two channels, each against the input,
+  // with `uneven` and `summedOf` below; coherence is the lowest and highest
+  // band of the coherence reading. The same table as widen.js's header:
   //
   //     kind           mono   one side    coherence
-  //     Haas           2.85     6.01      0.84-1.00
-  //     comb           0.00     6.01      0.53-0.99
-  //     all-pass       0.00     5.99      1.00
-  //     decorrelator   0.00     4.13      0.99-1.00
-  //     micro-pitch    5.86     6.45      0.19-0.73
+  //     Haas           2.42     4.59      0.984-1.000
+  //     comb           0.00     5.94      0.959-0.999
+  //     all-pass       0.00     4.83      0.920-0.999
+  //     decorrelator   0.00     4.44      0.988-1.000
+  //     micro-pitch    4.20     4.84      0.513-0.645
   //
   // The mono column is the one that matters most and the one no width meter
-  // can see: sending the delayed copy to one side leaves nearly three
-  // decibels of comb in the sum, and putting it in the side leaves exactly
-  // none, because L = M + D and R = M - D add back to M whatever D is.
+  // can see: sending the delayed copy to one side leaves nearly two and a
+  // half decibels of comb in the sum, and putting it in the side leaves
+  // exactly none, because L = M + D and R = M - D add back to M whatever D
+  // is.
   const x = monoSource(3);
   const uneven = (buf, against) => {
     const binOf = (b, hz) => {
@@ -651,8 +654,68 @@ test('the velvet response is the same response every time', () => {
     `the velvet response has ${energy.toFixed(4)} of energy rather than one`);
 });
 
+test('a widener that adds into the side stays level in every octave, and decorrelates', () => {
+  // What width is, held octave by octave on a sine sweep: the two channels
+  // the same loudness, and not the same signal. The all-pass kind failed this
+  // for as long as it existed - its four stages had been set as biquads with
+  // corners between 12 and 31 Hz, so above about 500 Hz the "side" was the
+  // middle itself, and the top of the spectrum came out 14 to 19 dB to the
+  // left at a correlation of 0.94 to 1.00. That is a pan. Every band of every
+  // octave read the same total, so a whole-spectrum width meter saw nothing.
+  //
+  // Averaged over 24 sines an octave, so a comb's teeth average out rather
+  // than one sine landing on a peak. Measured at an amount of 0.8, after the
+  // fix, over the octaves from 125 Hz to 16 kHz:
+  //
+  //     kind            worst lean   correlation
+  //     comb            2.0 dB       0.33-0.45
+  //     all-pass        2.1          0.37-0.45
+  //     decorrelator    5.0          0.23-0.73
+  //
+  // The decorrelator is lumpier because a 30 ms response is only a few
+  // cycles long in the low octaves. The bar is 6 dB, which all three clear
+  // and the old all-pass missed by eight to thirteen.
+  const octaveOf = (kind, low) => {
+    let ll = 0;
+    let rr = 0;
+    let correlation = 0;
+    const N = 24;
+    for (let k = 0; k < N; k += 1) {
+      const hz = low * 2 ** ((k + 0.5) / N);
+      const core = widenCore(rate, null).set({ widen: kind, widenAmount: 0.8, widenDelay: 12 });
+      let l2 = 0;
+      let r2 = 0;
+      let lr = 0;
+      for (let i = 0; i < 14400; i += 1) {
+        const m = Math.sin((2 * Math.PI * hz * i) / rate);
+        core.step(m);
+        // Past the longest ring, so what is read is the steady state.
+        if (i < 7200) continue;
+        const L = m + core.addL;
+        const R = m + core.addR;
+        l2 += L * L;
+        r2 += R * R;
+        lr += L * R;
+      }
+      ll += l2;
+      rr += r2;
+      correlation += lr / Math.sqrt(l2 * r2);
+    }
+    return { lean: Math.abs(10 * Math.log10(ll / rr)), correlation: correlation / N };
+  };
+
+  for (const kind of ['comb', 'allpass', 'velvet']) {
+    for (const low of [125, 250, 500, 1000, 2000, 4000, 8000]) {
+      const { lean, correlation } = octaveOf(kind, low);
+      assert.ok(lean < 6, `${kind} leaned ${lean.toFixed(1)} dB in the octave from ${low} Hz`);
+      assert.ok(correlation < 0.8,
+        `${kind} read a correlation of ${correlation.toFixed(2)} from ${low} Hz - the same signal both sides`);
+    }
+  }
+});
+
 test('the widener sits out of the way when it is not wanted', () => {
-  const core = widenCore(rate, makeBiquad, setBiquad, runBiquad, pitchCore);
+  const core = widenCore(rate, pitchCore);
   assert.equal(core.resting, true);
   assert.equal(core.set({ widen: 'comb' }).resting, true, 'a kind with no amount is still resting');
   assert.equal(core.set({ widenAmount: 0.5 }).resting, false);
@@ -684,12 +747,16 @@ test('coherence tells a widener that moves from four that do not', () => {
   //     off      1.000  1.000  1.000   1.000  1.000  1.000       0.000
   //     Haas     0.984  1.000  0.996   0.993  0.990  0.992       0.016
   //     comb     0.963  0.999  0.993   0.982  0.959  0.969       0.041
-  //     all-pass 0.916  1.000  1.000   1.000  1.000  1.000       0.084
+  //     all-pass 0.956  0.999  0.990   0.964  0.920  0.937       0.080
   //     velvet   0.992  1.000  0.999   0.997  0.988  0.988       0.012
   //     micro    0.531  0.575  0.513   0.624  0.575  0.645       0.487
   //
   // Every static kind stays above 0.91 and the only one that moves reads
   // about 0.57 - six times further from "off" than the worst of the others.
+  // (The all-pass row is the rebuilt chain. Its first rebuild, with stages
+  // twice as long, read 0.80 here and broke that factor of four: a static
+  // filter reads coherent only while its response is short against the
+  // reading's window. See ALLPASS_TAPS in widen.js.)
   // So this reading does not separate artificial width from natural; it
   // separates a filter that stands still from one that does not, which is a
   // narrower claim and the one the arithmetic supports.
