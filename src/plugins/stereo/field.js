@@ -169,7 +169,7 @@ export function imagerCore(rate) {
   // It reads the middle of the whole signal rather than of a band, because
   // what it produces is a second version of the source and the source is not
   // a band of itself.
-  const widener = widenCore(rate, makeBiquad, setBiquad, runBiquad, pitchCore);
+  const widener = widenCore(rate, pitchCore);
 
   // A Linkwitz-Riley crossover on each channel: two cascaded Butterworths,
   // which is the split that sums flat. One low-pass and one high-pass at each
