@@ -24,12 +24,6 @@ on:
   push:
   workflow_dispatch:
 
-# One deploy at a time, and a newer push waits rather than cancelling: half a
-# site is worse than an old one.
-concurrency:
-  group: pages
-  cancel-in-progress: false
-
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -83,6 +77,15 @@ jobs:
 
   deploy:
     needs: [test, browser]
+    # One deploy at a time, and a newer one waits rather than cancelling: half
+    # a site is worse than an old one. On this job and not the workflow,
+    # where it was: there it queued every push's tests behind every other
+    # run - fifteen minutes and more behind a deploy, measured - and GitHub
+    # keeps one pending run per group, so a second push in that time silently
+    # cancelled the first one's tests altogether.
+    concurrency:
+      group: pages
+      cancel-in-progress: false
     # Only the deploy job needs these, so only the deploy job is given them.
     permissions:
       contents: read
