@@ -70,6 +70,8 @@ const ui = {
   // Bumped by every startGame, so a round that is still awaiting its tool can
   // tell it has been overtaken and stop rather than finish over the new one.
   round: 0,
+  // The round the surface is waiting on, and inert for until it arrives.
+  arriving: 0,
 };
 
 const tool = () => toolOf(ui.mode);
@@ -373,10 +375,29 @@ async function putExercise() {
 
   $('#drillAsk').textContent = exercise.ask ?? '';
 
-  const opened = await openTool();
-  if (round !== ui.round) return;
-  await desk.put(opened, exercise, puzzle);
-  if (round !== ui.round) return;
+  // Inert until the round has arrived. The face is on the page as soon as the
+  // tool opens, but the round attaches after it - material rendered, fault
+  // baked, and then its starting settings put on the face - and anything
+  // done to the face in that moment, up to 0.8 s on the reverb, was put back
+  // underneath whoever did it. The starting settings are the round's, so the
+  // fix is not to keep the click but not to take it (tests/browser/arrive.mjs).
+  // Released by whichever round marked it last, so a round overtaken by one
+  // that never got this far cannot leave the face dead.
+  const surface = $('#surface');
+  ui.arriving = round;
+  surface.inert = true;
+  surface.classList.add('is-arriving');
+  try {
+    const opened = await openTool();
+    if (round !== ui.round) return;
+    await desk.put(opened, exercise, puzzle);
+    if (round !== ui.round) return;
+  } finally {
+    if (ui.arriving === round) {
+      surface.inert = false;
+      surface.classList.remove('is-arriving');
+    }
+  }
 
   // After the put, and it has to be. A drill that sets the tool's own
   // controls has only just set them, and what the clean A/B flips back to is

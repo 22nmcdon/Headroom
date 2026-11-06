@@ -3712,6 +3712,13 @@ button.insert-name:hover { color: var(--charcoal); }
    two-column form below put `THRESHOLD` in a 66-point bay. */
 .surface, .plugin-host { container-type: inline-size; }
 
+/* A face whose round is still arriving: on the page, and not yet taking
+   input (main.js makes the surface inert). Most arrive in under a third of a
+   second and show nothing; one still waiting after a quarter of a second -
+   the reverb renders for most of one - dims, so a click that does nothing
+   looks like waiting rather than like a broken button. */
+.surface.is-arriving .plugin { opacity: 0.6; transition: opacity 0.15s ease 0.25s; }
+
 /* A plugin on a short screen with the width for it - a phone on its side,
    which is how most of this is used - lays out the way a plugin window does
    rather than the way a page does: the display down the left, the deck
