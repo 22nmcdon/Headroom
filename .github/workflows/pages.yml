@@ -59,9 +59,24 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci --no-audit --no-fund
-      # The browser that matches the pinned playwright, and the system
-      # libraries it needs on a bare runner.
-      - run: npx playwright install --with-deps chromium
+      # The browser that matches the pinned playwright, and nothing else.
+      #
+      # Not `--with-deps`. GitHub's Ubuntu image already has every library
+      # Chromium needs - the deps step listed each one as "already the
+      # newest version" - and the only thing it ever installed was nine
+      # extra font packages (Japanese, Chinese, Thai, Cyrillic, Unifont),
+      # 22 MB through apt. One run got them from the mirror at 38 kB/s and
+      # spent 9 min 32 s on it, while the 300 MB browser came off its CDN in
+      # six seconds. Nothing in the app is drawn in those fonts: every
+      # symbol it uses (the flat, the menu bars, the arrows, the tick) comes
+      # from DejaVu Sans or Inter, and all 43 checks pass with the nine
+      # hidden from Chromium. If a future image drops a library, the browser
+      # will not start and the run fails saying so - CI makes a skipped
+      # check a failure - rather than passing on a missing glyph.
+      #
+      # Capped, so a download that does stall costs minutes, not the job.
+      - run: npx playwright install chromium
+        timeout-minutes: 5
       # CI is set on every Actions run, which makes a skipped check a failure
       # rather than a green tick for nothing. The pictures are only written
       # when a check takes one, and only kept when something failed.
