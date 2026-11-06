@@ -122,7 +122,11 @@ export async function attach(tool, exercise, puzzle = {}) {
     if (exercise.other) tool.nameAB(exercise.other);
 
     started.state = true;
-    tool.setState(exercise.startOf?.(puzzle) ?? exercise.start ?? before.state);
+    // An exercise with no starting settings of its own leaves the face where
+    // it is now - not where it was when this began, which is a snapshot from
+    // before the material had arrived and would only put back whatever had
+    // happened since. Still a setState, so `onChange` fires once, here.
+    tool.setState(exercise.startOf?.(puzzle) ?? exercise.start ?? snapshotOf(tool).state);
   } catch (why) {
     // Taken back off before the reason goes up, and a failure in the undoing
     // does not replace the reason it was being undone for.
