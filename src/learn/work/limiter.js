@@ -1163,7 +1163,10 @@ export const CEIL_WORK = {
   scoreDeliver(guess, puzzle) {
     const { tier } = puzzle;
     const material = ceilMaterial(puzzle);
-    const spec = ceilSpecOf(puzzle);
+    // Called for what it does rather than what it returns: the first call
+    // settles the answer's own settings onto the puzzle, which is what a
+    // perfect guess is then compared against.
+    ceilSpecOf(puzzle);
     const target = targetOfId(puzzle.answer?.service) ?? TARGETS[0];
 
     const got = ceilMasterOf(material, { ...CEIL_DEFAULTS, ...guess });

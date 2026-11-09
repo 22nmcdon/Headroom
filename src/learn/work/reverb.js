@@ -525,7 +525,7 @@ export const VERB_WORK = {
   },
 
   hints(puzzle) {
-    const { answer, tier } = puzzle;
+    const { answer } = puzzle;
 
     if ((puzzle?.settings?.exercise ?? 'match') === 'drill') {
       const size = SIZES[sizeAt(answer.size)];

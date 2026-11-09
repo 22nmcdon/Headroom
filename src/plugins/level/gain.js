@@ -12,7 +12,7 @@
 // of what came out - and the exercises are about hearing a difference you can
 // then go and confirm.
 
-import { loudnessReading, loudnessGap, ABSOLUTE_GATE } from '../../lib/loudness.js';
+import { loudnessReading, ABSOLUTE_GATE } from '../../lib/loudness.js';
 
 /**
  * How far the trim goes, in decibels.
@@ -101,16 +101,6 @@ export function levelReading(left, right, rate, settings, { source = null } = {}
     state: { ...settings, rate },
   });
 }
-
-/**
- * How far apart two levels are.
- *
- * The loudness comparator, unchanged, because the question "is this as loud as
- * that" has one right answer and it is already written next door. `off` is in
- * LU and `detail.louder` says which way, which is the whole of what a
- * level-matching exercise needs to tell somebody.
- */
-export const levelGap = loudnessGap;
 
 /**
  * Where the gate sits, re-exported so the face can say why a reading stopped.

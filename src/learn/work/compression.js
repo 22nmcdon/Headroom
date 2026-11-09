@@ -916,7 +916,6 @@ export const COMP_WORK = {
 
     const depthOk = depthOff <= close;
     const timeOk = timeOff <= 0.42; // a third of the way to twice as long
-    const mark = depthOk && timeOk ? HIT : (depthOk || timeOff <= 0.8) ? NEAR : MISS;
 
     return {
       correct: depthOk && timeOk,
@@ -970,7 +969,7 @@ export const COMP_WORK = {
    * that is doing the work.
    */
   hints(puzzle) {
-    const { answer, tier } = puzzle;
+    const { answer } = puzzle;
     const exercise = puzzle?.settings?.exercise ?? 'match';
 
     if (exercise === 'drill') {

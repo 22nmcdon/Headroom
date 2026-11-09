@@ -142,9 +142,6 @@ const plural = (count, one, many) => `${count} ${count === 1 ? one : many}`;
 const FOLLOW_SAYS = { next: 'the next one', first: 'back to scene 1', stop: 'stop' };
 const FOLLOW_MARK = { next: '→', first: '↺', stop: '■' };
 
-/** A number, without the trailing zeroes nobody reads. */
-const trim = (value) => String(Number(value.toFixed(2)));
-
 /** One knob's spec, for reading a dragged value back out. */
 const knobOf = (effect, id) => knobsFor(effect).find((knob) => knob.id === id) ?? { step: 0.1 };
 

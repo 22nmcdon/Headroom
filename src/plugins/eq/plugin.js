@@ -1,5 +1,5 @@
 import {
-  BAND_TYPES, SLOPES, RESTING_Q, FLAT_CORNER,
+  BAND_TYPES, SLOPES, RESTING_Q,
   averageLift, contributionOf, curveOf, curveReading, logFrequencies, shortHz, exactHz,
   JUDGED_HZ, writeHz,
 } from './filters.js';

@@ -1,5 +1,6 @@
 // Local-only persistence: no accounts, no server (per the MVP plan).
 import { toolOf } from './bench/registry.js';
+import { isDrill, countsAsSolved } from './game.js';
 
 // v4: a bucket is now per kind as well - working at a tool and being asked
 // about one are different activities, and pooling them would average an
@@ -189,7 +190,7 @@ export const mixStats = (tier) => getStats(MIX_MODE, tier, MIX_MODE);
 export function recordGame(game) {
   const { puzzle, guesses, status } = game;
   const spec = toolOf(puzzle.mode);
-  const which = spec.exercises?.[puzzle.settings?.exercise]?.drill ? 'drill' : 'work';
+  const which = isDrill(puzzle) ? 'drill' : 'work';
   if (status === 'playing') return getStats(puzzle.mode, puzzle.tier, which);
 
   const store = read();
@@ -216,7 +217,9 @@ export function recordGame(game) {
     perKind.confused[was.key] = { n: already.n + 1, label: was.label };
   }
 
-  if (status === 'solved') {
+  // A drill answered after a hint ends 'solved' on the page - it was right -
+  // and is played here, not solved: see `countsAsSolved`.
+  if (countsAsSolved(game)) {
     bucket.won += 1;
     bucket.attempts[attemptBand(guesses.length).id] += 1;
     perKind.solved += 1;
@@ -227,6 +230,19 @@ export function recordGame(game) {
   write(store);
   return bucket;
 }
+
+/**
+ * How many rounds in a bucket count towards the path, and towards the
+ * headline number in the stats.
+ *
+ * Work: every solve. A drill: the ones that were right first time, read off
+ * the first attempt band rather than `won`. Since a drill took one answer,
+ * the two are the same thing - but before that, `won` on a drill counted
+ * rounds got to by working through the chips, and the first band is the part
+ * of that record that was always honest.
+ */
+export const solvesIn = (stats, kind = 'work') =>
+  (kind === 'drill' ? stats.attempts['1'] ?? 0 : stats.won);
 
 /**
  * The "you keep missing the mud band" line, for whichever tool is showing:

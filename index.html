@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Headroom — an audio production workbench</title>
-<meta name="description" content="Six real audio plugins, the measurements behind them, and exercises that mark you on the result rather than the settings." />
+<meta name="description" content="Twelve real audio tools, the measurements behind them, and exercises that mark you on the result rather than the settings." />
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='13'>&#9834;</text></svg>" />
 <!-- The webfonts are requested by script rather than written here with an href,
      and only when this page is served over the web. A stylesheet still on its
@@ -12,7 +12,7 @@
      receive paints no text at all - an invisible interface is far worse than
      one in the fallback faces. Every family has a real fallback in the stack. -->
 <link id="webfonts"
-      data-href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;600;700&family=Cormorant+Garamond:ital,wght@0,500;1,500&family=Jost:wght@300;400;500;600&family=Kalam:wght@700&display=swap">
+      data-href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;600;700&family=Cormorant+Garamond:ital,wght@0,500;1,500&family=Jost:wght@300;400;500;600&display=swap">
 <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -117,9 +117,8 @@
         <div class="notes-body" id="notesBody"></div>
       </details>
 
-      <div class="clue" id="clue"></div>
-      <!-- A mode may bring its own interface instead of a clue and a picker:
-           the EQ is a plugin, not a question with options under it. -->
+      <!-- A mode may bring its own interface instead of a picker: the EQ is
+           a plugin, not a question with options under it. -->
       <div class="surface" id="surface" hidden></div>
 
       <!-- A drill puts the tool away and asks instead. It has to: on every
@@ -263,7 +262,7 @@
   <div class="dialog-body">
     <p class="stats-scope" id="stats-scope"></p>
     <div class="stats-summary" id="stats-summary"></div>
-    <h3 class="subhead">Attempts to get there</h3>
+    <h3 class="subhead" id="stats-dist-head">Attempts to get there</h3>
     <div class="dist" id="stats-dist"></div>
     <p class="weak" id="stats-weak"></p>
 

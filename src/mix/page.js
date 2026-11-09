@@ -19,7 +19,7 @@
 import { pieceOf, dress, STEMS, STEM_IDS } from './piece.js';
 import {
   mixBrief, flatMix, movesIn, gainFor, dbOf, STEPS, TRIM,
-  MIX_TIERS, MIX_TIER_IDS, ANCHOR, TONE_BANDS, colouring, CARVES, CARVE_NAMES,
+  MIX_TIERS, MIX_TIER_IDS, ANCHOR, colouring, CARVES, CARVE_NAMES,
   AT_A_DISTANCE,
 } from './brief.js';
 import { EQ_REST } from '../sketch/knobs.js';
@@ -28,7 +28,7 @@ import { markMix, mixAdvice, READING_NAMES, HIT, MISS } from './score.js';
 import {
   anchorOf, matchTrim, staleFor, makeMonitor, LISTEN_MODES,
 } from './monitor.js';
-import { chainChoices, arrangementOf, chainMix, CHAIN_ON } from './chain.js';
+import { chainChoices, arrangementOf, CHAIN_ON } from './chain.js';
 import { faultChoices, mixFaultOf } from './faults.js';
 import { renderPicker, syncPicker } from '../learn/bench/picker.js';
 import { makeStage } from '../sketch/stage.js';

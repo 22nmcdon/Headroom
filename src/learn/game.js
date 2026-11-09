@@ -47,7 +47,7 @@ export function makePuzzle({ mode = 'eq', tier = 'easy', settings = {}, seed }) 
 }
 
 /**
- * A seed for one round, different every time.
+ * A seed for one round: different every time unless a salt is handed in.
  *
  * There was a `dailySeed` beside this: one puzzle per mode per tier per
  * exercise per day, the same one for everybody. It went with the guess ceiling
@@ -57,10 +57,37 @@ export function makePuzzle({ mode = 'eq', tier = 'easy', settings = {}, seed }) 
  * midnight. A daily drill is worth having and will come back on the drills,
  * where "today's one question, same for everyone" is a shape that fits; it is
  * not this.
+ *
+ * The same salt is the same seed. This used to append the time as well, which
+ * made every seed unique whatever the salt - and quietly undid the one caller
+ * that passed a fixed salt in order to come back to the same round.
  */
 export function roundSeed(mode, tier, salt = Math.random()) {
-  return `round:${mode}:${tier}:${salt}:${Date.now()}`;
+  return `round:${mode}:${tier}:${salt}`;
 }
+
+/** Which round a tool, tier and exercise is on, for `leftAt` to be kept under. */
+export const roundKey = (mode, tier, settings = {}) => `${mode}:${tier}:${JSON.stringify(settings)}`;
+
+/**
+ * The seed to come back to, for a round being left - or null to start afresh.
+ *
+ * Only an unfinished round is worth coming back to: a solved one is done, and
+ * a shown one has its answer on the page. A drill that has had a hint is not
+ * kept either, because coming back to it would be the same question with the
+ * hints forgotten and the answer still in your head.
+ */
+export function leftAt(game) {
+  if (!game || game.status !== 'playing') return null;
+  if (isDrill(game.puzzle) && game.hinted > 0) return null;
+  return game.puzzle.seed;
+}
+
+/**
+ * Is this round a drill - a question answered by ear - rather than work at a
+ * tool?
+ */
+export const isDrill = (puzzle) => !!toolOf(puzzle.mode).exercises?.[puzzle.settings?.exercise]?.drill;
 
 /**
  * Fresh state around a puzzle.
@@ -132,9 +159,32 @@ export function submitGuess(game, guess) {
   // Being shown the answer is sticky. You can keep working - that is the
   // point of leaving the controls live - but arriving afterwards is not the
   // same thing as arriving, and the record should not pretend it was.
-  const status = score.correct && game.status === 'playing' ? 'solved' : game.status;
+  let status = game.status;
+  if (status === 'playing') {
+    // A drill is a question about your ear, so the first answer is the
+    // answer. Wrong, and the round shows what it was - the reading on a wrong
+    // answer ("2 octaves low" on a four-chip question) names the right one
+    // anyway, so letting it run on would only turn a listening question into
+    // a process of elimination. Work at a tool keeps every attempt: there
+    // the reading is the point.
+    if (score.correct) status = 'solved';
+    else if (isDrill(game.puzzle)) status = 'shown';
+  }
 
   return { ...game, guesses, status, error: null };
+}
+
+/**
+ * Does this round count as solved?
+ *
+ * Work: solved is solved, in however many attempts. A drill: solved by ear,
+ * which with one answer allowed means right first time - and with no hint
+ * taken, because the top of a drill's hint ladder is the answer in other
+ * words.
+ */
+export function countsAsSolved(game) {
+  if (game.status !== 'solved') return false;
+  return !isDrill(game.puzzle) || (game.guesses.length === 1 && game.hinted === 0);
 }
 
 /**

@@ -595,7 +595,7 @@ export const STEREO_WORK = {
   },
 
   hints(puzzle) {
-    const { answer, tier } = puzzle;
+    const { answer } = puzzle;
     const exercise = puzzle?.settings?.exercise ?? 'place';
 
     if (exercise === 'drill') {

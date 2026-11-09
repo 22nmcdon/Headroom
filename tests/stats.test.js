@@ -10,9 +10,9 @@ globalThis.localStorage = {
   clear: () => store.clear(),
 };
 
-const { getStats, recordGame, weakestKind, resetStats, ATTEMPT_BANDS, attemptBand } =
+const { getStats, recordGame, weakestKind, resetStats, ATTEMPT_BANDS, attemptBand, solvesIn } =
   await import('../src/learn/stats.js');
-const { createGame, submitGuess, makePuzzle, showAnswer } = await import('../src/learn/game.js');
+const { createGame, submitGuess, makePuzzle, showAnswer, takeHint } = await import('../src/learn/game.js');
 
 // These used to be chord puzzles, because a chord quality is the simplest
 // thing a mode can call "one kind of answer". The chords are gone, so they are
@@ -383,6 +383,33 @@ test('the weak spot says what it keeps being heard as', () => {
   assert.equal(weak.key, 'octave-2k');
   assert.equal(weak.confusedWith.key, 'octave-4k', 'the commonest of them');
   assert.equal(weak.confusedWith.n, 2);
+});
+
+test('a drill counts right first time, and nothing else', () => {
+  play(drillPuzzleFor('2k', 'boost', 'f1'), [{ band: '2k', move: 'boost' }]);
+  // Wrong, then right: the round ended on the first answer.
+  play(drillPuzzleFor('2k', 'boost', 'f2'), [{ band: '4k', move: 'boost' }, { band: '2k', move: 'boost' }]);
+  // Right, after a hint.
+  let hinted = takeHint(createGame(drillPuzzleFor('2k', 'boost', 'f3')));
+  hinted = submitGuess(hinted, { band: '2k', move: 'boost' });
+  recordGame(hinted);
+
+  const stats = getStats('eq', 'medium', 'drill');
+  assert.equal(stats.played, 3);
+  assert.equal(stats.won, 1);
+  assert.equal(stats.attempts['1'], 1);
+  assert.equal(stats.attempts['2'], 0, 'a drill never lands past the first band');
+  assert.equal(stats.byAnswer['octave-2k'].solved, 1);
+  assert.equal(solvesIn(stats, 'drill'), 1);
+});
+
+test('a drill bucket from before the rule counts only its first-band solves', () => {
+  // Stored when a drill could be worked through chip by chip: `won` there
+  // includes rounds got to by elimination; the first band never did.
+  const old = { played: 10, won: 9, attempts: { 1: 4, 2: 3, 3: 2 } };
+  assert.equal(solvesIn({ ...old, attempts: { ...old.attempts } }, 'drill'), 4);
+  assert.equal(solvesIn(old, 'work'), 9, 'work keeps every solve');
+  assert.equal(solvesIn({ won: 0, attempts: {} }, 'drill'), 0);
 });
 
 test('a v3 store is carried across, because none of it could have been a drill', () => {

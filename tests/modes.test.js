@@ -5,7 +5,7 @@ import { TOOLS as MODES, TOOL_IDS as MODE_IDS, toolOf as modeOf } from '../src/l
 import { HIT, NEAR, MISS } from '../src/learn/work/scoring.js';
 import {
   makePuzzle, createGame, submitGuess, reveal, settingsFor, startingGuess,
-  scoreGuess,
+  scoreGuess, isDrill,
 } from '../src/learn/game.js';
 import { answerAsGuess, wrongGuess, everyRound } from './helpers.js';
 
@@ -383,6 +383,14 @@ test('a whole round can be played out in every mode, tier and exercise', () => {
     const chosen = settingsFor(id, settings);
     const puzzle = makePuzzle({ mode: id, tier, settings: chosen, seed: `round-${id}-${tier}` });
     let game = createGame(puzzle);
+
+    // A drill takes one answer: wrong, and it is shown. The rest of what is
+    // checked here is about work, which takes as many as it needs.
+    if (isDrill(puzzle)) {
+      game = submitGuess(game, wrongGuess(puzzle));
+      assert.equal(game.status, 'shown', `${id}/${tier} ran on past a wrong first answer`);
+      continue;
+    }
 
     // Six attempts, which used to be past two of the three tiers' ceilings.
     for (let i = 0; i < 6; i += 1) game = submitGuess(game, wrongGuess(puzzle, i));

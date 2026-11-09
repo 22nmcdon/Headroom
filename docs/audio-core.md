@@ -28,7 +28,7 @@ tests/          node:test, no browser
 
 ## What is already shared
 
-**One `AudioContext`, and exactly one.** `src/audio.js` holds an `Engine`
+**One `AudioContext`, and exactly one.** `src/core/audio.js` holds an `Engine`
 class with a lazily created context (`ensure()`, because browsers refuse audio
 before a gesture) and a master gain at 0.7 feeding the destination. Every
 player takes the engine in its constructor and calls `engine.ensure()` rather
@@ -49,10 +49,10 @@ same material change under your hands.
 **One lifecycle.** Every plugin implements the same contract — `state` /
 `setState`, `read` / `readNow`, `setSource`, `loadFile`, `setFault`,
 `setTarget`, `showTarget`, `nameAB`, `lock` / `unlock`, `source`, `abLabel`,
-`material`, `toggle`, `isPlaying`, `destroy` — and `src/bench/session.js`
+`material`, `toggle`, `isPlaying`, `destroy` — and `src/learn/bench/session.js`
 drives it without knowing which tool it is holding.
 
-**One shape of measurement.** `src/read.js` is the envelope every reading
+**One shape of measurement.** `src/lib/read.js` is the envelope every reading
 arrives in, and `src/gap.js` compares two of them without knowing the kind.
 
 ## What is not shared
@@ -68,12 +68,12 @@ and the five of them are five different shapes:
 
 | Tool | Player | What it is |
 | --- | --- | --- |
-| EQ | `src/eq/player.js` | Six `BiquadFilterNode`s, plus a fault filter and an analyser |
-| Compression | `src/comp/player.js` | An `AudioWorklet`, stringified from `src/comp/node.js`, with two parallel chains for the A/B and a key input |
-| Stereo | `src/image/player.js` | A mid/side network split three ways, with a channel splitter and two analysers for the goniometer |
-| Reverb | `src/fx/player.js` | A `ConvolverNode` fed an impulse built from numbers in `src/verb/ir.js` |
-| Delay | `src/fx/player.js` | The same `ImpulsePlayer`, fed an impulse from `src/echo/line.js` |
-| Saturation | `src/heat/player.js` | An `AudioWorklet` from `src/heat/node.js`, running eight times oversampled |
+| EQ | `src/plugins/eq/player.js` | Six `BiquadFilterNode`s, plus a fault filter and an analyser |
+| Compression | `src/plugins/compressor/player.js` | An `AudioWorklet`, stringified from `src/plugins/compressor/node.js`, with two parallel chains for the A/B and a key input |
+| Stereo | `src/plugins/stereo/player.js` | A mid/side network split three ways, with a channel splitter and two analysers for the goniometer |
+| Reverb | `src/lib/player.js` | A `ConvolverNode` fed an impulse built from numbers in `src/plugins/reverb/ir.js` |
+| Delay | `src/lib/player.js` | The same `ImpulsePlayer`, fed an impulse from `src/plugins/delay/line.js` |
+| Saturation | `src/plugins/saturation/player.js` | An `AudioWorklet` from `src/plugins/saturation/node.js`, running eight times oversampled |
 
 The reverb and the delay already share one player, which is the proof that
 this is possible: both are completely described by what they do to one click,
@@ -96,9 +96,10 @@ to run two sources at once.
 
 - **One context, one master, one cache of rendered material.**
 - **The six tools' DSP**, which is the part worth keeping: `eq/filters.js`,
-  `comp/dsp.js`, `image/field.js`, `verb/ir.js`, `echo/line.js`,
-  `heat/shape.js` are all pure and all tested against measurements.
-- **The worklet stringifying** in `src/fx/worklet.js`, which is how the
+  `compressor/dsp.js`, `stereo/field.js`, `reverb/ir.js`, `delay/line.js`,
+  `saturation/shape.js`, all under `src/plugins/`, are all pure and all tested
+  against measurements.
+- **The worklet stringifying** in `src/lib/worklet.js`, which is how the
   compressor and the saturator run their maths on the audio thread without a
   separate build step.
 - **The analysis readings** in `src/analysis/`, which will read a sketch back
@@ -233,7 +234,7 @@ Two arguments that sound good and are not:
 
 - *"Wasm means two implementations."* It need not. Node runs WebAssembly, so
   one compiled kernel could be loaded by the worklet and by `node --test`
-  alike, and `heat/shape.js` being simultaneously the sound, the scoring and
+  alike, and `saturation/shape.js` being simultaneously the sound, the scoring and
   the test would survive. The real cost is a C++ toolchain and a build step
   in a project whose README says there is neither - which is a simplicity
   argument, not a correctness one.

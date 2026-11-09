@@ -1,16 +1,16 @@
 import { TOOLS, TOOL_IDS, toolOf, exerciseOf } from './learn/bench/registry.js';
 import { bench } from './learn/bench/session.js';
 import {
-  createGame, submitGuess, makePuzzle, roundSeed, reveal,
-  settingsFor, startingGuess, hintFor, hintsLeft, takeHint, showAnswer,
+  createGame, submitGuess, makePuzzle, roundSeed, roundKey, leftAt, reveal, isDrill,
+  countsAsSolved, settingsFor, startingGuess, hintFor, hintsLeft, takeHint, showAnswer,
 } from './learn/game.js';
 import { Engine } from './core/audio.js';
 import {
-  getStats, recordGame, weakestKind, resetStats, ATTEMPT_BANDS,
+  getStats, recordGame, weakestKind, resetStats, ATTEMPT_BANDS, solvesIn,
   exportProgress, importProgress, notesRead, markRead,
 } from './learn/stats.js';
 import { progress, where, PATH_TIER } from './learn/bench/path.js';
-import { engraveNote } from './lib/engrave.js';
+import { engrave } from './lib/engrave.js';
 import { renderPicker, syncPicker, pickerState, dialValue } from './learn/bench/picker.js';
 import { makeLog } from './learn/bench/log.js';
 import { notesFor } from './learn/notes/index.js';
@@ -19,9 +19,6 @@ import { SketchPage } from './sketch/grid.js';
 import { MixPage } from './mix/page.js';
 
 const $ = (sel) => document.querySelector(sel);
-
-/** A reading only ever needs its accidentals: "3.15k", "B♭", "−4.5 dB". */
-const writeSymbol = (target, text) => engraveNote(target, text);
 
 /* The webfonts, promoted only when this page is being served. `rel` is set with
    the href and never before: a stylesheet with no href counts as one still on
@@ -66,6 +63,9 @@ const ui = {
   // answer has been shown. Built by `ontoWay`, cleared on every new round.
   onto: null,
   game: null,
+  // The seed of each round left unfinished, by tool, tier and exercise, so
+  // that switching away and back finds it. See `leftAt` for what is kept.
+  left: {},
   log: null, // what has been tried this round, newest first
   // Bumped by every startGame, so a round that is still awaiting its tool can
   // tell it has been overtaken and stop rather than finish over the new one.
@@ -82,7 +82,7 @@ const settings = () => settingsFor(ui.mode, ui.chosen[ui.mode] ?? {});
  *
  * Two kinds, and they are different activities: working at a tool, and being
  * asked about one. Keeping them apart is what lets somebody run the drill on
- * all six in a sitting without going through the exercise dropdown six times.
+ * every tool in a sitting without going through the exercise dropdown each time.
  */
 const exercisesOfKind = (id, kind) =>
   Object.values(TOOLS[id].exercises).filter((exercise) => !!exercise.drill === (kind === 'drill'));
@@ -260,7 +260,7 @@ function buildPicker() {
   ui.guess = { ...dialled, ...Object.fromEntries(
     Object.entries(ui.guess).filter(([id]) => id in dialled)) };
 
-  renderPicker(picker, tool().slots(ui.tier, chosen), ui.guess, { write: writeSymbol });
+  renderPicker(picker, tool().slots(ui.tier, chosen), ui.guess, { write: engrave });
 
   syncAnswer();
 }
@@ -368,10 +368,6 @@ async function putExercise() {
   $('#surface').hidden = drilling;
   $('#drill').hidden = !drilling;
   $('#picker').hidden = !drilling;
-  $('#clue').hidden = true;
-  // Not the advice. It is a line about the tool, and this used to hide all of
-  // it, every time, in the same synchronous pass that buildClue had just
-  // written it. Five paragraphs, set and never seen by anybody.
 
   $('#drillAsk').textContent = exercise.ask ?? '';
 
@@ -586,10 +582,16 @@ async function startGame({ fresh = false } = {}) {
 
 async function playRound(round, fresh) {
   const chosen = settings();
-  // `fresh` is "another one" - a new puzzle of the same shape. Without it the
-  // salt is the tier, so switching tool, tier or exercise and coming back
-  // finds the round you left rather than a different one.
-  const seed = roundSeed(ui.mode, ui.tier, fresh ? Math.random() : ui.tier);
+  // Switching tool, tier or exercise and coming back finds the round you
+  // left, if you left one unfinished. `fresh` is "another one" - a new puzzle
+  // of the same shape, whatever was left.
+  const before = ui.game;
+  if (before) {
+    const { mode, tier, settings: was } = before.puzzle;
+    ui.left[roundKey(mode, tier, was)] = leftAt(before);
+  }
+  const kept = fresh ? null : ui.left[roundKey(ui.mode, ui.tier, chosen)];
+  const seed = kept ?? roundSeed(ui.mode, ui.tier);
 
   const puzzle = makePuzzle({ mode: ui.mode, tier: ui.tier, settings: chosen, seed });
   ui.game = createGame(puzzle);
@@ -632,7 +634,7 @@ async function playRound(round, fresh) {
 function buildLog() {
   const slots = tool().slots(ui.tier, settings());
   ui.log = makeLog($('#log'), {
-    write: writeSymbol,
+    write: engrave,
     headings: slots.length
       ? slots.map((slot) => slot.heading ?? slot.id)
       : ['how close', 'where'],
@@ -672,6 +674,14 @@ function onSubmit() {
   if (next.status === 'solved') {
     recordGame(next);
     finish(next);
+  } else if (before.status === 'playing' && next.status === 'shown') {
+    // A drill, answered wrong. The first answer is the one that counts, so
+    // the round is over and the answer goes up - and the controls stay live,
+    // so the right one can be heard against the one you picked.
+    recordGame(next);
+    say('Not that one. The answer is below — listen again with it in front of '
+      + 'you. Further answers are read, but this round is not counted.');
+    finish(next);
   } else if (attempt.score.correct) {
     // Arrived, but with the answer already in front of you. The reading is
     // still true and still worth saying; what it is not is a solve.
@@ -702,17 +712,23 @@ function finish(game) {
   const count = game.guesses.length;
   const answer = reveal(game.puzzle);
 
-  if (solved) {
+  if (solved && isDrill(game.puzzle)) {
+    say(countsAsSolved(game)
+      ? 'That is it — first time.'
+      : 'That is it — with a hint, so it is not counted as a solve.', { matched: true });
+  } else if (solved) {
     say(`That is it — in ${count} ${count === 1 ? 'attempt' : 'attempts'}.`, { matched: true });
   }
 
   const played = $('#played');
   played.textContent = '';
-  played.appendChild(document.createTextNode(solved ? 'You built ' : 'It was '));
+  // A drill's answer was named, not built.
+  const built = solved && !isDrill(game.puzzle);
+  played.appendChild(document.createTextNode(built ? 'You built ' : 'It was '));
 
   const symbol = document.createElement('span');
   symbol.className = 'symbol';
-  writeSymbol(symbol, answer.symbol);
+  engrave(symbol, answer.symbol);
   played.appendChild(symbol);
   played.appendChild(document.createTextNode(answer.name ? ` — ${answer.name}.` : '.'));
 
@@ -818,7 +834,10 @@ function render() {
   const left = hintsLeft(game);
   const hint = $('#hint');
   hint.hidden = left === 0 || solved;
-  hint.textContent = game.hinted === 0 ? 'Hint' : `Another hint (${left} left)`;
+  // On a drill a hint costs the solve, so the button says so before it is
+  // pressed rather than after.
+  const costs = isDrill(game.puzzle) ? ' — not counted' : '';
+  hint.textContent = game.hinted === 0 ? `Hint${costs}` : `Another hint (${left} left)`;
   $('#hint-line').hidden = game.hinted === 0;
 
   const show = $('#show');
@@ -843,7 +862,12 @@ function showStats() {
   // Three readings, not five. The streak and the best streak that were here
   // measured how recently you played rather than how well you hear, and with
   // the daily gone there was nothing to break a streak at all.
-  const solved = stats.played ? Math.round((stats.won / stats.played) * 100) : 0;
+  //
+  // A drill takes one answer, so its number is right first time and there is
+  // no spread of attempts to draw: every solve is in the first band.
+  const drill = ui.kind === 'drill';
+  const solves = solvesIn(stats, ui.kind);
+  const solved = stats.played ? Math.round((solves / stats.played) * 100) : 0;
   // Which band most solves land in - the one thing the distribution below
   // says that is worth having at a glance, and the honest version of what the
   // streak was pretending to measure.
@@ -853,20 +877,24 @@ function showStats() {
     : null;
   $('#stats-summary').innerHTML = [
     ['Played', stats.played],
-    ['Solved %', solved],
-    ['Usually in', typical ? typical.label : '—'],
+    ...(drill
+      ? [['Right first time', solves], ['First-time %', solved]]
+      : [['Solved %', solved], ['Usually in', typical ? typical.label : '—']]),
   ].map(([text, value]) => `<div><strong>${value}</strong><span>${text}</span></div>`).join('');
 
   // Six bands, always all six. What was here sliced the rows to the tier's
   // guess ceiling, which no longer exists - and converging in two rather than
   // nine is the clearest signal of improvement this app has, so the bands stay
-  // fixed and comparable rather than shifting with the tool.
+  // fixed and comparable rather than shifting with the tool. A band nobody
+  // has landed in is drawn empty rather than as a sliver of bar.
+  $('#stats-dist-head').hidden = drill;
+  $('#stats-dist').hidden = drill;
   const counts = ATTEMPT_BANDS.map((band) => stats.attempts[band.id] ?? 0);
   const max = Math.max(1, ...counts);
   $('#stats-dist').innerHTML = ATTEMPT_BANDS.map((band, i) => {
-    const width = Math.max(7, Math.round((counts[i] / max) * 100));
+    const width = counts[i] ? Math.max(7, Math.round((counts[i] / max) * 100)) : 0;
     return `<div class="dist-row"><span>${band.label}</span>`
-      + `<div class="bar" style="width:${width}%">${counts[i]}</div></div>`;
+      + `<div class="bar${counts[i] ? '' : ' is-empty'}" style="width:${width}%">${counts[i]}</div></div>`;
   }).join('');
 
   const weak = weakestKind(stats);
@@ -954,7 +982,8 @@ async function uploadProgress(input) {
  * written to make that true.
  */
 const pathState = () => progress({
-  solvesOf: (tool, tier, kind) => getStats(tool, tier, kind).won,
+  // A drill step counts rounds right first time; see `solvesIn`.
+  solvesOf: (tool, tier, kind) => solvesIn(getStats(tool, tier, kind), kind),
   hasRead: (tool) => notesRead().includes(tool),
 });
 
@@ -969,7 +998,7 @@ function showPath() {
       : `${Math.min(step.solves, step.enough)} of ${step.enough}`;
 
     // The last step belongs to no tool, so it is named for what it is.
-    const whose = step.tool ? `${TOOLS[step.tool].label} — ` : 'All six — ';
+    const whose = step.tool ? `${TOOLS[step.tool].label} — ` : 'All together — ';
 
     return `<li><button class="path-step ${here}" type="button" data-step="${step.id}">
       <span class="path-mark">${mark}</span>
@@ -1165,8 +1194,6 @@ function fillHelp() {
   $('#helpMode').textContent = tool().label;
   $('#helpLede').textContent = tool().lede;
 
-  const tier = tool().tiers[ui.tier];
-
   // Every tool brings its own interface, and explains its own interface:
   // there is nothing useful the shell can say about a plugin it has not seen.
   const entries = tool().help.map((entry) => [...entry]);
@@ -1178,7 +1205,7 @@ function fillHelp() {
     ui.kind === 'drill' ? 'You are on the drills.' : 'Work at it, or be drilled on it.',
     'The pill under the tools switches between building the answer on the plugin '
     + 'and being asked about it with the plugin put away. It stays where you put '
-    + 'it when you change tool, so a run of all six drills is one click each.',
+    + 'it when you change tool, so a run of drills across every tool is one click each.',
   ]);
 
   for (const spec of tool().settings ?? []) {

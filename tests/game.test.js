@@ -5,6 +5,7 @@ import { TOOLS as MODES, toolOf as modeOf } from '../src/learn/bench/registry.js
 import {
   scoreGuess, sameGuess, hintFor, hintsLeft, takeHint, showAnswer,
   createGame, submitGuess, makePuzzle, roundSeed, reveal, settingsFor,
+  isDrill, countsAsSolved, leftAt, roundKey,
 } from '../src/learn/game.js';
 import { mulberry32, hashSeed } from '../src/lib/random.js';
 import { answerAsGuess, wrongGuess, everyRound } from './helpers.js';
@@ -37,7 +38,9 @@ test('there is no ceiling, and nothing is ever lost', () => {
     for (let i = 0; i < 12; i += 1) game = submitGuess(game, wrongGuess(puzzle, i));
 
     assert.equal(game.guesses.length, 12, `${mode}/${tier} stopped taking attempts`);
-    assert.equal(game.status, 'playing', `${mode}/${tier} ended on its own`);
+    // A drill's first answer is its answer (see below); work runs on.
+    assert.equal(game.status, isDrill(puzzle) ? 'shown' : 'playing',
+      `${mode}/${tier} ended on its own`);
   }
 });
 
@@ -195,17 +198,90 @@ test('a round is a different puzzle every time you ask for one', () => {
   assert.equal(seeds.size, 50);
 });
 
-test('the same salt is the same round, so coming back finds what you left', () => {
-  // What the salt is for: `startGame()` passes the tier and `startGame({fresh})`
-  // passes a random number, which is the difference between switching exercise
-  // and back, and pressing "another one".
-  const same = (salt) => makePuzzle({
-    mode: 'eq', tier: 'easy', settings: { exercise: 'match' },
-    seed: `round:eq:easy:${salt}`,
-  }).answer;
+test('the same salt is the same seed, and no salt is a new one every time', () => {
+  // `roundSeed` used to append the time to whatever salt it was given, which
+  // made the salt decorative - and made "come back to the round you left"
+  // quietly impossible.
+  assert.equal(roundSeed('eq', 'easy', 'kept'), roundSeed('eq', 'easy', 'kept'));
+  assert.notEqual(roundSeed('eq', 'easy'), roundSeed('eq', 'easy'));
 
-  assert.deepEqual(same('easy'), same('easy'));
-  assert.notDeepEqual(same('easy'), same('0.418'));
+  const same = (seed) => makePuzzle({
+    mode: 'eq', tier: 'easy', settings: { exercise: 'match' }, seed,
+  }).answer;
+  assert.deepEqual(same(roundSeed('eq', 'easy', 'kept')), same(roundSeed('eq', 'easy', 'kept')));
+});
+
+test('an unfinished round is kept to come back to; a finished one is not', () => {
+  const puzzle = makePuzzle({ mode: 'eq', tier: 'easy', settings: { exercise: 'match' }, seed: 'left' });
+  let game = createGame(puzzle);
+  assert.equal(leftAt(game), 'left', 'not started yet');
+
+  game = submitGuess(game, wrongGuess(puzzle));
+  assert.equal(leftAt(game), 'left', 'part way through a piece of work');
+
+  assert.equal(leftAt(submitGuess(game, answerAsGuess(puzzle))), null, 'solved');
+  assert.equal(leftAt(showAnswer(game)), null, 'shown');
+  assert.equal(leftAt(null), null);
+
+  // A drill with a hint taken would come back as the same question with the
+  // hint forgotten, so it is not kept.
+  const drill = makePuzzle({ mode: 'eq', tier: 'easy', settings: { exercise: 'drill' }, seed: 'd' });
+  assert.equal(leftAt(createGame(drill)), 'd');
+  assert.equal(leftAt(takeHint(createGame(drill))), null);
+
+  // Kept per tool, tier and exercise.
+  assert.notEqual(roundKey('eq', 'easy', { exercise: 'match' }), roundKey('eq', 'easy', { exercise: 'drill' }));
+  assert.notEqual(roundKey('eq', 'easy', {}), roundKey('eq', 'hard', {}));
+});
+
+/* --- a drill takes one answer -------------------------------------------- */
+
+const drillOf = (seed) => makePuzzle({ mode: 'eq', tier: 'easy', settings: { exercise: 'drill' }, seed });
+
+test('every tool\'s drills are drills, and its work is not', () => {
+  for (const id of Object.keys(MODES)) {
+    for (const exercise of Object.values(MODES[id].exercises)) {
+      const puzzle = makePuzzle({ mode: id, tier: 'easy', settings: { exercise: exercise.id }, seed: 'k' });
+      assert.equal(isDrill(puzzle), !!exercise.drill, `${id}/${exercise.id}`);
+    }
+  }
+});
+
+test('a wrong first answer on a drill ends it, shown and not solved', () => {
+  // The reading on a wrong answer - "2 octaves low" on a four-chip question -
+  // names the right one, so a drill that ran on could be cleared without
+  // hearing anything.
+  const puzzle = drillOf('miss');
+  let game = submitGuess(createGame(puzzle), wrongGuess(puzzle));
+  assert.equal(game.status, 'shown');
+  assert.equal(countsAsSolved(game), false);
+
+  // The controls stay live and a later answer is still read honestly...
+  game = submitGuess(game, answerAsGuess(puzzle));
+  assert.ok(game.guesses[1].score.correct);
+  // ...and is not a solve.
+  assert.equal(game.status, 'shown');
+  assert.equal(countsAsSolved(game), false);
+});
+
+test('a drill right first time counts; right after a hint does not', () => {
+  const puzzle = drillOf('hit');
+  const first = submitGuess(createGame(puzzle), answerAsGuess(puzzle));
+  assert.equal(first.status, 'solved');
+  assert.ok(countsAsSolved(first));
+
+  const hinted = submitGuess(takeHint(createGame(puzzle)), answerAsGuess(puzzle));
+  assert.equal(hinted.status, 'solved', 'it was right, and the page says so');
+  assert.equal(countsAsSolved(hinted), false, 'but a hint is the answer in other words');
+});
+
+test('work still takes as many attempts as it needs, and counts the solve', () => {
+  const puzzle = makePuzzle({ mode: 'eq', tier: 'easy', settings: { exercise: 'match' }, seed: 'work' });
+  let game = takeHint(createGame(puzzle));
+  game = submitGuess(game, wrongGuess(puzzle));
+  assert.equal(game.status, 'playing');
+  game = submitGuess(game, answerAsGuess(puzzle));
+  assert.ok(countsAsSolved(game));
 });
 
 test('a seed carries the exercise, because an exercise is its own puzzle', () => {

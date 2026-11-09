@@ -59,19 +59,17 @@ function writeWithAccidentals(parent, text) {
   flush();
 }
 
-/** A note name - "C", "A♯/B♭" - with the second spelling set quieter. */
-export function engraveNote(target, label) {
+/**
+ * A reading, written into @p target with its accidentals set: "3.15k", "B♭",
+ * "−4.5 dB", "120 / 100 / 80%".
+ *
+ * Every slash is kept. This was `engraveNote`, which split on the first one
+ * to set a note's second spelling ("A♯/B♭") quieter - and with no two-spelling
+ * note left to write, all that split did was drop the third value off any
+ * reading with two slashes in it.
+ */
+export function engrave(target, text) {
   target.textContent = '';
-
-  const [first, second] = label.split('/');
-  writeWithAccidentals(target, first);
-
-  if (second) {
-    const alt = document.createElement('span');
-    alt.className = 'alt';
-    writeWithAccidentals(alt, '/' + second);
-    target.appendChild(alt);
-  }
-
+  writeWithAccidentals(target, text);
   return target;
 }

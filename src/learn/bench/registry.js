@@ -1,7 +1,7 @@
 // What a tool is, put back together.
 //
 // Each of the twelve is three files: what it is and how to open it in src/tools,
-// what you do with it in src/learn/work, and the long prose in src/notes.
+// what you do with it in src/learn/work, and the long prose in src/learn/notes.
 // Something has to say those three are the EQ, and this is it.
 //
 // The split is not tidiness. A tool that knows about answers cannot be opened

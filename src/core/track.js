@@ -206,14 +206,3 @@ export function playPieces(transport, track, pick) {
     }
   });
 }
-
-/**
- * One clip, always playing, from the start of time.
- *
- * The simple case, and the one anything without a grid of scenes wants.
- */
-export const playClip = (transport, track, getClip) => playPieces(
-  transport,
-  track,
-  (from, to) => [{ clip: typeof getClip === 'function' ? getClip() : getClip, from, to }],
-);

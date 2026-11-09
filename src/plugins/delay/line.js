@@ -1,5 +1,5 @@
 import {
-  ECHO_DEFAULTS, MOST_FEEDBACK, LONGEST_TIME, sidesOf, echoCore, headsOf,
+  ECHO_DEFAULTS, MOST_FEEDBACK, sidesOf, echoCore, headsOf,
 } from './dsp.js';
 import {
   LONGEST_TAIL, decayProfile, decayTimes, wetDryImpulse, monoOf,

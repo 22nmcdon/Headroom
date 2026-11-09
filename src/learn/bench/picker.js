@@ -30,7 +30,7 @@ export const pickedLabel = (slot, value) => {
 };
 
 /** One chip: what somebody would write, over what it is called. */
-function chipButton(slotId, option, { write, hand }) {
+function chipButton(slotId, option, { write }) {
   const button = document.createElement('button');
   button.type = 'button';
   button.className = 'option';
@@ -40,10 +40,7 @@ function chipButton(slotId, option, { write, hand }) {
   button.setAttribute('aria-label', option.name ? `${option.symbol}, ${option.name}` : option.symbol);
 
   const symbol = document.createElement('span');
-  // The hand face is for things somebody would have written by hand. A
-  // frequency, an interval, a clave is set in the serif, on the line, with its
-  // accidentals still borrowed from the serif.
-  symbol.className = hand ? 'symbol hand' : 'symbol';
+  symbol.className = 'symbol';
   write(symbol, option.symbol);
   button.appendChild(symbol);
 
@@ -101,7 +98,7 @@ function controlRow(slot, value) {
 }
 
 /** Draws the slots into `el`, on the values `answer` holds. */
-export function renderPicker(el, slots, answer, { write, hand = false }) {
+export function renderPicker(el, slots, answer, { write }) {
   el.textContent = '';
 
   for (const slot of slots) {
@@ -123,7 +120,7 @@ export function renderPicker(el, slots, answer, { write, hand = false }) {
     options.className = 'options';
     options.setAttribute('role', 'group');
     options.setAttribute('aria-label', slot.label);
-    for (const option of slot.options) options.appendChild(chipButton(slot.id, option, { write, hand }));
+    for (const option of slot.options) options.appendChild(chipButton(slot.id, option, { write }));
 
     group.appendChild(options);
     el.appendChild(group);

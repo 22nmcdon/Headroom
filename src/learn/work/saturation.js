@@ -843,7 +843,7 @@ export const HEAT_WORK = {
   },
 
   hints(puzzle) {
-    const { answer, tier } = puzzle;
+    const { answer } = puzzle;
     const exercise = puzzle?.settings?.exercise ?? 'amount';
 
     if (exercise === 'artefact') {

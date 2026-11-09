@@ -1,10 +1,10 @@
 import {
-  STEREO_DEFAULTS, STEREO_BANDS, STEREO_FLOOR, STEREO_AXIS, stereoReading, widthOf,
+  STEREO_DEFAULTS, STEREO_BANDS, STEREO_FLOOR, STEREO_AXIS, stereoReading,
   STEREO_LIMITS,
 } from './field.js';
 import { notReady, stampOf } from '../../lib/read.js';
 import { StereoPlayer } from './player.js';
-import { dialOf, offDial, sizeOf, readyCanvas, watchSize, span } from '../../lib/panel.js';
+import { dialOf, offDial, readyCanvas, watchSize, span } from '../../lib/panel.js';
 import { dressKnobs } from '../../lib/knob.js';
 import { writeHertz } from '../../lib/panel.js';
 import { MONO_SLOPES } from './shuffle.js';

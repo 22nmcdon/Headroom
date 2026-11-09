@@ -12,7 +12,7 @@ import { COMP_WORK as compression } from '../src/learn/work/compression.js';
 import { GATE_WORK as gate } from '../src/learn/work/gate.js';
 import { ESS_WORK as deess } from '../src/learn/work/deess.js';
 import { mulberry32 } from '../src/lib/random.js';
-import { engraveNote } from '../src/lib/engrave.js';
+import { engrave } from '../src/lib/engrave.js';
 
 const RATE = 48000;
 
@@ -264,7 +264,7 @@ test('a b in a word is a letter, and a b on a note is a flat', () => {
     createTextNode: (text) => new Node(text),
   };
 
-  const engraved = (text) => engraveNote(new Node(), text).textContent;
+  const engraved = (text) => engrave(new Node(), text).textContent;
 
   for (const prose of ['never comes back up', 'barely touched', '2 beats', 'sits still',
     '8.0 dB of duck', 'back in 287 ms', '1.4 dB out of line', 'right depth, wrong timing',

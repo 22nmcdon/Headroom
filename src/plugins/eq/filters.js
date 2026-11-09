@@ -387,14 +387,12 @@ export function curveGap(mine, theirs) {
 
   let worst = 0;
   let worstAt = 0;
-  let worstIndex = 0;
 
   for (let i = 0; i < a.length; i += 1) {
     const off = a[i] - b[i];
     if (Math.abs(off) > Math.abs(worst)) {
       worst = off;
       worstAt = JUDGED_HZ[i];
-      worstIndex = i;
     }
   }
 

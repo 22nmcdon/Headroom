@@ -1,6 +1,6 @@
 # Headroom — an audio production workbench
 
-Six real audio plugins, the measurements behind them, and exercises that mark
+Twelve real audio plugins, the measurements behind them, and exercises that mark
 you on the result rather than the settings. No accounts; everything stays in
 the browser.
 
@@ -8,9 +8,9 @@ the browser.
 your settings against the target as often as you like, and submit when you
 think you are on it. Each reading tells you how far off and *which way* —
 `2.8 oct high`, `3.5 dB shy`, `1.7× soft` — so the next attempt is an
-adjustment rather than a guess. There is no limit on attempts and nothing to
-run out of; when you are stuck, **Hint** says what kind of move it is and
-roughly where, and **Show me** draws the answer on the tool and *leaves the
+adjustment rather than a guess. There is no limit on attempts at a tool and
+nothing to run out of; when you are stuck, **Hint** says what kind of move it
+is and roughly where, and **Show me** draws the answer on the tool and *leaves the
 controls live*, so you can hear your way onto it. Every reading also carries
 its own working — what was measured, what it came to, and how.
 
@@ -38,18 +38,24 @@ Within the tools there are two ways to use any of them, on a pill: **work at
 it**, or be **drilled** on it. Working at a tool is matching a target, curing a fault,
 levelling a loop — you build the answer on the plugin. A drill puts the tool
 away and asks instead: which octave moved, how much reduction is that, warm or
-dirty, where is it, how big is the room, which note are the repeats on. The
-pill survives changing tool, so a run of all six drills is one click each.
+dirty, where is it, how big is the room, which note are the repeats on — and
+on a drill, the first answer is the one that counts. The pill survives
+changing tool, so a run through all twelve tools' drills is one click each.
 
 | Mode | What you work with | Exercises | The drill |
 | --- | --- | --- | --- |
 | **Level** | **a trim and a loudness meter** — one gain, integrated and short-term LUFS, true peak, sample peak, range and PLR, and an instant A/B against the untreated loop | **Match** a level that somebody moved | **How much louder**: a doubling ladder from half a decibel to eight |
 | **EQ** | **a channel EQ** — six bands you drag over a live spectrum, with the loop running | **Match** a target move · **Fix** a sample with a resonance in it | **Name the move**: which octave, and boosted or cut |
 | **Compression** | **a compressor** — threshold, ratio, attack, release, knee, lookahead, a filtered sidechain and a key input | **Match** a target compressor · **Even out** a loop whose hits are all over the place · **Duck** one thing under another | **How much is it doing**: 0 to 12 dB of reduction, level-matched |
+| **Gate** | **a gate** — the compressor's detector with the curve the other way up: threshold, ratio, range, attack, hold, release and hysteresis, over a drum loop with ghost notes and a floor under them | **Match** a target gate | **How far is it closing**: three to five depths, from 3 dB to 40 |
+| **De-esser** | **a de-esser** — the same compressor aimed at a band: threshold, ratio, crossover, attack, release and range, and a switch between ducking the band and ducking the whole signal, over a voice | **Match** a target de-esser | **What is it ducking**: nothing, the sibilance, or the whole voice |
 | **Stereo** | **an imager** — mid/side width in three bands, two movable crossovers, a mono-maker, a bass width shuffler, five ways of making side out of middle, balance, dual pan or rotation, a width lean, and mono and side monitoring, read in seven bands from 30 Hz to 20 kHz | **Place** a sound · **Match** a target image · **Rescue** a low end somebody spread too wide to survive mono | **Where is it**: seven places across the field |
+| **Align** | **two mics on one source** — a delay, a polarity switch and the far mic's level, read on a comb display and a correlation meter | **Align** the pair | **How far apart**: three to six distances, 10 cm to 3.2 m · **What is wrong with this pair**: nothing, one inverted, or too far apart |
 | **Reverb** | **a reverb** — five kinds of space, decay per band, pre-delay, size, early/late balance, a shimmer, a freeze and mix | **Match** a room · **Fit** the tail to the tempo | **How big, how long**: the space on chips, the tail on a dial |
 | **Delay** | **a delay** — time or note division, feedback past unity, ping-pong, a filtered repeat path, diffusion, tape or bucket-brigade wow and flutter, ducking and mix | **Match** a delay · **Find** the note it is on | **Which note is it on**: five divisions at this tempo |
+| **Modulation** | **one oscillator, six pedals** — chorus, flanger, vibrato, phaser, tremolo and auto-pan, with rate free or on a note value, depth, feedback, spread and shape | **Match** a modulation | **What is moving**: which of the six is running · **How fast**: the note value it is on |
 | **Saturation** | **a saturator** — drive, bias, hardness, tone and a parallel mix, run eight times oversampled | **Match** how much · **Match** the colour · Build a warmth that is **even and not odd** | **Warm or dirty**: even harmonics against odd, and how hard |
+| **Limiter** | **a limiter** — drive, ceiling, release, knee and output, a clipper beside it, a reduction trace and a level-matched bypass | **Match** a target limiter · **Master** it to a delivery target | **How much is it limiting** · **What is holding the ceiling**: just turned up, a limiter or a clipper · **How far was it turned down**: what a streaming service took off |
 
 ### The EQ is a plugin
 
@@ -90,9 +96,10 @@ breaking, and *warm* and *dirty* are those two piles of numbers.
 
 A first visit used to open the help dialog and then drop you into the EQ's
 match exercise — a six-band parametric, a target you cannot see, and nothing
-saying there is an easier way in. **Start here** is the easier way in: six
-tools, three steps each, in the order somebody would be taught them. Read what
-the tool is for, be asked one question about it, then go and build one.
+saying there is an easier way in. **Start here** is the easier way in: twelve
+tools, three steps each, in the order somebody would be taught them, and then
+one mix. Read what the tool is for, be asked one question about it, then go
+and build one.
 
 It is not new content and it is not a course. Every step is something that was
 already there, and clicking one sets the tool, the tier and the work-or-drills
@@ -102,9 +109,10 @@ they want to practise. Somebody who went and solved the delay first gets the
 delay marked done *and* is still pointed back at the EQ, because the order is
 the only thing the path is for.
 
-A step is done at **three solves**, not three in a row. A streak would throw
-away three rounds of work for one slip, which is what streaks were taken out
-of this app for. The path keeps no record of its own: it counts the solves the
+A work step is done at **three solves**, and a drill step at three rounds
+**right first time** — three, not three in a row. A streak would throw away
+three rounds of work for one slip, which is what streaks were taken out of
+this app for. The path keeps no record of its own: it counts the solves the
 stats already hold, so importing somebody's progress file brings their place
 in the path with it and nothing had to be written to make that true. The one
 step that is not a round — reading the notes — is the one thing it does
@@ -150,7 +158,8 @@ happening.
 
 Every drill asks something the ear can actually hear, and what counts as
 "close" is a measurement rather than a judgement. The numbers are in the code
-beside the constants they set.
+beside the constants they set. And because each is a question with one
+answer, only the first answer is marked — see *How a round works*.
 
 - **Which octave moved.** The bed was rendered offline and read at the ten
   octave centres from 31.5 Hz to 16 kHz, then rendered again through a +9 dB
@@ -245,6 +254,14 @@ Nothing here tells you that you are wrong. "3 dB hot", "too far left" — the
 reading names where the thing sits, which is both the useful answer and the
 house style.
 
+That is a round of work: as many attempts as it takes, each one saying which
+way to move, and a solve counts however many attempts it took. **A drill is
+marked on its first answer.** A wrong first answer ends the round: the answer
+is revealed and the round is recorded as played, not solved. The controls
+stay live, so you can keep answering and A/B against the clean version for as
+long as it is useful, but nothing after the first answer counts. A drill
+answered correctly after taking a hint counts as played, not solved, too.
+
 ### The fix exercises
 
 These are the ones that make it a tool rather than a quiz, and both are built so
@@ -261,7 +278,8 @@ that doing it right is audible rather than merely scored:
 
 ## What's here
 
-- **All seven tools above**, each with three tiers and two or three exercises,
+- **All twelve tools above**, each with three tiers and between two and six
+  exercises, drills included,
   and every one usable on **your own audio** — there is an *Open a file* button
   on every plugin.
 - **Notes on each tool**: four sections apiece on what it is *for*, rather than
@@ -274,8 +292,8 @@ that doing it right is audible rather than merely scored:
   judge a move against.
 - **An identification drill on every tool**, on three tiers each, with the
   question, the chips and the tolerances all set by measurement rather than by
-  taste — see below.
-- **A guided path**: the seven tools in a teaching order, three steps each —
+  taste — see above — and marked on the first answer.
+- **A guided path**: the twelve tools in a teaching order, three steps each —
   read what it is for, be asked one question about it, then build one — and
   then one last step that is not about a single tool at all: mix something.
   Nothing is locked. The path marks what is next; the next thing is a
@@ -284,7 +302,9 @@ that doing it right is audible rather than merely scored:
   because they are different activities and pooling them would report neither.
   It records which kind of answer keeps catching you out *and what you keep
   hearing it as*: "2k (honk) is the one to work on — solved 40% of 5. You
-  usually hear it as 4k (presence)." Plus **Export** / **Import** in the stats
+  usually hear it as 4k (presence)." For drills the stats dialog reads
+  **Right first time %**, since the first answer is the only one a drill
+  counts. Plus **Export** / **Import** in the stats
   dialog, because one key in one browser's storage is not a copy. An import *adds* to what is
   already there rather than replacing it, so the same person on a phone and on
   a laptop keeps both halves; each export carries an id, so importing the same
@@ -310,7 +330,7 @@ that doing it right is audible rather than merely scored:
   **Record into this slot** takes whatever the microphone hears, cuts it to
   the nearest whole bar, and puts it in the slot as a clip that loops with
   everything else, runs through that track's inserts and fader, and comes out
-  in the stems. A sketch opens with a **Voice** track for exactly that — no
+  in the stems. A sketch opens with a **Mic** track for exactly that — no
   step grid, no chords, just Record — because the reason to have a sketchpad
   on a phone at all is that the idea arrives when the phone is the only thing
   to hand.
@@ -389,14 +409,22 @@ question of moving the DSP out of JS.
 
 ## Adding a tool
 
-A tool is three files, composed by `src/bench/registry.js`:
+A tool is three files over a device, composed by
+`src/learn/bench/registry.js`:
 
 ```
-src/tools/eq.js     what it is, and open(el, {engine, onChange}) -> a live plugin
-src/work/eq.js      exercises and drills over it: makePuzzle, score, hints,
-                    reveal, weak, heard
-src/notes/eq.js     the long prose, for the person using it
+src/plugins/eq/         the device itself: the face, the maths, the worklet,
+                        the A/B player
+src/tools/eq.js         what it is, and open(el, {engine, onChange}) -> a live plugin
+src/learn/work/eq.js    exercises and drills over it: makePuzzle, score, hints,
+                        reveal, weak, heard
+src/learn/notes/eq.js   the long prose, for the person using it
 ```
+
+Registering one is an import and an entry in `TOOLS` in the registry, its
+notes in `NOTES` in `src/learn/notes/index.js`, and a place in `TEACHING_ORDER`
+(with how it is `CALLED` in a sentence) in `src/learn/bench/path.js`, or the
+guided path will not know it is there.
 
 **The tool knows nothing about a puzzle, an answer or a tier.** That is the
 point of the split, not tidiness: a tool that knew about answers could not be
@@ -404,7 +432,7 @@ opened without a round, which is why changing an exercise used to tear the
 plugin down and stop the audio. Now the tool is what stays and an exercise is
 something that arrives, sets it up, and leaves.
 
-`src/bench/session.js` does the arriving and leaving. An exercise is data — a
+`src/learn/bench/session.js` does the arriving and leaving. An exercise is data — a
 source, the A/B's name, `faultOf(puzzle)`, `targetOf(puzzle)`, `startOf(puzzle)`
 — and `attach` applies it in an order that matters: remember what the tool was
 doing, put the material on and **wait for it**, pin it to the puzzle, then
@@ -582,33 +610,38 @@ blocked.
 ```
 index.html          shell and markup
 styles.css          the design system, as tokens and components
-src/audio.js        the whole suite's sound: piano, kit, bed, loops
-src/eq/  comp/      one directory per tool: the DSP, the A/B player, the plugin
-src/image/ verb/
-src/echo/ heat/
-src/fx/             what more than one tool needs: FFT, impulse response
-                    reading, the shared panel furniture, worklet stringifying
-src/notes/          what each tool is for, in prose, for the person using it
-src/read.js         the reading envelope: what a measurement is, and of what
+src/main.js         the entry, and the DOM wiring
 src/gap.js          comparing two readings without knowing their kind
-src/analysis/       the other half: crest, balance, width, and the page that
-                    shows them; the loudness reading moved to lib/ when the
-                    level tool turned out to need it too
-src/tools/          one file per tool: what it is, and how to open one
-src/work/           one file per tool: the exercises over it, and the marking
-src/bench/          the registry, the session, the picker, the attempt log,
+src/core/           the audio graph and the engine that feeds it: the
+                    synthesised sources and loops, effects, instruments, tracks
+src/lib/            what more than one folder needs: biquads, FFT, loudness,
+                    the reading envelope, the shared panel furniture, worklet
+                    installing, tempo, seeded randomness, note names
+src/plugins/<device>/  one folder per device, ten of them for the twelve
+                    tools: the face, the maths, the worklet, the A/B player
+src/tools/          one file per tool: what it is, and how to open one with
+                    no round to justify it
+src/learn/bench/    the registry, the session, the picker, the attempt log,
                     and the guided path's order
-src/random.js       seeded PRNG, so a puzzle is a function of its seed
-src/game.js         the round, over whichever tool is asking (pure, no DOM)
-src/stats.js        localStorage persistence per tool and tier, and the
+src/learn/work/     one file per mode: the exercises over it, and the marking
+src/learn/notes/    what each tool is for, in prose, for the person using it
+src/learn/game.js   the round, over whichever tool is asking (pure, no DOM)
+src/learn/stats.js  localStorage persistence per tool, tier and kind, and the
                     export/import that is the only way off this browser
-src/engrave.js      accidentals, set properly
-src/main.js         DOM wiring
-scripts/            the single-file bundler, and the module order it derives
-tests/              node:test coverage of all of the above
+src/mix/            the mix exercise: a piece, a brief, and a score for how
+                    close the balance is
+src/sketch/         the sketchpad: clips, tracks, transport, inserts, export
+src/analysis/       the other half: dynamics, balance, width and delivery, and
+                    the page that shows them
+scripts/            the single-file bundler, the module order it derives, and
+                    the browser checks
+tests/              node:test coverage of all of the above, and the browser
+                    checks in tests/browser/
+docs/               longer write-ups: the audio core survey
+dev/load.html       what this device can run, measured
 ```
 
-Game logic is deliberately DOM-free, which is what let one shell serve seven
+Game logic is deliberately DOM-free, which is what let one shell serve twelve
 modes — and what lets the modes be tested without a browser.
 
 **The EQ curve is checked against the audio itself.** A drawn curve that drifts

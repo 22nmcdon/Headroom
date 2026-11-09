@@ -1,7 +1,7 @@
 import { makeBiquad, setBiquad, runBiquad } from '../../lib/dsp.js';
 import { mulberry32 } from '../../lib/random.js';
 import {
-  RESPONSE_BANDS, LONGEST_TAIL, decayProfile, decayTimes, monoOf, wetDryImpulse,
+  RESPONSE_BANDS, LONGEST_TAIL, decayProfile, decayTimes, wetDryImpulse,
 } from '../../lib/response.js';
 import { MOST_SHIMMER } from './shimmer.js';
 
@@ -798,10 +798,6 @@ function roomBody(rate, settings, seconds, { tailFor }) {
   const pre = Math.round((preDelay / 1000) * rate);
   const length = Math.max(rate * 0.05, Math.ceil(pre + rate * (tailFor * 1.08 + 0.02)));
   const channels = [new Float32Array(length), new Float32Array(length)];
-
-  // How far apart the walls are, in time: the reflection off the far wall and
-  // back is the whole of what tells you how big a place is.
-  const across = (2 * size) / SPEED;
 
   // The diffuse tail arrives, it does not begin. In a real room the sound has
   // to bounce a few times before it is a wash, and until then what you hear

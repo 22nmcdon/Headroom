@@ -66,8 +66,8 @@ export const COHERENCE_WINDOW = 16384;
  */
 export const COHERENCE_SECONDS = 6;
 
-/**
- * Which generator the probe's noise comes from, and why it is named.
+/*
+ * Which generator the probe's noise comes from, and why it matters.
  *
  * `mulberry32`, and this is not a detail. The first version of this used the
  * classic linear congruential generator - multiplier 1103515245, modulus two
@@ -88,7 +88,6 @@ export const COHERENCE_SECONDS = 6;
  * like a bias in the estimator - the estimator is fine, checked against a
  * known transform and against theory at 0.0024 where 1/200 was expected.
  */
-export const COHERENCE_NOISE = 'mulberry32';
 
 /** Where the floor sits, given the probe and the window above. */
 export const COHERENCE_FLOOR = 0.035;
@@ -122,7 +121,7 @@ export const COHERENCE_FLOOR = 0.035;
  */
 export const COHERENCE_MOVING = 0.4;
 
-/**
+/*
  * What it costs, because it is not free and the number decides where it may
  * be called from.
  *
@@ -138,7 +137,6 @@ export const COHERENCE_MOVING = 0.4;
  * which is the reminder that the number worth keeping here is the ratio. Three
  * to four times the image reading, either way round.
  */
-export const COHERENCE_COST_MS = 229;
 
 /**
  * The probe: mono, with something everywhere.

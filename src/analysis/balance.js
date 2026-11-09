@@ -107,7 +107,6 @@ export function summed(channels) {
 /** The spectrum of a piece of audio, in its envelope. */
 export function balanceReading(channels, rate, { source = null, frequencies = THIRDS } = {}) {
   const bands = balanceOf(channels, rate, frequencies);
-  const values = Object.values(bands);
 
   return readingOf({
     tool: 'analysis',

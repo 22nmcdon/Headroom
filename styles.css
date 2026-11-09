@@ -294,17 +294,8 @@ body, .sheet, .dock, .top-bar, dialog { transition: background-color 280ms ease,
   margin: 0 0 20px;
 }
 
-/* The clue itself. The play button is the primary action of this section, and
-   there is one per section at most. */
-.clue {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px 14px;
-  padding-bottom: 20px;
-  margin-bottom: 20px;
-  border-bottom: 1px solid var(--line);
-}
+/* The play button is the primary action of its section, and there is one
+   per section at most. */
 .play-btn {
   background: var(--charcoal);
   color: var(--cream);
@@ -453,7 +444,6 @@ body, .sheet, .dock, .top-bar, dialog { transition: background-color 280ms ease,
   line-height: 1.15;
   font-variant-numeric: tabular-nums;
 }
-.cell .alt { opacity: 0.68; }
 
 /* --- the working ---------------------------------------------------------- */
 /* Every scorer here works out more than the two cells it prints. This is that
@@ -1951,6 +1941,7 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
   min-width: 26px;
   transition: width 200ms ease;
 }
+.bar.is-empty { background: none; color: var(--text-soft); padding-inline: 0; text-align: left; }
 /* A reading of a habit, set like a finding: a 2px left rule in the colour of
    its kind. Gold, because it is a suggestion rather than a fault. */
 .weak {
@@ -2649,7 +2640,7 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
 }
 .scene-head:hover { color: var(--blush-deep); }
 
-.cell {
+.sketch-grid .cell {
   min-height: 46px;
   display: flex;
   align-items: center;
@@ -2667,20 +2658,20 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
 .cell-what { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* An empty slot is an invitation, not a control: dashed, and it says so. */
-.cell[data-full="false"] {
+.sketch-grid .cell[data-full="false"] {
   border-style: dashed;
   background: none;
   font-size: 15px;
   color: var(--line);
 }
-.cell[data-full="false"]:hover { color: var(--blush-deep); border-color: var(--blush); }
-.cell[data-full="true"]:hover { background: var(--wash); }
+.sketch-grid .cell[data-full="false"]:hover { color: var(--blush-deep); border-color: var(--blush); }
+.sketch-grid .cell[data-full="true"]:hover { background: var(--wash); }
 
 /* Being edited: an outline, which is not a state the audio is in. */
-.cell[data-chosen="true"] { border-color: var(--charcoal); border-style: solid; }
+.sketch-grid .cell[data-chosen="true"] { border-color: var(--charcoal); border-style: solid; }
 
 /* Waiting for the bar line. */
-.cell[data-queued="true"] {
+.sketch-grid .cell[data-queued="true"] {
   border-color: var(--blush-deep);
   background: var(--wash);
   color: var(--text);
@@ -2688,7 +2679,7 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
 
 /* Sounding. The strongest thing on the page, because it is the thing you are
    listening to. */
-.cell[data-live="true"] {
+.sketch-grid .cell[data-live="true"] {
   background: var(--charcoal);
   border-color: var(--charcoal);
   color: var(--cream);
@@ -2999,7 +2990,7 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
   /* Forty-four rather than the 42 this was: ten pixels across five rows to
      stop every slot on the phone being under a fingertip, and a slot is
      also where a long press starts. */
-  .cell { min-height: 44px; font-size: 9.5px; }
+  .sketch-grid .cell { min-height: 44px; font-size: 9.5px; }
   .track-name { font-size: 12.5px; }
   /* A step is aimed at deliberately, not struck, and sixteen of them across
      430 pixels puts 44 out of reach arithmetically. Twenty-six is what is
@@ -3432,7 +3423,7 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
 
 /* A clip that hands over says so on its face, so the shape of an
    arrangement can be read off the grid without opening every clip. */
-.cell {
+.sketch-grid .cell {
   position: relative;
   /* What `.pad` already had and a cell did not. A cell is held down on
      purpose, and a long press on a phone is the browser's own gesture -
@@ -3451,8 +3442,8 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
   color: var(--text-soft);
   pointer-events: none;
 }
-.cell[data-live="true"] .cell-follow { color: var(--cream); }
-.cell[data-follows="stop"] .cell-follow { color: var(--rust); }
+.sketch-grid .cell[data-live="true"] .cell-follow { color: var(--cream); }
+.sketch-grid .cell[data-follows="stop"] .cell-follow { color: var(--rust); }
 
 /* The EQ as an insert on a track rather than as an exercise: no A/B against
    a target, no sample picker, no file to load. The track is the material
@@ -3547,13 +3538,13 @@ button.insert-name:hover { color: var(--charcoal); }
 /* A clip the grid is offering to take out. Rust, which everywhere in this
    app means the thing you are looking at is not right - here, that it is
    about to stop existing. */
-.cell[data-asking="true"] {
+.sketch-grid .cell[data-asking="true"] {
   border-color: var(--rust);
   border-style: solid;
   background: var(--paper);
   color: var(--rust);
 }
-.cell[data-asking="true"] .cell-follow { display: none; }
+.sketch-grid .cell[data-asking="true"] .cell-follow { display: none; }
 
 /* --- a clip's set-up, folded away ----------------------------------------- */
 

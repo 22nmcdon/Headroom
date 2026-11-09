@@ -14,7 +14,7 @@ import {
   MOD_DEFAULTS, MOD_LIMITS, MOD_KINDS, MOD_SHAPES, MOD_SPREADS, MOD_FAMILIES,
   modKind,
 } from './dsp.js';
-import { MOD_SECONDS, modReading, unitOf } from './trace.js';
+import { MOD_SECONDS, modReading } from './trace.js';
 import { ModPlayer } from './player.js';
 import { notReady, stampOf } from '../../lib/read.js';
 import {

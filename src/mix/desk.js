@@ -7,7 +7,7 @@
 // the desk whether or not anybody is being asked anything, and nothing in it
 // mentions a tier, a seed or an answer.
 
-import { STEM_IDS, STEM_FLAT } from './piece.js';
+import { STEM_FLAT } from './piece.js';
 
 /** What a fader, a pan, a send and a tone control move in. Targets sit on these too. */
 export const STEPS = { gain: 0.5, pan: 0.05, send: 0.05, tone: 0.5 };

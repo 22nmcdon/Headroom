@@ -30,7 +30,7 @@
 
 import { readingOf, stampOf } from '../../lib/read.js';
 import {
-  MOD_DEFAULTS, MOD_FAMILIES, MOD_LIMITS, MOVE_FLOOR, modKind, modCore, modHeld,
+  MOD_DEFAULTS, MOD_FAMILIES, MOVE_FLOOR, modKind, modCore,
 } from './dsp.js';
 
 /**

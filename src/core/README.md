@@ -20,5 +20,5 @@ could not show what it does: a gate over the `drums` bed was deciding how
 much quieter to make digital silence, and a de-esser over the first `voice`
 bed moved the loop so little that every tolerance it could have had would
 have accepted a bypass. Both were found by measuring, both were fixed here
-rather than in the tool, and the numbers are in `aimed.js` and in the two
-work files.
+rather than in the tool, and the numbers are in `plugins/compressor/aimed.js`
+and in the two work files.
