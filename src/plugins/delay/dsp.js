@@ -792,7 +792,11 @@ export function echoCore(rate) {
   // the integer offset.
   const scale = [1, 1];
   const leaving = [1, 1];   // the scale a fading head is handing over from
-  let handover = 0;         // samples of fade left to go
+  // Samples of fade left to go, a side each. It was one for both, so moving
+  // only the offset - only the right - faded the left too, between its own
+  // head and whatever `leaving` held: a ghost of the last fade, or its own
+  // head read twice, which swells 3 dB at the middle of an equal-power cross.
+  const handover = [0, 0];
   let fadeSpan = 1;
   let glide = 0;
   let settled = false;      // whether the first tune has happened yet
@@ -856,7 +860,7 @@ export function echoCore(rate) {
         // to cross between them and no longer.
         leaving[c] = (was[c] * scale[c]) / steps[c];
         scale[c] = 1;
-        handover = fadeSpan;
+        handover[c] = fadeSpan;
       } else {
         // Repitch: the heads stay exactly where they are and the step walks
         // the scale home, so what is already on the tape bends on its way.
@@ -1092,20 +1096,6 @@ export function echoCore(rate) {
       // the one whose whole job is not to click.
       const heard = [0, 0];
       const taken = [0, 0];
-      // `crossed` rather than the obvious word for it: `through` is already the
-      // medium's name in this scope, and a shadowed function is a silent fault
-      // rather than a loud one.
-      const crossed = handover > 0 ? 1 - handover / fadeSpan : 1;
-      // Crossed in equal power rather than equal gain, which is the better of
-      // the two by measurement and not by theory. A fade between two places on
-      // a line is a fade between two copies of the same sound at two phases,
-      // and where those phases oppose they cancel whatever law is used: on a
-      // steady tone the level dips to 0.27 of itself crossing in equal power
-      // and to 0.19 crossing in equal gain. The dip is the cost of fading a
-      // delay at all, and it is why `repitch` is what this opens on.
-      const into = handover > 0 ? Math.sqrt(crossed) : 1;
-      const outOf = handover > 0 ? Math.sqrt(1 - crossed) : 0;
-      if (handover > 0) handover -= 1;
 
       // Written out rather than put behind a closure taking the head's place.
       // A function built per channel per sample is an allocation in the
@@ -1115,7 +1105,23 @@ export function echoCore(rate) {
       for (let c = 0; c < 2; c += 1) {
         const sc = scale[c];
         const lv = leaving[c];
-        if (outOf > 0) {
+        const due = handover[c];
+        if (due > 0) {
+          // `crossed` rather than the obvious word for it: `through` is
+          // already the medium's name in this scope, and a shadowed function
+          // is a silent fault rather than a loud one.
+          const crossed = 1 - due / fadeSpan;
+          // Crossed in equal power rather than equal gain, which is the better
+          // of the two by measurement and not by theory. A fade between two
+          // places on a line is a fade between two copies of the same sound at
+          // two phases, and where those phases oppose they cancel whatever law
+          // is used: on a steady tone the level dips to 0.27 of itself crossing
+          // in equal power and to 0.19 crossing in equal gain. The dip is the
+          // cost of fading a delay at all, and it is why `repitch` is what
+          // this opens on.
+          const into = Math.sqrt(crossed);
+          const outOf = Math.sqrt(1 - crossed);
+          handover[c] = due - 1;
           taken[c] = pull(c, spans[c] * sc + mod) * into
             + pull(c, spans[c] * lv + mod) * outOf;
           // Summed into a float32 and not into a double, which is not the

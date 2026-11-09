@@ -2204,6 +2204,61 @@ test('a drag is a hundred small moves, and only one mode survives it', () => {
   }
 });
 
+test('in fade mode a time change on one side leaves the other side alone', () => {
+  // The crossfade used to be one counter for both sides, so moving only the
+  // offset - which moves only the right - started a fade on the left as well,
+  // between its own head and whatever `leaving` held: a ghost of the last
+  // fade, or, before there had been one, its own head read twice, which is a
+  // +3 dB swell at the middle of an equal-power cross. Measured before the
+  // fix, the untouched side came out up to 1.69 off a run where nothing
+  // moved, for 30 ms after every step of an offset drag.
+  //
+  // A side whose time did not change must come out sample for sample the
+  // same as if nothing had happened to the other one.
+  const run = (moves) => {
+    const core = echoCore(rate).set({
+      ...ECHO_DEFAULTS, change: 'fade', time: 375, feedback: 0.5, tone: 20000, lowCut: 20,
+    });
+    const n = Math.ceil(rate * 1.5);
+    const left = new Float32Array(n);
+    const right = new Float32Array(n);
+    for (let i = 0; i < n; i += 1) {
+      if (moves[i]) core.set(moves[i]);
+      const x = Math.sin((2 * Math.PI * 440 * i) / rate);
+      core.stereo(x, x);
+      left[i] = core.left;
+      right[i] = core.right;
+    }
+    return { left, right };
+  };
+  const worstGap = (a, b) => {
+    let worst = 0;
+    for (let i = 0; i < a.length; i += 1) worst = Math.max(worst, Math.abs(a[i] - b[i]));
+    return worst;
+  };
+  const at = (seconds) => Math.round(rate * seconds);
+
+  // Before any fade: only the offset moves, so only the right should.
+  const still = run({});
+  const offsetOnly = run({ [at(0.6)]: { offset: 40 } });
+  assert.equal(worstGap(offsetOnly.left, still.left), 0,
+    'moving only the offset changed the left side, whose time never moved');
+  assert.ok(worstGap(offsetOnly.right, still.right) > 0.01, 'and it should have moved the right');
+
+  // After a fade on both sides, which leaves `leaving` holding the old time:
+  // a later offset move must not bring that ghost back on the left.
+  const timeOnly = run({ [at(0.5)]: { time: 251 } });
+  const thenOffset = run({ [at(0.5)]: { time: 251 }, [at(1.0)]: { offset: 40 } });
+  assert.equal(worstGap(thenOffset.left, timeOnly.left), 0,
+    'an offset move after a time change faded the left back towards the old time');
+
+  // And a side in the middle of its own fade finishes it, rather than having
+  // it restarted by a change on the other side.
+  const crossing = run({ [at(0.5)]: { time: 251 }, [at(0.5) + 600]: { offset: 40 } });
+  assert.equal(worstGap(crossing.left, timeOnly.left), 0,
+    'a change on the right restarted the left side\'s own fade half way through');
+});
+
 test('the mode cannot change a response, because a response never moves', () => {
   // Which is the whole reason this is a tool and not a question. Every reading
   // in this app is taken of a delay standing still, and a mode that only acts

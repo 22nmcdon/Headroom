@@ -22,7 +22,9 @@ import { transportFor, nextBar } from './transport.js';
 import { makeTrack, playPieces } from '../core/track.js';
 import { makeEffect } from '../core/effects.js';
 import { booking, following, queue, resting } from './launch.js';
-import { clipAt, isTake, keyRoutes, takeWindow, fadeFor, heardFor } from './project.js';
+import {
+  clipAt, isTake, keyRoutes, takeWindow, fadeFor, heardFor, MOST_NUDGE,
+} from './project.js';
 import { optionsFor, paramsFor } from './knobs.js';
 import { makeLimiterNode } from '../lib/limiter-node.js';
 import { RIDE_STEPS } from '../lib/tempo.js';
@@ -233,129 +235,254 @@ export async function makeStage(ctx, project, {
   const asked = [];
   let gone = false;
 
+  /** How long a pass that is taken back takes to go, so it does not click off. */
+  const LET_GO = 0.01;
+
   /**
-   * One pass of a recording, booked.
+   * The bar lines a take's passes begin on, inside one piece of the grid.
    *
-   * A take plays from the top of each pass of its own loop, so what has to
-   * be found is the passes that begin inside this window - which is the
-   * same arithmetic the notes get, with one event a pass instead of many.
+   * A take kept free is a one-shot: it plays once, from the launch, at its
+   * own length. A take kept as a loop plays from the top of every pass of
+   * the clip, which is what all of them used to do whether it suited them
+   * or not.
+   *
+   * Pass zero is the launch, and only a piece the launch falls in has a pass
+   * zero in it - every later piece starts at pass one or beyond, because
+   * `first` is measured from the anchor. So "once" is exactly "pass zero",
+   * with no extra state to keep.
+   */
+  const passesIn = (piece, clip) => {
+    const bars = clip.length;
+    const anchor = piece.anchor ?? 0;
+    const once = clip.fit === 'free';
+    const first = Math.ceil((piece.from - anchor) / bars);
+    const last = Math.ceil((piece.to - anchor) / bars);
+    const found = [];
+    for (let pass = first; pass < last; pass += 1) {
+      if (once && pass !== 0) break;
+      const at = anchor + pass * bars;
+      if (at >= piece.from && at < piece.to) found.push(at);
+    }
+    return found;
+  };
+
+  /** Which pass this is: the scene, where it was launched from, and its bar line. */
+  const passKey = (scene, anchor, at) => `${scene}:${anchor ?? 0}:${at}`;
+
+  /**
+   * Everything about a take's clip that decides what one of its passes
+   * sounds like and when. A pass booked ahead of its bar line under one of
+   * these and found under another by the time the bar line comes round was
+   * booked for a clip somebody has since edited.
+   */
+  const soundOf = (clip) => JSON.stringify([
+    clip.take, clip.nudge ?? 0, clip.fit, clip.length, clip.trim ?? null, clip.fade ?? null,
+  ]);
+
+  /**
+   * One pass of a recording, started: at its bar line plus its nudge.
+   *
+   * `early` gives it a gain of its own after the fades, which nothing else
+   * ever moves. That is what `letGo` ramps when a pass booked ahead of its
+   * bar line has to be taken back - not the fade gain, whose curves an
+   * overlapping ramp would throw on.
    *
    * Sources are remembered so that stopping can stop them: a buffer booked
    * a bar ahead will play into the silence otherwise, exactly as a note
    * would.
    */
-  const bookTake = (row, piece) => {
-    const buffer = takes.get(piece.clip.take);
-    if (!buffer) return;
+  const startPass = (row, clip, at, buffer, { early = false } = {}) => {
+    const once = clip.fit === 'free';
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
 
-    const bars = piece.clip.length;
-    const anchor = piece.anchor ?? 0;
-    // A take kept free is a one-shot: it plays once, from the launch, at its
-    // own length. A take kept as a loop plays from the top of every pass of
-    // the clip, which is what all of them used to do whether it suited them
-    // or not.
+    // The window the clip asks for, which is the whole take unless it has
+    // been trimmed. Clamped against this buffer's real length rather than
+    // trusted, because a clip recorded over with something shorter keeps
+    // the trim it had.
+    const { offset, length } = takeWindow(clip, buffer.duration);
+
+    // Where the nudge puts it. Trim says which part of a take to play and
+    // this says when: a note sung a beat late is in the wrong place, and
+    // trimming the front only makes the take shorter and still late.
     //
-    // Pass zero is the launch, and only the window the launch falls in has a
-    // pass zero in it - every later window starts at pass one or beyond,
-    // because `first` is measured from the anchor. So "once" is exactly
-    // "pass zero", with no extra state to keep.
-    const once = piece.clip.fit === 'free';
-    const first = Math.ceil((piece.from - anchor) / bars);
-    const last = Math.ceil((piece.to - anchor) / bars);
+    // Clamped to now, which only ever bites when the pass could not have
+    // been known about sooner - a launch pressed less than a pickup's length
+    // before its bar line, or a nudge made earlier while playing. Every
+    // other early pass is booked ahead of its bar line by `bookAhead` and
+    // starts where the nudge says. (They all used to be booked with the
+    // window their bar line fell in, 0.12 s ahead, so anything earlier than
+    // that was clamped on every pass: half a beat early never happened at
+    // any tempo the sketchpad allows.)
+    const want = clock.timeOf(at + (clip.nudge ?? 0));
+    const began = Math.max(want, ctx.currentTime);
 
-    for (let pass = first; pass < last; pass += 1) {
-      if (once && pass !== 0) break;
-      const at = anchor + pass * bars;
-      if (at < piece.from || at >= piece.to) continue;
+    // A fade at each edge, through a gain of its own. A cut through a
+    // waveform is a step, and a step is a click.
+    //
+    // On every clip, not only trimmed ones. This used to read "only where
+    // there is actually a cut - an untrimmed take already starts and ends
+    // at whatever the microphone was doing", which was true of the start
+    // and false of the end: a looping clip is stopped at its bar line a few
+    // lines below whether or not it is trimmed, and that stop is as much a
+    // cut as a trim is. So an untrimmed loop clicked once a bar, and the
+    // comment explaining why it needed no fade is why nobody looked.
+    //
+    // And a raised cosine, which is what that comment always claimed and
+    // the `linearRampToValueAtTime` under it never did. The difference is
+    // not pedantic: a straight line leaves a corner where it meets full
+    // gain, a corner is a discontinuity in the slope, and splatter from one
+    // falls away as 1/f^2 rather than faster. Measured against the linear
+    // ramp this replaces, same cut through the same 220 Hz tone, energy
+    // above 5 kHz:
+    //
+    //      1 ms   -79.1  ->  -97.9     18.8 dB quieter
+    //      5 ms   -92.8  -> -125.9     33.1 dB quieter
+    //     10 ms   -99.2  -> -138.0     38.8 dB quieter
+    // How long this pass is actually audible for, which is NOT the window
+    // into the take. A loop is stopped at its bar line below, and a take
+    // longer than its clip never reaches its own end - so a fade-out placed
+    // at the end of the WINDOW is placed after the audio has already been
+    // cut off, and does nothing at all. That is how this check first failed
+    // with the fade in place: every edge faded, and the loop still stepped
+    // a full 0.64 between two samples at every wrap.
+    // From the clock rather than from `clipSeconds`, because the clock also
+    // knows about the clamp above: on the very first pass `began` can be
+    // later than the nudge asked for, and a fade placed from the nominal
+    // length would then sit past the end of what is heard. The panel works
+    // the same number out from the tempo, and `project.test.js` holds the
+    // two formulas against each other so they cannot drift apart.
+    const stopsAt = clock.timeOf(at + clip.length);
+    const heard = heardFor(once ? 'free' : 'bars', length, stopsAt - began);
 
-      const source = ctx.createBufferSource();
-      source.buffer = buffer;
+    const shaped = ctx.createGain();
+    const fade = fadeFor(clip.fade, heard);
+    shaped.gain.setValueAtTime(0, began);
+    if (fade.in > 0) {
+      shaped.gain.setValueCurveAtTime(RISES[fadeShapeAt(fade.in)], began, fade.in);
+    }
+    shaped.gain.setValueAtTime(1, began + fade.in);
+    const fall = fallOf(began, heard, fade);
+    if (fade.out > 0 && fall.seconds > 0) {
+      shaped.gain.setValueCurveAtTime(FALLS[fadeShapeAt(fade.out)], fall.at, fall.seconds);
+    }
+    const cut = early ? ctx.createGain() : null;
+    source.connect(shaped);
+    (cut ? shaped.connect(cut) : shaped).connect(row.track.chain.in);
 
-      // The window the clip asks for, which is the whole take unless it has
-      // been trimmed. Clamped against this buffer's real length rather than
-      // trusted, because a clip recorded over with something shorter keeps
-      // the trim it had.
-      const { offset, length } = takeWindow(piece.clip, buffer.duration);
+    source.start(began, offset, length);
+    // A loop is never longer than the clip it is in, or a take a shade too
+    // long would overlap the next pass of itself. This is also what makes
+    // switching a free take back to a loop safe: the samples past the bar
+    // line are still in the store, and the loop simply stops before them
+    // rather than them having been thrown away.
+    //
+    // A free take has no next pass to overlap, so it runs to its own end.
+    // It is still in `row.sounding`, so stopping the transport stops it.
+    if (!once) source.stop(clock.timeOf(at + clip.length));
+    source.onended = () => {
+      row.sounding = row.sounding.filter((each) => each !== source);
+    };
+    row.sounding.push(source);
+    return { source, cut, began };
+  };
 
-      // Where the nudge puts it. Trim says which part of a take to play and
-      // this says when: a note sung a beat late is in the wrong place, and
-      // trimming the front only makes the take shorter and still late.
-      //
-      // Clamped to now, which bounds how early any pass can be. A pass is
-      // booked with the window its un-nudged tick falls in, which is at most
-      // `LOOKAHEAD` ahead - 0.12 s - so an early nudge is exact up to about
-      // 92 ticks at 96 bpm and clamps past that, on every pass of a loop as
-      // well as on a one-shot. Booking from the nudged tick instead would
-      // book a loop's next pass before anyone could still launch something
-      // over it. Said rather than silently dropped: the take still plays.
-      const want = clock.timeOf(at + (piece.clip.nudge ?? 0));
-      const began = Math.max(want, ctx.currentTime);
+  /**
+   * A pass booked ahead of its bar line, taken back.
+   *
+   * Not begun: stopped before its start, which per the spec means it plays
+   * nothing at all. Begun - its pickup is already sounding when the launch
+   * that replaces it comes - it plays up to the bar line and goes there,
+   * over `LET_GO`, which is the place the clip it belonged to would have
+   * ended anyway.
+   */
+  const letGo = (entry, at) => {
+    const now = ctx.currentTime;
+    if (entry.began > now) {
+      try { entry.source.stop(); } catch { /* already stopped */ }
+      return;
+    }
+    const from = Math.max(now, at);
+    entry.cut.gain.setValueAtTime(1, from);
+    entry.cut.gain.linearRampToValueAtTime(0, from + LET_GO);
+    try { entry.source.stop(from + LET_GO); } catch { /* already stopped */ }
+  };
 
-      // A fade at each edge, through a gain of its own. A cut through a
-      // waveform is a step, and a step is a click.
-      //
-      // On every clip, not only trimmed ones. This used to read "only where
-      // there is actually a cut - an untrimmed take already starts and ends
-      // at whatever the microphone was doing", which was true of the start
-      // and false of the end: a looping clip is stopped at its bar line a few
-      // lines below whether or not it is trimmed, and that stop is as much a
-      // cut as a trim is. So an untrimmed loop clicked once a bar, and the
-      // comment explaining why it needed no fade is why nobody looked.
-      //
-      // And a raised cosine, which is what that comment always claimed and
-      // the `linearRampToValueAtTime` under it never did. The difference is
-      // not pedantic: a straight line leaves a corner where it meets full
-      // gain, a corner is a discontinuity in the slope, and splatter from one
-      // falls away as 1/f^2 rather than faster. Measured against the linear
-      // ramp this replaces, same cut through the same 220 Hz tone, energy
-      // above 5 kHz:
-      //
-      //      1 ms   -79.1  ->  -97.9     18.8 dB quieter
-      //      5 ms   -92.8  -> -125.9     33.1 dB quieter
-      //     10 ms   -99.2  -> -138.0     38.8 dB quieter
-      // How long this pass is actually audible for, which is NOT the window
-      // into the take. A loop is stopped at its bar line below, and a take
-      // longer than its clip never reaches its own end - so a fade-out placed
-      // at the end of the WINDOW is placed after the audio has already been
-      // cut off, and does nothing at all. That is how this check first failed
-      // with the fade in place: every edge faded, and the loop still stepped
-      // a full 0.64 between two samples at every wrap.
-      // From the clock rather than from `clipSeconds`, because the clock also
-      // knows about the clamp above: on the very first pass `began` can be
-      // later than the nudge asked for, and a fade placed from the nominal
-      // length would then sit past the end of what is heard. The panel works
-      // the same number out from the tempo, and `project.test.js` holds the
-      // two formulas against each other so they cannot drift apart.
-      const stopsAt = clock.timeOf(at + piece.clip.length);
-      const heard = heardFor(once ? 'free' : 'bars', length, stopsAt - began);
-
-      const shaped = ctx.createGain();
-      const fade = fadeFor(piece.clip.fade, heard);
-      shaped.gain.setValueAtTime(0, began);
-      if (fade.in > 0) {
-        shaped.gain.setValueCurveAtTime(RISES[fadeShapeAt(fade.in)], began, fade.in);
+  /**
+   * The passes of recordings whose bar lines fall in this window.
+   *
+   * One booked ahead by `bookAhead` for this very pass is already playing,
+   * and is claimed rather than started again. One booked ahead for a pass
+   * that is not happening after all - another scene launched over it, the
+   * row stopped - is taken back, at the bar line it would have begun on.
+   */
+  const bookTakes = (row, pieces, to) => {
+    for (const piece of pieces) {
+      const buffer = takes.get(piece.clip.take);
+      if (!buffer) continue;
+      for (const at of passesIn(piece, piece.clip)) {
+        const key = passKey(piece.scene, piece.anchor, at);
+        const ahead = row.ahead.get(key);
+        if (ahead) {
+          row.ahead.delete(key);
+          if (ahead.sound === soundOf(piece.clip)) continue;
+          letGo(ahead, ctx.currentTime);
+        }
+        startPass(row, piece.clip, at, buffer);
       }
-      shaped.gain.setValueAtTime(1, began + fade.in);
-      const fall = fallOf(began, heard, fade);
-      if (fade.out > 0 && fall.seconds > 0) {
-        shaped.gain.setValueCurveAtTime(FALLS[fadeShapeAt(fade.out)], fall.at, fall.seconds);
-      }
-      source.connect(shaped).connect(row.track.chain.in);
+    }
+    for (const [key, entry] of row.ahead) {
+      if (entry.at >= to) continue;
+      row.ahead.delete(key);
+      letGo(entry, clock.timeOf(entry.at));
+    }
+  };
 
-      source.start(began, offset, length);
-      // A loop is never longer than the clip it is in, or a take a shade too
-      // long would overlap the next pass of itself. This is also what makes
-      // switching a free take back to a loop safe: the samples past the bar
-      // line are still in the store, and the loop simply stops before them
-      // rather than them having been thrown away.
-      //
-      // A free take has no next pass to overlap, so it runs to its own end.
-      // It is still in `row.sounding`, so stopping the transport stops it.
-      if (!once) source.stop(clock.timeOf(at + piece.clip.length));
-      source.onended = () => {
-        row.sounding = row.sounding.filter((each) => each !== source);
-      };
-      row.sounding.push(source);
+  /**
+   * The passes whose bar lines are still to come but whose nudge puts their
+   * start in this window, booked now.
+   *
+   * Which clip a row will be playing at a bar line not yet booked is known:
+   * it is the launch state with whatever is queued on it and whatever its
+   * clip's follow says, run through the same `booking` arithmetic the
+   * window itself is. So a pass nudged early is booked when its START comes
+   * into the lookahead, rather than when its bar line does - and starts
+   * where the nudge says, at any tempo, the way an offline render always had
+   * it. Up to one bar ahead, which is the most a nudge can be.
+   *
+   * The cost of booking before the bar line is that something can still be
+   * launched over it, which is why every window asks again: a pass this
+   * window no longer predicts, or predicts for a clip that has since been
+   * edited, is let go.
+   */
+  const bookAhead = (row, index, to) => {
+    let state = row.launch;
+    const due = following(state, clipAt(current, index, state.scene), current.scenes.length);
+    if (due && due.at < to + MOST_NUDGE) state = queue(state, due.scene, due.at);
+    const { pieces } = booking(to, to + MOST_NUDGE, state);
+
+    const wanted = new Set();
+    for (const piece of pieces) {
+      const clip = clipAt(current, index, piece.scene);
+      if (!isTake(clip) || !((clip.nudge ?? 0) < 0)) continue;
+      const buffer = takes.get(clip.take);
+      if (!buffer) continue;
+      for (const at of passesIn(piece, clip)) {
+        // Its start is still in a later window: booked then.
+        if (at + clip.nudge >= to) continue;
+        const key = passKey(piece.scene, piece.anchor, at);
+        const sound = soundOf(clip);
+        wanted.add(key);
+        const had = row.ahead.get(key);
+        if (had?.sound === sound) continue;
+        if (had) letGo(had, ctx.currentTime);
+        row.ahead.set(key, { ...startPass(row, clip, at, buffer, { early: true }), at, sound });
+      }
+    }
+    for (const [key, entry] of row.ahead) {
+      if (wanted.has(key)) continue;
+      row.ahead.delete(key);
+      letGo(entry, clock.timeOf(entry.at));
     }
   };
 
@@ -397,13 +524,17 @@ export async function makeStage(ctx, project, {
     }
   };
 
-  /** Everything a row has booked, stopped. */
+  /** Everything a row has booked, stopped - the passes booked ahead with it. */
   const hush = (row, at = ctx.currentTime) => {
     for (const source of row.sounding) {
       try { source.stop(at); } catch { /* already stopped */ }
       try { source.disconnect(); } catch { /* already gone */ }
     }
     row.sounding = [];
+    // Forgotten as well as stopped. Play again and the anchors start from
+    // nought again, so the same keys come back - and a pass found under its
+    // key is taken to be playing already, and is not booked.
+    row.ahead.clear();
   };
 
   /** One row: a live track, where it is in the grid, and its subscription. */
@@ -424,6 +555,8 @@ export async function makeStage(ctx, project, {
 
     const row = {
       track, stamp: graphStamp(spec), launch: resting(), off: null, sounding: [],
+      // Passes nudged ahead of a bar line not yet booked, by `passKey`.
+      ahead: new Map(),
     };
 
     row.off = playPieces(clock, track, (from, to) => {
@@ -449,8 +582,10 @@ export async function makeStage(ctx, project, {
 
       // A recording is not notes, so `playPieces` has nothing to do with it:
       // every pass of the loop is one buffer, started at the tick that pass
-      // begins on and playing through this track's own inserts and fader.
-      for (const piece of booked) if (isTake(piece.clip)) bookTake(row, piece);
+      // begins on and playing through this track's own inserts and fader -
+      // and, when it is nudged early, booked ahead of that tick.
+      bookTakes(row, booked.filter((piece) => isTake(piece.clip)), to);
+      bookAhead(row, index, to);
 
       return booked.filter((piece) => !isTake(piece.clip));
     });
