@@ -123,7 +123,8 @@ export async function check({ browser, at, say }) {
     }
     if (played.picked.disabled) problems.push(`${which}: picking a chip left the round unanswerable`);
     if (!played.after.cells) problems.push(`${which}: saying it marked nothing`);
-    if (!/attempt/i.test(played.after.verdict)) {
+    // A drill takes one answer: right first time, or shown with the answer.
+    if (!/first time|not that one/i.test(played.after.verdict)) {
       problems.push(`${which}: after a guess the verdict reads "${played.after.verdict}"`);
     }
   }
