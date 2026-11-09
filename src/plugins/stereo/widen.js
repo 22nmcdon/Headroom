@@ -17,27 +17,31 @@
  * The kinds, and what each one does to the two things that matter.
  *
  * Measured through this arithmetic, on a mono source with content in every
- * band, at an amount of 0.8 and a delay of 12 ms:
+ * band, at an amount of 0.8 and a delay of 12 ms, with the helpers in
+ * tests/image.test.js - every row by the same method, re-measured in full
+ * when the all-pass kind was rebuilt:
  *
- *     kind           width     mono    one side    lag      coherence
- *     Haas           -9.1 dB   2.85     6.01      11.6 ms   0.84-1.00
- *     comb           -1.9      0.00     6.01      -9.5      0.53-0.99
- *     all-pass       -1.9      0.00     5.99       9.5      1.00
- *     decorrelator   -1.1      0.00     4.13      -4.8      0.99-1.00
- *     micro-pitch    -6.6      5.86     6.45       0.0      0.19-0.73
+ *     kind           width     mono    one side    lag       coherence
+ *     Haas           -8.5 dB   2.42     4.59      -11.5 ms   0.984-1.000
+ *     comb           -1.9      0.00     5.94       -9.9      0.959-0.999
+ *     all-pass       -1.9      0.00     4.83        1.2      0.920-0.999
+ *     decorrelator   -1.1      0.00     4.44       -0.5      0.988-1.000
+ *     micro-pitch    -6.8      4.20     4.84        0.0      0.513-0.645
  *
  * `mono` and `one side` are how uneven the spectrum is - the standard
  * deviation in decibels at a twelfth of an octave, so a comb's teeth are
  * resolved rather than averaged away - of the mono sum and of the worse of
- * the two channels, each against the input.
+ * the two channels, each against the input. `lag` is where the two channels
+ * line up best, within 20 ms either way. `coherence` is the lowest and highest
+ * of the six bands from sub to high in the coherence reading.
  *
  * Two things separate cleanly and one does not.
  *
  * The mono column splits Haas from the three complementary kinds. Sending the
- * delayed copy to one side leaves nearly three decibels of comb in the sum;
- * putting it in the side leaves exactly none, because L = M + D and R = M - D
- * add back to M whatever D is. That is the mono-compatibility question asked
- * properly, and it is invisible to every width meter.
+ * delayed copy to one side leaves nearly two and a half decibels of comb in
+ * the sum; putting it in the side leaves exactly none, because L = M + D and
+ * R = M - D add back to M whatever D is. That is the mono-compatibility
+ * question asked properly, and it is invisible to every width meter.
  *
  * The coherence column splits micro-pitch from everything else. It reads near
  * one for every static kind - including the decorrelator, which was the
@@ -48,21 +52,25 @@
  * time-invariant from time-varying, and the only one here that passes is the
  * one that drifts for ever.
  *
- * What does not separate is comb against all-pass. The usual reason for
- * preferring Orban's all-pass version is that it is "less comb-like", and
- * measured as unevenness that is simply not true: 5.99 against 6.01. Each
- * channel is 1 +/- g times an all-pass, and an all-pass has unit magnitude at
- * every frequency, so the sum swings between 1-g and 1+g just as a delay's
- * does. What differs is where the teeth are, not how deep: a delay puts its
- * nulls at odd multiples of one over twice the delay, which an ear hears as a
- * pitch, and a chain of all-passes puts them wherever its phase happens to
- * cross, which an ear hears as phasiness. No reading here measures that, and
- * saying so is better than implying the numbers prove something they do not.
+ * "Near one" has a condition on it, which the all-pass kind is what found: a
+ * filter reads coherent when its response is short against the reading's
+ * window. With its stages at twice their present length, the all-pass read
+ * as low as 0.80 - a static filter halfway to the one that moves - and the
+ * comb's 12 ms is why it reads 0.96 rather than one. See ALLPASS_TAPS.
  *
- * One asymmetry worth knowing about, since the design looks symmetric: for the
- * all-pass kind the two channels are not equally uneven - 1.58 one side
- * against 5.99 the other - because its phase does not sweep evenly, so
- * 1 + g*AP and 1 - g*AP are not mirror images the way they are for a delay.
+ * What does not separate is comb against all-pass, and the reason usually
+ * given for preferring an all-pass widener - that it is "less comb-like" -
+ * the unevenness only half supports: 4.83 against 5.94. Each channel is
+ * 1 +/- g times an all-pass, and an all-pass has unit magnitude at every
+ * frequency, so each channel still swings between 1-g and 1+g just as a
+ * delay's does. What differs is where the teeth are, not how deep: a delay
+ * puts its nulls at odd multiples of one over twice the delay, which an ear
+ * hears as a pitch, and a chain of all-passes puts them wherever its phase
+ * happens to cross, which an ear hears as phasiness. No reading here measures
+ * that, and saying so is better than implying the numbers prove something
+ * they do not. The two channels of the all-pass are nearly as uneven as each
+ * other (3.85 and 4.83), which they were not before it was rebuilt: then one
+ * read 1.58 and the other 5.99, and that lopsidedness was the fault showing.
  */
 export const WIDEN_KINDS = [
   {
@@ -130,12 +138,45 @@ export const WIDEN_AMOUNT = [0, 1];
 export const WIDEN_CENTS = [2, 25];
 
 /**
- * The all-pass chain's coefficients, and the velvet response's shape.
+ * The all-pass chain's lengths and gain, and the velvet response's shape.
  *
- * Four all-pass stages at spread delays, which is the arrangement Orban
- * described: enough phase dispersion to smear a transient across the side
- * without the regular tooth spacing a single delay gives. The lengths are
- * co-prime so their periodicities do not line up.
+ * Four all-pass stages in series, each a delay line with a feedback and a
+ * feedforward of the same gain - y = -g*w + w[n-N], w = x + g*w[n-N] - which
+ * has a magnitude of exactly one at every frequency and a phase that turns
+ * through 360 degrees every rate/N hertz - 151 Hz for the longest stage here.
+ * Four of them smear a transient across the side without the regular tooth
+ * spacing a single delay gives, and their lengths are chosen so that their
+ * periodicities do not line up: prime numbers of samples at 48 kHz - 317,
+ * 233, 179 and 127, from 6.6 down to 2.6 ms. (The old lengths were called
+ * co-prime and were not: at 48 kHz two of them were 350 and 245 samples,
+ * which share 35.) At 44.1 kHz they round to near neighbours, and what
+ * matters is only that no two are small multiples of one another.
+ *
+ * These were 13.1, 9.7, 7.3 and 5.1 ms, and were read as corner frequencies,
+ * 1/(2 pi t), for four biquad all-passes - which put all four between 12 and
+ * 31 Hz, and an all-pass at 12 Hz has turned its full 360 degrees by a few
+ * hundred. Above about 500 Hz the side was then the middle itself, and 0.8
+ * of it made the left channel 1.8 times the input and the right 0.2: the top
+ * of the spectrum pushed 14 to 19 dB to the left, correlation 0.94 to 1.00 -
+ * a pan, not width.
+ *
+ * Made into real delay-line stages at those lengths, the chain was level and
+ * decorrelated, but four stages adding to 35 ms is a response long enough
+ * against the coherence reading's window to read as partly incoherent - down
+ * to 0.80, which blurs the one line that reading draws, between a filter
+ * that stands still and one that moves. At half the length it reads
+ * 0.92-1.00, about as far from off as the broken version did (0.080 against
+ * 0.084), and gives up almost nothing for it. Measured at an amount of 0.8,
+ * in every octave from 125 Hz to 16 kHz:
+ *
+ *     stages           lean      correlation   coherence   tail to -60 dB
+ *     13.1-5.1 ms      2.1 dB    0.37-0.45     0.80-0.99   140 ms
+ *     6.6-2.6 ms       2.3       0.37-0.42     0.92-1.00    71
+ *     4.4-1.7 ms       3.4       0.35-0.49     0.96-1.00    47
+ *
+ * The gain is how long the chain rings. Lower does not buy coherence back -
+ * at 0.2 the long stages still read 0.77, because it is the delay and not
+ * the ring that the reading sees - so it stays at 0.5.
  *
  * The velvet response is a sparse train of plus and minus ones under a decay -
  * one pulse per interval, placed at random inside it, which is what makes it
@@ -143,7 +184,8 @@ export const WIDEN_CENTS = [2, 25];
  * to forty-five taps, against the thousand-plus a dense random-phase response
  * needs for the same diffuseness.
  */
-export const ALLPASS_TAPS = [0.0131, 0.0097, 0.0073, 0.0051];
+export const ALLPASS_TAPS = [317, 233, 179, 127].map((samples) => samples / 48000);
+export const ALLPASS_GAIN = 0.5;
 export const VELVET_MS = 30;
 export const VELVET_PER_SECOND = 1500;
 export const VELVET_DECAY = 3;
@@ -193,7 +235,7 @@ export function velvetTaps(rate) {
  * comb in mono where the others do not - forcing it into a side would have
  * made it the comb kind and lost the distinction the face is for.
  */
-export function widenCore(rate, makeAP, setAP, runAP, pitch) {
+export function widenCore(rate, pitch) {
   const longest = Math.max(2, Math.round((WIDEN_DELAY[1] / 1000) * rate) + 2);
   const line = new Float32Array(longest);
   let write = 0;
@@ -202,7 +244,12 @@ export function widenCore(rate, makeAP, setAP, runAP, pitch) {
   const velvetLine = new Float32Array(velvet.span + 1);
   let velvetAt = 0;
 
-  const chain = ALLPASS_TAPS.map(() => makeAP());
+  // One delay line per all-pass stage, holding w: what went in plus the
+  // stage's own feedback.
+  const chain = ALLPASS_TAPS.map((seconds) => {
+    const length = Math.max(1, Math.round(seconds * rate));
+    return { w: new Float32Array(length), at: 0, length };
+  });
   const up = pitch ? pitch(rate) : null;
   const down = pitch ? pitch(rate) : null;
 
@@ -216,13 +263,6 @@ export function widenCore(rate, makeAP, setAP, runAP, pitch) {
     const ms = Math.max(WIDEN_DELAY[0], Math.min(WIDEN_DELAY[1], state.widenDelay ?? 12));
     back = Math.max(1, Math.round((ms / 1000) * rate));
     amount = Math.max(WIDEN_AMOUNT[0], Math.min(WIDEN_AMOUNT[1], state.widenAmount ?? 0));
-
-    // The all-pass chain's corners, set from the tap lengths as frequencies,
-    // 1/(2 pi t). `setBiquad` builds a second-order all-pass, which turns
-    // through a hundred and eighty degrees at its corner, not ninety.
-    for (let k = 0; k < chain.length; k += 1) {
-      setAP(chain[k], 'allpass', 1 / (2 * Math.PI * ALLPASS_TAPS[k]), rate);
-    }
 
     if (up && down) {
       const cents = Math.max(WIDEN_CENTS[0], Math.min(WIDEN_CENTS[1], state.widenCents ?? 9));
@@ -260,6 +300,19 @@ export function widenCore(rate, makeAP, setAP, runAP, pitch) {
       velvetAt += 1;
       if (velvetAt > velvet.span) velvetAt = 0;
 
+      // And the all-pass chain run whatever the kind, for the same reason:
+      // its lines hold 140 ms of ring, and switching to it should not start
+      // that from silence.
+      let smeared = m;
+      for (const stage of chain) {
+        const back = stage.w[stage.at];
+        const w = smeared + ALLPASS_GAIN * back;
+        smeared = back - ALLPASS_GAIN * w;
+        stage.w[stage.at] = w;
+        stage.at += 1;
+        if (stage.at === stage.length) stage.at = 0;
+      }
+
       let addL = 0;
       let addR = 0;
 
@@ -273,9 +326,7 @@ export function widenCore(rate, makeAP, setAP, runAP, pitch) {
         addL = amount * delayed;
         addR = -addL;
       } else if (kind === 'allpass') {
-        let v = m;
-        for (const stage of chain) v = runAP(stage, v);
-        addL = amount * v;
+        addL = amount * smeared;
         addR = -addL;
       } else if (kind === 'velvet') {
         let d = 0;
