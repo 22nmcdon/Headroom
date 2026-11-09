@@ -717,7 +717,8 @@ export class SketchPage {
         ? 'Back on the line.'
         : `${Math.abs(ticks)} ticks ${ticks < 0 ? 'early' : 'late'}.`
           + (ticks < 0
-            ? ' Early is exact up to about a tenth of a second; past that it starts as soon as it can.'
+            ? ' It starts that far ahead of its bar line - unless it is launched closer to the bar'
+              + ' than that, when the first time round starts as soon as it can.'
             : ''));
       return;
     }

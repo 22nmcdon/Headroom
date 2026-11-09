@@ -14,7 +14,7 @@ export const CHECKS = ['faces', 'inserts', 'chain', 'tracks', 'cells', 'pads', '
   'knobs', 'decks', 'eq-curve', 'restate', 'trim', 'stereo', 'tone', 'order', 'sampler', 'sides', 'align',
   'modulation', 'match', 'carve', 'depth', 'arrange', 'listen', 'fix', 'ride', 'damage', 'said', 'root',
   'turned', 'drills', 'work', 'analysis', 'mic', 'wave', 'export', 'journey', 'phone', 'fades',
-  'lifecycle', 'arrive'];
+  'lifecycle', 'arrive', 'nudge'];
 
 /**
  * Runnable by name, and left out of a plain run until they pass: a check
@@ -36,7 +36,7 @@ export const SECONDS = {
   match: 55, carve: 38, depth: 27, arrange: 14, listen: 6, fix: 19, ride: 20,
   damage: 6, said: 8, root: 11, turned: 15, drills: 84, work: 55, analysis: 11,
   mic: 50, wave: 7, export: 15, journey: 173, phone: 16, fades: 7,
-  lifecycle: 159, arrive: 3,
+  lifecycle: 159, arrive: 3, nudge: 20,
 };
 
 /** What a check nobody has timed yet is assumed to take: about the median. */
