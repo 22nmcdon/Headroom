@@ -92,14 +92,21 @@ because that division is the whole ear skill — even harmonics are octaves and
 sound like the note getting larger, odd ones are fifths and sound like it
 breaking, and *warm* and *dirty* are those two piles of numbers.
 
-### Start here
+### Home, and the path
 
 A first visit used to open the help dialog and then drop you into the EQ's
 match exercise — a six-band parametric, a target you cannot see, and nothing
-saying there is an easier way in. **Start here** is the easier way in: twelve
-tools, three steps each, in the order somebody would be taught them, and then
-one mix. Read what the tool is for, be asked one question about it, then go
-and build one.
+saying there is an easier way in. Now it lands on **Home**, which has three
+things on it:
+
+- **Today's set**: ten drill questions, mixed across four tools and weighted
+  toward the ones you get wrong most (see *Drill sets* below).
+- **Pick up where you left off**, the path's next step, and **worth working
+  on**, the answer that keeps catching you out and what you hear it as.
+- **The path**: twelve tools, three steps each, in the order somebody would be
+  taught them, and then one mix — a card per tool, each with three marks for
+  read, drill and build. Read what the tool is for, be asked one question about
+  it, then go and build one.
 
 It is not new content and it is not a course. Every step is something that was
 already there, and clicking one sets the tool, the tier and the work-or-drills
@@ -118,8 +125,24 @@ in the path with it and nothing had to be written to make that true. The one
 step that is not a round — reading the notes — is the one thing it does
 record.
 
-The auto-opening help dialog is gone, replaced by one line in the page with
-both answers on it.
+The auto-opening help dialog is gone, and so is the 37-row path dialog that
+replaced it: the path is Home now.
+
+### Drill sets
+
+A set is ten questions and then a line on how it went — "6 of 10 right first
+time", by tool, and what you heard instead where the drill can say. The tools
+are picked from the drill record: the three with the lowest first-try rate get
+three questions each and one other gets two, interleaved so the same tool never
+comes twice running. A tool never drilled counts as a coin toss and one round
+moves that only a little, so a first set follows the teaching order and a
+later one goes where the mistakes are. Each question is an ordinary drill
+round, recorded the ordinary way: first answer counts, a hint means it is not
+counted, and a skip is left out rather than held against you.
+
+While a set runs the navigation steps back to **Leave the set**, where you are
+in it, and **Skip this one**. Back leaves it too. Nothing counts days: there is
+no streak, and a set can be started as often as anybody likes.
 
 ### The analysis view
 
@@ -269,10 +292,11 @@ as well, and the chips are on the paper where the tool was; on a tool, Play
 and Yours / Target are still on the face for now. The mix has the same bar:
 Play, Yours / The one to match, the ways out and **Submit the mix**.
 
-The address says where you are — `#/tools/reverb/drill/medium`, `#/mix`,
-`#/sketch`, `#/analysis` — so a reload comes back to the same place, Back and
-Forward walk where you have been, and a link can point at one drill. Opened
-with no address, it goes wherever this browser was last.
+The address says where you are — `#/home`, `#/tools/reverb/drill/medium`,
+`#/mix`, `#/sketch`, `#/analysis` — so a reload comes back to the same place,
+Back and Forward walk where you have been, and a link can point at one drill.
+Opened with no address, it goes wherever this browser was last, and on a first
+visit to Home.
 
 ### The fix exercises
 
@@ -305,6 +329,7 @@ that doing it right is audible rather than merely scored:
 - **An identification drill on every tool**, on three tiers each, with the
   question, the chips and the tolerances all set by measurement rather than by
   taste — see above — and marked on the first answer.
+- **Home**, with a ten-question drill set and the path on it.
 - **A guided path**: the twelve tools in a teaching order, three steps each —
   read what it is for, be asked one question about it, then build one — and
   then one last step that is not about a single tool at all: mix something.
@@ -635,10 +660,11 @@ src/plugins/<device>/  one folder per device, ten of them for the twelve
 src/tools/          one file per tool: what it is, and how to open one with
                     no round to justify it
 src/learn/bench/    the registry, the session, the picker, the attempt log,
-                    and the guided path's order
+                    the guided path's order, and Home
 src/learn/work/     one file per mode: the exercises over it, and the marking
 src/learn/notes/    what each tool is for, in prose, for the person using it
 src/learn/game.js   the round, over whichever tool is asking (pure, no DOM)
+src/learn/set.js    picking a ten-question drill set, and summing one up
 src/learn/stats.js  localStorage persistence per tool, tier and kind, and the
                     export/import that is the only way off this browser
 src/mix/            the mix exercise: a piece, a brief, and a score for how

@@ -67,6 +67,24 @@ export const TOOL_IDS = Object.keys(TOOLS);
 export const toolOf = (id) => TOOLS[id] ?? TOOLS.eq;
 
 /**
+ * The twelve, in four families: what a tool does to a sound rather than the
+ * order it is taught in. Tone is what is in it, dynamics is how loud over
+ * time, space is where it is heard from, image is how wide.
+ */
+export const TOOL_GROUPS = [
+  { id: 'tone', label: 'Tone', tools: ['eq', 'saturation'] },
+  { id: 'dynamics', label: 'Dynamics', tools: ['level', 'compression', 'gate', 'deess', 'limiter'] },
+  { id: 'space', label: 'Space', tools: ['reverb', 'delay', 'modulation'] },
+  { id: 'image', label: 'Image', tools: ['panning', 'align'] },
+];
+
+/** Which family a tool is in. */
+export const groupOf = (id) => TOOL_GROUPS.find((group) => group.tools.includes(id)) ?? null;
+
+/** A tool's drills: the exercises it asks about rather than has you work. */
+export const drillsOf = (id) => Object.values(toolOf(id).exercises).filter((exercise) => exercise.drill);
+
+/**
  * The exercise a tool is currently set to.
  *
  * Every tool has exercises and every round has one, so the fallback is the

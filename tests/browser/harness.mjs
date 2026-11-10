@@ -121,7 +121,9 @@ export async function open(browser, at, {
   page.on('pageerror', (e) => noise.push(`pageerror: ${e.message}`));
   page.on('console', (m) => { if (m.type() === 'error') noise.push(`console: ${m.text()}`); });
 
-  await page.goto(at, { waitUntil: 'networkidle' });
+  // A first visit lands on Home. A check that names no view wants the bench,
+  // which in a fresh browser is the EQ at the easy tier - so it asks for it.
+  await page.goto(view ? at : `${at}#/tools`, { waitUntil: 'networkidle' });
   await page.waitForTimeout(400);
   await page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
   if (view) {

@@ -2,10 +2,12 @@
 
 Everything that asks a question.
 
-    bench/   the session: the registry of tools, the path, the picker, the log
+    bench/   the session: the registry of tools, the path, the picker, the log,
+             and Home
     work/    one file per mode, holding its exercises and its marking
     notes/   the written half - what each tool is, for somebody using one
     game.js  reading a guess against an answer
+    set.js   a ten-question drill set: which tools, and how it went
     stats.js what has been attempted and how it went
 
 A `work/` filename is the **mode id**, which is what a saved sketch stores, so

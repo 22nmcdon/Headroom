@@ -35,7 +35,6 @@
       <!-- Grouped so the "?" never wraps onto a line of its own at a phone
            width, which reads as a control that fell off the row. -->
       <div class="tools">
-        <button class="link-btn" type="button" id="path-btn">Start here</button>
         <button class="link-btn" type="button" id="stats-btn">Stats</button>
         <button class="help-button" type="button" id="help-btn" aria-label="How this works" title="How this works">?</button>
       </div>
@@ -46,10 +45,20 @@
          one. Working at a tool asks you a question; the analysis view does
          not ask anything, it reads a track back. -->
     <div class="view-switch" role="radiogroup" aria-label="What this page is for">
+      <button class="view-option" type="button" data-view="home" role="radio" aria-checked="false">Home</button>
       <button class="view-option" type="button" data-view="tools" role="radio" aria-checked="true">Tools</button>
       <button class="view-option" type="button" data-view="analysis" role="radio" aria-checked="false">Analysis</button>
       <button class="view-option" type="button" data-view="mix" role="radio" aria-checked="false">Mix</button>
       <button class="view-option" type="button" data-view="sketch" role="radio" aria-checked="false">Sketch</button>
+    </div>
+
+    <!-- A set in progress. The rest of the navigation steps back while one
+         runs: this is the only way out, and where you are in it. -->
+    <div class="set-bar" id="setBar" hidden>
+      <button class="link-btn" type="button" id="setLeave">Leave the set</button>
+      <span class="set-count" id="setCount"></span>
+      <ol class="set-strip" id="setStrip" aria-label="How the set is going"></ol>
+      <button class="link-btn" type="button" id="setSkip">Skip this one</button>
     </div>
 
     <nav class="modes" id="modes" role="radiogroup" aria-label="What to practise"></nav>
@@ -76,6 +85,12 @@
 </div>
 
 <main class="wrap">
+  <!-- Where a visit starts: today's set, where you are on the path, and the
+       path itself. Drawn by src/learn/bench/home.js. -->
+  <section class="sheet-section" id="home-view" hidden>
+    <div class="sheet" id="homeSheet"></div>
+  </section>
+
   <!-- The analysis view, which is not a tool and has no round: no tiers, no
        exercise, no dock, nothing to submit. -->
   <section class="sheet-section" id="analysis-view" hidden>
@@ -97,16 +112,6 @@
 
   <section class="sheet-section" id="tools-view">
     <div class="sheet">
-      <!-- What a first visit gets instead of a modal. The help dialog used to
-           open itself, which is a thing to dismiss before you have seen the
-           app at all - and it explained the EQ, which is the hardest thing
-           here to arrive at cold. -->
-      <p class="first-line" id="firstLine" hidden>
-        <span>New here? There is an order to go through this in.</span>
-        <button class="link-btn" type="button" id="firstStart">Start the path</button>
-        <button class="link-btn" type="button" id="firstDismiss">No thanks</button>
-      </p>
-
       <p class="lede" id="lede"></p>
       <p class="advice" id="advice" hidden></p>
 
@@ -232,27 +237,6 @@
     <div class="dialog-actions">
       <span></span>
       <button class="submit-btn" type="button" id="help-ok">Got it</button>
-    </div>
-  </div>
-</dialog>
-
-<dialog id="path">
-  <div class="dialog-head">
-    <div>
-      <div class="bar-label">Twelve tools, then all of them at once</div>
-      <div class="dialog-title">Start here</div>
-    </div>
-    <button class="close-btn" type="button" id="path-close" aria-label="Close">&times;</button>
-  </div>
-
-  <div class="dialog-body">
-    <p class="fine" id="path-where"></p>
-    <!-- Nothing below is locked. The path marks what is next; it does not
-         stop you going anywhere. -->
-    <ol class="path-list" id="path-list"></ol>
-    <div class="dialog-actions">
-      <span class="fine">Nothing here is locked — this is an order, not a gate.</span>
-      <button class="submit-btn" type="button" id="path-ok">Close</button>
     </div>
   </div>
 </dialog>

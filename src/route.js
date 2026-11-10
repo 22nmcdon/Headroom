@@ -6,20 +6,21 @@
 // in `ui` - which page, which tool, drills or work, which tier - written in
 // the hash so the browser keeps it, and back and forward walk it.
 //
+//   #/home
 //   #/tools/<tool>/<work|drill>/<tier>
 //   #/mix   #/sketch   #/analysis
 //
 // The exercise is not in it. It lives under the tool's settings, it is
 // remembered there, and a link that names a tool and a tier is a link that
-// still works when an exercise is renamed. Home, Progress and the Learn tab
-// will be routes when they are pages; until then a hash naming them is one
-// this does not recognise, which goes where an empty one goes.
+// still works when an exercise is renamed. Progress and the Learn tab will be
+// routes when they are pages; until then a hash naming them is one this does
+// not recognise, which goes where an empty one goes.
 //
 // No imports: the tools are handed in, so this is arithmetic on strings and
 // the tests can give it any registry they like.
 
 /** The pages a route can name. The tools are one of them. */
-export const ROUTE_VIEWS = ['tools', 'mix', 'sketch', 'analysis'];
+export const ROUTE_VIEWS = ['home', 'tools', 'mix', 'sketch', 'analysis'];
 
 /** The two ways of being at a tool. */
 export const ROUTE_KINDS = ['work', 'drill'];

@@ -13,7 +13,7 @@ test('a full tool route reads back into the fields the shell keeps', () => {
 });
 
 test('the other pages are one word', () => {
-  for (const view of ['mix', 'sketch', 'analysis']) {
+  for (const view of ['home', 'mix', 'sketch', 'analysis']) {
     assert.deepEqual(parseRoute(`#/${view}`, FAKE), { view });
   }
 });
@@ -30,7 +30,7 @@ test('a route is read as far as it makes sense', () => {
 });
 
 test('something that names nothing is not a route', () => {
-  for (const hash of ['', '#', '#/', '#/home', '#/progress', '#/tools/theremin/work/easy',
+  for (const hash of ['', '#', '#/', '#/progress', '#/learn', '#/tools/theremin/work/easy',
     '#/tools/constructor', '#/tools/__proto__', null, undefined]) {
     assert.equal(parseRoute(hash, FAKE), null, `${hash} was read as a route`);
   }

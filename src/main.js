@@ -1,4 +1,4 @@
-import { TOOLS, TOOL_IDS, toolOf, exerciseOf } from './learn/bench/registry.js';
+import { TOOLS, TOOL_IDS, toolOf, exerciseOf, groupOf, drillsOf } from './learn/bench/registry.js';
 import { bench } from './learn/bench/session.js';
 import {
   createGame, submitGuess, makePuzzle, roundSeed, roundKey, leftAt, reveal, isDrill,
@@ -9,7 +9,9 @@ import {
   getStats, recordGame, weakestKind, resetStats, ATTEMPT_BANDS, solvesIn,
   exportProgress, importProgress, notesRead, markRead,
 } from './learn/stats.js';
-import { progress, where, PATH_TIER } from './learn/bench/path.js';
+import { progress, PATH_TIER, TEACHING_ORDER } from './learn/bench/path.js';
+import { drawHome } from './learn/bench/home.js';
+import { pickSet, setSummary } from './learn/set.js';
 import { engrave } from './lib/engrave.js';
 import { renderPicker, syncPicker, pickerState, dialValue } from './learn/bench/picker.js';
 import { makeLog } from './learn/bench/log.js';
@@ -67,6 +69,16 @@ const ui = {
   // The seed of each round left unfinished, by tool, tier and exercise, so
   // that switching away and back finds it. See `leftAt` for what is kept.
   left: {},
+  // A drill set in progress - its questions, which one is being asked and
+  // how each went - or null. While one runs, the navigation steps back.
+  set: null,
+  // True while the shell puts the tools back after a set: a restore is not
+  // somewhere you went, and must not leave a step in the history.
+  holding: false,
+  // The set Home is offering, made when Home is drawn so the page can say
+  // what is in it; and the last one finished, for Home to say how it went.
+  nextSet: null,
+  lastSet: null,
   log: null, // what has been tried this round, newest first
   // Bumped by every startGame, so a round that is still awaiting its tool can
   // tell it has been overtaken and stop rather than finish over the new one.
@@ -178,10 +190,11 @@ function settleKind() {
 }
 
 /** The things this page is for. The ids match the sections and buttons. */
-const VIEWS = ['tools', 'analysis', 'mix', 'sketch'];
+const VIEWS = ['home', 'tools', 'analysis', 'mix', 'sketch'];
 
 /** What the chart's head says when the page is not a tool. */
 const VIEW_HEAD = {
+  home: { mark: 'Home', blurb: 'where to start' },
   analysis: { mark: 'Analysis', blurb: 'read a track back' },
   mix: { mark: 'Mix', blurb: 'four parts, one balance' },
   sketch: { mark: 'Sketch', blurb: 'get the idea down' },
@@ -242,6 +255,8 @@ function syncView() {
     ui.sketch.show();
   }
 
+  if (view === 'home') renderHome();
+
   writeRoute();
 }
 
@@ -249,6 +264,13 @@ function syncView() {
 
 /** The last place visited, for a visit that arrives with no hash. */
 const ROUTE_KEY = 'headroom.route';
+
+/**
+ * The one step a set puts in the history, so that Back leaves the set and
+ * stays in the app. Not a route: a set cannot be reloaded into, and a page
+ * opened on it goes wherever this browser was last.
+ */
+const SET_HASH = '#/set';
 
 function storedRoute() {
   try { return localStorage.getItem(ROUTE_KEY); } catch { return null; }
@@ -263,6 +285,10 @@ function storedRoute() {
  * which should not leave a step behind it.
  */
 function writeRoute({ replace = false } = {}) {
+  // A set is not a place: it moves through ten tools in a few minutes, and a
+  // history entry for each would make Back walk through them. The address
+  // stays where the set was started from, and Back leaves the set.
+  if (ui.set || ui.holding) return;
   const next = routeFor(ui);
   try { localStorage.setItem(ROUTE_KEY, next); } catch { /* private window */ }
   if (location.hash === next) return;
@@ -290,6 +316,7 @@ function takeRoute(route) {
  * route is only a different way of pressing them.
  */
 function applyRoute(route) {
+  if (ui.set) endSet({ home: false });
   if (!route) {
     // A hash that names nothing - a page not built yet, a typo - is put back
     // to where the shell actually is rather than left lying.
@@ -752,12 +779,14 @@ function onSubmit() {
 
   if (next.status === 'solved') {
     recordGame(next);
+    noteSetResult(next);
     finish(next);
   } else if (before.status === 'playing' && next.status === 'shown') {
     // A drill, answered wrong. The first answer is the one that counts, so
     // the round is over and the answer goes up - and the controls stay live,
     // so the right one can be heard against the one you picked.
     recordGame(next);
+    noteSetResult(next);
     say('Not that one — the first answer is the one that counts.');
     finish(next);
   } else if (attempt.score.correct) {
@@ -856,6 +885,7 @@ function onShow() {
 
   ui.game = showAnswer(ui.game);
   recordGame(ui.game);
+  noteSetResult(ui.game);
 
   const exercise = exerciseOf(ui.mode, settings());
   ui.onto = ontoWay(exercise, ui.game.puzzle);
@@ -903,7 +933,8 @@ function render() {
   $('#picker').classList.toggle('done', solved);
   $('#dock').classList.toggle('done', solved);
   $('#again').hidden = !solved && game.status !== 'shown';
-  $('#again').textContent = 'Another one';
+  $('#again').textContent = !ui.set ? 'Another one'
+    : ui.set.at + 1 < ui.set.questions.length ? 'Next question' : 'See how it went';
   if (game.status === 'playing') $('#played').textContent = '';
 
   // Both ways out are there from the first attempt and stay there. Hiding them
@@ -1065,32 +1096,6 @@ const pathState = () => progress({
   hasRead: (tool) => notesRead().includes(tool),
 });
 
-function showPath() {
-  const state = pathState();
-  $('#path-where').textContent = where(state);
-
-  $('#path-list').innerHTML = state.steps.map((step) => {
-    const here = step.done ? 'is-done' : step === state.next ? 'is-next' : '';
-    const mark = step.done ? '✓' : step === state.next ? '→' : '';
-    const count = step.step === 'read' ? ''
-      : `${Math.min(step.solves, step.enough)} of ${step.enough}`;
-
-    // The last step belongs to no tool, so it is named for what it is.
-    const whose = step.tool ? `${TOOLS[step.tool].label} — ` : 'All together — ';
-
-    return `<li><button class="path-step ${here}" type="button" data-step="${step.id}">
-      <span class="path-mark">${mark}</span>
-      <span class="path-what">
-        <span class="path-label">${whose}${step.label}</span>
-        <span class="path-detail">${step.detail}</span>
-      </span>
-      <span class="path-where">${count}</span>
-    </button></li>`;
-  }).join('');
-
-  $('#path').showModal();
-}
-
 /**
  * Go to a step.
  *
@@ -1102,8 +1107,6 @@ function showPath() {
 async function goTo(id) {
   const step = pathState().steps.find((one) => one.id === id);
   if (!step) return;
-
-  $('#path').close();
 
   // The last step is not a tool, and taking somebody to the EQ for it would
   // be the path pointing at the wrong half of the app.
@@ -1144,6 +1147,278 @@ async function goTo(id) {
   markRead(step.tool);
 }
 
+/* ---------- home ---------- */
+
+/** How a tool's drills have gone, across every tier, for picking a set. */
+function drillRecord(id) {
+  let played = 0;
+  let right = 0;
+  let tier = 'easy';
+  let most = 0;
+  for (const at of Object.keys(TOOLS[id].tiers)) {
+    const stats = getStats(id, at, 'drill');
+    played += stats.played;
+    right += solvesIn(stats, 'drill');
+    // Asked at the tier it has been drilled at most - the one somebody
+    // chose - and on the first of them when nothing has been.
+    if (stats.played > most) { most = stats.played; tier = at; }
+  }
+  return { played, right, tier };
+}
+
+/** A set to offer, with what the page says about it. */
+function prepareSet() {
+  const set = pickSet({ record: drillRecord, seed: `set:${Date.now()}:${Math.random()}` });
+  const tools = set.tools.map(({ tool, count }) => {
+    const drills = drillsOf(tool);
+    const label = drills.length === 1 ? `${TOOLS[tool].label} · ${drills[0].label}` : TOOLS[tool].label;
+    return { tool, count, label };
+  });
+  return { ...set, tools };
+}
+
+/**
+ * The answer worth working on: the weakest kind of answer in any drill bucket,
+ * once there is enough behind it to mean anything.
+ */
+function weakestDrill() {
+  let worst = null;
+  for (const id of TOOL_IDS) {
+    for (const tier of Object.keys(TOOLS[id].tiers)) {
+      const weak = weakestKind(getStats(id, tier, 'drill'));
+      if (!weak) continue;
+      if (!worst || weak.rate < worst.weak.rate
+        || (weak.rate === worst.weak.rate && weak.seen > worst.weak.seen)) {
+        worst = { id, tier, weak };
+      }
+    }
+  }
+  if (!worst) return null;
+
+  const { id, tier, weak } = worst;
+  return {
+    tool: id,
+    tier,
+    label: `${TOOLS[id].label} · ${weak.label}`,
+    line: `${Math.round(weak.rate * 100)}% right first time over ${weak.seen}.`
+      + (weak.confusedWith ? ` You usually hear it as ${weak.confusedWith.label}.` : ''),
+  };
+}
+
+/** Everything Home shows, read off what is already kept. */
+function homeModel() {
+  const state = pathState();
+  const { next } = state;
+
+  const marks = (step) => (step.done ? 'done' : step.solves > 0 ? 'started' : 'none');
+  const cards = TEACHING_ORDER.filter((id) => TOOL_IDS.includes(id)).map((id, i) => {
+    const steps = state.steps.filter((step) => step.tool === id);
+    const mine = next?.tool === id;
+    return {
+      id,
+      num: String(i + 1).padStart(2, '0'),
+      group: groupOf(id)?.label ?? '',
+      name: TOOLS[id].label,
+      marks: steps.map(marks),
+      next: mine,
+      status: steps.every((step) => step.done) ? 'Done' : mine ? 'Next' : '',
+      note: mine && next.step !== 'read' ? `${Math.min(next.solves, next.enough)} of ${next.enough}` : '',
+    };
+  });
+  const mix = state.steps.find((step) => step.step === 'mix');
+
+  ui.nextSet = prepareSet();
+  return {
+    date: new Date(),
+    set: ui.nextSet,
+    last: ui.lastSet,
+    next: next && {
+      label: next.tool ? `${TOOLS[next.tool].label} — ${next.label}` : next.label,
+      where: `Step ${state.steps.indexOf(next) + 1} of ${state.total}`
+        + (next.step === 'read' ? ''
+          : ` · ${Math.min(next.solves, next.enough)} of ${next.enough} `
+            + (next.kind === 'drill' ? 'right first time' : next.kind === 'mix' ? 'mixed' : 'solved')),
+    },
+    weak: weakestDrill(),
+    cards,
+    mix: { done: !!mix?.done, next: next?.step === 'mix' },
+  };
+}
+
+function renderHome() {
+  drawHome($('#homeSheet'), homeModel());
+}
+
+/** Go to a tool's drills at a tier, the way a route would. */
+function drillAt(tool, tier) {
+  applyRoute({ view: 'tools', mode: tool, kind: 'drill', tier });
+}
+
+function onHome(e) {
+  const tool = e.target.closest('[data-home-tool]')?.dataset.homeTool;
+  if (tool) {
+    // A tool's card goes to its next step, or to building one once all three
+    // are done: the path suggests, it does not finish.
+    const steps = pathState().steps.filter((step) => step.tool === tool);
+    goTo((steps.find((step) => !step.done) ?? steps[steps.length - 1]).id);
+    return;
+  }
+
+  const what = e.target.closest('[data-home]')?.dataset.home;
+  if (what === 'start') startSet();
+  if (what === 'done') { ui.lastSet = null; renderHome(); }
+  if (what === 'continue') {
+    const { next } = pathState();
+    if (next) goTo(next.id);
+  }
+  if (what === 'weak') {
+    const weak = weakestDrill();
+    if (weak) drillAt(weak.tool, weak.tier);
+  }
+  if (what === 'mix') goTo('mix:match');
+}
+
+/* ---------- a set ---------- */
+
+/**
+ * Start the set Home is offering.
+ *
+ * The tools view does the asking - a set question is an ordinary drill round,
+ * recorded the ordinary way, so it counts toward the stats and the path like
+ * any other. What the set adds is the order, the bar that says where you are
+ * in it, and the summary at the end. Where the tools were before it started
+ * is kept, so the Tools tab is where you left it afterwards.
+ */
+function startSet() {
+  const set = ui.nextSet ?? prepareSet();
+  ui.set = {
+    questions: set.questions,
+    at: 0,
+    results: [],
+    was: { mode: ui.mode, kind: ui.kind, tier: ui.tier, chosen: { ...ui.chosen } },
+  };
+  ui.lastSet = null;
+  document.body.classList.add('in-set');
+  try { location.hash = SET_HASH; } catch { /* a sandboxed frame */ }
+  ui.view = 'tools';
+  syncView();
+  askQuestion();
+}
+
+function askQuestion() {
+  const question = ui.set.questions[ui.set.at];
+  ui.mode = question.tool;
+  ui.kind = 'drill';
+  ui.tier = question.tier;
+  ui.chosen[question.tool] = { ...ui.chosen[question.tool], exercise: question.exercise };
+  syncModes();
+  syncKind();
+  fillTiers();
+  fillSettings();
+  syncSetBar();
+  startGame({ fresh: true });
+}
+
+/**
+ * How the question being asked went, once it is over.
+ *
+ * Right means what the stats mean by it: first time, no hint. What was heard
+ * instead is said in the drill's own words, the same ones the confusion
+ * record uses, so the summary can say "it was 2k, you heard 4k".
+ */
+function noteSetResult(game) {
+  if (!ui.set || ui.set.results[ui.set.at]) return;
+  const { tool } = ui.set.questions[ui.set.at];
+  const spec = toolOf(tool);
+  const first = game.guesses[0]?.guess;
+  const answer = spec.weak(game.puzzle).label;
+  const heard = first === undefined ? null : spec.heard?.(first, game.puzzle)?.label ?? null;
+  ui.set.results[ui.set.at] = {
+    tool,
+    outcome: countsAsSolved(game) ? 'right' : 'wrong',
+    answer,
+    // The right octave the wrong way round was not heard as something else:
+    // it was heard right and named wrong, and the summary should not say
+    // "it was 63, you heard 63".
+    heard: heard === answer ? null : heard,
+  };
+  syncSetBar();
+}
+
+function nextQuestion() {
+  ui.set.at += 1;
+  if (ui.set.at < ui.set.questions.length) askQuestion();
+  else endSet();
+}
+
+/** Move on without answering. Not a wrong answer: not counted at all. */
+function skipQuestion() {
+  if (!ui.set) return;
+  if (!ui.set.results[ui.set.at]) {
+    ui.set.results[ui.set.at] = { tool: ui.set.questions[ui.set.at].tool, outcome: 'skipped' };
+  }
+  nextQuestion();
+}
+
+/**
+ * Finish a set - at the end, or by leaving it - and say how it went.
+ *
+ * Leaving part way still says how the answered part went: those rounds are
+ * already in the stats, and pretending otherwise would only hide them.
+ * `home: false` is for leaving by Back, which is already on its way
+ * somewhere.
+ */
+function endSet({ home = true } = {}) {
+  if (!ui.set) return;
+  const { results, was } = ui.set;
+  const answered = results.filter(Boolean);
+  const summary = setSummary(answered);
+  const label = (id) => TOOLS[id].label;
+  ui.lastSet = summary.asked ? {
+    ...summary,
+    byTool: summary.byTool.map((entry) => ({ ...entry, label: label(entry.tool) })),
+    misheard: summary.misheard.map((miss) => ({ ...miss, label: label(miss.tool) })),
+  } : null;
+
+  ui.set = null;
+  document.body.classList.remove('in-set');
+  syncSetBar();
+
+  if (home) {
+    ui.view = 'home';
+    // In place of the set's own step, so Back from Home does not land on it.
+    writeRoute({ replace: true });
+    syncView();
+  }
+
+  // The tools go back to where they were before the set, out of sight.
+  ui.holding = true;
+  Object.assign(ui, { mode: was.mode, kind: was.kind, tier: was.tier, chosen: was.chosen });
+  syncModes();
+  syncKind();
+  fillTiers();
+  fillSettings();
+  startGame();
+  ui.holding = false;
+}
+
+/** The bar a set shows instead of the navigation. */
+function syncSetBar() {
+  const bar = $('#setBar');
+  bar.hidden = !ui.set;
+  if (!ui.set) return;
+
+  const { questions, at, results } = ui.set;
+  $('#setCount').textContent = `Question ${at + 1} of ${questions.length}`;
+  $('#setStrip').innerHTML = questions.map((question, i) => {
+    const outcome = results[i]?.outcome ?? (i === at ? 'now' : 'todo');
+    const said = { right: 'right first time', wrong: 'not this time', skipped: 'skipped',
+      now: 'this one', todo: 'to come' }[outcome];
+    return `<li class="is-${outcome}" title="${TOOLS[question.tool].label}: ${said}"></li>`;
+  }).join('');
+  $('#setSkip').hidden = !!results[at];
+}
+
 /* ---------- the cheat sheet ---------- */
 
 function fillHelp() {
@@ -1178,6 +1453,26 @@ function fillHelp() {
       ['A long track takes a moment.',
        'About seven seconds for three minutes of stereo. Nothing leaves this '
        + 'browser while it does.'],
+    ].map(([lead, detail]) => `<li><b>${lead}</b><span>${detail}</span></li>`).join('');
+    return;
+  }
+
+  if (ui.view === 'home') {
+    $('#helpMode').textContent = 'Home';
+    $('#helpLede').textContent = 'Where a visit starts: a short set of questions, '
+      + 'where you are on the path, and the path itself.';
+    $('#helpList').innerHTML = [
+      ['A set is ten drill questions.',
+       'Mixed across the tools and weighted toward the ones you get wrong most. '
+       + 'One answer each, and the first is the one that counts. Skip anything; '
+       + 'a skip is not counted against you.'],
+      ['The path is an order, not a gate.',
+       'Twelve tools, three steps each - read what it is for, be asked about it, '
+       + 'then build one - and a mix at the end. Press any tool to go to its next '
+       + 'step. Nothing is locked.'],
+      ['Nothing counts days.',
+       'There is no streak to keep and nothing to lose by stopping. Progress '
+       + 'stays in this browser; Stats can save it to a file.'],
     ].map(([lead, detail]) => `<li><b>${lead}</b><span>${detail}</span></li>`).join('');
     return;
   }
@@ -1303,7 +1598,11 @@ function fillHelp() {
 
 function wire() {
   // Back, Forward, and a hash typed or pasted into the address bar.
-  window.addEventListener('hashchange', () => applyRoute(parseRoute(location.hash, TOOLS)));
+  window.addEventListener('hashchange', () => {
+    // The step a set put in the history, arriving: nothing to do.
+    if (ui.set && location.hash === SET_HASH) return;
+    applyRoute(parseRoute(location.hash, TOOLS));
+  });
 
   for (const button of document.querySelectorAll('[data-view]')) {
     button.addEventListener('click', () => {
@@ -1400,7 +1699,7 @@ function wire() {
 
   $('#submit').addEventListener('click', onSubmit);
 
-  $('#again').addEventListener('click', () => startGame({ fresh: true }));
+  $('#again').addEventListener('click', () => (ui.set ? nextQuestion() : startGame({ fresh: true })));
 
   $('#drillPlay').addEventListener('click', async () => {
     await ui.tool?.toggle?.();
@@ -1417,16 +1716,9 @@ function wire() {
     setOnto(e.currentTarget.getAttribute('aria-pressed') !== 'true');
   });
 
-  $('#path-btn').addEventListener('click', showPath);
-  $('#path-close').addEventListener('click', () => $('#path').close());
-  $('#path-ok').addEventListener('click', () => $('#path').close());
-  $('#path-list').addEventListener('click', (e) => {
-    const step = e.target.closest('[data-step]');
-    if (step) goTo(step.dataset.step);
-  });
-
-  $('#firstStart').addEventListener('click', () => { dismissFirst(); showPath(); });
-  $('#firstDismiss').addEventListener('click', dismissFirst);
+  $('#homeSheet').addEventListener('click', onHome);
+  $('#setLeave').addEventListener('click', () => endSet());
+  $('#setSkip').addEventListener('click', skipQuestion);
 
   // Opening the notes is the path's reading step, wherever it is opened from.
   $('#notes').addEventListener('toggle', () => {
@@ -1475,9 +1767,11 @@ function wire() {
 }
 
 // Where to start: the address if it names somewhere, else wherever this
-// browser was last, else the EQ.
-const arrived = parseRoute(location.hash, TOOLS) ?? parseRoute(storedRoute(), TOOLS);
-if (arrived) takeRoute(arrived);
+// browser was last, else Home - which is what a first visit gets, rather
+// than the EQ's match exercise cold.
+const arrived = parseRoute(location.hash, TOOLS) ?? parseRoute(storedRoute(), TOOLS)
+  ?? { view: 'home' };
+takeRoute(arrived);
 
 fillModes();
 settleKind();
@@ -1489,23 +1783,3 @@ writeRoute({ replace: true });
 syncView();
 startGame();
 
-/* ---------- a first visit ---------- */
-
-// One line in the page rather than a dialog over it. What was here opened the
-// help the moment somebody arrived - a thing to dismiss before seeing the app
-// at all, explaining the EQ, which is the hardest thing in here to arrive at
-// cold. The line offers the path instead, and takes no for an answer.
-//
-// Failing open is still the right way round: a private window forgets and
-// offers again, where guessing "seen" would hide the one thing a first
-// visitor needs.
-function seenHelp() {
-  try { return localStorage.getItem('headroom.seenHelp') === '1'; } catch { return false; }
-}
-
-function dismissFirst() {
-  $('#firstLine').hidden = true;
-  try { localStorage.setItem('headroom.seenHelp', '1'); } catch { /* private window */ }
-}
-
-$('#firstLine').hidden = seenHelp();
