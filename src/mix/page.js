@@ -145,14 +145,9 @@ export class MixPage {
           </div>
         </div>
 
+        <!-- How you are listening. The transport and the A/B are in the answer
+             bar at the foot, with the round's other controls. -->
         <div class="mix-bar">
-          <button class="submit-btn" type="button" data-play>Play</button>
-          <!-- The one control that matters most: hearing the two one after
-               the other, without the clock stopping. -->
-          <div class="ab-switch" role="radiogroup" aria-label="Which mix you are hearing">
-            <button class="ab-option" type="button" data-ab="mine" role="radio" aria-checked="true">Yours</button>
-            <button class="ab-option" type="button" data-ab="theirs" role="radio" aria-checked="false">The one to match</button>
-          </div>
           <!-- The reference, brought down to your level. Its own button
                rather than something the A/B does silently, because what it
                hides is one of the six things you are marked on. -->
@@ -166,8 +161,6 @@ export class MixPage {
               <button class="ab-option" type="button" data-listen="${how.id}" role="radio"
                       aria-checked="${i === 0}" title="${how.tells}">${how.label}</button>`).join('')}
           </div>
-
-          <span class="mix-pos" data-pos>1.1</span>
         </div>
 
         <p class="fine mix-note">
@@ -213,10 +206,21 @@ export class MixPage {
         <div class="mix-result" data-result hidden></div>
         <p class="advice" data-advice hidden></p>
 
-        <div class="mix-foot">
+        <!-- The answer bar: stuck to the bottom of the window, as the tools'
+             is, so playing, flipping and submitting never mean scrolling
+             back to where the controls were. -->
+        <div class="mix-answer" role="region" aria-label="The round">
+          <button class="submit-btn" type="button" data-play>Play</button>
+          <!-- The one control that matters most: hearing the two one after
+               the other, without the clock stopping. -->
+          <div class="ab-switch" role="radiogroup" aria-label="Which mix you are hearing">
+            <button class="ab-option" type="button" data-ab="mine" role="radio" aria-checked="true">Yours</button>
+            <button class="ab-option" type="button" data-ab="theirs" role="radio" aria-checked="false">The one to match</button>
+          </div>
+          <span class="mix-pos" data-pos>1.1</span>
           <span class="action-group">
-            <button class="link-btn" type="button" data-show>Show me</button>
             <button class="link-btn" type="button" data-flat hidden>Back to flat</button>
+            <button class="link-btn" type="button" data-show>Show me</button>
             <button class="link-btn" type="button" data-again>Another one</button>
           </span>
           <button class="submit-btn" type="button" data-submit>Submit the mix</button>

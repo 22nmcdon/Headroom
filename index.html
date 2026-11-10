@@ -124,17 +124,22 @@
       <!-- A drill puts the tool away and asks instead. It has to: on every
            one of these tools the display IS the answer - the analyser draws
            the boost, the harmonic bars draw even against odd. So the drill
-           gets a transport of its own, and the tool goes on playing behind
-           it, unseen. -->
+           is the question and its chips, on the paper where the tool was;
+           its transport is in the answer bar, and the tool goes on playing
+           behind it, unseen. -->
       <div class="drill" id="drill" hidden>
         <p class="drill-ask" id="drillAsk"></p>
-        <div class="drill-transport">
-          <button class="submit-btn" type="button" id="drillPlay">Play</button>
-          <button class="link-btn" type="button" id="drillClean" aria-pressed="false" hidden>
-            Hear it clean
-          </button>
-        </div>
+        <!-- One group per thing a drill asks about. A tool with its own
+             surface is answered on the surface and has none of these. -->
+        <div class="picker" id="picker"></div>
       </div>
+
+      <!-- What the colours of a reading mean, beside the readings. -->
+      <p class="log-legend">
+        <span class="legend"><span class="swatch hit"></span> that is it</span>
+        <span class="legend"><span class="swatch near"></span> close</span>
+        <span class="legend"><span class="swatch miss"></span> not close</span>
+      </p>
 
       <!-- What you have tried, newest first. Append-only and unbounded:
            there is no ceiling to size an empty grid to any more, and the
@@ -144,30 +149,32 @@
   </section>
 </main>
 
-<div class="dock" id="dock">
+<!-- The answer bar. Stuck to the bottom of the window, so the verdict on
+     an attempt is never somewhere you have to scroll to: what you did, what
+     came of it and what to do next, in one row under the tool. -->
+<div class="dock" id="dock" role="region" aria-label="The round">
   <div class="wrap">
-    <div class="feedback">
-      <span class="verdict" id="verdict">Play the loop, then work the tool.</span>
-      <span class="played" id="played"></span>
-      <button class="link-btn" type="button" id="again" hidden>Another one</button>
-    </div>
-
     <!-- The two ways out, since running out of guesses is no longer one of
          them. Both are there from the first attempt: holding them back until
          somebody has struggled enough would be the ceiling again. -->
     <p class="hint-line" id="hint-line" hidden></p>
 
-    <!-- One group per thing a drill asks about. A tool with its own surface
-         is answered on the surface and has none of these. -->
-    <div class="picker" id="picker"></div>
+    <div class="dock-row">
+      <!-- A drill's transport. A tool's is on its face until the faces share
+           a chassis; a drill has put the face away. -->
+      <span class="dock-transport">
+        <button class="submit-btn" type="button" id="drillPlay" hidden>Play</button>
+        <button class="link-btn dock-out" type="button" id="drillClean" aria-pressed="false" hidden>
+          Hear it clean
+        </button>
+      </span>
 
-    <div class="dock-foot">
-      <span class="legend"><span class="swatch hit"></span> that is it</span>
-      <span class="legend"><span class="swatch near"></span> close</span>
-      <span class="legend"><span class="swatch miss"></span> not close</span>
-      <!-- Grouped, and the group carries the margin that pushes the row's
-           right-hand end over - so Submit sits in the same place whether
-           either of these is showing or neither is. -->
+      <div class="feedback">
+        <span class="verdict" id="verdict" aria-live="polite">Play the loop, then work the tool.</span>
+        <span class="played" id="played"></span>
+        <button class="link-btn dock-out" type="button" id="again" hidden>Another one</button>
+      </div>
+
       <span class="dock-outs">
         <button class="link-btn dock-out" type="button" id="hint" hidden>Hint</button>
         <button class="link-btn dock-out" type="button" id="show" hidden>Show me</button>

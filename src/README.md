@@ -3,6 +3,7 @@
 One folder per piece, and the pieces point one way.
 
     main.js       the entry
+    route.js      where you are, as a URL: #/tools/<tool>/<kind>/<tier>
     gap.js        comparing two readings without knowing what kind they are,
                   which needs every comparator and so sits above everything
     plugins/      the ten devices: eq, compressor, saturation, stereo, delay,

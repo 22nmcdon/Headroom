@@ -268,10 +268,11 @@ body, .sheet, .dock, .top-bar, dialog { transition: background-color 280ms ease,
 
 /* Depth is used once, here: a sheet laid on a desk. Nothing else floats. */
 .sheet {
+  --sheet-pad: clamp(20px, 4vw, 40px);
   background: var(--paper);
   border: 1px solid var(--line);
   box-shadow: 0 1px 0 var(--cream-2), 0 14px 34px rgba(36, 31, 29, 0.06);
-  padding: clamp(20px, 4vw, 40px);
+  padding: var(--sheet-pad);
 }
 
 .advice {
@@ -504,7 +505,7 @@ body, .sheet, .dock, .top-bar, dialog { transition: background-color 280ms ease,
 .dock-out { font-size: 12px; }
 
 .hint-line {
-  margin: 0 0 12px;
+  margin: 0 0 10px;
   padding: 9px 12px;
   background: var(--cream);
   border-left: 2px solid var(--gold);
@@ -515,29 +516,50 @@ body, .sheet, .dock, .top-bar, dialog { transition: background-color 280ms ease,
 }
 
 /* --- the dock: your answer, always in reach ------------------------------ */
+/* Something focused by the keyboard is scrolled clear of the bar, not under it. */
+html { scroll-padding-bottom: 140px; }
+/* The answer bar. Sticky rather than fixed: it keeps its own place in the
+   flow, so nothing is ever underneath it at the end of the page, and while
+   the page scrolls it stays on the bottom of the window - the verdict on an
+   attempt is never somewhere you have to go and find. */
 .dock {
+  position: sticky;
+  bottom: 0;
+  z-index: 20;
   background: var(--cream-2);
   border-top: 1px solid var(--line);
-  padding-block: 16px 22px;
+  box-shadow: 0 -8px 24px rgba(36, 31, 29, 0.08);
+  padding-block: 12px;
 }
 /* State that has to be visible from across the room is an inset top rule. */
-.dock.done { box-shadow: inset 0 3px 0 var(--rust); }
+.dock.done { box-shadow: inset 0 3px 0 var(--rust), 0 -8px 24px rgba(36, 31, 29, 0.08); }
 
-/* Reserves its height always, so the dock never grows and shrinks under the
-   hands as the answer changes. */
+/* One row: the drill's transport, what came of the last attempt, the ways
+   out, and the answer. It wraps rather than shrinks, verdict first. */
+.dock-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 20px;
+}
+.dock-transport { display: inline-flex; align-items: center; gap: 14px 18px; }
+/* A group with nothing showing takes no slot in the row. */
+.dock-transport:not(:has(:not([hidden]))),
+.dock-outs:not(:has(:not([hidden]))) { display: none; }
+.dock .submit-btn { min-height: 44px; }
+.dock-row > .submit-btn { margin-left: auto; }
+
 .feedback {
+  flex: 1 1 260px;
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 4px 18px;
-  min-height: 46px;
-  margin-bottom: 12px;
+  gap: 2px 14px;
 }
 .verdict { font-family: var(--serif); font-size: 17px; color: var(--charcoal); }
 .verdict.matches { color: var(--sage); }
 .played { font-size: 13.5px; color: var(--text-soft); letter-spacing: 0.04em; }
 .played .symbol { font-family: var(--serif); font-weight: 600; font-size: 17px; color: var(--charcoal); font-variant-numeric: tabular-nums; }
-.feedback .link-btn { margin-left: auto; }
 
 .picker-group + .picker-group { margin-top: 18px; }
 .picker.done { opacity: 0.5; pointer-events: none; }
@@ -1816,23 +1838,20 @@ input.knob-value:focus {
 .option[aria-pressed="true"] .symbol,
 .option[aria-pressed="true"] .name { color: var(--cream); }
 
-.dock-foot {
+/* What the colours of a reading mean, set beside the readings. */
+.log-legend {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: 10px 18px;
-  margin-top: 16px;
+  gap: 6px 18px;
+  margin: 18px 0 0;
   font-size: 12px;
   color: var(--text-soft);
 }
-.dock-foot .legend { display: flex; align-items: center; gap: 7px; }
-.dock-foot .swatch { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+.log-legend .legend { display: flex; align-items: center; gap: 7px; }
+.log-legend .swatch { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
 .swatch.hit { background: var(--sage); }
 .swatch.near { background: var(--gold); }
 .swatch.miss { background: var(--rust); }
-/* The `.dock-outs` group carries the auto margin now, so Submit only needs
-   space from whatever is to its left. */
-.dock-foot .submit-btn { margin-left: 14px; }
 
 /* --- dialogs ------------------------------------------------------------- */
 dialog {
@@ -2003,9 +2022,16 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
   .attempt { grid-template-columns: minmax(0, 1fr); column-gap: 0; }
   .attempt-n { display: none; }
   .why { grid-column: 1; }
-  .dock-outs { margin-left: 0; }
   .options { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); }
-  .dock-foot .submit-btn { margin-left: 0; width: 100%; }
+  /* The verdict gets the bar's width, the ways out go under it, and the
+     transport and the answer share the last row - under the thumb. */
+  .dock-row { gap: 8px 14px; }
+  .feedback { order: 1; flex-basis: 100%; }
+  .dock-outs { order: 2; flex-basis: 100%; }
+  .dock-transport { order: 3; }
+  .dock-row > .submit-btn { order: 4; flex: 1 1 120px; }
+  .dock .submit-btn { padding-inline: 14px; }
+  .dock-transport { gap: 14px; }
 
   dialog {
     width: 100vw;
@@ -2072,17 +2098,6 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
   margin: 0 0 20px;
 }
 
-.drill-transport {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: center;
-  gap: 14px 22px;
-}
-
-/* Pressed means you are listening to the clean side, which is a state you are
-   in rather than a thing you did. */
-.drill-transport .link-btn[aria-pressed="true"] { color: var(--blush-deep); }
 
 /* --- the two halves of the app ------------------------------------------- */
 
@@ -3032,11 +3047,11 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
   border-bottom: 1px solid var(--line);
 }
 .mix-pos {
+  flex: 1 1 auto;
   font-family: var(--serif);
   font-size: 20px;
   color: var(--charcoal);
   font-variant-numeric: tabular-nums;
-  margin-left: auto;
 }
 
 /* Two mixes, one after the other, without the clock stopping - which is the
@@ -3264,20 +3279,34 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
 }
 .mark-where { font-size: 10.5px; color: var(--text-soft); }
 
-.mix-foot {
+/* The mix's answer bar: the tools' bar, inside a sheet. Pulled out over the
+   sheet's padding so it runs edge to edge, and stuck to the bottom of the
+   window while the desk scrolls under it. */
+.mix-answer {
+  position: sticky;
+  bottom: 0;
+  z-index: 20;
   display: flex;
   flex-wrap: wrap;
-  justify-content: space-between;
   align-items: center;
-  gap: 10px 18px;
-  margin-top: 18px;
-  padding-top: 14px;
+  gap: 10px 20px;
+  margin: 18px calc(-1 * var(--sheet-pad)) calc(-1 * var(--sheet-pad));
+  padding: 12px var(--sheet-pad);
+  background: var(--cream-2);
   border-top: 1px solid var(--line);
+  box-shadow: 0 -8px 24px rgba(36, 31, 29, 0.08);
 }
+.mix-answer .submit-btn { min-height: 44px; }
 
 @media (max-width: 560px) {
   .mix-title { font-size: 19px; }
-  .mix-pos { font-size: 17px; margin-left: 0; }
+  .mix-pos { font-size: 17px; }
+  /* Three rows rather than four: listen, the ways out, then where the loop
+     is beside the answer, under the thumb. */
+  .mix-answer { gap: 8px 14px; }
+  .mix-answer .action-group { order: 1; flex-basis: 100%; }
+  .mix-answer .mix-pos { order: 2; flex: 0 0 auto; }
+  .mix-answer [data-submit] { order: 3; flex: 1 1 auto; }
   .strip-dial { grid-template-columns: 34px 1fr 30px; }
 }
 
@@ -3600,6 +3629,7 @@ button.insert-name:hover { color: var(--charcoal); }
 @media (max-height: 560px) {
   .wrap { padding-inline: 16px; }
   .sheet { padding: 10px 12px; }
+  .mix-answer { margin: 12px -12px -10px; padding: 6px 12px; }
   .top-bar { gap: 4px 14px; }
   .sheet-head { margin-bottom: 2px; }
   .sheet-title { font-size: 16px; }
@@ -3682,19 +3712,11 @@ button.insert-name:hover { color: var(--charcoal); }
   /* Which key does what is not something a phone on its side needs told. */
   .plugin-hint { display: none; }
 
-  /* The dock on one line: what you did on the left, what to do about it on
-     the right. It reserved 46 pixels for a verdict that is usually one line
-     and put the legend on a row of its own under it. */
-  .dock { padding-block: 8px 10px; }
-  .dock > .wrap {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 4px 18px;
-  }
-  .feedback { flex: 1 1 260px; min-height: 0; margin-bottom: 0; }
-  .dock-foot { margin-top: 0; }
-  .dock-foot .legend { display: none; }
+  /* The answer bar is on top of every one of these 430 pixels, so it is
+     as short as it can be: one line when the verdict fits on one. */
+  .dock { padding-block: 6px; }
+  .dock .hint-line { margin-bottom: 6px; }
+  .feedback { flex-basis: 260px; }
 }
 
 /* Wherever a plugin is put, that is what decides its shape - not the window.

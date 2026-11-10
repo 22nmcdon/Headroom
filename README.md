@@ -262,6 +262,18 @@ stay live, so you can keep answering and A/B against the clean version for as
 long as it is useful, but nothing after the first answer counts. A drill
 answered correctly after taking a hint counts as played, not solved, too.
 
+The verdict, **Hint**, **Show me** and the answer button sit in a bar stuck to
+the bottom of the window, so the reading on an attempt is never somewhere you
+have to scroll to. On a drill the bar carries its Play and **Hear it clean**
+as well, and the chips are on the paper where the tool was; on a tool, Play
+and Yours / Target are still on the face for now. The mix has the same bar:
+Play, Yours / The one to match, the ways out and **Submit the mix**.
+
+The address says where you are — `#/tools/reverb/drill/medium`, `#/mix`,
+`#/sketch`, `#/analysis` — so a reload comes back to the same place, Back and
+Forward walk where you have been, and a link can point at one drill. Opened
+with no address, it goes wherever this browser was last.
+
 ### The fix exercises
 
 These are the ones that make it a tool rather than a quiz, and both are built so
@@ -611,6 +623,7 @@ blocked.
 index.html          shell and markup
 styles.css          the design system, as tokens and components
 src/main.js         the entry, and the DOM wiring
+src/route.js        where you are, as a hash: read, written and compared
 src/gap.js          comparing two readings without knowing their kind
 src/core/           the audio graph and the engine that feeds it: the
                     synthesised sources and loops, effects, instruments, tracks

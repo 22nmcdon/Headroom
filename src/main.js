@@ -14,6 +14,7 @@ import { engrave } from './lib/engrave.js';
 import { renderPicker, syncPicker, pickerState, dialValue } from './learn/bench/picker.js';
 import { makeLog } from './learn/bench/log.js';
 import { notesFor } from './learn/notes/index.js';
+import { parseRoute, routeFor, sameRoute } from './route.js';
 import { AnalysisPage } from './analysis/page.js';
 import { SketchPage } from './sketch/grid.js';
 import { MixPage } from './mix/page.js';
@@ -240,6 +241,81 @@ function syncView() {
     if (!ui.sketch) ui.sketch = new SketchPage($('#sketchSheet'), { engine });
     ui.sketch.show();
   }
+
+  writeRoute();
+}
+
+/* ---------- where you are, as a URL ---------- */
+
+/** The last place visited, for a visit that arrives with no hash. */
+const ROUTE_KEY = 'headroom.route';
+
+function storedRoute() {
+  try { return localStorage.getItem(ROUTE_KEY); } catch { return null; }
+}
+
+/**
+ * Put where `ui` is into the address bar, and remember it.
+ *
+ * Assigned rather than replaced, so each move is a history entry and Back
+ * goes back. The `hashchange` that assignment fires reads a route that is
+ * already where the shell is, and does nothing. `replace` is for arriving,
+ * which should not leave a step behind it.
+ */
+function writeRoute({ replace = false } = {}) {
+  const next = routeFor(ui);
+  try { localStorage.setItem(ROUTE_KEY, next); } catch { /* private window */ }
+  if (location.hash === next) return;
+  try {
+    if (replace) history.replaceState(null, '', next);
+    else location.hash = next;
+  } catch {
+    /* a sandboxed frame may refuse; the page works the same without it */
+  }
+}
+
+/** Take the fields a route names onto `ui`, without doing anything about it. */
+function takeRoute(route) {
+  ui.view = route.view;
+  if (route.view !== 'tools') return;
+  ui.mode = route.mode ?? ui.mode;
+  ui.kind = route.kind ?? ui.kind;
+  ui.tier = route.tier ?? ui.tier;
+}
+
+/**
+ * Go where a route says - Back, Forward, or a link somebody pasted.
+ *
+ * The same steps the tool strip, the pill and the tier select take, because a
+ * route is only a different way of pressing them.
+ */
+function applyRoute(route) {
+  if (!route) {
+    // A hash that names nothing - a page not built yet, a typo - is put back
+    // to where the shell actually is rather than left lying.
+    writeRoute({ replace: true });
+    return;
+  }
+  if (sameRoute(route, ui)) return;
+
+  const tooling = route.view === 'tools'
+    && ['mode', 'kind', 'tier'].some((key) => route[key] !== undefined && route[key] !== ui[key]);
+  const moving = route.view !== ui.view;
+  takeRoute(route);
+
+  if (tooling) {
+    syncModes();
+    settleKind();
+    syncKind();
+    fillTiers();
+    fillSettings();
+  }
+  // Settled first, and in place: a route that left a field out, or named a
+  // tier the tool lacks, is written back whole without a second step in the
+  // history for it.
+  writeRoute({ replace: true });
+  if (moving) syncView();
+  if (tooling) startGame();
 }
 
 function syncKind() {
@@ -368,6 +444,8 @@ async function putExercise() {
   $('#surface').hidden = drilling;
   $('#drill').hidden = !drilling;
   $('#picker').hidden = !drilling;
+  // The bar's Play is the drill's: on a tool, Play is on the face.
+  $('#drillPlay').hidden = !drilling;
 
   $('#drillAsk').textContent = exercise.ask ?? '';
 
@@ -570,6 +648,7 @@ function buildNotes() {
 
 async function startGame({ fresh = false } = {}) {
   ui.round += 1;
+  writeRoute();
   const round = ui.round;
   // Caught here rather than at each caller: most of them fire and forget.
   try {
@@ -679,8 +758,7 @@ function onSubmit() {
     // the round is over and the answer goes up - and the controls stay live,
     // so the right one can be heard against the one you picked.
     recordGame(next);
-    say('Not that one. The answer is below — listen again with it in front of '
-      + 'you. Further answers are read, but this round is not counted.');
+    say('Not that one — the first answer is the one that counts.');
     finish(next);
   } else if (attempt.score.correct) {
     // Arrived, but with the answer already in front of you. The reading is
@@ -1224,6 +1302,9 @@ function fillHelp() {
 /* ---------- events ---------- */
 
 function wire() {
+  // Back, Forward, and a hash typed or pasted into the address bar.
+  window.addEventListener('hashchange', () => applyRoute(parseRoute(location.hash, TOOLS)));
+
   for (const button of document.querySelectorAll('[data-view]')) {
     button.addEventListener('click', () => {
       if (ui.view === button.dataset.view) return;
@@ -1393,12 +1474,18 @@ function wire() {
   });
 }
 
+// Where to start: the address if it names somewhere, else wherever this
+// browser was last, else the EQ.
+const arrived = parseRoute(location.hash, TOOLS) ?? parseRoute(storedRoute(), TOOLS);
+if (arrived) takeRoute(arrived);
+
 fillModes();
 settleKind();
 syncKind();
 fillTiers();
 fillSettings();
 wire();
+writeRoute({ replace: true });
 syncView();
 startGame();
 
