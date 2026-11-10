@@ -70,6 +70,9 @@ export async function check({ browser, at, say }) {
     return { value: Number(dial.value), angle: dial.parentElement.querySelector('.knob-face').style.getPropertyValue('--angle'), read: document.querySelector('#comp-threshold-value').textContent };
   });
   const box = await page.$eval('.surface [data-dial="threshold"]', (d) => {
+    // Centred first: the answer bar is stuck to the bottom of the window, and
+    // a knob under it cannot be grabbed until it is scrolled clear.
+    d.parentElement.scrollIntoView({ block: 'center' });
     const r = d.parentElement.querySelector('.knob-face').getBoundingClientRect();
     return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
   });

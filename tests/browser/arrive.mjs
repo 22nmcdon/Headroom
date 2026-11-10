@@ -38,6 +38,10 @@ export async function check({ browser, at, say }) {
   let taken = 0;
   while (Date.now() - began < KEEP_CLICKING) {
     const box = await page.$eval('.surface [data-mode="crush"]', (b) => {
+      // Centred first, the way a person would bring it up: the answer bar is
+      // stuck to the bottom of the window, and a button under it is not
+      // there to be clicked.
+      b.scrollIntoView({ block: 'center' });
       const r = b.getBoundingClientRect();
       return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
     }).catch(() => null);
