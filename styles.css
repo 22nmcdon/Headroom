@@ -1284,8 +1284,10 @@ input.knob-value:focus {
   background: linear-gradient(180deg, #4b433d, #352e2b);
   color: var(--ink-soft);
   font-size: 12px;
-  letter-spacing: 0.16em;
-  padding: 5px 12px;
+  /* At 12px the reverb's five spaces only fit their column spaced at 0.08em,
+     the low end of what the face's labels use. */
+  letter-spacing: 0.08em;
+  padding: 5px 10px;
 }
 .plugin .ab-btn + .ab-btn,
 .plugin .pick-btn + .pick-btn { border-left: 1px solid var(--cut); }
