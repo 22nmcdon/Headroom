@@ -575,7 +575,7 @@ export class EchoPlugin extends PluginFace {
     c.stroke();
 
     c.fillStyle = ink.soft;
-    c.font = '9.5px system-ui, sans-serif';
+    c.font = '12px system-ui, sans-serif';
     c.textAlign = 'left';
     c.fillText(this.tempo ? 'the repeats · left up, right down · one bar'
       : 'the repeats · left up, right down', 6, height - 6);
@@ -587,7 +587,7 @@ export class EchoPlugin extends PluginFace {
     const { c, width, height } = stage;
 
     c.lineWidth = 1;
-    c.font = '9.5px system-ui, sans-serif';
+    c.font = '12px system-ui, sans-serif';
     c.strokeStyle = ink.grid;
     c.fillStyle = ink.soft;
     c.textAlign = 'right';

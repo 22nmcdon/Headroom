@@ -438,7 +438,7 @@ export class AnalysisPage {
       c.stroke();
 
       c.fillStyle = ink.soft;
-      c.font = '10px ui-sans-serif, system-ui, sans-serif';
+      c.font = '12px ui-sans-serif, system-ui, sans-serif';
       c.textAlign = 'right';
       c.fillText(db === 0 ? '0' : `${db > 0 ? '+' : ''}${db}`, pad.left - 6, y(db) + 3);
     }
@@ -498,7 +498,7 @@ export class AnalysisPage {
       c.lineTo(width - pad.right, loudY(lufs));
       c.stroke();
       c.fillStyle = ink.soft;
-      c.font = '10px ui-sans-serif, system-ui, sans-serif';
+      c.font = '12px ui-sans-serif, system-ui, sans-serif';
       c.textAlign = 'right';
       c.fillText(String(lufs), pad.left - 6, loudY(lufs) + 3);
     }

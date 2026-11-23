@@ -397,7 +397,7 @@ export class LimiterPlugin extends PluginFace {
     if (!stage) return;
     const { c, width, height } = stage;
 
-    c.font = '9.5px system-ui, sans-serif';
+    c.font = '12px system-ui, sans-serif';
     c.strokeStyle = ink.grid;
     c.lineWidth = 1;
     c.textAlign = 'right';
@@ -449,7 +449,7 @@ export class LimiterPlugin extends PluginFace {
     const lane = 16;
     const plot = Math.max(40, width - 30 - lane - 8);
 
-    c.font = '9.5px system-ui, sans-serif';
+    c.font = '12px system-ui, sans-serif';
     c.strokeStyle = ink.grid;
     c.lineWidth = 1;
     c.textAlign = 'right';
@@ -530,7 +530,7 @@ export class LimiterPlugin extends PluginFace {
     if (!stage) return;
     const { c, width, height } = stage;
 
-    c.font = '9.5px system-ui, sans-serif';
+    c.font = '12px system-ui, sans-serif';
 
     if (!this.cost) {
       c.textAlign = 'left';

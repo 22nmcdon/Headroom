@@ -772,7 +772,7 @@ export class CompPlugin extends PluginFace {
       c.font = '12px system-ui, sans-serif';
       c.textAlign = 'center';
       c.fillText('no fixed curve', width / 2, height / 2 - 6);
-      c.font = '10px system-ui, sans-serif';
+      c.font = '12px system-ui, sans-serif';
       c.fillText('a cell follows the', width / 2, height / 2 + 10);
       c.fillText('programme, not a line', width / 2, height / 2 + 23);
       c.textAlign = 'left';
@@ -841,7 +841,7 @@ export class CompPlugin extends PluginFace {
     }
 
     c.fillStyle = ink.soft;
-    c.font = '10px system-ui, sans-serif';
+    c.font = '12px system-ui, sans-serif';
     c.textAlign = 'left';
     c.fillText('in →', 6, height - 6);
     c.save();
@@ -859,7 +859,7 @@ export class CompPlugin extends PluginFace {
 
     c.strokeStyle = ink.grid;
     c.lineWidth = 1;
-    c.font = '9.5px system-ui, sans-serif';
+    c.font = '12px system-ui, sans-serif';
     c.fillStyle = ink.soft;
     c.textAlign = 'right';
     for (let db = -6; db >= -GR_DEPTH; db -= 6) {
@@ -947,7 +947,7 @@ export class CompPlugin extends PluginFace {
       else c.fillRect(x, floor - length, bar, length);
 
       c.fillStyle = ink.soft;
-      c.font = '9px system-ui, sans-serif';
+      c.font = '12px system-ui, sans-serif';
       c.textAlign = 'center';
       c.fillText(meter.label, i * lane + lane / 2, height - 3);
     });

@@ -655,7 +655,7 @@ export class StereoPlugin extends PluginFace {
     }
 
     c.fillStyle = ink.soft;
-    c.font = '9.5px system-ui, sans-serif';
+    c.font = '12px system-ui, sans-serif';
     c.textAlign = 'center';
     c.fillText('mono', middle.x, 12);
     c.textAlign = 'left';
@@ -670,7 +670,7 @@ export class StereoPlugin extends PluginFace {
     if (!stage) return;
     const { c, width, height } = stage;
 
-    c.font = '9.5px system-ui, sans-serif';
+    c.font = '12px system-ui, sans-serif';
     c.strokeStyle = ink.grid;
     c.lineWidth = 1;
     c.textAlign = 'right';

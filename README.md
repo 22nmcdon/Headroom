@@ -650,6 +650,12 @@ accents, Playfair / Cormorant / Jost.
   is in the history if a light/dark pair ever wants it.
 - **Three radii, each meaning something.** `1px` is paper (inputs, filled
   buttons), a pill is a state you are in, `50%` is a dot (the help `?`).
+- **Nothing is too small to read, and every pair of colours passes 4.5:1.**
+  No text under 12px, on the page, on the faces, or drawn on a canvas. Blush
+  and gold fail on cream, so they are for borders and fills, and the same
+  accents as words are `--label` and `--gold-deep`; a sage fill with words on
+  it is `--sage-deep`. On the faces, the soft and faint inks are solid colours
+  that pass rather than see-through cream that did not.
 - **Readings are set in the serif, on the line, with tabular figures**, so a
   column of decibels lines up. There used to be a hand-lettered face for chord
   symbols; it went with the chords.

@@ -18,7 +18,7 @@ export const COMPRESSION_TOOL = {
   lede: 'A compressor, and a loop running through it. Match the one on the '
       + 'target, level out a loop that will not sit still, or key it off the '
       + 'kick and get out of the way.',
-  advice: 'The hardest thing here, and the plan says so: this is difficult even for people who do it for a living. Listen to the transients, and to what happens between the hits.',
+  advice: 'The hardest of the twelve to hear, even for people who do it for a living. Listen to the transients, and to what happens between the hits.',
   help: [
     ['Play the loop, then work the compressor.',
      'Drag the display sideways to move the threshold, or drag the handle at the top '

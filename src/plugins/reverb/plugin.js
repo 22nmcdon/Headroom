@@ -474,7 +474,7 @@ export class VerbPlugin extends PluginFace {
     // than just visible.
     c.strokeStyle = ink.grid;
     c.lineWidth = 1;
-    c.font = '9.5px system-ui, sans-serif';
+    c.font = '12px system-ui, sans-serif';
     c.fillStyle = ink.soft;
     c.textAlign = 'left';
     const stepFor = seconds > 4 ? 1 : seconds > 1.5 ? 0.5 : 0.1;
@@ -524,7 +524,7 @@ export class VerbPlugin extends PluginFace {
     c.stroke();
 
     c.fillStyle = ink.soft;
-    c.font = '9.5px system-ui, sans-serif';
+    c.font = '12px system-ui, sans-serif';
     c.textAlign = 'left';
     // Named for what it is, because the two spaces look different here and
     // the difference is the point: a room ramps in over its first bounces and
@@ -539,7 +539,7 @@ export class VerbPlugin extends PluginFace {
     const { c, width, height } = stage;
 
     c.lineWidth = 1;
-    c.font = '9.5px system-ui, sans-serif';
+    c.font = '12px system-ui, sans-serif';
 
     c.strokeStyle = ink.grid;
     c.fillStyle = ink.soft;

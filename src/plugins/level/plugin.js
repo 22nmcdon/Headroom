@@ -300,7 +300,7 @@ export class LevelPlugin extends PluginFace {
     const figures = 108;
     const lanes = Math.max(40, width - figures - 34);
 
-    c.font = '9.5px system-ui, sans-serif';
+    c.font = '12px system-ui, sans-serif';
     c.strokeStyle = ink.grid;
     c.lineWidth = 1;
     c.textAlign = 'right';
@@ -393,7 +393,7 @@ export class LevelPlugin extends PluginFace {
     if (!stage) return;
     const { c, width, height } = stage;
 
-    c.font = '9.5px system-ui, sans-serif';
+    c.font = '12px system-ui, sans-serif';
     c.strokeStyle = ink.grid;
     c.lineWidth = 1;
     c.textAlign = 'right';

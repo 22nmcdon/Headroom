@@ -316,7 +316,7 @@ export class AlignPlugin extends PluginFace {
     const floor = height - 12;
     const y = (db) => ((COMB_TOP - db) / (COMB_TOP - COMB_FLOOR)) * floor;
 
-    c.font = '9.5px system-ui, sans-serif';
+    c.font = '12px system-ui, sans-serif';
     c.lineWidth = 1;
     c.textAlign = 'center';
     for (const [hz, label] of [[50, '50'], [100, '100'], [200, '200'], [500, '500'],
@@ -426,7 +426,7 @@ export class AlignPlugin extends PluginFace {
     const values = this.player.reading?.values;
 
     const middle = height / 2;
-    c.font = '9.5px system-ui, sans-serif';
+    c.font = '12px system-ui, sans-serif';
     c.strokeStyle = ink.grid;
     c.beginPath();
     c.moveTo(0, middle);

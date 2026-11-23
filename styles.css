@@ -20,6 +20,11 @@
   --line:       #e4d9cc;
   --text:       #3a332f;
   --text-soft:  #6b615a;
+  /* Text that is a label or an accent. Blush-deep and gold fail 4.5:1 on
+     cream, so they are for borders, fills and decoration; this is the colour
+     the same accents take when they are words. */
+  --label:      #9a4a40;
+  --gold-deep:  #7a5e30;
 
   /* Fixed meaning, both modes - which is why they sit outside the mode palette
      below and the mode accent is chosen to stay clear of them. Here they read:
@@ -27,6 +32,9 @@
      chord but not where you put it; rust, it is outside the chord. Naming where
      a note sits, never marking the player. */
   --sage:       #6f7f63;
+  /* The same sage, darker, for a fill with words on it: white on --sage is
+     4.3:1, which fails; on this it is 5.7:1. The lighter one stays for meters. */
+  --sage-deep:  #5c6b51;
   --approach:   #8fae6d;
   --enclosure:  #3f8f88;
   --rust:       #a4553f;
@@ -87,8 +95,8 @@ button { font-family: inherit; cursor: pointer; }
 .eyebrow {
   text-transform: uppercase;
   letter-spacing: 0.28em;
-  font-size: 11px;
-  color: var(--blush-deep);
+  font-size: 12px;
+  color: var(--label);
   font-weight: 500;
   margin: 0 0 12px;
 }
@@ -128,7 +136,7 @@ body, .sheet, .dock, .top-bar, dialog { transition: background-color 280ms ease,
   font-size: 15px;
   line-height: 1;
 }
-.help-button:hover { border-color: var(--blush); color: var(--blush-deep); }
+.help-button:hover { border-color: var(--blush); color: var(--label); }
 
 /* No box at all: a blush underline that deepens on hover. */
 .link-btn {
@@ -136,15 +144,15 @@ body, .sheet, .dock, .top-bar, dialog { transition: background-color 280ms ease,
   border: none;
   border-bottom: 1px solid var(--blush);
   padding: 0 0 2px;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 13px;
   text-transform: uppercase;
   letter-spacing: 0.16em;
   color: var(--charcoal);
   font-weight: 500;
 }
-.link-btn:hover { color: var(--blush-deep); border-color: var(--blush-deep); }
-.link-btn[aria-pressed="true"] { color: var(--blush-deep); border-bottom-width: 2px; border-color: var(--blush-deep); }
+.link-btn:hover { color: var(--label); border-color: var(--blush-deep); }
+.link-btn[aria-pressed="true"] { color: var(--label); border-bottom-width: 2px; border-color: var(--blush-deep); }
 
 /* --- the tool page -------------------------------------------------------- */
 /* The tools' page is wider than the others - a list down the side and a
@@ -176,7 +184,7 @@ body, .sheet, .dock, .top-bar, dialog { transition: background-color 280ms ease,
   font-weight: 500;
   letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: #9a4a40;
+  color: var(--label);
 }
 .mode-pill {
   display: flex;
@@ -293,7 +301,7 @@ body, .sheet, .dock, .top-bar, dialog { transition: background-color 280ms ease,
 
 .field { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .field-label {
-  font-size: 10px;
+  font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.18em;
   color: var(--text-soft);
@@ -360,7 +368,7 @@ body, .sheet, .dock, .top-bar, dialog { transition: background-color 280ms ease,
   border: 1px solid var(--charcoal);
   border-radius: 1px;
   padding: 10px 22px;
-  font-size: 10.5px;
+  font-size: 12px;
   line-height: 13px;
   text-transform: uppercase;
   letter-spacing: 0.14em;
@@ -415,7 +423,7 @@ body, .sheet, .dock, .top-bar, dialog { transition: background-color 280ms ease,
   font-weight: 500;
   letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: #9a4a40;
+  color: var(--label);
 }
 .learn-steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px; font-size: 14px; }
 .learn-steps li { padding-left: 2px; }
@@ -495,7 +503,7 @@ body, .sheet, .dock, .top-bar, dialog { transition: background-color 280ms ease,
   font-size: 14px;
   color: var(--text);
 }
-.cell.hit { background: var(--sage); border-color: var(--sage); color: var(--paper); }
+.cell.hit { background: var(--sage-deep); border-color: var(--sage-deep); color: var(--paper); }
 .cell.near { background: var(--gold); border-color: var(--gold); color: var(--charcoal); }
 .cell.miss { background: var(--rust); border-color: var(--rust); color: var(--paper); }
 
@@ -514,7 +522,7 @@ body, .sheet, .dock, .top-bar, dialog { transition: background-color 280ms ease,
    as a section of the page. */
 .why { grid-column: 2; margin-top: 4px; }
 .why-open {
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text-soft);
@@ -528,7 +536,7 @@ body, .sheet, .dock, .top-bar, dialog { transition: background-color 280ms ease,
    the closed one kept it. */
 .why-open::before { content: "+ "; }
 .why[open] .why-open::before { content: "− "; }
-.why-open:hover { color: var(--blush-deep); }
+.why-open:hover { color: var(--label); }
 
 .why-list {
   margin: 4px 0 8px;
@@ -537,7 +545,7 @@ body, .sheet, .dock, .top-bar, dialog { transition: background-color 280ms ease,
   border-left: 2px solid var(--blush);
 }
 .why-list dt {
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--text-soft);
@@ -635,7 +643,7 @@ html { scroll-padding-bottom: 140px; }
   gap: 2px 14px;
 }
 .verdict { font-family: var(--serif); font-size: 17px; color: var(--charcoal); }
-.verdict.matches { color: var(--sage); }
+.verdict.matches { color: var(--sage-deep); }
 .played { font-size: 13.5px; color: var(--text-soft); letter-spacing: 0.04em; }
 .played .symbol { font-family: var(--serif); font-weight: 600; font-size: 17px; color: var(--charcoal); font-variant-numeric: tabular-nums; }
 
@@ -670,7 +678,7 @@ html { scroll-padding-bottom: 140px; }
    rather than down among the controls that change the sound - and on the
    rule they cost no height at all. */
 .rule-kit { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
-.rule-kit .ab-btn { padding: 3px 7px; font-size: 8px; letter-spacing: 0.12em; }
+.rule-kit .ab-btn { padding: 3px 7px; font-size: 12px; letter-spacing: 0.12em; }
 .eq-bay-curve > .panel-name { white-space: normal; overflow: visible; flex-wrap: wrap; }
 /* It takes focus, because the arrow keys move the selected band - so it has
    to be able to say that it has it. */
@@ -703,13 +711,13 @@ html { scroll-padding-bottom: 140px; }
 }
 .rail-btn + .rail-btn { box-shadow: -1px 0 0 var(--cut, var(--line)); }
 .rail-type {
-  font-size: 9px;
+  font-size: 12px;
   letter-spacing: 0.18em;
   font-weight: 500;
   color: var(--text-soft);
 }
 .rail-hz {
-  font-size: 9.5px;
+  font-size: 12px;
   letter-spacing: 0.06em;
   color: var(--text-soft);
   font-variant-numeric: tabular-nums;
@@ -730,7 +738,7 @@ html { scroll-padding-bottom: 140px; }
 .eq-deck-head .panel-name { margin: 0; }
 .deck-field { display: flex; align-items: center; gap: 7px; }
 .deck-field > span {
-  font-size: 7.5px;
+  font-size: 12px;
   letter-spacing: 0.26em;
   text-transform: uppercase;
   color: var(--text-soft);
@@ -748,7 +756,7 @@ html { scroll-padding-bottom: 140px; }
   border: none;
   padding: 6px 12px;
   font-family: var(--sans);
-  font-size: 10.5px;
+  font-size: 12px;
   line-height: 13px;
   text-transform: uppercase;
   letter-spacing: 0.14em;
@@ -756,13 +764,13 @@ html { scroll-padding-bottom: 140px; }
   color: var(--text-soft);
   font-variant-numeric: tabular-nums;
 }
-.pick-btn:hover { color: var(--blush-deep); }
+.pick-btn:hover { color: var(--label); }
 .pick-btn[aria-pressed="true"] { background: var(--charcoal); color: var(--cream); }
 
 /* How to work it, said once and quietly, where the controls are. */
 .plugin-hint {
   margin-left: auto;
-  font-size: 10.5px;
+  font-size: 12px;
   letter-spacing: 0.06em;
   color: var(--text-soft);
 }
@@ -813,7 +821,7 @@ input.knob-value:hover { border-bottom-color: var(--line); }
 input.knob-value:focus {
   outline: none;
   border-bottom-color: var(--blush-deep);
-  color: var(--blush-deep);
+  color: var(--label);
 }
 /* A knob is: what it is set to, the control, and what it is - in that
    order, down. The label and the number used to share a line, which is why
@@ -838,9 +846,9 @@ input.knob-value:focus {
 .knob-dial  { order: 4; }
 
 .knob-name {
-  font-size: var(--tag, 8.5px);
+  font-size: var(--tag, 12px);
   text-transform: uppercase;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.1em;
   font-weight: 500;
   color: var(--knob-name, var(--text-soft));
   text-align: center;
@@ -956,7 +964,7 @@ input.knob-value:focus {
 }
 /* Focus has to show on something, and the input is invisible: the face
    wears it. */
-.knob-dial.is-dressed:focus-visible + .knob-name { color: var(--blush-deep); }
+.knob-dial.is-dressed:focus-visible + .knob-name { color: var(--label); }
 .knob:has(.knob-dial:focus-visible) .knob-face::before {
   outline: 2px solid var(--blush-deep);
   outline-offset: 2px;
@@ -988,7 +996,7 @@ input.knob-value:focus {
   padding: 7px 15px;
   color: var(--text-soft);
 }
-.plugin-transport .solo-btn:hover { border-color: var(--blush); color: var(--blush-deep); }
+.plugin-transport .solo-btn:hover { border-color: var(--blush); color: var(--label); }
 .plugin-transport .solo-btn.is-on { background: var(--gold); border-color: var(--gold); color: var(--charcoal); }
 
 /* Your own material. A filled button, because it is the one thing here that
@@ -1003,7 +1011,7 @@ input.knob-value:focus {
   border: 1px solid var(--charcoal);
   border-radius: 1px;
   padding: 7px 14px;
-  font-size: 10.5px;
+  font-size: 12px;
   line-height: 13px;
   text-transform: uppercase;
   letter-spacing: 0.14em;
@@ -1020,14 +1028,14 @@ input.knob-value:focus {
   border: none;
   padding: 7px 15px;
   font-family: var(--sans);
-  font-size: 10.5px;
+  font-size: 12px;
   line-height: 13px;
   text-transform: uppercase;
   letter-spacing: 0.16em;
   font-weight: 500;
   color: var(--text-soft);
 }
-.ab-btn:hover { color: var(--blush-deep); }
+.ab-btn:hover { color: var(--label); }
 .ab-btn.is-on { background: var(--charcoal); color: var(--cream); }
 
 /* Once the round is over the bands stop moving, and the answer is on screen. */
@@ -1084,8 +1092,8 @@ input.knob-value:focus {
   --cut:       #1d1917;                      /* a line milled into it */
   --lift:      rgba(250, 246, 240, 0.10);    /* and the light under that line */
   --ink:       var(--cream);
-  --ink-soft:  rgba(250, 246, 240, 0.44);
-  --ink-faint: rgba(250, 246, 240, 0.30);
+  --ink-soft:  #c8beb5;   /* 6.7:1 on the face; it was 3.5 */
+  --ink-faint: #aba198;   /* 4.8:1; it was 2.4 */
 
   /* The knob takes its colours from whatever it is mounted on. */
   --knob-arc:       var(--blush);
@@ -1103,7 +1111,7 @@ input.knob-value:focus {
      everything on the face follows, so the plugin keeps its shape and gets
      smaller rather than coming apart into a different plugin. */
   --bay:   56px;    /* the knob itself */
-  --tag:   8.5px;   /* what it is */
+  --tag:   12px;   /* what it is */
   --read:  13.5px;  /* what it is set to */
   --deck:  130px;   /* how wide a bay is - fixed, so the row stays a row */
   --panel: clamp(96px, 16vh, 140px);   /* and how tall a display is */
@@ -1185,8 +1193,8 @@ input.knob-value:focus {
   min-width: 0;
   white-space: nowrap;
   overflow: hidden;
-  font-size: 7.5px;
-  letter-spacing: 0.26em;
+  font-size: 12px;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--ink-faint);
   font-weight: 500;
@@ -1225,7 +1233,7 @@ input.knob-value:focus {
   flex-wrap: wrap;
 }
 .plugin-name {
-  font-size: 10px;
+  font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.3em;
   font-weight: 500;
@@ -1237,7 +1245,7 @@ input.knob-value:focus {
    and the left is what it is. */
 .plugin-trim {
   margin-left: auto;
-  font-size: 10px;
+  font-size: 12px;
   letter-spacing: 0.08em;
   color: var(--ink-faint);
   font-variant-numeric: tabular-nums;
@@ -1261,7 +1269,7 @@ input.knob-value:focus {
 .plugin .panel-name,
 .plugin .field-label,
 .plugin .plugin-hint { color: var(--ink-faint); }
-.plugin .field-label { font-size: 8.5px; letter-spacing: 0.2em; }
+.plugin .field-label { font-size: 12px; letter-spacing: 0.2em; }
 
 /* A switch milled into the panel: a pair of states, one of them on. */
 .plugin .plugin-ab,
@@ -1275,7 +1283,7 @@ input.knob-value:focus {
 .plugin .pick-btn {
   background: linear-gradient(180deg, #4b433d, #352e2b);
   color: var(--ink-soft);
-  font-size: 9px;
+  font-size: 12px;
   letter-spacing: 0.16em;
   padding: 5px 12px;
 }
@@ -1302,7 +1310,7 @@ input.knob-value:focus {
   border: none;
   border-radius: 2px;
   padding: 5px 12px;
-  font-size: 9px;
+  font-size: 12px;
   letter-spacing: 0.16em;
   color: var(--ink-soft);
   background: linear-gradient(180deg, #4b433d, #352e2b);
@@ -1330,7 +1338,7 @@ input.knob-value:focus {
   border-radius: 2px;
   color: var(--ink-soft);
   padding: 5px 12px;
-  font-size: 9px;
+  font-size: 12px;
   letter-spacing: 0.16em;
   box-shadow: 0 0 0 1px var(--cut), 0 1px 0 var(--lift);
 }
@@ -1339,13 +1347,13 @@ input.knob-value:focus {
 .plugin .link-btn { color: var(--ink-soft); border-bottom-color: rgba(217, 166, 160, 0.5); }
 .plugin .link-btn:hover { color: var(--blush); border-bottom-color: var(--blush); }
 
-.plugin .toggle { color: var(--ink-soft); font-size: 9px; letter-spacing: 0.16em; }
+.plugin .toggle { color: var(--ink-soft); font-size: 12px; letter-spacing: 0.16em; }
 .plugin .toggle input { accent-color: var(--blush-deep); }
 
 /* A select on a panel is a window with something written in it. */
 .plugin select {
   font-family: var(--sans);
-  font-size: 10.5px;
+  font-size: 12px;
   letter-spacing: 0.06em;
   color: var(--ink);
   background: linear-gradient(180deg, #2a2422, #201b19);
@@ -1503,7 +1511,7 @@ input.knob-value:focus {
   right: 0;
   bottom: 5%;
   text-align: center;
-  font-size: 6.5px;
+  font-size: 12px;
   letter-spacing: 0.2em;
   text-transform: uppercase;
   color: var(--text-soft);
@@ -1524,20 +1532,26 @@ input.knob-value:focus {
 @container (max-width: 560px) {
   .plugin {
     --bay: 38px;
-    --tag: 7.5px;
-    --read: 11.5px;
-    --deck: 54px;
+    --tag:   12px;
+    --read: 12px;
+    /* 12px names need the room the 7.5px ones did not: FEEDBACK is 70
+       pixels at this size, so four bays across rather than five. */
+    --deck: 76px;
     --panel: clamp(58px, 9vh, 84px);
     --ladder: 34px;
   }
   .plugin > * { padding: 8px 9px 9px; }
   .plugin > .plugin-head { padding-block: 6px; }
-  .plugin .panel-name { margin-bottom: 6px; letter-spacing: 0.18em; }
+  .plugin .panel-name { margin-bottom: 6px; letter-spacing: 0.1em; }
+  /* A row of modes scrolls sideways rather than wrapping or running off the
+     face. */
+  .plugin .pick-row { overflow-x: auto; max-width: 100%; scrollbar-width: none; }
+  .plugin .pick-row > * { flex: 0 0 auto; }
   .comp-bay { padding: 0 6px; }
   .vu-mark { display: none; }
   .comp-bay-out .panel-name { visibility: hidden; }
-  .plugin-read { font-size: 11.5px; }
-  .plugin .ab-btn, .plugin .pick-btn { padding: 4px 9px; font-size: 8.5px; }
+  .plugin-read { font-size: 12px; }
+  .plugin .ab-btn, .plugin .pick-btn { padding: 4px 9px; font-size: 12px; }
   .chain-row { gap: 8px 10px; }
 }
 
@@ -1633,7 +1647,7 @@ input.knob-value:focus {
    thing on the face that mentions it. */
 .stereo-said {
   flex-basis: 100%;
-  font-size: 10.5px;
+  font-size: 12px;
   letter-spacing: 0.06em;
   color: var(--text-soft);
 }
@@ -1751,7 +1765,7 @@ input.knob-value:focus {
 }
 .heat-drill-head {
   display: flex; justify-content: space-between; align-items: baseline;
-  font-size: 10px; letter-spacing: 0.19em; text-transform: uppercase; color: var(--text-soft);
+  font-size: 12px; letter-spacing: 0.19em; text-transform: uppercase; color: var(--text-soft);
 }
 .heat-drill-score {
   font-family: var(--serif); font-size: 13px; letter-spacing: 0;
@@ -1760,13 +1774,13 @@ input.knob-value:focus {
 .heat-gauges { display: flex; gap: 6px; margin-top: 8px; }
 .gauge { display: grid; justify-items: center; gap: 2px; flex: 1; }
 .gauge svg { width: 100%; height: 56px; display: block; }
-.gauge b { font-weight: 400; font-size: 10px; color: var(--text-soft); }
+.gauge b { font-weight: 400; font-size: 12px; color: var(--text-soft); }
 
 /* Names a panel within a plugin - the compressor's detector, the EQ's
    analyser. Shared, because a second rule for the same thing is a second rule
    to keep in step. */
 .panel-name {
-  font-size: 10px;
+  font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.2em;
   font-weight: 500;
@@ -1777,7 +1791,7 @@ input.knob-value:focus {
   display: flex;
   align-items: center;
   gap: 7px;
-  font-size: 11px;
+  font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.14em;
   font-weight: 500;
@@ -1808,11 +1822,11 @@ input.knob-value:focus {
   gap: 4px 14px;
 }
 .control-name {
-  font-size: 10.5px;
+  font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.18em;
   font-weight: 500;
-  color: var(--blush-deep);
+  color: var(--label);
 }
 .control-value {
   font-family: var(--serif);
@@ -1826,7 +1840,7 @@ input.knob-value:focus {
   grid-column: 1 / -1;
   display: flex;
   justify-content: space-between;
-  font-size: 10.5px;
+  font-size: 12px;
   letter-spacing: 0.06em;
   color: var(--text-soft);
   font-variant-numeric: tabular-nums;
@@ -1906,7 +1920,7 @@ input.knob-value:focus {
 }
 .option .name {
   display: block;
-  font-size: 9.5px;
+  font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.14em;
   font-weight: 500;
@@ -1950,10 +1964,10 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
   padding: 22px 26px 0;
 }
 .dialog-head .bar-label {
-  font-size: 10.5px;
+  font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.2em;
-  color: var(--blush-deep);
+  color: var(--label);
 }
 .dialog-head .dialog-title {
   font-family: var(--serif);
@@ -1973,14 +1987,14 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
   color: var(--text-soft);
   line-height: 1;
 }
-.close-btn:hover { color: var(--blush-deep); border-color: var(--blush); }
+.close-btn:hover { color: var(--label); border-color: var(--blush); }
 
 .dialog-body { padding: 20px 26px 26px; overflow-y: auto; }
 
 .help-lede {
   font-family: var(--script);
   font-style: italic;
-  color: var(--blush-deep);
+  color: var(--label);
   font-size: 16px;
   line-height: 1.45;
   margin: 0 0 16px;
@@ -2020,7 +2034,7 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
   border: 1px solid var(--charcoal);
   border-radius: 1px;
   padding: 10px 20px;
-  font-size: 10.5px;
+  font-size: 12px;
   line-height: 13px;
   text-transform: uppercase;
   letter-spacing: 0.14em;
@@ -2042,7 +2056,7 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
   margin: 0 auto;
 }
 .colophon code { font-family: var(--mono); font-size: 12px; color: var(--charcoal); }
-.colophon a { color: var(--blush-deep); text-decoration: none; border-bottom: 1px solid var(--line); }
+.colophon a { color: var(--label); text-decoration: none; border-bottom: 1px solid var(--line); }
 .colophon a:hover { border-bottom-color: var(--blush-deep); }
 
 /* One breakpoint. Below it the head centres, the sheet loosens, and the
@@ -2135,7 +2149,7 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
   font-weight: 500;
   color: var(--text-soft);
 }
-.view-option:hover { color: var(--blush-deep); }
+.view-option:hover { color: var(--label); }
 .view-option[aria-checked="true"] {
   color: var(--text);
   border-bottom-color: var(--charcoal);
@@ -2197,15 +2211,15 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
   font-variant-numeric: tabular-nums;
 }
 .figure span {
-  font-size: 10px;
+  font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.16em;
   color: var(--text-soft);
 }
 .figure-off {
   font-style: normal;
-  font-size: 11px;
-  color: var(--blush-deep);
+  font-size: 12px;
+  color: var(--label);
   font-variant-numeric: tabular-nums;
 }
 
@@ -2228,7 +2242,7 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
   display: flex;
   flex-wrap: wrap;
   gap: 6px 18px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-soft);
   margin: -8px 0 22px;
 }
@@ -2245,7 +2259,7 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
   grid-template-columns: 42px 1fr 64px 86px;
   align-items: center;
   gap: 10px;
-  font-size: 11.5px;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
 .band-name { color: var(--text-soft); text-align: right; }
@@ -2290,7 +2304,7 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
   grid-template-columns: 104px 78px 78px 78px 1fr;
   align-items: baseline;
   gap: 10px;
-  font-size: 11.5px;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
   padding-bottom: 4px;
   border-bottom: 1px solid var(--line);
@@ -2418,7 +2432,7 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
   font-weight: 500;
   letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: #9a4a40;
+  color: var(--label);
 }
 .home-line { margin: 0; font-family: var(--serif); font-size: 19px; line-height: 1.3; color: var(--charcoal); }
 .home-fine { margin: 0; font-size: 14px; line-height: 1.5; color: var(--text-soft); }
@@ -2477,7 +2491,7 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
   text-transform: uppercase;
   color: #5c6b51;
 }
-.path-card.is-next .path-card-status { color: #9a4a40; }
+.path-card.is-next .path-card-status { color: var(--label); }
 .path-card-name { font-family: var(--serif); font-size: 19px; color: var(--charcoal); }
 .path-card-marks { display: flex; align-items: center; gap: 6px; }
 .path-card-note { margin-left: 6px; font-size: 13px; color: var(--text-soft); }
@@ -2574,7 +2588,7 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
   text-transform: uppercase;
 }
 .report-tool-head { text-align: left; padding-left: 14px; color: var(--text-soft); border-bottom: 1px solid var(--line); }
-.report-kind { color: #9a4a40; border-bottom: 0; }
+.report-kind { color: var(--label); border-bottom: 0; }
 .report-tier { padding: 2px 6px 8px; font-size: 13px; font-weight: 400; color: var(--text-soft); border-bottom: 1px solid var(--line); }
 .report-table .report-split { border-left: 1px solid var(--line); }
 .report-tool { text-align: left; padding: 6px 14px; font-weight: 500; color: var(--charcoal); white-space: nowrap; }
@@ -2618,7 +2632,7 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
   font-weight: 500;
   letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: #9a4a40;
+  color: var(--label);
 }
 .report-card {
   align-self: stretch;
@@ -2725,7 +2739,7 @@ body.in-set .tools-layout { grid-template-columns: minmax(0, 1fr); }
 /* The tempo belongs with the transport, not in a menu: it is the one number
    that changes what you are hearing right now. */
 .sketch-tempo { display: inline-flex; align-items: baseline; gap: 4px; }
-.sketch-tempo span { font-size: 10px; letter-spacing: 0.1em; color: var(--text-soft); }
+.sketch-tempo span { font-size: 12px; letter-spacing: 0.1em; color: var(--text-soft); }
 
 /* The position, in the serif and tabular, the way every reading here is. */
 .sketch-pos {
@@ -2800,12 +2814,12 @@ body.in-set .tools-layout { grid-template-columns: minmax(0, 1fr); }
   border: none;
   padding: 0 0 10px;
   font-family: var(--sans);
-  font-size: 11px;
+  font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.18em;
   color: var(--text-soft);
 }
-.panel-back:hover { color: var(--blush-deep); }
+.panel-back:hover { color: var(--label); }
 @media (max-width: 739px), (max-height: 560px) {
   .panel-back { display: block; }
 }
@@ -2878,7 +2892,7 @@ body.in-set .tools-layout { grid-template-columns: minmax(0, 1fr); }
   line-height: 1;
   padding: 3px 0;
 }
-.scene-more:hover:not(:disabled) { color: var(--blush-deep); border-color: var(--blush); }
+.scene-more:hover:not(:disabled) { color: var(--label); border-color: var(--blush); }
 .scene-more:disabled { opacity: 0.3; cursor: default; }
 
 /* A track's name, and the one button worth having beside it. */
@@ -2902,7 +2916,7 @@ body.in-set .tools-layout { grid-template-columns: minmax(0, 1fr); }
   border: none;
   text-align: left;
 }
-.track-open:hover .track-name { color: var(--blush-deep); }
+.track-open:hover .track-name { color: var(--label); }
 .track-name {
   font-family: var(--serif);
   font-size: 13.5px;
@@ -2913,7 +2927,7 @@ body.in-set .tools-layout { grid-template-columns: minmax(0, 1fr); }
   max-width: 100%;
 }
 .track-what {
-  font-size: 9px;
+  font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.1em;
   color: var(--text-soft);
@@ -2925,7 +2939,7 @@ body.in-set .tools-layout { grid-template-columns: minmax(0, 1fr); }
 .track-mute {
   flex: 0 0 auto;
   padding: 0 5px;
-  font-size: 9.5px;
+  font-size: 12px;
   letter-spacing: 0.1em;
   line-height: 15px;
   color: var(--text-soft);
@@ -2949,7 +2963,7 @@ body.in-set .tools-layout { grid-template-columns: minmax(0, 1fr); }
   color: var(--text-soft);
   padding: 0 0 5px;
 }
-.scene-head:hover { color: var(--blush-deep); }
+.scene-head:hover { color: var(--label); }
 
 .sketch-grid .cell {
   min-height: 46px;
@@ -2962,7 +2976,7 @@ body.in-set .tools-layout { grid-template-columns: minmax(0, 1fr); }
   background: var(--paper);
   color: var(--text-soft);
   font-family: var(--sans);
-  font-size: 10.5px;
+  font-size: 12px;
   text-align: center;
   transition: background 0.12s ease, border-color 0.12s ease;
 }
@@ -2975,7 +2989,7 @@ body.in-set .tools-layout { grid-template-columns: minmax(0, 1fr); }
   font-size: 15px;
   color: var(--line);
 }
-.sketch-grid .cell[data-full="false"]:hover { color: var(--blush-deep); border-color: var(--blush); }
+.sketch-grid .cell[data-full="false"]:hover { color: var(--label); border-color: var(--blush); }
 .sketch-grid .cell[data-full="true"]:hover { background: var(--wash); }
 
 /* Being edited: an outline, which is not a state the audio is in. */
@@ -3118,9 +3132,9 @@ body.in-set .tools-layout { grid-template-columns: minmax(0, 1fr); }
   margin-bottom: 6px;
 }
 .rec-clock { font-family: var(--mono); font-size: 18px; color: var(--text); }
-.rec-clock small { font-size: 10px; color: var(--text-soft); }
-.in-read { font-family: var(--mono); font-size: 11px; color: var(--text-soft); }
-.in-read[data-how="hot"]  { color: var(--gold); }
+.rec-clock small { font-size: 12px; color: var(--text-soft); }
+.in-read { font-family: var(--mono); font-size: 12px; color: var(--text-soft); }
+.in-read[data-how="hot"]  { color: var(--gold-deep); }
 .in-read[data-how="over"] { color: var(--rust); }
 
 .in-meter {
@@ -3152,7 +3166,7 @@ body.in-set .tools-layout { grid-template-columns: minmax(0, 1fr); }
   justify-content: space-between;
   margin: 3px 0 12px;
   font-family: var(--mono);
-  font-size: 9px;
+  font-size: 12px;
   letter-spacing: 0.04em;
   color: var(--text-soft);
 }
@@ -3168,11 +3182,11 @@ body.in-set .tools-layout { grid-template-columns: minmax(0, 1fr); }
   margin: 10px 0 0;
   padding-top: 10px;
   border-top: 1px solid var(--line);
-  font-size: 11px;
+  font-size: 12px;
 }
 .rec-about dt {
   font-family: var(--sans);
-  font-size: 9px;
+  font-size: 12px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--text-soft);
@@ -3181,7 +3195,7 @@ body.in-set .tools-layout { grid-template-columns: minmax(0, 1fr); }
 .rec-about dd {
   margin: 0;
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text);
 }
 .rec-about dd.warn { color: var(--rust); }
@@ -3197,7 +3211,7 @@ body.in-set .tools-layout { grid-template-columns: minmax(0, 1fr); }
 }
 
 .editor-label {
-  font-size: 10px;
+  font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.18em;
   color: var(--text-soft);
@@ -3210,14 +3224,14 @@ body.in-set .tools-layout { grid-template-columns: minmax(0, 1fr); }
 .chip {
   padding: 3px 9px;
   font-family: var(--sans);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 16px;
   color: var(--text-soft);
   background: none;
   border: 1px solid var(--line);
   border-radius: 11px;
 }
-.chip:hover { color: var(--blush-deep); border-color: var(--blush); }
+.chip:hover { color: var(--label); border-color: var(--blush); }
 .chip[aria-pressed="true"] {
   background: var(--charcoal);
   border-color: var(--charcoal);
@@ -3238,7 +3252,7 @@ body.in-set .tools-layout { grid-template-columns: minmax(0, 1fr); }
   border: none;
   padding: 0 6px 0 0;
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 12px;
   text-align: right;
   color: var(--text-soft);
   white-space: nowrap;
@@ -3286,7 +3300,7 @@ body.in-set .tools-layout { grid-template-columns: minmax(0, 1fr); }
      do. */
   white-space: nowrap;
   font-family: var(--sans);
-  font-size: 10.5px;
+  font-size: 12px;
   letter-spacing: 0.04em;
   color: var(--text-soft);
   font-variant-numeric: tabular-nums;
@@ -3301,7 +3315,7 @@ body.in-set .tools-layout { grid-template-columns: minmax(0, 1fr); }
   /* Forty-four rather than the 42 this was: ten pixels across five rows to
      stop every slot on the phone being under a fingertip, and a slot is
      also where a long press starts. */
-  .sketch-grid .cell { min-height: 44px; font-size: 9.5px; }
+  .sketch-grid .cell { min-height: 44px; font-size: 12px; }
   .track-name { font-size: 12.5px; }
   /* A step is aimed at deliberately, not struck, and sixteen of them across
      430 pixels puts 44 out of reach arithmetically. Twenty-six is what is
@@ -3309,7 +3323,7 @@ body.in-set .tools-layout { grid-template-columns: minmax(0, 1fr); }
      one row rather than between two. It was 18. */
   .step { height: 26px; }
   .steps { grid-template-columns: 34px repeat(var(--cols, 8), minmax(0, 1fr)); gap: 1px; }
-  .step-name { font-size: 9px; padding-right: 4px; }
+  .step-name { font-size: 12px; padding-right: 4px; }
   .sketch-pos { font-size: 19px; min-width: 46px; }
   .sketch-name { width: 120px; }
 }
@@ -3358,14 +3372,14 @@ body.in-set .tools-layout { grid-template-columns: minmax(0, 1fr); }
   border: 1px solid var(--line);
   padding: 5px 12px;
   font-family: var(--sans);
-  font-size: 11px;
+  font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.14em;
   color: var(--text-soft);
 }
 .ab-option:first-child { border-radius: 14px 0 0 14px; }
 .ab-option:last-child { border-radius: 0 14px 14px 0; border-left: none; }
-.ab-option:hover { color: var(--blush-deep); }
+.ab-option:hover { color: var(--label); }
 .ab-option[aria-checked="true"] {
   background: var(--charcoal);
   border-color: var(--charcoal);
@@ -3380,12 +3394,12 @@ body.in-set .tools-layout { grid-template-columns: minmax(0, 1fr); }
   border-radius: 14px;
   padding: 5px 12px;
   font-family: var(--sans);
-  font-size: 11px;
+  font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.14em;
   color: var(--text-soft);
 }
-.match-btn:hover { color: var(--blush-deep); }
+.match-btn:hover { color: var(--label); }
 .match-btn[aria-pressed="true"] {
   background: var(--charcoal);
   border-color: var(--charcoal);
@@ -3430,7 +3444,7 @@ body.in-set .tools-layout { grid-template-columns: minmax(0, 1fr); }
 .strip-db {
   font-family: var(--serif);
   font-size: 15px;
-  color: var(--blush-deep);
+  color: var(--label);
   font-variant-numeric: tabular-nums;
 }
 
@@ -3442,7 +3456,7 @@ body.in-set .tools-layout { grid-template-columns: minmax(0, 1fr); }
   margin-bottom: 6px;
 }
 .strip-label {
-  font-size: 9.5px;
+  font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.14em;
   color: var(--text-soft);
@@ -3450,7 +3464,7 @@ body.in-set .tools-layout { grid-template-columns: minmax(0, 1fr); }
 .strip-dial input[type="range"] { width: 100%; accent-color: var(--blush-deep); }
 .strip-dial input[type="range"]:disabled { accent-color: var(--line); }
 .strip-read {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-soft);
   text-align: right;
   font-variant-numeric: tabular-nums;
@@ -3467,12 +3481,12 @@ body.in-set .tools-layout { grid-template-columns: minmax(0, 1fr); }
   border-radius: 2px;
   padding: 3px 0;
   font-family: var(--sans);
-  font-size: 9.5px;
+  font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.1em;
   color: var(--text-soft);
 }
-.strip-btn:hover { color: var(--blush-deep); }
+.strip-btn:hover { color: var(--label); }
 .strip-btn[aria-pressed="true"] {
   background: var(--charcoal);
   border-color: var(--charcoal);
@@ -3504,10 +3518,10 @@ body.in-set .tools-layout { grid-template-columns: minmax(0, 1fr); }
   margin-bottom: 10px;
 }
 .tone-cap {
-  font-size: 9.5px;
+  font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.14em;
-  color: var(--gold);
+  color: var(--gold-deep);
 }
 
 /* The same four columns as .strips, at the same breakpoint, so the two read
@@ -3536,11 +3550,11 @@ body.in-set .tools-layout { grid-template-columns: minmax(0, 1fr); }
   gap: 8px;
   margin-bottom: 5px;
 }
-.tone-band-name { font-size: 11px; color: var(--text-soft); }
+.tone-band-name { font-size: 12px; color: var(--text-soft); }
 .tone-band input[type="range"] { width: 100%; accent-color: var(--gold); }
 .tone-band input[type="range"]:disabled { accent-color: var(--line); }
 .tone-read {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-soft);
   text-align: right;
   font-variant-numeric: tabular-nums;
@@ -3573,7 +3587,7 @@ body.in-set .tools-layout { grid-template-columns: minmax(0, 1fr); }
   color: var(--charcoal);
   font-variant-numeric: tabular-nums;
 }
-.mark-where { font-size: 10.5px; color: var(--text-soft); }
+.mark-where { font-size: 12px; color: var(--text-soft); }
 
 /* The mix's answer bar: the tools' bar, inside a sheet. Pulled out over the
    sheet's padding so it runs edge to edge, and stuck to the bottom of the
@@ -3622,10 +3636,10 @@ body.in-set .tools-layout { grid-template-columns: minmax(0, 1fr); }
   gap: 8px;
 }
 .insert-name {
-  font-size: 9.5px;
+  font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.16em;
-  color: var(--blush-deep);
+  color: var(--label);
 }
 
 .insert-move { display: flex; gap: 2px; flex: none; }
@@ -3648,7 +3662,7 @@ body.in-set .tools-layout { grid-template-columns: minmax(0, 1fr); }
   color: var(--text-soft);
 }
 .insert-nudge:hover:not(:disabled) {
-  color: var(--blush-deep);
+  color: var(--label);
   border-color: var(--blush-deep);
 }
 .insert-nudge:disabled { color: var(--unresolved); border-color: var(--cream-2); }
@@ -3668,10 +3682,10 @@ body.in-set .tools-layout { grid-template-columns: minmax(0, 1fr); }
   align-items: center;
   gap: 6px;
 }
-.insert-knob-name { font-size: 10px; color: var(--text-soft); }
+.insert-knob-name { font-size: 12px; color: var(--text-soft); }
 .insert-knob input[type="range"] { width: 100%; accent-color: var(--blush-deep); }
 .insert-knob-read {
-  font-size: 10.5px;
+  font-size: 12px;
   color: var(--text);
   text-align: right;
   font-variant-numeric: tabular-nums;
@@ -3700,7 +3714,7 @@ body.in-set .tools-layout { grid-template-columns: minmax(0, 1fr); }
   justify-content: center;
   padding: 10px 6px;
   font-family: var(--sans);
-  font-size: 11px;
+  font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.12em;
   color: var(--text);
@@ -3712,7 +3726,7 @@ body.in-set .tools-layout { grid-template-columns: minmax(0, 1fr); }
   touch-action: manipulation;
   user-select: none;
 }
-.pad:hover { border-color: var(--blush); color: var(--blush-deep); }
+.pad:hover { border-color: var(--blush); color: var(--label); }
 .pad:active {
   background: var(--charcoal);
   border-color: var(--charcoal);
@@ -3738,7 +3752,7 @@ body.in-set .tools-layout { grid-template-columns: minmax(0, 1fr); }
   border-radius: 22px;
   background: var(--paper);
 }
-.editor-outs [data-mic]:hover { border-color: var(--blush); color: var(--blush-deep); }
+.editor-outs [data-mic]:hover { border-color: var(--blush); color: var(--label); }
 .editor-outs [data-mic][aria-pressed="true"] {
   background: var(--rust);
   border-color: var(--rust);
@@ -3762,7 +3776,7 @@ body.in-set .tools-layout { grid-template-columns: minmax(0, 1fr); }
   position: absolute;
   right: 3px;
   bottom: 2px;
-  font-size: 8.5px;
+  font-size: 12px;
   letter-spacing: 0.04em;
   color: var(--text-soft);
   pointer-events: none;
@@ -3799,10 +3813,10 @@ button.insert-name {
   border: none;
   padding: 0;
   font: inherit;
-  font-size: 9.5px;
+  font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.16em;
-  color: var(--blush-deep);
+  color: var(--label);
   cursor: pointer;
 }
 button.insert-name:hover { color: var(--charcoal); }
@@ -3835,7 +3849,7 @@ button.insert-name:hover { color: var(--charcoal); }
   line-height: 1;
   padding: 7px 10px;
 }
-.menu-btn:hover { color: var(--blush-deep); border-color: var(--blush); }
+.menu-btn:hover { color: var(--label); border-color: var(--blush); }
 
 .sketch-said { margin: 14px 0 0; min-height: 1em; }
 
@@ -3852,7 +3866,7 @@ button.insert-name:hover { color: var(--charcoal); }
 /* The key, beside the rows it decides, because that is all it does. */
 .row-key {
   font-family: var(--sans);
-  font-size: 11px;
+  font-size: 12px;
   padding: 3px 6px;
   border: 1px solid var(--line);
   border-radius: 11px;
@@ -3895,7 +3909,7 @@ button.insert-name:hover { color: var(--charcoal); }
 .clip-sums::after {
   content: '▾';
   margin-left: auto;
-  font-size: 10px;
+  font-size: 12px;
   color: var(--line);
 }
 .clip-setup[open] .clip-sums {
@@ -3948,7 +3962,7 @@ button.insert-name:hover { color: var(--charcoal); }
      widest: 103 pixels across here against 39 upright. */
   .step { height: 20px; }
   .steps { gap: 1px; }
-  .step-name { font-size: 9px; }
+  .step-name { font-size: 12px; }
 
   /* A keyboard too long for the window scrolls in itself, not by taking the
      page with it.
@@ -4088,7 +4102,7 @@ button.insert-name:hover { color: var(--charcoal); }
     .plugin:not(.comp) .plugin-controls { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; }
     .eq-knobs { gap: 8px 14px; }
     .knob { padding: 4px 6px 1px; }
-    .knob-name { font-size: 9px; letter-spacing: 0.1em; }
+    .knob-name { font-size: 12px; letter-spacing: 0.1em; }
     .knob-value { font-size: 13px; }
     .knob-dial { height: 17px; }
 

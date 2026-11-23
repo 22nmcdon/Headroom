@@ -824,7 +824,7 @@ export class EQPlugin extends PluginFace {
 
   drawGrid(c, width, height, ink) {
     c.lineWidth = 1;
-    c.font = '10px system-ui, sans-serif';
+    c.font = '12px system-ui, sans-serif';
     c.textAlign = 'center';
 
     for (const hz of GRID_HZ) {
@@ -1034,7 +1034,7 @@ export class EQPlugin extends PluginFace {
       c.fillRect(x, floor - length, bar, length);
 
       c.fillStyle = ink.soft;
-      c.font = '9px system-ui, sans-serif';
+      c.font = '12px system-ui, sans-serif';
       c.textAlign = 'center';
       c.fillText(label, i * lane + lane / 2, height - 3);
     });
@@ -1056,7 +1056,9 @@ export class EQPlugin extends PluginFace {
       const tint = ink.tints[i % ink.tints.length];
 
       c.beginPath();
-      c.arc(x, y, chosen ? 11 : 9, 0, Math.PI * 2);
+      // Wide enough to carry its type in 12px, which is the smallest text on
+      // the face.
+      c.arc(x, y, chosen ? 12 : 10, 0, Math.PI * 2);
       // The handle wears its region's colour, so the two are one thing.
       c.fillStyle = band.on ? tint : 'rgba(36, 31, 29, 0.75)';
       c.strokeStyle = band.on ? ink.paper : tint;
@@ -1065,7 +1067,7 @@ export class EQPlugin extends PluginFace {
       c.stroke();
 
       c.fillStyle = band.on ? ink.paper : tint;
-      c.font = '600 9px system-ui, sans-serif';
+      c.font = '600 12px system-ui, sans-serif';
       c.textAlign = 'center';
       c.textBaseline = 'middle';
       c.fillText(type.short, x, y + 0.5);

@@ -346,7 +346,7 @@ export class ModulationPlugin extends PluginFace {
     const mid = height / 2;
     const y = (travel) => mid - (travel / PATH_TOP) * (mid - 8);
 
-    c.font = '9.5px system-ui, sans-serif';
+    c.font = '12px system-ui, sans-serif';
     c.strokeStyle = ink.grid;
     c.lineWidth = 1;
     for (let s = 1; s < MOD_SECONDS; s += 1) {
@@ -423,7 +423,7 @@ export class ModulationPlugin extends PluginFace {
     const values = this.player.reading?.values;
     const kind = this.kind();
 
-    c.font = '9.5px system-ui, sans-serif';
+    c.font = '12px system-ui, sans-serif';
     const rows = [
       ['wired to', MOD_FAMILIES[kind.family].label],
       ['rate', values ? this.writeRate(values.hz) : '—'],

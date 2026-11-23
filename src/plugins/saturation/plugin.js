@@ -595,7 +595,7 @@ export class HeatPlugin extends PluginFace {
 
     line(this.settings, ink.blush, false);
 
-    c.font = '9.5px system-ui, sans-serif';
+    c.font = '12px system-ui, sans-serif';
     c.fillStyle = ink.soft;
     c.textAlign = 'left';
     c.fillText(this.settings.mode === 'iron' ? 'flux against core' : 'in against out', 6, 12);
@@ -616,7 +616,7 @@ export class HeatPlugin extends PluginFace {
     if (!stage) return;
     const { c, width, height } = stage;
 
-    c.font = '9.5px system-ui, sans-serif';
+    c.font = '12px system-ui, sans-serif';
     c.strokeStyle = ink.grid;
     c.lineWidth = 1;
     c.textAlign = 'right';
