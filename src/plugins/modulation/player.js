@@ -114,6 +114,9 @@ export class ModPlayer extends LoopPlayer {
 
   // One source into both, so the two sweeps run over the same samples and
   // the flip lands on the same moment of the loop.
+  /** Bypassed, the loop still reaches the meter the trace is drawn from. */
+  dryTo() { return this.meter; }
+
   wire(at) {
     this.start(this.buffer, (node) => {
       node.connect(this.mine.input);

@@ -233,3 +233,26 @@ test('a destroyed player stays destroyed, whoever still holds it', async () => {
   assert.equal(engine.made.length, before, 'nothing was built or started after the end');
   assert.equal(player.ready, false);
 });
+
+test('bypass hears the dry loop in place of yours, and leaves theirs alone', () => {
+  const player = new LoopPlayer({});
+  assert.deepEqual(player.sides(), { mine: 1, dry: 0, theirs: 0 });
+
+  player.setBypass(true);
+  assert.deepEqual(player.sides(), { mine: 0, dry: 1, theirs: 0 }, 'yours, out of circuit');
+
+  player.hear('theirs');
+  assert.deepEqual(player.sides(), { mine: 0, dry: 0, theirs: 1 }, 'theirs is not yours to bypass');
+
+  player.hear('mine');
+  player.setBypass(false);
+  assert.deepEqual(player.sides(), { mine: 1, dry: 0, theirs: 0 });
+});
+
+test('the dry path is fed from the loop as it comes in, and nothing else', () => {
+  const player = new LoopPlayer({});
+  const loop = {};
+  player.buffer = loop;
+  assert.equal(player.isDry(loop), true);
+  assert.equal(player.isDry({}), false, 'a reverb tail, a key, a far microphone: not the loop');
+});

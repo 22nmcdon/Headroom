@@ -65,8 +65,10 @@ test('nothing reaches across and hides what another function owns', () => {
   const to = main.indexOf('function buildHead()');
   assert.ok(from > 0 && to > from, 'putExercise is no longer where this test looks');
 
-  const hidden = [...main.slice(from, to).matchAll(/\$\('(#[\w-]+)'\)\.hidden\s*=/g)]
-    .map((m) => m[1])
+  // The undo strip is held by reference rather than looked up, because it
+  // moves onto the face's own title strip; it is still one of these.
+  const hidden = [...main.slice(from, to).matchAll(/(?:\$\('(#[\w-]+)'\)|(FACE_TOOLS))\.hidden\s*=/g)]
+    .map((m) => m[1] ?? '#faceTools')
     .sort();
 
   // What it owns is the choice between a tool and a drill: the tool's

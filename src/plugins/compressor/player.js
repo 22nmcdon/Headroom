@@ -247,6 +247,9 @@ export class CompPlayer extends LoopPlayer {
    * eighth of the bass and the whole exercise is about a different bar. The
    * base hands every `start` here the one `at`, which is what keeps them so.
    */
+  /** Bypassed, the loop still reaches the output meter. */
+  dryTo() { return this.outMeter; }
+
   wire(at) {
     this.start(this.buffer, (node) => {
       node.connect(this.inMeter);

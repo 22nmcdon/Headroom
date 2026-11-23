@@ -151,7 +151,7 @@ export class LimiterPlugin extends PluginFace {
     this.el.innerHTML = `${host}
       <div class="plugin limiter${this.role === 'insert' ? ' is-insert' : ''}">
         <div class="plugin-head">
-          <span class="plugin-lamp"></span>
+          ${this.lamp()}
           <span class="plugin-name">Limiter</span>
           <span class="plugin-trim" id="ceilLive"></span>
           <span class="plugin-trim" id="ceilAgainst"></span>

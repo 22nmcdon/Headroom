@@ -191,7 +191,7 @@ export class EchoPlugin extends PluginFace {
     this.el.innerHTML = `${host}
       <div class="plugin echo${this.role === 'insert' ? ' is-insert' : ''}">
         <div class="plugin-head">
-          <span class="plugin-lamp"></span>
+          ${this.lamp()}
           <span class="plugin-name">Delay</span>
           <span class="plugin-trim" id="echoTrim"></span>
           <span class="plugin-read" id="echoRead"></span>

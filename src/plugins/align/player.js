@@ -216,6 +216,15 @@ export class PairPlayer extends LoopPlayer {
 
   // Each microphone is one source feeding both sides, so the two sides of
   // the A/B are one pair of sources and cannot drift apart.
+  /**
+   * Bypassed, the two microphones are heard as they were recorded: summed,
+   * with no delay, no flip and the far one at its own level - which is what
+   * the device is there to improve on. Both loops are the dry signal.
+   */
+  dryTo() { return this.meter; }
+
+  isDry(buffer) { return buffer === this.buffer || buffer === this.farBuffer; }
+
   wire(at) {
     this.start(this.buffer, (node) => {
       node.connect(this.mine.delay);

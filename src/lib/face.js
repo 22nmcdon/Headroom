@@ -32,6 +32,44 @@ export class PluginFace {
     this.otherName = other;
     this.hearAttr = hearAttr;
     this.hearing = 'mine';
+    this.bypassed = false;
+  }
+
+  /* ---------- the On switch ---------- */
+
+  /**
+   * The lamp on the title strip, as a switch: on is in circuit, off is the
+   * loop heard with nothing done to it. The device's own control - a bypass
+   * compares yours with nothing, where the A/B compares yours with somebody
+   * else's.
+   *
+   * A face on the sketchpad keeps a plain lamp: a track's insert has its own
+   * on/off beside the chip that adds it, and two switches for one thing is
+   * one too many.
+   */
+  lamp() {
+    if (this.role === 'insert') return '<span class="plugin-lamp"></span>';
+    if (!this.bypassWired) {
+      this.bypassWired = true;
+      this.el.addEventListener('click', (event) => {
+        if (event.target.closest('[data-bypass]')) this.setBypass(!this.bypassed);
+      });
+    }
+    return `<button class="plugin-onoff${this.bypassed ? ' is-off' : ''}" type="button" data-bypass`
+      + ` aria-pressed="${!this.bypassed}" title="On: in circuit. Press to bypass it.">`
+      + `<span class="plugin-lamp"></span><span class="plugin-onoff-word">${this.bypassed ? 'Off' : 'On'}</span></button>`;
+  }
+
+  /** In circuit, or bypassed. */
+  setBypass(on) {
+    this.bypassed = !!on;
+    this.player?.setBypass?.(this.bypassed);
+    for (const button of this.el.querySelectorAll('[data-bypass]')) {
+      button.classList.toggle('is-off', this.bypassed);
+      button.setAttribute('aria-pressed', String(!this.bypassed));
+      const word = button.querySelector('.plugin-onoff-word');
+      if (word) word.textContent = this.bypassed ? 'Off' : 'On';
+    }
   }
 
   /** The element the whole face is drawn in, inside `this.el`. */

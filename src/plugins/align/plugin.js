@@ -137,7 +137,7 @@ export class AlignPlugin extends PluginFace {
     this.el.innerHTML = `${host}
       <div class="plugin align${this.role === 'insert' ? ' is-insert' : ''}">
         <div class="plugin-head">
-          <span class="plugin-lamp"></span>
+          ${this.lamp()}
           <span class="plugin-name">Align</span>
           <span class="plugin-trim" id="alignTrim"></span>
           <span class="plugin-read" id="alignRead"></span>

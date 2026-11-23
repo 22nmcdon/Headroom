@@ -233,7 +233,7 @@ export class HeatPlugin extends PluginFace {
     this.el.innerHTML = `${host}
       <div class="plugin heat${this.role === 'insert' ? ' is-insert' : ''}" data-curve="${this.settings.mode}">
         <div class="plugin-head">
-          <span class="plugin-lamp"></span>
+          ${this.lamp()}
           <span class="plugin-name">Saturation</span>
           <span class="plugin-read" id="heatRead"></span>
           <div class="plugin-ab" role="group" aria-label="What you are monitoring">

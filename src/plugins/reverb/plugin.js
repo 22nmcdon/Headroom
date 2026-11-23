@@ -197,7 +197,7 @@ export class VerbPlugin extends PluginFace {
     this.el.innerHTML = `${host}
       <div class="plugin verb${this.role === 'insert' ? ' is-insert' : ''}">
         <div class="plugin-head">
-          <span class="plugin-lamp"></span>
+          ${this.lamp()}
           <span class="plugin-name">Reverb</span>
           <span class="plugin-trim" id="verbTrim"></span>
           <span class="plugin-read" id="verbRead"></span>

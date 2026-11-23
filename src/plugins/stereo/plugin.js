@@ -251,7 +251,7 @@ export class StereoPlugin extends PluginFace {
     this.el.innerHTML = `${host}
       <div class="plugin stereo${this.role === 'insert' ? ' is-insert' : ''}">
         <div class="plugin-head">
-          <span class="plugin-lamp"></span>
+          ${this.lamp()}
           <span class="plugin-name">Stereo image</span>
           <span class="plugin-trim" id="stereoTrim"></span>
           <span class="plugin-read" id="stereoRead"></span>

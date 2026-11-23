@@ -104,6 +104,9 @@ export class StereoPlayer extends LoopPlayer {
 
   // One source into both imagers, so the two sides are the same samples at
   // the same instant and the flip compares nothing but the two imagers.
+  /** Bypassed, the loop still goes through the bus the goniometer watches. */
+  dryTo() { return this.bus; }
+
   wire(at) {
     this.start(this.buffer, (node) => {
       node.connect(this.mine.input);

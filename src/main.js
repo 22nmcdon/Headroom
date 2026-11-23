@@ -589,7 +589,7 @@ async function putExercise() {
   // a no-op, so nothing is spent on pictures nobody is looking at.
   $('#surface').hidden = drilling;
   // Undo and the A/B slots are for settings you dial, and a drill dials none.
-  $('#faceTools').hidden = drilling;
+  FACE_TOOLS.hidden = drilling;
   $('#drill').hidden = !drilling;
   $('#picker').hidden = !drilling;
   // Yours and the other side on work; on a drill the other side is the
@@ -654,6 +654,10 @@ async function putExercise() {
  * A snapshot is taken when a change has settled rather than on every step of
  * a drag: one turn of a knob is one undo.
  */
+// Held rather than looked up: while a face rebuilds its strip, the tools
+// are out of the document for a moment, and a lookup by id finds nothing.
+const FACE_TOOLS = document.querySelector('#faceTools');
+
 const faceTools = {
   history: makeHistory(),
   slots: { on: 'A', A: null, B: null },
@@ -667,10 +671,29 @@ const SETTLE_MS = 350;
 
 function resetFaceTools() {
   clearTimeout(faceTools.settle);
+  // A new round starts in circuit.
+  ui.tool?.setBypass?.(false);
+  mountFaceTools();
   const state = ui.tool?.state?.();
   faceTools.history.reset(state);
   faceTools.slots = { on: 'A', A: null, B: null };
   syncFaceTools();
+}
+
+/**
+ * Put undo, redo and the slots on the face's own title strip, where the
+ * canvas draws them, beside the On switch and the summary.
+ *
+ * Moved rather than drawn there by each face: they are the host's, and the
+ * twelve faces did not have to change for them. A face that rebuilds itself
+ * - the compressor does, changing family - takes its strip with it, so the
+ * surface is watched and they are put back.
+ */
+function mountFaceTools() {
+  const tools = FACE_TOOLS;
+  const head = $('#surface .plugin-head');
+  if (head && tools.parentElement !== head) head.append(tools);
+  if (!head && tools.parentElement !== $('.surface-wrap')) $('.surface-wrap').prepend(tools);
 }
 
 function noteChange() {
@@ -737,11 +760,11 @@ function copySlot() {
 
 function syncFaceTools() {
   const open = settable();
-  $('#undo').disabled = !open || !faceTools.history.canUndo;
-  $('#redo').disabled = !open || !faceTools.history.canRedo;
-  $('#slotCopy').disabled = !open;
-  $('#slotCopy').textContent = faceTools.slots.on === 'A' ? 'A → B' : 'B → A';
-  for (const button of document.querySelectorAll('#faceTools [data-slot]')) {
+  FACE_TOOLS.querySelector('#undo').disabled = !open || !faceTools.history.canUndo;
+  FACE_TOOLS.querySelector('#redo').disabled = !open || !faceTools.history.canRedo;
+  FACE_TOOLS.querySelector('#slotCopy').disabled = !open;
+  FACE_TOOLS.querySelector('#slotCopy').textContent = faceTools.slots.on === 'A' ? 'A → B' : 'B → A';
+  for (const button of FACE_TOOLS.querySelectorAll('[data-slot]')) {
     button.setAttribute('aria-checked', button.dataset.slot === faceTools.slots.on ? 'true' : 'false');
     button.disabled = !open;
   }
@@ -1838,7 +1861,9 @@ function fillHelp() {
     'Drag up or down; hold Shift for fine. Click the number above a knob - or press '
     + 'Enter on it - to type a value: 400, 0.4k and 400 Hz are the same frequency, 1.2 s '
     + 'and 1200 ms the same time. Double-click or Alt-click a knob to put it back where '
-    + 'it rests. Undo and Redo, and the A and B slots, are above the face.',
+    + 'it rests. On the face\'s title strip: On, which takes the device out of circuit '
+    + 'so you hear the loop with nothing done to it; Undo and Redo; and two slots, A and '
+    + 'B, for comparing two settings of your own.',
   ]);
 
   for (const spec of tool().settings ?? []) {
@@ -1972,10 +1997,13 @@ function wire() {
     await ui.tool?.toggle?.();
     syncTransport();
   });
-  $('#undo').addEventListener('click', undoStep);
-  $('#redo').addEventListener('click', redoStep);
-  $('#slotCopy').addEventListener('click', copySlot);
-  $('#faceTools').addEventListener('click', (e) => {
+  new MutationObserver(() => {
+    if (!FACE_TOOLS.isConnected || !FACE_TOOLS.closest('.plugin-head')) mountFaceTools();
+  }).observe($('#surface'), { childList: true, subtree: true });
+  FACE_TOOLS.querySelector('#undo').addEventListener('click', undoStep);
+  FACE_TOOLS.querySelector('#redo').addEventListener('click', redoStep);
+  FACE_TOOLS.querySelector('#slotCopy').addEventListener('click', copySlot);
+  FACE_TOOLS.addEventListener('click', (e) => {
     const slot = e.target.closest('[data-slot]')?.dataset.slot;
     if (slot) toSlot(slot);
   });
@@ -2030,7 +2058,7 @@ function wire() {
     if (ui.view !== 'tools' || ui.learning) return;
     // Undo and redo, the way every editor has them.
     if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z' || e.key === 'y')) {
-      if ($('#faceTools').hidden) return;
+      if (FACE_TOOLS.hidden) return;
       e.preventDefault();
       if (e.key === 'y' || e.shiftKey) redoStep();
       else undoStep();

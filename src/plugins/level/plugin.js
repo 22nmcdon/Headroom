@@ -125,7 +125,7 @@ export class LevelPlugin extends PluginFace {
     this.el.innerHTML = `${host}
       <div class="plugin level${this.role === 'insert' ? ' is-insert' : ''}">
         <div class="plugin-head">
-          <span class="plugin-lamp"></span>
+          ${this.lamp()}
           <span class="plugin-name">Level</span>
           <span class="plugin-trim" id="levelAgainst"></span>
           <span class="plugin-read" id="levelRead"></span>

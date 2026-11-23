@@ -219,8 +219,10 @@ export class EQPlayer extends LoopPlayer {
     }
 
     this.soloGain.gain.setTargetAtTime(band ? 1 : 0, at, 0.01);
-    this.mine.gain.gain.setTargetAtTime(band ? 0 : (this.hearing === 'mine' ? 1 : 0), at, 0.01);
-    this.theirs.gain.gain.setTargetAtTime(band ? 0 : (this.hearing === 'mine' ? 0 : 1), at, 0.01);
+    const level = this.sides();
+    this.mine.gain.gain.setTargetAtTime(band ? 0 : level.mine, at, 0.01);
+    this.theirs.gain.gain.setTargetAtTime(band ? 0 : level.theirs, at, 0.01);
+    this.dry?.gain.setTargetAtTime(band ? 0 : level.dry, at, 0.01);
   }
 
   /**
@@ -246,9 +248,22 @@ export class EQPlayer extends LoopPlayer {
   flip() {
     if (!this.ready || this.soloing) return;
     const at = this.engine.ctx.currentTime;
-    this.mine.gain.gain.setTargetAtTime(this.hearing === 'mine' ? 1 : 0, at, GLIDE);
-    this.theirs.gain.gain.setTargetAtTime(this.hearing === 'mine' ? 0 : 1, at, GLIDE);
+    const level = this.sides();
+    this.mine.gain.gain.setTargetAtTime(level.mine, at, GLIDE);
+    this.theirs.gain.gain.setTargetAtTime(level.theirs, at, GLIDE);
+    this.dry?.gain.setTargetAtTime(level.dry, at, GLIDE);
   }
+
+  /**
+   * Bypassed, the sample is heard with its fault and without your bands. The
+   * fault is a filter here rather than baked into the loop, so the dry path
+   * is fed from after it, not from the loop.
+   */
+  dryTo() { return this.analyser; }
+
+  isDry() { return false; }
+
+  feedDry(dry) { this.faultNode.connect(dry); }
 
   /** The loop goes in ahead of the fault, which is ahead of everything. */
   wire(at) {

@@ -305,6 +305,9 @@ export class ImpulsePlayer extends LoopPlayer {
 
   // One dry loop feeding both sides, so flipping between them is the effect
   // changing and not the take changing.
+  /** Bypassed, the loop still reaches the meter. */
+  dryTo() { return this.meter; }
+
   wire(at) {
     this.looping = this.buffer;
     this.start(this.buffer, (node) => {

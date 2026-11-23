@@ -302,11 +302,16 @@ whatever the exercise calls it — on work, and **Hear it clean** on a drill,
 where the chips are on the paper where the tool was. Starting the loop and
 choosing which side you hear are the host's jobs rather than the device's, so
 no face carries them; the sample and *Open a file* stay on the paper above the
-face, beside **Undo**, **Redo** (Ctrl+Z, Ctrl+Shift+Z) and two slots, **A** and
-**B**, for comparing two settings of your own — the A/B a plugin host has, as
-against Yours / Target, which compares yours with the answer. Both are built on
-what every face already does, its state and putting a state back, so none of
-the twelve had to change for them; one turn of a knob is one step of undo. The mix has the same bar:
+face. Every face's title strip is laid out the same way: **On** — the lamp,
+now a switch, which takes the device out of circuit so yours is heard as the
+loop with nothing done to it — then its name, what it is doing in one line, and
+**Undo**, **Redo** (Ctrl+Z, Ctrl+Shift+Z) and two slots, **A** and **B**, for
+comparing two settings of your own: the A/B a plugin host has, as against
+Yours / Target, which compares yours with the answer. Undo and the slots are
+built on what every face already does, its state and putting a state back, so
+none of the twelve had to change for them; one turn of a knob is one step of
+undo. The bypass is one dry path in the shared player, fed from the loop as it
+comes in and sent wherever yours goes, so the meters show it too. The mix has the same bar:
 Play, Yours / The one to match, the ways out and **Submit the mix**.
 
 The address says where you are — `#/home`, `#/tools/reverb/drill/medium`,

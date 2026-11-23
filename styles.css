@@ -1602,6 +1602,48 @@ input.knob-entry { font: inherit; font-size: var(--read, 13.5px); color: inherit
   box-shadow: 0 0 7px rgba(111, 127, 99, 0.9), 0 0 0 1px #1a1614;
 }
 
+/* The lamp as a switch: lit and On in circuit, dark and Off bypassed. */
+.plugin-onoff {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 28px;
+  padding: 0 9px;
+  border: 1px solid #5a514b;
+  border-radius: 2px;
+  background: transparent;
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  color: var(--ink);
+}
+.plugin-onoff:hover { border-color: var(--ink-faint); }
+.plugin-onoff.is-off { color: var(--ink-soft); }
+.plugin-onoff.is-off .plugin-lamp { background: #4a423d; box-shadow: 0 0 0 1px #1a1614; }
+
+/* The summary sits between what the device is and what you can do to it. */
+.plugin-head .plugin-read { margin-inline: auto; }
+.plugin-head .plugin-trim + .plugin-read { margin-left: 0; }
+
+/* Undo, redo and the slots, moved onto the face's own strip by the shell:
+   the same furniture, in the face's colours. */
+.plugin-head .face-tools { position: static; margin: 0 0 0 auto; gap: 4px; }
+.plugin-head .face-tool,
+.plugin-head .face-slot {
+  min-height: 28px;
+  padding: 0 9px;
+  border-color: #5a514b;
+  background: transparent;
+  color: var(--ink);
+  letter-spacing: 0.08em;
+}
+.plugin-head .face-tool:hover:not(:disabled),
+.plugin-head .face-slot:hover:not(:disabled) { border-color: var(--ink-faint); }
+.plugin-head .face-tool:disabled,
+.plugin-head .face-slot:disabled { color: var(--ink-faint); opacity: 0.6; }
+.plugin-head .face-slot[aria-checked="true"] { background: var(--blush); border-color: var(--blush); color: var(--charcoal); }
+
 /* --- the reverb's two displays ---------------------------------------------- */
 /* Two pictures of one room, because they answer different questions. The
    impulse is what the room is - the gap before it answers, the walls arriving

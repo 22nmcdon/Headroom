@@ -120,7 +120,7 @@ export class ModulationPlugin extends PluginFace {
     this.el.innerHTML = `${host}
       <div class="plugin modulation${this.role === 'insert' ? ' is-insert' : ''}">
         <div class="plugin-head">
-          <span class="plugin-lamp"></span>
+          ${this.lamp()}
           <span class="plugin-name" id="modName">Modulation</span>
           <span class="plugin-trim" id="modTrim"></span>
           <span class="plugin-read" id="modRead"></span>

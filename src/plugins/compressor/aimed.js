@@ -333,7 +333,7 @@ export class AimedPlugin extends PluginFace {
     this.el.innerHTML = `${host}
       <div class="plugin ${mark}${this.role === 'insert' ? ' is-insert' : ''}">
         <div class="plugin-head">
-          <span class="plugin-lamp"></span>
+          ${this.lamp()}
           <span class="plugin-name">${this.spec.name}</span>
           <span class="plugin-trim" id="${mark}Live"></span>
           <span class="plugin-read" id="${mark}Read"></span>

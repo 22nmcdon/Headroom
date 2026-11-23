@@ -38,6 +38,11 @@ export class LoopPlayer {
     this.source = source;
     this.spread = spread;
     this.hearing = 'mine';
+    // Out of circuit: yours is heard as the loop it is given, with nothing
+    // done to it. The device's own switch, and nothing to do with the A/B,
+    // which compares yours with somebody else's.
+    this.bypassed = false;
+    this.dry = null;
     this.fault = null;
     this.yours = null;
     // The loop as it is heard, and as it was before the fault went in.
@@ -78,6 +83,19 @@ export class LoopPlayer {
   /** Whatever has to follow a change of settings onto the graph. */
   apply() {}
 
+  /**
+   * Where the dry loop goes when the device is bypassed: wherever yours goes,
+   * so the meters and pictures downstream show the bypass too. The engine's
+   * output, unless a subclass has something in between.
+   */
+  dryTo() { return this.engine.out; }
+
+  /** Whether a buffer being started is the loop as it comes in. */
+  isDry(buffer) { return buffer === this.buffer; }
+
+  /** Anything else that should feed the dry path, for a graph that has it. */
+  feedDry(dry) {}
+
   /* ---------- the graph ---------- */
 
   /**
@@ -115,6 +133,12 @@ export class LoopPlayer {
       this.takeDown();
       return;
     }
+    // The bypass: the loop as it comes in, straight to where yours goes,
+    // silent until the device is switched out.
+    this.dry = this.own(ctx.createGain());
+    this.dry.gain.value = 0;
+    this.dry.connect(this.dryTo());
+    this.feedDry(this.dry);
     this.ready = true;
     this.apply();
     this.flip();
@@ -189,6 +213,25 @@ export class LoopPlayer {
     this.flip();
   }
 
+  /** Take the device out of circuit, or put it back. */
+  setBypass(on) {
+    this.bypassed = !!on;
+    this.flip();
+  }
+
+  /**
+   * How loud each of the three should be: yours, the dry loop, theirs.
+   * Not `levels`, which two players already use for their meters.
+   */
+  sides() {
+    const mine = this.hearing === 'mine';
+    return {
+      mine: mine && !this.bypassed ? 1 : 0,
+      dry: mine && this.bypassed ? 1 : 0,
+      theirs: mine ? 0 : 1,
+    };
+  }
+
   /**
    * Put the A/B where `hearing` says. The default flips `mineOut` and
    * `theirsOut`, which is how most of the tools are wired; one that is not
@@ -197,8 +240,10 @@ export class LoopPlayer {
   flip() {
     if (!this.ready || !this.mineOut || !this.theirsOut) return;
     const at = this.engine.ctx.currentTime;
-    this.mineOut.gain.setTargetAtTime(this.hearing === 'mine' ? 1 : 0, at, GLIDE);
-    this.theirsOut.gain.setTargetAtTime(this.hearing === 'mine' ? 0 : 1, at, GLIDE);
+    const level = this.sides();
+    this.mineOut.gain.setTargetAtTime(level.mine, at, GLIDE);
+    this.theirsOut.gain.setTargetAtTime(level.theirs, at, GLIDE);
+    this.dry?.gain.setTargetAtTime(level.dry, at, GLIDE);
   }
 
   /* ---------- transport ---------- */
@@ -212,6 +257,7 @@ export class LoopPlayer {
     node.buffer = buffer;
     node.loop = loop;
     connect(node);
+    if (this.dry && this.isDry(buffer)) node.connect(this.dry);
     node.start(at, offset);
     this.sources.add(node);
     node.onended = () => this.sources.delete(node);

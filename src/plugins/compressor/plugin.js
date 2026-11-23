@@ -203,7 +203,7 @@ export class CompPlugin extends PluginFace {
     this.el.innerHTML = `${host}
       <div class="plugin comp${this.role === 'insert' ? ' is-insert' : ''}">
         <div class="plugin-head">
-          <span class="plugin-lamp"></span>
+          ${this.lamp()}
           <span class="plugin-name">Compressor</span>
           <span class="plugin-trim" id="compTrim"></span>
           <span class="plugin-read" id="compRead"></span>

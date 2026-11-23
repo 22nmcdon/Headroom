@@ -176,7 +176,7 @@ export class EQPlugin extends PluginFace {
     this.el.innerHTML = `${host}
       <div class="plugin eq${this.role === 'insert' ? ' is-insert' : ''}">
         <div class="plugin-head">
-          <span class="plugin-lamp"></span>
+          ${this.lamp()}
           <span class="plugin-name">Channel EQ</span>
           <span class="plugin-read" id="eqRead"></span>
         </div>
