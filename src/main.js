@@ -583,8 +583,9 @@ async function putExercise() {
   $('#surface').hidden = drilling;
   $('#drill').hidden = !drilling;
   $('#picker').hidden = !drilling;
-  // The bar's Play is the drill's: on a tool, Play is on the face.
-  $('#drillPlay').hidden = !drilling;
+  // Yours and the other side on work; on a drill the other side is the
+  // answer, and Hear it clean is the comparison instead.
+  $('#barAB').hidden = drilling;
 
   $('#drillAsk').textContent = exercise.ask ?? '';
 
@@ -631,11 +632,27 @@ async function putExercise() {
   syncTransport();
 }
 
-/* ---------- the drill's transport ---------- */
+/* ---------- the transport ---------- */
 
-/** Play and Stop, on a tool nobody can see. */
+/**
+ * The bar's transport, from the face: playing or not, and which side of the
+ * A/B is being heard and what each is called.
+ *
+ * Asked of the face rather than kept here, because the face can change it on
+ * its own - a new sample restarts the loop, an exercise renames the other
+ * side - and two records of one state are two answers to one question.
+ */
 function syncTransport() {
-  $('#drillPlay').textContent = ui.tool?.isPlaying?.() ? 'Stop' : 'Play';
+  const face = ui.tool;
+  $('#play').textContent = face?.isPlaying?.() ? 'Stop' : 'Play';
+
+  const heard = face?.heard?.() ?? 'mine';
+  for (const button of document.querySelectorAll('#barAB [data-side]')) {
+    const side = button.dataset.side;
+    button.setAttribute('aria-checked', side === heard ? 'true' : 'false');
+    const label = side === 'mine' ? face?.mineLabel?.() : face?.abLabel?.();
+    if (label && button.textContent !== label) button.textContent = label;
+  }
 }
 
 /**
@@ -1822,10 +1839,22 @@ function wire() {
 
   $('#again').addEventListener('click', () => (ui.set ? nextQuestion() : startGame({ fresh: true })));
 
-  $('#drillPlay').addEventListener('click', async () => {
+  $('#play').addEventListener('click', async () => {
     await ui.tool?.toggle?.();
     syncTransport();
   });
+  $('#barAB').addEventListener('click', (e) => {
+    const side = e.target.closest('[data-side]')?.dataset.side;
+    if (!side || !ui.tool?.hear) return;
+    ui.tool.hear(side);
+    syncTransport();
+  });
+  // The face can start, stop and rename on its own, so the bar looks again a
+  // few times a second while it is showing. Cheap: two reads and no writes
+  // unless something moved.
+  setInterval(() => {
+    if (ui.view === 'tools' && !ui.learning && !document.hidden) syncTransport();
+  }, 300);
   $('#drillClean').addEventListener('click', (e) => {
     setClean(e.currentTarget.getAttribute('aria-pressed') !== 'true');
   });

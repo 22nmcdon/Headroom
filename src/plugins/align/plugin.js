@@ -121,11 +121,6 @@ export class AlignPlugin extends PluginFace {
   build() {
     const host = this.role === 'insert' ? '' : `
       <div class="plugin-transport host-row">
-        <button class="play-btn" type="button" data-align="play">Play</button>
-        <div class="plugin-ab" role="group" aria-label="What you are hearing">
-          <button class="ab-btn is-on" type="button" data-align-hear="mine">Yours</button>
-          <button class="ab-btn" type="button" data-align-hear="theirs">Aligned</button>
-        </div>
         <label class="field">
           <span class="field-label">Sample</span>
           <select id="alignSource">
@@ -209,12 +204,6 @@ export class AlignPlugin extends PluginFace {
     });
 
     this.el.addEventListener('click', (e) => {
-      const hear = e.target.closest('[data-align-hear]');
-      if (hear) {
-        this.hear(hear.dataset.alignHear);
-        return;
-      }
-      if (e.target.closest('[data-align="play"]')) this.toggle();
       if (e.target.closest('[data-align="flip"]')) this.toggleFlip();
     });
 
@@ -542,8 +531,6 @@ export class AlignPlugin extends PluginFace {
 
 
   playing(on) {
-    const button = this.el.querySelector('[data-align="play"]');
-    if (button) button.textContent = on ? 'Stop' : 'Play';
     const lamp = this.el.querySelector('.plugin-lamp');
     if (lamp) lamp.classList.toggle('is-on', !!on);
   }

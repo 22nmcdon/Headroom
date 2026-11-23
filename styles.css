@@ -608,6 +608,23 @@ html { scroll-padding-bottom: 140px; }
 .dock-transport:not(:has(:not([hidden]))),
 .dock-outs:not(:has(:not([hidden]))) { display: none; }
 .dock .submit-btn { min-height: 44px; }
+/* Yours and the other side: a pair you are in one of, so a segmented pill. */
+.bar-ab { display: inline-flex; border: 1px solid var(--charcoal); border-radius: 999px; overflow: hidden; }
+.bar-ab-btn {
+  min-height: 42px;
+  padding: 0 16px;
+  border: 0;
+  background: none;
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--charcoal);
+  white-space: nowrap;
+}
+.bar-ab-btn + .bar-ab-btn { border-left: 1px solid var(--charcoal); }
+.bar-ab-btn[aria-checked="true"] { background: var(--charcoal); color: var(--cream); }
 .dock-row > .submit-btn { margin-left: auto; }
 
 .feedback {
@@ -2049,9 +2066,10 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
   .feedback { order: 1; flex-basis: 100%; }
   .dock-outs { order: 2; flex-basis: 100%; }
   .dock-transport { order: 3; }
-  .dock-row > .submit-btn { order: 4; flex: 1 1 120px; }
-  .dock .submit-btn { padding-inline: 14px; }
-  .dock-transport { gap: 14px; }
+  .dock-row > .submit-btn { order: 4; flex: 1 1 90px; }
+  .dock .submit-btn { padding-inline: 12px; }
+  .dock-transport { gap: 10px; }
+  .bar-ab-btn { padding-inline: 11px; letter-spacing: 0.08em; }
 
   dialog {
     width: 100vw;

@@ -292,9 +292,13 @@ answered correctly after taking a hint counts as played, not solved, too.
 
 The verdict, **Hint**, **Show me** and the answer button sit in a bar stuck to
 the bottom of the window, so the reading on an attempt is never somewhere you
-have to scroll to. On a drill the bar carries its Play and **Hear it clean**
-as well, and the chips are on the paper where the tool was; on a tool, Play
-and Yours / Target are still on the face for now. The mix has the same bar:
+have to scroll to. **Play** is there too, for every round, and so is the
+comparison: **Yours** and the other side — Target, Untreated, Bypass, Aligned,
+whatever the exercise calls it — on work, and **Hear it clean** on a drill,
+where the chips are on the paper where the tool was. Starting the loop and
+choosing which side you hear are the host's jobs rather than the device's, so
+no face carries them; the sample and *Open a file* stay on the paper above the
+face. The mix has the same bar:
 Play, Yours / The one to match, the ways out and **Submit the mix**.
 
 The address says where you are — `#/home`, `#/tools/reverb/drill/medium`,

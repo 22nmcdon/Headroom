@@ -59,11 +59,6 @@ const LEVEL_KNOBS = [
   },
 ];
 
-const LEVEL_SIDES = [
-  { id: 'mine', label: 'Yours' },
-  { id: 'theirs', label: 'Untreated' },
-];
-
 function levelPalette(el) {
   const style = getComputedStyle(el);
   const read = (name) => style.getPropertyValue(name).trim();
@@ -115,10 +110,6 @@ export class LevelPlugin extends PluginFace {
   build() {
     const host = this.role === 'insert' ? '' : `
       <div class="plugin-transport host-row">
-        <button class="play-btn" type="button" data-level="play">Play</button>
-        <div class="plugin-ab" role="group" aria-label="What you are hearing">
-          ${LEVEL_SIDES.map((l) => `<button class="ab-btn${l.id === 'mine' ? ' is-on' : ''}" type="button" data-hear="${l.id}">${l.label}</button>`).join('')}
-        </div>
         <label class="field">
           <span class="field-label">Sample</span>
           <select id="levelSource">
@@ -190,15 +181,6 @@ export class LevelPlugin extends PluginFace {
       const knob = LEVEL_KNOBS.find((k) => k.id === dial.dataset.dial);
       this.settings[knob.id] = offDial(knob, dial.value);
       this.changed();
-    });
-
-    this.el.addEventListener('click', (e) => {
-      const hear = e.target.closest('[data-hear]');
-      if (hear) {
-        this.hear(hear.dataset.hear);
-        return;
-      }
-      if (e.target.closest('[data-level="play"]')) this.toggle();
     });
 
     this.el.querySelector('#levelSource')
@@ -497,8 +479,6 @@ export class LevelPlugin extends PluginFace {
 
 
   playing(on) {
-    const button = this.el.querySelector('[data-level="play"]');
-    if (button) button.textContent = on ? 'Stop' : 'Play';
     cancelAnimationFrame(this.frame);
     this.frame = null;
     if (!on) { this.draw(); return; }

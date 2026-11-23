@@ -84,11 +84,6 @@ const CEIL_KNOBS = [
   },
 ];
 
-const CEIL_SIDES = [
-  { id: 'mine', label: 'Limited' },
-  { id: 'theirs', label: 'Bypass' },
-];
-
 function ceilPalette(el) {
   const style = getComputedStyle(el);
   const read = (name) => style.getPropertyValue(name).trim();
@@ -141,10 +136,6 @@ export class LimiterPlugin extends PluginFace {
   build() {
     const host = this.role === 'insert' ? '' : `
       <div class="plugin-transport host-row">
-        <button class="play-btn" type="button" data-ceil="play">Play</button>
-        <div class="plugin-ab" role="group" aria-label="What you are hearing">
-          ${CEIL_SIDES.map((l) => `<button class="ab-btn${l.id === 'mine' ? ' is-on' : ''}" type="button" data-hear="${l.id}">${l.label}</button>`).join('')}
-        </div>
         <label class="field">
           <span class="field-label">Sample</span>
           <select id="ceilSource">
@@ -237,12 +228,6 @@ export class LimiterPlugin extends PluginFace {
     });
 
     this.el.addEventListener('click', (e) => {
-      const hear = e.target.closest('[data-hear]');
-      if (hear) {
-        this.hear(hear.dataset.hear);
-        return;
-      }
-      if (e.target.closest('[data-ceil="play"]')) this.toggle();
       if (e.target.closest('[data-ceil="match"]')) this.match();
     });
 
@@ -712,8 +697,6 @@ export class LimiterPlugin extends PluginFace {
 
 
   playing(on) {
-    const button = this.el.querySelector('[data-ceil="play"]');
-    if (button) button.textContent = on ? 'Stop' : 'Play';
     cancelAnimationFrame(this.frame);
     this.frame = null;
     if (!on) { this.live = 0; this.draw(); return; }

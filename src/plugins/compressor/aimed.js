@@ -316,11 +316,6 @@ export class AimedPlugin extends PluginFace {
     const mark = this.spec.mark;
     const host = this.role === 'insert' ? '' : `
       <div class="plugin-transport host-row">
-        <button class="play-btn" type="button" data-aim="play">Play</button>
-        <div class="plugin-ab" role="group" aria-label="What you are hearing">
-          <button class="ab-btn is-on" type="button" data-aim-hear="mine">Treated</button>
-          <button class="ab-btn" type="button" data-aim-hear="theirs">${this.otherName}</button>
-        </div>
         <label class="field">
           <span class="field-label">Sample</span>
           <select id="${mark}Source">
@@ -409,12 +404,6 @@ export class AimedPlugin extends PluginFace {
     });
 
     this.el.addEventListener('click', (e) => {
-      const hear = e.target.closest('[data-aim-hear]');
-      if (hear) {
-        this.hear(hear.dataset.aimHear);
-        return;
-      }
-      if (e.target.closest('[data-aim="play"]')) this.toggle();
       if (e.target.closest('[data-aim="listen"]')) this.toggleListen();
     });
 
@@ -697,8 +686,6 @@ export class AimedPlugin extends PluginFace {
 
 
   playing(on) {
-    const button = this.el.querySelector('[data-aim="play"]');
-    if (button) button.textContent = on ? 'Stop' : 'Play';
     cancelAnimationFrame(this.frame);
     this.frame = null;
     if (!on) { this.live = 0; this.draw(); return; }

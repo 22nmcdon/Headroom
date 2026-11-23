@@ -235,11 +235,6 @@ export class StereoPlugin extends PluginFace {
     // exercise, not on the face.
     const host = this.role === 'insert' ? '' : `
       <div class="plugin-transport host-row image-transport">
-        <button class="play-btn" type="button" data-stereo="play">Play</button>
-        <div class="plugin-ab" role="group" aria-label="What you are hearing">
-          <button class="ab-btn is-on" type="button" data-hear="mine">Yours</button>
-          <button class="ab-btn" type="button" data-hear="theirs" id="stereoOther">Target</button>
-        </div>
         <label class="field">
           <span class="field-label">Sample</span>
           <select id="stereoSource">
@@ -387,11 +382,6 @@ export class StereoPlugin extends PluginFace {
     });
 
     this.el.addEventListener('click', (e) => {
-      const hear = e.target.closest('[data-hear]');
-      if (hear) {
-        this.hear(hear.dataset.hear);
-        return;
-      }
 
       const listen = e.target.closest('[data-listen]');
       if (listen) {
@@ -409,7 +399,6 @@ export class StereoPlugin extends PluginFace {
 
       const action = e.target.closest('[data-stereo]');
       if (!action) return;
-      if (action.dataset.stereo === 'play') this.toggle();
       if (action.dataset.stereo === 'reset' && this.interactive) {
         const listen = this.settings.listen;
         Object.assign(this.settings, STEREO_DEFAULTS, { listen });
@@ -584,8 +573,6 @@ export class StereoPlugin extends PluginFace {
 
 
   playing(on) {
-    const button = this.el.querySelector('[data-stereo="play"]');
-    if (button) button.textContent = on ? 'Stop' : 'Play';
     cancelAnimationFrame(this.frame);
     this.frame = null;
     if (!on) { this.draw(); return; }

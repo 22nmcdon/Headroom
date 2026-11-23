@@ -174,11 +174,6 @@ export class EchoPlugin extends PluginFace {
     // exercise, not on the face.
     const host = this.role === 'insert' ? '' : `
       <div class="plugin-transport host-row echo-transport">
-        <button class="play-btn" type="button" data-echo="play">Play</button>
-        <div class="plugin-ab" role="group" aria-label="What you are hearing">
-          <button class="ab-btn is-on" type="button" data-hear="mine">Yours</button>
-          <button class="ab-btn" type="button" data-hear="theirs" id="echoOther">Target</button>
-        </div>
         <label class="field">
           <span class="field-label">Sample</span>
           <select id="echoSource">
@@ -340,15 +335,9 @@ export class EchoPlugin extends PluginFace {
     });
 
     this.el.addEventListener('click', (e) => {
-      const hear = e.target.closest('[data-hear]');
-      if (hear) {
-        this.hear(hear.dataset.hear);
-        return;
-      }
 
       const action = e.target.closest('[data-echo]');
       if (!action) return;
-      if (action.dataset.echo === 'play') this.toggle();
       if (action.dataset.echo === 'reset' && this.interactive) {
         Object.assign(this.settings, ECHO_DEFAULTS);
         this.buildKnobs();
@@ -467,8 +456,6 @@ export class EchoPlugin extends PluginFace {
 
 
   playing(on) {
-    const button = this.el.querySelector('[data-echo="play"]');
-    if (button) button.textContent = on ? 'Stop' : 'Play';
     cancelAnimationFrame(this.frame);
     this.frame = null;
     if (!on) { this.writeReadout(); return; }

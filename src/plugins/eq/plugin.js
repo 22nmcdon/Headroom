@@ -159,11 +159,6 @@ export class EQPlugin extends PluginFace {
     // the sketchpad's own undo.
     const host = this.role === 'insert' ? '' : `
       <div class="plugin-transport host-row">
-        <button class="play-btn" type="button" data-eq="play">Play</button>
-        <div class="plugin-ab" role="group" aria-label="What you are hearing">
-          <button class="ab-btn is-on" type="button" data-hear="mine">Yours</button>
-          <button class="ab-btn" type="button" data-hear="theirs" id="eqOther">Target</button>
-        </div>
         <label class="field">
           <span class="field-label">Sample</span>
           <select id="eqSource">
@@ -524,15 +519,9 @@ export class EQPlugin extends PluginFace {
     });
 
     this.el.addEventListener('click', (e) => {
-      const hear = e.target.closest('[data-hear]');
-      if (hear) {
-        this.hear(hear.dataset.hear);
-        return;
-      }
 
       const action = e.target.closest('[data-eq]');
       if (!action) return;
-      if (action.dataset.eq === 'play') this.toggle();
       if (action.dataset.eq === 'solo') this.toggleSolo();
       if (action.dataset.eq === 'flatten' && this.interactive) {
         for (const band of this.bands) { band.gain = 0; band.on = false; }
@@ -771,8 +760,6 @@ export class EQPlugin extends PluginFace {
     // chassis with the rest of the host's furniture, which for an insert
     // means it is not built at all rather than built and hidden - and an
     // insert calls this as it opens, so this threw on every one.
-    const button = this.el.querySelector('[data-eq="play"]');
-    if (button) button.textContent = on ? 'Stop' : 'Play';
 
     cancelAnimationFrame(this.frame);
     this.frame = null;

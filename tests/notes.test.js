@@ -70,8 +70,8 @@ test('nothing reaches across and hides what another function owns', () => {
     .sort();
 
   // What it owns is the choice between a tool and a drill: the tool's
-  // surface, the drill's panel, its Play and its clean A/B in the answer
-  // bar, and the chips. The list grew when drills arrived, and it grew again
+  // surface, the drill's panel and its chips, and in the answer bar which
+  // comparison is offered - Yours and the other side, or Hear it clean. The list grew when drills arrived, and it grew again
   // for the control that puts a revealed answer on the tool - owned here
   // for the same reason the drill's A/B is, which is that a new round has no
   // answer to put anywhere and a button left over from the last one would
@@ -79,7 +79,7 @@ test('nothing reaches across and hides what another function owns', () => {
   //
   // It grows for reasons, in other words, and it is still a list: the two
   // below are what it must never grow to include.
-  assert.deepEqual(hidden, ['#drill', '#drillClean', '#drillPlay', '#onto', '#picker', '#surface'],
+  assert.deepEqual(hidden, ['#barAB', '#drill', '#drillClean', '#onto', '#picker', '#surface'],
     `putExercise writes .hidden on ${hidden.join(', ') || 'nothing'}`);
 
   // The two it must never grow to include. `#advice` is the specific bug

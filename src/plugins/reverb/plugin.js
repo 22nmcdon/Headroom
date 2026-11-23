@@ -180,11 +180,6 @@ export class VerbPlugin extends PluginFace {
     // exercise, not on the face.
     const host = this.role === 'insert' ? '' : `
       <div class="plugin-transport host-row verb-transport">
-        <button class="play-btn" type="button" data-verb="play">Play</button>
-        <div class="plugin-ab" role="group" aria-label="What you are hearing">
-          <button class="ab-btn is-on" type="button" data-hear="mine">Yours</button>
-          <button class="ab-btn" type="button" data-hear="theirs" id="verbOther">Target</button>
-        </div>
         <label class="field">
           <span class="field-label">Sample</span>
           <select id="verbSource">
@@ -299,15 +294,9 @@ export class VerbPlugin extends PluginFace {
         return;
       }
 
-      const hear = e.target.closest('[data-hear]');
-      if (hear) {
-        this.hear(hear.dataset.hear);
-        return;
-      }
 
       const action = e.target.closest('[data-verb]');
       if (!action) return;
-      if (action.dataset.verb === 'play') this.toggle();
       if (action.dataset.verb === 'reset' && this.interactive) {
         Object.assign(this.settings, VERB_DEFAULTS);
         for (const button of this.el.querySelectorAll('[data-space]')) {
@@ -383,8 +372,6 @@ export class VerbPlugin extends PluginFace {
 
 
   playing(on) {
-    const button = this.el.querySelector('[data-verb="play"]');
-    if (button) button.textContent = on ? 'Stop' : 'Play';
     cancelAnimationFrame(this.frame);
     this.frame = null;
     if (!on) { this.writeReadout(); return; }

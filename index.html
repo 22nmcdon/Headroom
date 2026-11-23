@@ -185,10 +185,16 @@
     <p class="hint-line" id="hint-line" hidden></p>
 
     <div class="dock-row">
-      <!-- A drill's transport. A tool's is on its face until the faces share
-           a chassis; a drill has put the face away. -->
+      <!-- The transport, for every round. Starting the loop and choosing which
+           side of the A/B you hear are the host's, not the device's, so they
+           are here rather than on the face: Yours and the other side on work,
+           Hear it clean on a drill, where the face is put away. -->
       <span class="dock-transport">
-        <button class="submit-btn" type="button" id="drillPlay" hidden>Play</button>
+        <button class="submit-btn" type="button" id="play">Play</button>
+        <span class="bar-ab" id="barAB" role="radiogroup" aria-label="What you are hearing">
+          <button class="bar-ab-btn" type="button" role="radio" data-side="mine" aria-checked="true">Yours</button>
+          <button class="bar-ab-btn" type="button" role="radio" data-side="theirs" aria-checked="false">Target</button>
+        </span>
         <button class="link-btn dock-out" type="button" id="drillClean" aria-pressed="false" hidden>
           Hear it clean
         </button>

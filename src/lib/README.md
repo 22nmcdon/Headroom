@@ -14,6 +14,7 @@ What more than one of the folders above needs, and nothing else.
     response.js  frequency and decay responses, for displays
     panel.js     canvas sizing, dials, resize watching, formatting a frequency
     knob.js      the knob control
+    face.js      what every plugin face has in common: play, the A/B, state, lock
     meter.js     the moving-coil meter
     player.js    the shared half of auditioning a loop
     worklet.js   installing an AudioWorklet, and the fallback

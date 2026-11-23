@@ -172,7 +172,7 @@ export async function check({ browser, at, say }) {
     let quiet = true;
     for (let visit = 0; visit < VISITS; visit += 1) {
       await openTool(tool);
-      await page.click('.surface .play-btn');
+      await page.click('#play');
       if (!(await playing())) { problems.push(`${tool}: Play made no sound`); quiet = false; break; }
       await openTool(neutral);
       await settle();
@@ -199,7 +199,7 @@ export async function check({ browser, at, say }) {
     /* --- once --- */
     await openTool(tool);
     let before = await read();
-    await page.click('.surface .play-btn');
+    await page.click('#play');
     await playing();
     await page.waitForTimeout(1200);
     const single = await read();
@@ -213,7 +213,7 @@ export async function check({ browser, at, say }) {
     // Two clicks in one task, which is the double tap: the second lands while
     // the first is still awaiting its build.
     await page.evaluate(() => {
-      const button = document.querySelector('.surface .play-btn');
+      const button = document.querySelector('#play');
       button.click();
       button.click();
     });
@@ -232,7 +232,7 @@ export async function check({ browser, at, say }) {
       row.swap = 'no picker';
     } else {
       if (!double.sounding.length) {
-        await page.click('.surface .play-btn');
+        await page.click('#play');
         await playing();
       }
       const was = new Set((await read()).sounding);

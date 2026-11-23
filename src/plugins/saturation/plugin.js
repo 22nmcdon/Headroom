@@ -217,11 +217,6 @@ export class HeatPlugin extends PluginFace {
     // host and has these already, so an insert gets none of it.
     const host = this.role === 'insert' ? '' : `
       <div class="plugin-transport host-row">
-        <button class="play-btn" type="button" data-heat="play">Play</button>
-        <div class="plugin-ab" role="group" aria-label="What you are hearing">
-          <button class="ab-btn is-on" type="button" data-hear="mine">Yours</button>
-          <button class="ab-btn" type="button" data-hear="theirs" id="heatOther">Target</button>
-        </div>
         <label class="field">
           <span class="field-label">Sample</span>
           <select id="heatSource">
@@ -344,11 +339,6 @@ export class HeatPlugin extends PluginFace {
         return;
       }
 
-      const hear = e.target.closest('[data-hear]');
-      if (hear) {
-        this.hear(hear.dataset.hear);
-        return;
-      }
 
       const listen = e.target.closest('[data-listen]');
       if (listen) {
@@ -368,7 +358,6 @@ export class HeatPlugin extends PluginFace {
 
       const action = e.target.closest('[data-heat]');
       if (!action) return;
-      if (action.dataset.heat === 'play') this.toggle();
       if (action.dataset.heat === 'reset' && this.interactive) {
         const listen = this.settings.listen;
         Object.assign(this.settings, HEAT_DEFAULTS, { listen });
@@ -527,7 +516,6 @@ export class HeatPlugin extends PluginFace {
 
 
   playing(on) {
-    this.el.querySelector('[data-heat="play"]').textContent = on ? 'Stop' : 'Play';
   }
 
   /* ---------- drawing ---------- */

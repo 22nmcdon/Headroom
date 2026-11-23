@@ -104,11 +104,6 @@ export class ModulationPlugin extends PluginFace {
   build() {
     const host = this.role === 'insert' ? '' : `
       <div class="plugin-transport host-row">
-        <button class="play-btn" type="button" data-mod="play">Play</button>
-        <div class="plugin-ab" role="group" aria-label="What you are hearing">
-          <button class="ab-btn is-on" type="button" data-mod-hear="mine">Yours</button>
-          <button class="ab-btn" type="button" data-mod-hear="theirs">Target</button>
-        </div>
         <label class="field">
           <span class="field-label">Sample</span>
           <select id="modSource">
@@ -211,14 +206,6 @@ export class ModulationPlugin extends PluginFace {
       this.changed();
     });
 
-    this.el.addEventListener('click', (e) => {
-      const hear = e.target.closest('[data-mod-hear]');
-      if (hear) {
-        this.hear(hear.dataset.modHear);
-        return;
-      }
-      if (e.target.closest('[data-mod="play"]')) this.toggle();
-    });
 
     this.el.querySelector('#modKind')?.addEventListener('change', (e) => {
       if (!this.interactive) return;
@@ -491,8 +478,6 @@ export class ModulationPlugin extends PluginFace {
 
 
   playing(on) {
-    const button = this.el.querySelector('[data-mod="play"]');
-    if (button) button.textContent = on ? 'Stop' : 'Play';
     this.el.querySelector('.plugin-lamp')?.classList.toggle('is-on', !!on);
   }
 

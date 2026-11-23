@@ -186,11 +186,6 @@ export class CompPlugin extends PluginFace {
     // exercise, not on the face.
     const host = this.role === 'insert' ? '' : `
       <div class="plugin-transport host-row comp-transport">
-        <button class="play-btn" type="button" data-comp="play">${this.player.playing ? 'Stop' : 'Play'}</button>
-        <div class="plugin-ab" role="group" aria-label="What you are hearing">
-          <button class="ab-btn${this.player.hearing === 'theirs' ? '' : ' is-on'}" type="button" data-hear="mine">Yours</button>
-          <button class="ab-btn${this.player.hearing === 'theirs' ? ' is-on' : ''}" type="button" data-hear="theirs" id="compOther">${this.otherName}</button>
-        </div>
         <label class="field">
           <span class="field-label">Sample</span>
           <select id="compSource">
@@ -437,11 +432,6 @@ export class CompPlugin extends PluginFace {
     this.wired = true;
 
     this.el.addEventListener('click', (e) => {
-      const hear = e.target.closest('[data-hear]');
-      if (hear) {
-        this.hear(hear.dataset.hear);
-        return;
-      }
 
       const detector = e.target.closest('[data-detector]');
       if (detector && this.interactive) {
@@ -456,7 +446,6 @@ export class CompPlugin extends PluginFace {
 
       const action = e.target.closest('[data-comp]');
       if (!action) return;
-      if (action.dataset.comp === 'play') this.toggle();
       if (action.dataset.comp === 'listen') this.toggleListen();
       if (action.dataset.comp === 'reset' && this.interactive) {
         Object.assign(this.settings, COMP_DEFAULTS);
@@ -585,8 +574,6 @@ export class CompPlugin extends PluginFace {
   }
 
   playing(on) {
-    const button = this.el.querySelector('[data-comp="play"]');
-    if (button) button.textContent = on ? 'Stop' : 'Play';
     cancelAnimationFrame(this.frame);
     this.frame = null;
     if (!on) { this.draw(); return; }
