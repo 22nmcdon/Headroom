@@ -11,6 +11,7 @@
 // makes alignment a craft is reading the pair, and a face without those two
 // pictures is a pair of controls with nothing to aim them with.
 
+import { PluginFace } from '../../lib/face.js';
 import {
   ALIGN_DEFAULTS, ALIGN_LIMITS, ALIGN_HZ, MOST_LAG_MS,
   alignReading, notchesOf, pairBands, cmOf, lowOf,
@@ -85,10 +86,11 @@ const logX = (hz, width) => {
   return ((Math.log2(hz) - from) / (to - from)) * width;
 };
 
-export class AlignPlugin {
+export class AlignPlugin extends PluginFace {
   constructor(el, {
     engine, settings, onChange, source = null, fault = null, player = null, role = 'tool',
   }) {
+    super({ other: 'Aligned', hearAttr: 'align-hear' });
     this.el = el;
     this.engine = engine;
     this.settings = settings ?? { ...ALIGN_DEFAULTS };
@@ -209,10 +211,7 @@ export class AlignPlugin {
     this.el.addEventListener('click', (e) => {
       const hear = e.target.closest('[data-align-hear]');
       if (hear) {
-        this.player.hear(hear.dataset.alignHear);
-        for (const button of this.el.querySelectorAll('[data-align-hear]')) {
-          button.classList.toggle('is-on', button === hear);
-        }
+        this.hear(hear.dataset.alignHear);
         return;
       }
       if (e.target.closest('[data-align="play"]')) this.toggle();
@@ -541,15 +540,6 @@ export class AlignPlugin {
 
   /* ---------- transport ---------- */
 
-  async toggle() {
-    if (this.player.playing) {
-      this.player.stop();
-      this.playing(false);
-      return;
-    }
-    await this.player.play();
-    this.playing(true);
-  }
 
   playing(on) {
     const button = this.el.querySelector('[data-align="play"]');
@@ -560,15 +550,7 @@ export class AlignPlugin {
 
   /* ---------- what a host asks of it ---------- */
 
-  setState(next) {
-    Object.assign(this.settings, next);
-    this.buildKnobs();
-    this.changed();
-  }
 
-  state() {
-    return { ...this.settings };
-  }
 
   setTarget(settings) {
     this.target = settings ?? null;
@@ -583,18 +565,8 @@ export class AlignPlugin {
     this.draw();
   }
 
-  source() {
-    return this.player.source ?? null;
-  }
 
-  abLabel() {
-    return this.el.querySelector('[data-align-hear="theirs"]')?.textContent ?? null;
-  }
 
-  nameAB(label) {
-    const slot = this.el.querySelector('[data-align-hear="theirs"]');
-    if (slot) slot.textContent = label;
-  }
 
   /**
    * What a guess is marked against: the close microphone, and nothing else.
@@ -618,15 +590,7 @@ export class AlignPlugin {
     this.draw();
   }
 
-  lock() {
-    this.interactive = false;
-    this.el.querySelector('.align')?.classList.add('is-locked');
-  }
 
-  unlock() {
-    this.interactive = true;
-    this.el.querySelector('.align')?.classList.remove('is-locked');
-  }
 
   async setSource(id) {
     this.player.source = id;

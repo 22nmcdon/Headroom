@@ -10,6 +10,7 @@
 // three or four controls whichever row of the table is selected, which is the
 // claim this suite exists to make: these are not six effects.
 
+import { PluginFace } from '../../lib/face.js';
 import {
   MOD_DEFAULTS, MOD_LIMITS, MOD_KINDS, MOD_SHAPES, MOD_SPREADS, MOD_FAMILIES,
   modKind,
@@ -65,10 +66,11 @@ function modPalette(el) {
   };
 }
 
-export class ModulationPlugin {
+export class ModulationPlugin extends PluginFace {
   constructor(el, {
     engine, settings, onChange, source = null, player = null, role = 'tool',
   }) {
+    super({ hearAttr: 'mod-hear' });
     this.el = el;
     this.engine = engine;
     this.settings = settings ?? { ...MOD_DEFAULTS };
@@ -212,10 +214,7 @@ export class ModulationPlugin {
     this.el.addEventListener('click', (e) => {
       const hear = e.target.closest('[data-mod-hear]');
       if (hear) {
-        this.player.hear(hear.dataset.modHear);
-        for (const button of this.el.querySelectorAll('[data-mod-hear]')) {
-          button.classList.toggle('is-on', button === hear);
-        }
+        this.hear(hear.dataset.modHear);
         return;
       }
       if (e.target.closest('[data-mod="play"]')) this.toggle();
@@ -490,15 +489,6 @@ export class ModulationPlugin {
 
   /* ---------- transport ---------- */
 
-  async toggle() {
-    if (this.player.playing) {
-      this.player.stop();
-      this.playing(false);
-      return;
-    }
-    await this.player.play();
-    this.playing(true);
-  }
 
   playing(on) {
     const button = this.el.querySelector('[data-mod="play"]');
@@ -508,15 +498,7 @@ export class ModulationPlugin {
 
   /* ---------- what a host asks of it ---------- */
 
-  setState(next) {
-    Object.assign(this.settings, next);
-    this.buildKnobs();
-    this.changed();
-  }
 
-  state() {
-    return { ...this.settings };
-  }
 
   setTarget(settings) {
     this.target = settings ?? null;
@@ -530,18 +512,8 @@ export class ModulationPlugin {
     this.draw();
   }
 
-  source() {
-    return this.player.source ?? null;
-  }
 
-  abLabel() {
-    return this.el.querySelector('[data-mod-hear="theirs"]')?.textContent ?? null;
-  }
 
-  nameAB(label) {
-    const slot = this.el.querySelector('[data-mod-hear="theirs"]');
-    if (slot) slot.textContent = label;
-  }
 
   /**
    * What a guess is marked against: nothing.
@@ -556,15 +528,7 @@ export class ModulationPlugin {
     return null;
   }
 
-  lock() {
-    this.interactive = false;
-    this.el.querySelector('.modulation')?.classList.add('is-locked');
-  }
 
-  unlock() {
-    this.interactive = true;
-    this.el.querySelector('.modulation')?.classList.remove('is-locked');
-  }
 
   async setSource(id) {
     this.player.source = id;

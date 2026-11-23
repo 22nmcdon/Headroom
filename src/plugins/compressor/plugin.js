@@ -1,3 +1,4 @@
+import { PluginFace } from '../../lib/face.js';
 import { writeHertz } from '../../lib/panel.js';
 import { staticGain, COMP_DEFAULTS, COMP_LIMITS } from './dsp.js';
 import { CompPlayer } from './player.js';
@@ -126,11 +127,12 @@ function compPalette(el) {
   };
 }
 
-export class CompPlugin {
+export class CompPlugin extends PluginFace {
   constructor(el, {
     engine, settings, onChange, source = 'drums', key = null, uneven = 0,
     player = null, role = 'tool', keys = null,
   }) {
+    super({});
     this.el = el;
     this.engine = engine;
     this.settings = settings;
@@ -187,7 +189,7 @@ export class CompPlugin {
         <button class="play-btn" type="button" data-comp="play">${this.player.playing ? 'Stop' : 'Play'}</button>
         <div class="plugin-ab" role="group" aria-label="What you are hearing">
           <button class="ab-btn${this.player.hearing === 'theirs' ? '' : ' is-on'}" type="button" data-hear="mine">Yours</button>
-          <button class="ab-btn${this.player.hearing === 'theirs' ? ' is-on' : ''}" type="button" data-hear="theirs" id="compOther">${this.abName ?? 'Target'}</button>
+          <button class="ab-btn${this.player.hearing === 'theirs' ? ' is-on' : ''}" type="button" data-hear="theirs" id="compOther">${this.otherName}</button>
         </div>
         <label class="field">
           <span class="field-label">Sample</span>
@@ -437,10 +439,7 @@ export class CompPlugin {
     this.el.addEventListener('click', (e) => {
       const hear = e.target.closest('[data-hear]');
       if (hear) {
-        this.player.hear(hear.dataset.hear);
-        for (const button of this.el.querySelectorAll('[data-hear]')) {
-          button.classList.toggle('is-on', button === hear);
-        }
+        this.hear(hear.dataset.hear);
         return;
       }
 
@@ -573,18 +572,6 @@ export class CompPlugin {
     this.player.push();
   }
 
-  /**
-   * Whether the loop is running, asked from outside.
-   *
-   * The shell needs this because a drill hides the tool and drives the
-   * transport itself: the Play button a drill draws has to say Stop when the
-   * loop is going, and the only thing that knows is the player. Reaching
-   * through `tool.player.playing` from the shell worked and was a hole in the
-   * contract - this is the same answer, asked properly.
-   */
-  isPlaying() {
-    return !!this.player?.playing;
-  }
 
   async toggle() {
     if (this.player.playing) {
@@ -981,21 +968,6 @@ export class CompPlugin {
 
   /* ---------- the lifecycle ---------- */
 
-  /**
-   * Put the controls somewhere, without a round having to be started for it.
-   *
-   * New, and it is the piece the whole inversion turns on. Until now a tool
-   * was mounted by an exercise and torn down when the exercise changed, so
-   * "what is this set to" only ever had one answer per lifetime. A workbench
-   * needs the other direction: the tool is the thing that stays, and an
-   * exercise is something that arrives, sets it up, and leaves it as it found
-   * it.
-   */
-  setState(next) {
-    Object.assign(this.settings, next);
-    this.buildKnobs();
-    this.changed();
-  }
 
   /**
    * Change what is running through it.
@@ -1066,10 +1038,6 @@ export class CompPlugin {
 
   /* ---------- what this is a reading of ---------- */
 
-  /** What the compressor is set to. */
-  state() {
-    return { ...this.settings };
-  }
 
   /**
    * What these settings do to this loop - synchronously, always.
@@ -1159,22 +1127,7 @@ export class CompPlugin {
     this.draw();
   }
 
-  /**
-   * What the monitor is set to.
-   *
-   * A getter, and new. Restoring a tool to what it was doing means knowing
-   * what it was doing, and nothing could say. Note that it is not `playing`:
-   * that one is a setter on all six, so asking it a question answers by
-   * turning the sound off.
-   */
-  source() {
-    return this.player.source ?? null;
-  }
 
-  /** What the other side of the A/B is currently called. */
-  abLabel() {
-    return this.el.querySelector('#compOther')?.textContent ?? null;
-  }
 
   /**
    * The loop a guess is read against, rendered and handed over.
@@ -1196,32 +1149,8 @@ export class CompPlugin {
     };
   }
 
-  /** The other side of the A/B, named for what it actually is. */
-  nameAB(label) {
-    // Kept, because changing family rebuilds the face and the host row with it.
-    this.abName = label;
-    const slot = this.el.querySelector('#compOther');
-    if (slot) slot.textContent = label;
-  }
 
-  lock() {
-    this.interactive = false;
-    this.el.querySelector('.comp').classList.add('is-locked');
-  }
 
-  /**
-   * And back, with everything where it was left.
-   *
-   * `lock()` never had an inverse, because nothing ever needed one: a round
-   * ended and the surface was torn down. Asking to be shown the answer is a
-   * state the round carries on from - the target is drawn and the controls
-   * stay live, so you can hear your way towards what you were chasing - and
-   * that needs the door to open again.
-   */
-  unlock() {
-    this.interactive = true;
-    this.el.querySelector('.comp').classList.remove('is-locked');
-  }
 
   destroy() {
     this.gone = true;

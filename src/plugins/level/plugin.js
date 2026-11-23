@@ -1,3 +1,4 @@
+import { PluginFace } from '../../lib/face.js';
 import { LEVEL_DEFAULTS, TRIM_RANGE, TRIM_STEP, levelReading, LEVEL_GATE } from './gain.js';
 import { LevelPlayer } from './player.js';
 import { notReady, stampOf } from '../../lib/read.js';
@@ -78,11 +79,12 @@ function levelPalette(el) {
   };
 }
 
-export class LevelPlugin {
+export class LevelPlugin extends PluginFace {
   constructor(el, {
     engine, settings, onChange, source = 'mix', fault = null,
     player = null, role = 'tool',
   }) {
+    super({ other: 'Untreated' });
     this.el = el;
     this.engine = engine;
     this.settings = settings;
@@ -193,10 +195,7 @@ export class LevelPlugin {
     this.el.addEventListener('click', (e) => {
       const hear = e.target.closest('[data-hear]');
       if (hear) {
-        this.player.hear(hear.dataset.hear);
-        for (const button of this.el.querySelectorAll('[data-hear]')) {
-          button.classList.toggle('is-on', button === hear);
-        }
+        this.hear(hear.dataset.hear);
         return;
       }
       if (e.target.closest('[data-level="play"]')) this.toggle();
@@ -495,19 +494,7 @@ export class LevelPlugin {
 
   /* ---------- the transport ---------- */
 
-  isPlaying() {
-    return !!this.player?.playing;
-  }
 
-  async toggle() {
-    if (this.player.playing) {
-      this.player.stop();
-      this.playing(false);
-      return;
-    }
-    await this.player.play();
-    this.playing(true);
-  }
 
   playing(on) {
     const button = this.el.querySelector('[data-level="play"]');
@@ -521,16 +508,7 @@ export class LevelPlugin {
 
   /* ---------- what a host asks of it ---------- */
 
-  setState(next) {
-    Object.assign(this.settings, next);
-    this.buildKnobs();
-    this.changed();
-  }
 
-  /** What the trim is set to. */
-  state() {
-    return { ...this.settings };
-  }
 
   setTarget(settings) {
     this.target = settings ?? null;
@@ -553,21 +531,8 @@ export class LevelPlugin {
     this.draw();
   }
 
-  /** What the monitor is set to. */
-  source() {
-    return this.player.source ?? null;
-  }
 
-  /** What the other side of the A/B is currently called. */
-  abLabel() {
-    return this.el.querySelector('[data-hear="theirs"]')?.textContent ?? null;
-  }
 
-  /** The other side of the A/B, named for what it actually is. */
-  nameAB(label) {
-    const slot = this.el.querySelector('[data-hear="theirs"]');
-    if (slot) slot.textContent = label;
-  }
 
   /** The pair a guess is read against, rendered and handed over. */
   async material() {
@@ -581,15 +546,7 @@ export class LevelPlugin {
     this.draw();
   }
 
-  lock() {
-    this.interactive = false;
-    this.el.querySelector('.level')?.classList.add('is-locked');
-  }
 
-  unlock() {
-    this.interactive = true;
-    this.el.querySelector('.level')?.classList.remove('is-locked');
-  }
 
   async setSource(id) {
     this.player.source = id;

@@ -1,3 +1,4 @@
+import { PluginFace } from '../../lib/face.js';
 import {
   HEAT_DEFAULTS, MOST_TONE,
   CURVES, CURVE_ORDER, TAPE_SPEEDS,
@@ -180,11 +181,12 @@ function heatPalette(el) {
   };
 }
 
-export class HeatPlugin {
+export class HeatPlugin extends PluginFace {
   constructor(el, {
     engine, settings, onChange, source = 'mix', fault = null,
     player = null, role = 'tool',
   }) {
+    super({});
     this.el = el;
     this.engine = engine;
     this.settings = settings;
@@ -344,10 +346,7 @@ export class HeatPlugin {
 
       const hear = e.target.closest('[data-hear]');
       if (hear) {
-        this.player.hear(hear.dataset.hear);
-        for (const button of this.el.querySelectorAll('[data-hear]')) {
-          button.classList.toggle('is-on', button === hear);
-        }
+        this.hear(hear.dataset.hear);
         return;
       }
 
@@ -421,21 +420,6 @@ export class HeatPlugin {
 
   /* ---------- the lifecycle ---------- */
 
-  /**
-   * Put the controls somewhere, without a round having to be started for it.
-   *
-   * New, and it is the piece the whole inversion turns on. Until now a tool
-   * was mounted by an exercise and torn down when the exercise changed, so
-   * "what is this set to" only ever had one answer per lifetime. A workbench
-   * needs the other direction: the tool is the thing that stays, and an
-   * exercise is something that arrives, sets it up, and leaves it as it found
-   * it.
-   */
-  setState(next) {
-    Object.assign(this.settings, next);
-    this.buildKnobs();
-    this.changed();
-  }
 
   /**
    * Change what is running through it.
@@ -491,10 +475,6 @@ export class HeatPlugin {
 
   /* ---------- what this is a reading of ---------- */
 
-  /** What the saturator is set to. */
-  state() {
-    return { ...this.settings };
-  }
 
   /**
    * The harmonic series these settings make - synchronously, always.
@@ -544,28 +524,7 @@ export class HeatPlugin {
     dressKnobs(this.el);
   }
 
-  /**
-   * Whether the loop is running, asked from outside.
-   *
-   * The shell needs this because a drill hides the tool and drives the
-   * transport itself: the Play button a drill draws has to say Stop when the
-   * loop is going, and the only thing that knows is the player. Reaching
-   * through `tool.player.playing` from the shell worked and was a hole in the
-   * contract - this is the same answer, asked properly.
-   */
-  isPlaying() {
-    return !!this.player?.playing;
-  }
 
-  async toggle() {
-    if (this.player.playing) {
-      this.player.stop();
-      this.playing(false);
-      return;
-    }
-    await this.player.play();
-    this.playing(true);
-  }
 
   playing(on) {
     this.el.querySelector('[data-heat="play"]').textContent = on ? 'Stop' : 'Play';
@@ -1054,22 +1013,7 @@ export class HeatPlugin {
     this.draw();
   }
 
-  /**
-   * What the monitor is set to.
-   *
-   * A getter, and new. Restoring a tool to what it was doing means knowing
-   * what it was doing, and nothing could say. Note that it is not `playing`:
-   * that one is a setter on all six, so asking it a question answers by
-   * turning the sound off.
-   */
-  source() {
-    return this.player.source ?? null;
-  }
 
-  /** What the other side of the A/B is currently called. */
-  abLabel() {
-    return this.el.querySelector('#heatOther')?.textContent ?? null;
-  }
 
   /**
    * Nothing to render.
@@ -1082,30 +1026,8 @@ export class HeatPlugin {
     return { rate: this.engine?.ctx?.sampleRate ?? 48000 };
   }
 
-  /** The other side of the A/B, named for what it actually is. */
-  nameAB(label) {
-    const slot = this.el.querySelector('#heatOther');
-    if (slot) slot.textContent = label;
-  }
 
-  lock() {
-    this.interactive = false;
-    this.el.querySelector('.heat').classList.add('is-locked');
-  }
 
-  /**
-   * And back, with everything where it was left.
-   *
-   * `lock()` never had an inverse, because nothing ever needed one: a round
-   * ended and the surface was torn down. Asking to be shown the answer is a
-   * state the round carries on from - the target is drawn and the controls
-   * stay live, so you can hear your way towards what you were chasing - and
-   * that needs the door to open again.
-   */
-  unlock() {
-    this.interactive = true;
-    this.el.querySelector('.heat').classList.remove('is-locked');
-  }
 
   destroy() {
     this.gone = true;

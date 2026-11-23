@@ -1101,7 +1101,6 @@ function onProgress(e) {
   if (what === 'clear') {
     // The one thing on this page that cannot be undone, so it asks. Export
     // first is the way back, and it says so.
-    // eslint-disable-next-line no-alert
     if (!window.confirm('Clear all progress in this browser? Export it first if you might want it back.')) return;
     resetStats();
     renderProgress();

@@ -1,3 +1,4 @@
+import { PluginFace } from '../../lib/face.js';
 import {
   CEIL_DEFAULTS, CEIL_DRIVE, CEIL_KNEE, CEIL_OUTPUT, CEIL_PEAKS, CEIL_RANGE,
   CEIL_RELEASE, CEIL_SHAPES,
@@ -103,11 +104,12 @@ function ceilPalette(el) {
   };
 }
 
-export class LimiterPlugin {
+export class LimiterPlugin extends PluginFace {
   constructor(el, {
     engine, settings, onChange, source = 'mix', fault = null,
     player = null, role = 'tool',
   }) {
+    super({ mine: 'Limited', other: 'Bypass' });
     this.el = el;
     this.engine = engine;
     this.settings = settings;
@@ -237,10 +239,7 @@ export class LimiterPlugin {
     this.el.addEventListener('click', (e) => {
       const hear = e.target.closest('[data-hear]');
       if (hear) {
-        this.player.hear(hear.dataset.hear);
-        for (const button of this.el.querySelectorAll('[data-hear]')) {
-          button.classList.toggle('is-on', button === hear);
-        }
+        this.hear(hear.dataset.hear);
         return;
       }
       if (e.target.closest('[data-ceil="play"]')) this.toggle();
@@ -710,19 +709,7 @@ export class LimiterPlugin {
 
   /* ---------- the transport ---------- */
 
-  isPlaying() {
-    return !!this.player?.playing;
-  }
 
-  async toggle() {
-    if (this.player.playing) {
-      this.player.stop();
-      this.playing(false);
-      return;
-    }
-    await this.player.play();
-    this.playing(true);
-  }
 
   playing(on) {
     const button = this.el.querySelector('[data-ceil="play"]');
@@ -750,16 +737,7 @@ export class LimiterPlugin {
 
   /* ---------- what a host asks of it ---------- */
 
-  setState(next) {
-    Object.assign(this.settings, next);
-    this.buildKnobs();
-    this.changed();
-  }
 
-  /** What the knobs are set to. */
-  state() {
-    return { ...this.settings };
-  }
 
   /**
    * What the round is chasing, remembered and not drawn.
@@ -830,21 +808,8 @@ export class LimiterPlugin {
     this.draw();
   }
 
-  /** What the monitor is set to. */
-  source() {
-    return this.player.source ?? null;
-  }
 
-  /** What the other side of the A/B is currently called. */
-  abLabel() {
-    return this.el.querySelector('[data-hear="theirs"]')?.textContent ?? null;
-  }
 
-  /** The other side of the A/B, named for what it actually is. */
-  nameAB(label) {
-    const slot = this.el.querySelector('[data-hear="theirs"]');
-    if (slot) slot.textContent = label;
-  }
 
   /** The pair a guess is read against, rendered and handed over. */
   async material() {
@@ -858,15 +823,7 @@ export class LimiterPlugin {
     this.draw();
   }
 
-  lock() {
-    this.interactive = false;
-    this.el.querySelector('.limiter')?.classList.add('is-locked');
-  }
 
-  unlock() {
-    this.interactive = true;
-    this.el.querySelector('.limiter')?.classList.remove('is-locked');
-  }
 
   async setSource(id) {
     this.player.source = id;

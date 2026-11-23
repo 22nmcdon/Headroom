@@ -17,6 +17,7 @@
 // curve to draw and a sidechain to wire, and folding three instruments into
 // one display would make all three worse.
 
+import { PluginFace } from '../../lib/face.js';
 import {
   COMP_DEFAULTS, COMP_LIMITS, expandGain, staticGain,
 } from './dsp.js';
@@ -275,11 +276,12 @@ function openingsOf(frames, { open = false } = {}) {
   return { share: worked / frames.length, times };
 }
 
-export class AimedPlugin {
+export class AimedPlugin extends PluginFace {
   constructor(el, {
     engine, settings, onChange, spec, source = null,
     player = null, role = 'tool',
   }) {
+    super({ other: spec.other, hearAttr: 'aim-hear' });
     this.el = el;
     this.engine = engine;
     this.spec = spec;
@@ -317,7 +319,7 @@ export class AimedPlugin {
         <button class="play-btn" type="button" data-aim="play">Play</button>
         <div class="plugin-ab" role="group" aria-label="What you are hearing">
           <button class="ab-btn is-on" type="button" data-aim-hear="mine">Treated</button>
-          <button class="ab-btn" type="button" data-aim-hear="theirs">${this.spec.other}</button>
+          <button class="ab-btn" type="button" data-aim-hear="theirs">${this.otherName}</button>
         </div>
         <label class="field">
           <span class="field-label">Sample</span>
@@ -409,10 +411,7 @@ export class AimedPlugin {
     this.el.addEventListener('click', (e) => {
       const hear = e.target.closest('[data-aim-hear]');
       if (hear) {
-        this.player.hear(hear.dataset.aimHear);
-        for (const button of this.el.querySelectorAll('[data-aim-hear]')) {
-          button.classList.toggle('is-on', button === hear);
-        }
+        this.hear(hear.dataset.aimHear);
         return;
       }
       if (e.target.closest('[data-aim="play"]')) this.toggle();
@@ -695,19 +694,7 @@ export class AimedPlugin {
 
   /* ---------- the transport ---------- */
 
-  isPlaying() {
-    return !!this.player?.playing;
-  }
 
-  async toggle() {
-    if (this.player.playing) {
-      this.player.stop();
-      this.playing(false);
-      return;
-    }
-    await this.player.play();
-    this.playing(true);
-  }
 
   playing(on) {
     const button = this.el.querySelector('[data-aim="play"]');
@@ -726,15 +713,7 @@ export class AimedPlugin {
 
   /* ---------- what a host asks of it ---------- */
 
-  setState(next) {
-    Object.assign(this.settings, next);
-    this.buildKnobs();
-    this.changed();
-  }
 
-  state() {
-    return { ...this.settings };
-  }
 
   setTarget(settings) {
     this.target = settings ?? null;
@@ -751,18 +730,8 @@ export class AimedPlugin {
     this.draw();
   }
 
-  source() {
-    return this.player.source ?? null;
-  }
 
-  abLabel() {
-    return this.el.querySelector('[data-aim-hear="theirs"]')?.textContent ?? null;
-  }
 
-  nameAB(label) {
-    const slot = this.el.querySelector('[data-aim-hear="theirs"]');
-    if (slot) slot.textContent = label;
-  }
 
   /** The material a guess is read against. */
   async material() {
@@ -776,15 +745,7 @@ export class AimedPlugin {
     this.draw();
   }
 
-  lock() {
-    this.interactive = false;
-    this.el.querySelector(`.${this.spec.mark}`)?.classList.add('is-locked');
-  }
 
-  unlock() {
-    this.interactive = true;
-    this.el.querySelector(`.${this.spec.mark}`)?.classList.remove('is-locked');
-  }
 
   async setSource(id) {
     this.player.source = id;
