@@ -32,9 +32,9 @@ export async function check({ browser, at, say }) {
   await page.waitForSelector('.surface .plugin.limiter', { timeout: 8000 });
   await page.waitForTimeout(400);
 
-  // Drills live behind their own pill, so the exercise list on the work pill
+  // Drills live behind their own tab, so the exercise list on the work tab
   // does not offer them at all.
-  await page.click('button:text-is("Drills")');
+  await page.click('.tool-tabs [data-kind="drill"]');
   await page.waitForTimeout(400);
 
   const offered = await page.$$eval('[data-setting="exercise"] option',

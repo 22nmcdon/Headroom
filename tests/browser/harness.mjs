@@ -226,7 +226,13 @@ export async function putRound(page, { exercise = null, tier = null } = {}) {
     }
   }
 
-  if (tier) await settle(() => pickTier(page, tier));
+  // A pill already on starts nothing - unlike the select it replaced, whose
+  // change event fired even for the value it already had - so there is no
+  // round to wait for, and the one showing is already at this tier.
+  if (tier) {
+    const on = await page.$eval(`#tier [data-tier="${tier}"]`, (pill) => pill.getAttribute('aria-checked'));
+    if (on !== 'true') await settle(() => pickTier(page, tier));
+  }
 }
 
 /** Which kind of activity the pill is on, and how to get to the other one. */
