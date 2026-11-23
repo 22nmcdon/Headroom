@@ -37,7 +37,9 @@
     <!-- Grouped so the "?" never wraps onto a line of its own at a phone
          width, which reads as a control that fell off the row. -->
     <div class="tools">
-      <button class="link-btn" type="button" id="stats-btn">Stats</button>
+      <!-- Every tool at once. It replaced a Stats dialog that showed one
+           tool, one tier and one kind at a time. -->
+      <button class="view-option view-progress" type="button" data-view="progress" role="radio" aria-checked="false">Progress</button>
       <button class="help-button" type="button" id="help-btn" aria-label="How this works" title="How this works">?</button>
     </div>
 
@@ -76,6 +78,17 @@
        marked. Four tracks, four scenes, and a MIDI file at the end of it. -->
   <section class="sheet-section" id="sketch-view" hidden>
     <div class="sheet" id="sketchSheet"></div>
+  </section>
+
+  <!-- Every tool at once: drawn by src/learn/bench/report-page.js. -->
+  <section class="sheet-section" id="progress-view" hidden>
+    <div class="sheet">
+      <!-- The only copy of any of this is one key in this browser's storage,
+           and there is no account to sync it to. So: a file. -->
+      <p class="report-note" id="reportNote" role="status" hidden></p>
+      <div id="progressSheet"></div>
+      <input type="file" id="import-file" accept="application/json,.json" hidden>
+    </div>
   </section>
 
   <section class="sheet-section" id="tools-view">
@@ -206,7 +219,7 @@
 <div class="colophon">
   <span>Twelve tools, and the measurements behind them.</span>
   <span>Every sound synthesised live — no samples to load.</span>
-  <span>Stats and sketches stay in this browser.</span>
+  <span>Progress and sketches stay in this browser.</span>
 </div>
 
 <dialog id="help">
@@ -244,37 +257,6 @@
     <div class="dialog-actions">
       <span></span>
       <button class="submit-btn" type="button" id="help-ok">Got it</button>
-    </div>
-  </div>
-</dialog>
-
-<dialog id="stats">
-  <div class="dialog-head">
-    <div>
-      <div class="bar-label" id="statsMode">EQ</div>
-      <div class="dialog-title">What you have played</div>
-    </div>
-    <button class="close-btn" type="button" id="stats-close" aria-label="Close">&times;</button>
-  </div>
-
-  <div class="dialog-body">
-    <p class="stats-scope" id="stats-scope"></p>
-    <div class="stats-summary" id="stats-summary"></div>
-    <h3 class="subhead" id="stats-dist-head">Attempts to get there</h3>
-    <div class="dist" id="stats-dist"></div>
-    <p class="weak" id="stats-weak"></p>
-
-    <!-- The only copy of any of this is one key in this browser's storage, and
-         there is no account to sync it to. So: a file. -->
-    <p class="fine" id="stats-note" hidden></p>
-    <div class="dialog-actions">
-      <span class="action-group">
-        <button class="link-btn" type="button" id="export-stats">Export</button>
-        <button class="link-btn" type="button" id="import-stats">Import</button>
-        <button class="link-btn" type="button" id="reset-stats">Reset</button>
-        <input type="file" id="import-file" accept="application/json,.json" hidden>
-      </span>
-      <button class="submit-btn" type="button" id="stats-ok">Close</button>
     </div>
   </div>
 </dialog>

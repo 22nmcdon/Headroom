@@ -8,11 +8,13 @@ import {
 } from './learn/game.js';
 import { Engine } from './core/audio.js';
 import {
-  getStats, recordGame, weakestKind, resetStats, ATTEMPT_BANDS, solvesIn,
+  getStats, recordGame, weakestKind, resetStats, solvesIn,
   exportProgress, importProgress, notesRead, markRead,
 } from './learn/stats.js';
 import { progress, PATH_TIER, TEACHING_ORDER } from './learn/bench/path.js';
 import { drawHome } from './learn/bench/home.js';
+import { drawReport } from './learn/bench/report-page.js';
+import { reportRows, confusions, shadeOf, tiersOf } from './learn/report.js';
 import { pickSet, setSummary } from './learn/set.js';
 import { engrave } from './lib/engrave.js';
 import { renderPicker, syncPicker, pickerState, dialValue } from './learn/bench/picker.js';
@@ -228,7 +230,7 @@ function settleKind() {
 }
 
 /** The things this page is for. The ids match the sections and buttons. */
-const VIEWS = ['home', 'tools', 'analysis', 'mix', 'sketch'];
+const VIEWS = ['home', 'tools', 'analysis', 'mix', 'sketch', 'progress'];
 
 /**
  * Show one of the things this app is.
@@ -278,6 +280,10 @@ function syncView() {
   }
 
   if (view === 'home') renderHome();
+  if (view === 'progress') {
+    note('');
+    renderProgress();
+  }
 
   writeRoute();
 }
@@ -346,7 +352,7 @@ function takeRoute(route) {
  * The same steps the tool list, the tabs and the difficulty take, because a
  * route is only a different way of pressing them.
  */
-function applyRoute(route) {
+function applyRoute(route, { push = false } = {}) {
   if (ui.set) endSet({ home: false });
   if (!route) {
     // A hash that names nothing - a page not built yet, a typo - is put back
@@ -373,8 +379,9 @@ function applyRoute(route) {
   }
   // Settled first, and in place: a route that left a field out, or named a
   // tier the tool lacks, is written back whole without a second step in the
-  // history for it.
-  writeRoute({ replace: true });
+  // history for it. A jump from inside the app - a cell on Progress, a card
+  // on Home - is a step of its own, so Back comes back to where it was made.
+  writeRoute({ replace: !push });
   if (moving) syncView();
   syncLearn();
   if (tooling) startGame();
@@ -1047,72 +1054,66 @@ function render() {
   syncAnswer();
 }
 
-/* ---------- stats ---------- */
+/* ---------- progress ---------- */
 
-function showStats() {
-  const stats = getStats(ui.mode, ui.tier, ui.kind);
-  const tier = tool().tiers[ui.tier];
+/** The tools as the Progress table lists them: in teaching order. */
+const REPORTED = () => TEACHING_ORDER.filter((id) => TOOL_IDS.includes(id))
+  .map((id) => ({ id, tiers: Object.keys(TOOLS[id].tiers) }));
 
-  $('#statsMode').textContent = tool().label;
-  // Which bucket this is. Working at a tool and being asked about one are
-  // different activities and kept apart, so the dialog has to say which of
-  // them it is showing or the numbers mean nothing.
-  $('#stats-scope').textContent =
-    `${ui.kind === 'drill' ? 'Drills' : 'Work'} · ${tier.label} · ${tierBlurb(ui.tier)}`;
+/** Everything the Progress page shows, read off the buckets. */
+function progressModel() {
+  const tools = REPORTED();
+  const statsOf = (id, tier, kind) => getStats(id, tier, kind);
+  const tiers = tiersOf(tools).map((id) => ({
+    id, label: tools.map((tool) => TOOLS[tool.id].tiers[id]?.label).find(Boolean) ?? id,
+  }));
+  const rows = reportRows({ tools, statsOf }).map((row) => ({
+    ...row,
+    name: TOOLS[row.id].label,
+    group: groupOf(row.id)?.label ?? '',
+    cells: row.cells.map((entry) => entry && { ...entry, shade: shadeOf(entry.rate) }),
+  }));
+  const confused = confusions({ tools, statsOf }).map((item) => ({
+    tool: item.tool,
+    tier: item.tier,
+    what: `${TOOLS[item.tool].label} · ${item.label}`,
+    as: `Heard as ${item.heard} ${item.n === 2 ? 'twice' : `${item.n} times`} out of ${item.seen}.`,
+  }));
+  const played = rows.some((row) => row.cells.some((entry) => entry?.played));
+  return { tiers, rows, confused, played };
+}
 
-  // Three readings, not five. The streak and the best streak that were here
-  // measured how recently you played rather than how well you hear, and with
-  // the daily gone there was nothing to break a streak at all.
-  //
-  // A drill takes one answer, so its number is right first time and there is
-  // no spread of attempts to draw: every solve is in the first band.
-  const drill = ui.kind === 'drill';
-  const solves = solvesIn(stats, ui.kind);
-  const solved = stats.played ? Math.round((solves / stats.played) * 100) : 0;
-  // Which band most solves land in - the one thing the distribution below
-  // says that is worth having at a glance, and the honest version of what the
-  // streak was pretending to measure.
-  const typical = stats.won
-    ? ATTEMPT_BANDS.reduce((best, band) =>
-        (stats.attempts[band.id] ?? 0) > (stats.attempts[best.id] ?? 0) ? band : best)
-    : null;
-  $('#stats-summary').innerHTML = [
-    ['Played', stats.played],
-    ...(drill
-      ? [['Right first time', solves], ['First-time %', solved]]
-      : [['Solved %', solved], ['Usually in', typical ? typical.label : '—']]),
-  ].map(([text, value]) => `<div><strong>${value}</strong><span>${text}</span></div>`).join('');
+function renderProgress() {
+  drawReport($('#progressSheet'), progressModel());
+}
 
-  // Six bands, always all six. What was here sliced the rows to the tier's
-  // guess ceiling, which no longer exists - and converging in two rather than
-  // nine is the clearest signal of improvement this app has, so the bands stay
-  // fixed and comparable rather than shifting with the tool. A band nobody
-  // has landed in is drawn empty rather than as a sliver of bar.
-  $('#stats-dist-head').hidden = drill;
-  $('#stats-dist').hidden = drill;
-  const counts = ATTEMPT_BANDS.map((band) => stats.attempts[band.id] ?? 0);
-  const max = Math.max(1, ...counts);
-  $('#stats-dist').innerHTML = ATTEMPT_BANDS.map((band, i) => {
-    const width = counts[i] ? Math.max(7, Math.round((counts[i] / max) * 100)) : 0;
-    return `<div class="dist-row"><span>${band.label}</span>`
-      + `<div class="bar${counts[i] ? '' : ' is-empty'}" style="width:${width}%">${counts[i]}</div></div>`;
-  }).join('');
+function onProgress(e) {
+  const button = e.target.closest('[data-report]');
+  if (!button) return;
+  const what = button.dataset.report;
 
-  const weak = weakestKind(stats);
-  $('#stats-weak').textContent = weak
-    ? `${weak.label} is the one to work on — solved ${Math.round(weak.rate * 100)}% of ${weak.seen}.`
-      + (weak.confusedWith ? ` You usually hear it as ${weak.confusedWith.label}.` : '')
-    : 'A few more rounds and this will say which one is worth working on.';
-
-  note('');
-  $('#stats').showModal();
+  if (what === 'go') {
+    const { tool, kind, tier } = button.dataset;
+    applyRoute({ view: 'tools', mode: tool, kind, tier }, { push: true });
+  }
+  if (what === 'export') downloadProgress();
+  if (what === 'import') $('#import-file').click();
+  if (what === 'clear') {
+    // The one thing on this page that cannot be undone, so it asks. Export
+    // first is the way back, and it says so.
+    // eslint-disable-next-line no-alert
+    if (!window.confirm('Clear all progress in this browser? Export it first if you might want it back.')) return;
+    resetStats();
+    renderProgress();
+    note('Progress cleared.');
+  }
 }
 
 /* ---------- progress, as a file ---------- */
 
 /** The line under the buttons: what just happened to the progress. */
 function note(text) {
-  const line = $('#stats-note');
+  const line = $('#reportNote');
   line.textContent = text;
   line.hidden = !text;
 }
@@ -1167,7 +1168,7 @@ async function uploadProgress(input) {
     return;
   }
 
-  showStats();
+  renderProgress();
   note(`Added ${result.buckets} ${result.buckets === 1 ? 'set' : 'sets'} of progress from `
     + `${file.name}. Nothing already here was replaced.`);
 }
@@ -1337,7 +1338,7 @@ function renderHome() {
 
 /** Go to a tool's drills at a tier, the way a route would. */
 function drillAt(tool, tier) {
-  applyRoute({ view: 'tools', mode: tool, kind: 'drill', tier });
+  applyRoute({ view: 'tools', mode: tool, kind: 'drill', tier }, { push: true });
 }
 
 function onHome(e) {
@@ -1548,6 +1549,28 @@ function fillHelp() {
     return;
   }
 
+  if (ui.view === 'progress') {
+    $('#helpMode').textContent = 'Progress';
+    $('#helpLede').textContent = 'Every tool at once: how the drills and the work have gone, '
+      + 'at every difficulty.';
+    $('#helpList').innerHTML = [
+      ['Drills count the first answer; work counts solved.',
+       'A drill is right when the first answer was, with no hint. A round of work is '
+       + 'solved when you got there yourself - a round you pressed Show me on is played '
+       + 'and not solved.'],
+      ['The shade is how it is going.',
+       'Darkest from 80%, lighter from 50%, rose under that, dashed where you have not '
+       + 'tried it. Press any cell to go and play it.'],
+      ['What you hear things as.',
+       'When a drill answer keeps being heard as the same other thing, it is listed '
+       + 'beside the table - the thing worth listening for next time.'],
+      ['It lives in this browser.',
+       'Export saves it as a file. Import adds a file to what is here - from your '
+       + 'phone to your laptop, say - and never replaces anything.'],
+    ].map(([lead, detail]) => `<li><b>${lead}</b><span>${detail}</span></li>`).join('');
+    return;
+  }
+
   if (ui.view === 'home') {
     $('#helpMode').textContent = 'Home';
     $('#helpLede').textContent = 'Where a visit starts: a short set of questions, '
@@ -1563,7 +1586,7 @@ function fillHelp() {
        + 'step. Nothing is locked.'],
       ['Nothing counts days.',
        'There is no streak to keep and nothing to lose by stopping. Progress '
-       + 'stays in this browser; Stats can save it to a file.'],
+       + 'stays in this browser; Progress can save it to a file.'],
     ].map(([lead, detail]) => `<li><b>${lead}</b><span>${detail}</span></li>`).join('');
     return;
   }
@@ -1822,16 +1845,7 @@ function wire() {
   $('#help-btn').addEventListener('click', () => { fillHelp(); $('#help').showModal(); });
   $('#help-close').addEventListener('click', () => $('#help').close());
   $('#help-ok').addEventListener('click', () => $('#help').close());
-  $('#stats-btn').addEventListener('click', showStats);
-  $('#stats-close').addEventListener('click', () => $('#stats').close());
-  $('#stats-ok').addEventListener('click', () => $('#stats').close());
-  $('#reset-stats').addEventListener('click', () => {
-    resetStats();
-    showStats();
-    note('Progress cleared.');
-  });
-  $('#export-stats').addEventListener('click', downloadProgress);
-  $('#import-stats').addEventListener('click', () => $('#import-file').click());
+  $('#progressSheet').addEventListener('click', onProgress);
   $('#import-file').addEventListener('change', (e) => uploadProgress(e.target));
 
   for (const dialog of document.querySelectorAll('dialog')) {

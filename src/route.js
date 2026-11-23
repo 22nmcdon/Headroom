@@ -8,19 +8,18 @@
 //
 //   #/home
 //   #/tools/<tool>/<learn|drill|work>/<tier>
-//   #/mix   #/sketch   #/analysis
+//   #/mix   #/sketch   #/analysis   #/progress
 //
 // The exercise is not in it. It lives under the tool's settings, it is
 // remembered there, and a link that names a tool and a tier is a link that
-// still works when an exercise is renamed. Progress and the Learn tab will be
-// routes when they are pages; until then a hash naming them is one this does
-// not recognise, which goes where an empty one goes.
+// still works when an exercise is renamed. A hash naming a page that does not
+// exist is one this does not recognise, which goes where an empty one goes.
 //
 // No imports: the tools are handed in, so this is arithmetic on strings and
 // the tests can give it any registry they like.
 
 /** The pages a route can name. The tools are one of them. */
-export const ROUTE_VIEWS = ['home', 'tools', 'mix', 'sketch', 'analysis'];
+export const ROUTE_VIEWS = ['home', 'tools', 'mix', 'sketch', 'analysis', 'progress'];
 
 /** The three ways of being at a tool: reading about it, being asked, working it. */
 export const ROUTE_KINDS = ['learn', 'drill', 'work'];

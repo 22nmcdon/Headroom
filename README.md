@@ -33,7 +33,7 @@ measured.
 
 One row along the top: **Home**, **Tools**, **Mix**, **Sketch** and
 **Analysis** — the last of which asks nothing and reads a track back — with
-Stats and help at the end of it.
+Progress and help at the end of it.
 
 The tools page has the twelve down the side in four families — tone, dynamics,
 space, image — each with three marks for how far along the path it is. Under a
@@ -299,7 +299,7 @@ Play, Yours / The one to match, the ways out and **Submit the mix**.
 
 The address says where you are — `#/home`, `#/tools/reverb/drill/medium`,
 `#/tools/eq/learn/easy`,
-`#/mix`, `#/sketch`, `#/analysis` — so a reload comes back to the same place,
+`#/mix`, `#/sketch`, `#/analysis`, `#/progress` — so a reload comes back to the same place,
 Back and Forward walk where you have been, and a link can point at one drill.
 Opened with no address, it goes wherever this browser was last, and on a first
 visit to Home.
@@ -341,14 +341,18 @@ that doing it right is audible rather than merely scored:
   then one last step that is not about a single tool at all: mix something.
   Nothing is locked. The path marks what is next; the next thing is a
   suggestion.
-- **Per-tool progress**, per tier, and kept apart for work and for drills,
-  because they are different activities and pooling them would report neither.
-  It records which kind of answer keeps catching you out *and what you keep
-  hearing it as*: "2k (honk) is the one to work on — solved 40% of 5. You
-  usually hear it as 4k (presence)." For drills the stats dialog reads
-  **Right first time %**, since the first answer is the only one a drill
-  counts. Plus **Export** / **Import** in the stats
-  dialog, because one key in one browser's storage is not a copy. An import *adds* to what is
+- **A Progress page**: every tool at once, a row each, with drills and work
+  across at every difficulty — kept apart because they are different
+  activities and pooling them would report neither. A drill cell is the share
+  **right first time**, since the first answer is the only one a drill counts;
+  a work cell is the share solved without Show me. Shaded dark from 80%,
+  lighter from 50%, rose under that, dashed where untried, and every cell
+  goes to that round. Beside it, **what you hear things as**: the drill answers
+  that keep being heard as the same other thing — "2k (honk), heard as 4k
+  (presence) 3 times out of 5". It replaced a Stats dialog that showed one
+  tool, one tier and one kind at a time, and the attempts chart that went with
+  it. Plus **Export** / **Import**, because one key in one browser's storage is
+  not a copy. An import *adds* to what is
   already there rather than replacing it, so the same person on a phone and on
   a laptop keeps both halves; each export carries an id, so importing the same
   file twice counts it once.
@@ -671,6 +675,7 @@ src/learn/work/     one file per mode: the exercises over it, and the marking
 src/learn/notes/    what each tool is for, in prose, for the person using it
 src/learn/game.js   the round, over whichever tool is asking (pure, no DOM)
 src/learn/set.js    picking a ten-question drill set, and summing one up
+src/learn/report.js every tool at once, for the Progress page
 src/learn/stats.js  localStorage persistence per tool, tier and kind, and the
                     export/import that is the only way off this browser
 src/mix/            the mix exercise: a piece, a brief, and a score for how

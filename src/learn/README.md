@@ -8,6 +8,7 @@ Everything that asks a question.
     notes/   the written half - what each tool is, for somebody using one
     game.js  reading a guess against an answer
     set.js   a ten-question drill set: which tools, and how it went
+    report.js every tool at once, for the Progress page
     stats.js what has been attempted and how it went
 
 A `work/` filename is the **mode id**, which is what a saved sketch stores, so

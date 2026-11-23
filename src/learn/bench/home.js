@@ -11,9 +11,7 @@
 // only draws it: the shell builds the model and handles the buttons, which
 // carry `data-home` and say what they are for.
 
-/** Text that came from somewhere, made safe to put in markup. */
-const esc = (text) => String(text ?? '')
-  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+import { esc } from './markup.js';
 
 /** "Tuesday 10 November", in the words a page would use. */
 export const dayOf = (date) =>
