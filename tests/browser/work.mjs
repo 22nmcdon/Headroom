@@ -29,7 +29,7 @@
 // a tool exercise shows the tool and hides the chips, because the tool is
 // the answer.
 
-import { open, putRound, putKind } from './harness.mjs';
+import { open, putRound, putKind, pickTool } from './harness.mjs';
 
 export const name = 'work';
 
@@ -71,7 +71,7 @@ export async function check({ browser, at, say }) {
   let played = 0;
 
   for (const tool of plan) {
-    await page.click(`.modes button:text-is("${tool.label}")`);
+    await pickTool(page, `${tool.label}`);
     await page.waitForTimeout(500);
     await putKind(page, 'work');
 

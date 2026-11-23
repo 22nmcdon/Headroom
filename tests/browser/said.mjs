@@ -13,7 +13,7 @@
 // `image.test.js` measures, and a face that announced a decorrelator that was
 // not running would be the face lying about what you are hearing.
 
-import { open } from './harness.mjs';
+import { open, pickTool } from './harness.mjs';
 
 export const name = 'said';
 
@@ -35,7 +35,7 @@ export async function check({ browser, at, say }) {
   // dropdown label is the only other mention of what is running.
   for (const [label, width, height] of [['desktop', 1280, 1100], ['phone', 430, 932]]) {
     const { page, noise } = await open(browser, at, { width, height, view: 'tools' });
-    await page.click('.modes button:text-is("Stereo")');
+    await pickTool(page, 'Stereo');
     await page.waitForSelector('.surface .plugin.stereo', { timeout: 8000 });
     await page.waitForTimeout(300);
 

@@ -13,7 +13,7 @@
 // limiter's output trim, the player's own gain, and the A/B switch - rather
 // than about the function that chose the trim.
 
-import { open } from './harness.mjs';
+import { open, pickTool, pickTier } from './harness.mjs';
 
 export const name = 'turned';
 
@@ -28,7 +28,7 @@ export async function check({ browser, at, say }) {
   const problems = [];
   const { page, noise } = await open(browser, at, { view: 'tools' });
 
-  await page.click('.modes button:text-is("Limiter")');
+  await pickTool(page, 'Limiter');
   await page.waitForSelector('.surface .plugin.limiter', { timeout: 8000 });
   await page.waitForTimeout(400);
 
@@ -55,7 +55,7 @@ export async function check({ browser, at, say }) {
 
   say('\n  tier     chips');
   for (const [tier, wanted] of Object.entries(RUNGS)) {
-    await page.selectOption('#tier', tier);
+    await pickTier(page, tier);
     await page.waitForTimeout(600);
 
     const chips = await page.$$eval('#picker [data-slot="turndown"]',
@@ -75,7 +75,7 @@ export async function check({ browser, at, say }) {
 
   /* --- and a round can be played ------------------------------------------ */
 
-  await page.selectOption('#tier', 'hard');
+  await pickTier(page, 'hard');
   await page.waitForTimeout(600);
 
   // Both amount drills on this face, because the fault that this check found

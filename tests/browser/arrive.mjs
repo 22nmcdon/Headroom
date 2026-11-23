@@ -16,7 +16,7 @@
 // rather than `element.click()`, because a programmatic click goes through
 // whatever a person's click would not, and that is the whole question.
 
-import { open } from './harness.mjs';
+import { open, pickTool } from './harness.mjs';
 
 export const name = 'arrive';
 
@@ -28,7 +28,7 @@ export async function check({ browser, at, say }) {
   const { page, noise } = await open(browser, at, { view: 'tools' });
 
   await page.evaluate(() => { document.querySelector('#verdict').textContent = ''; });
-  await page.click('.modes button:text-is("Saturation")');
+  await pickTool(page, 'Saturation');
 
   // From the moment the crusher's button exists, click where it is, as fast
   // as a person might, until the round has arrived.

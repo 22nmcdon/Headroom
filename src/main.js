@@ -1,4 +1,6 @@
-import { TOOLS, TOOL_IDS, toolOf, exerciseOf, groupOf, drillsOf } from './learn/bench/registry.js';
+import {
+  TOOLS, TOOL_IDS, TOOL_GROUPS, toolOf, exerciseOf, groupOf, drillsOf,
+} from './learn/bench/registry.js';
 import { bench } from './learn/bench/session.js';
 import {
   createGame, submitGuess, makePuzzle, roundSeed, roundKey, leftAt, reveal, isDrill,
@@ -50,6 +52,11 @@ const ui = {
   // 'work' or 'drill'. Not per tool: it is how you are practising, not what
   // you are practising, and it survives switching tools on purpose.
   kind: 'work',
+  // On the Learn tab: reading what the tool is for rather than doing a round.
+  // Beside `kind` rather than one of its values, because the round underneath
+  // carries on being work or drills - Learn is a page over it, not a third
+  // way of marking one.
+  learning: false,
   // Which of the four this page is being used as. The top of the hierarchy:
   // different things to do with this app rather than different ways of doing
   // one. Each is built the first time it is asked for and kept after that.
@@ -105,18 +112,46 @@ const kindOf = (id, exercise) => (TOOLS[id].exercises[exercise]?.drill ? 'drill'
 
 /* ---------- setup row ---------- */
 
-/** The tools, on the page rather than behind a click. */
+/**
+ * The tools, in their four families, down the side of the page.
+ *
+ * Each with three marks for its three steps on the path - read, drill, build
+ * - so which tools have been touched is visible from anywhere on the bench,
+ * not only from Home.
+ */
 function fillModes() {
-  $('#modes').innerHTML = TOOL_IDS
-    .map((id) => `<button class="mode-pill" type="button" role="radio" data-train="${id}"`
-      + ` aria-checked="${id === ui.mode}" title="${TOOLS[id].blurb}">${TOOLS[id].label}</button>`)
-    .join('');
+  $('#modes').innerHTML = TOOL_GROUPS.map((group) => `
+    <div class="tool-group" role="group" aria-label="${group.label}">
+      <p class="tool-group-name">${group.label}</p>
+      ${group.tools.filter((id) => TOOLS[id]).map((id) => `<button class="mode-pill" type="button"
+        role="radio" data-train="${id}" aria-checked="${id === ui.mode}" title="${TOOLS[id].blurb}"
+        >${TOOLS[id].label}<span class="tool-marks" aria-hidden="true"></span></button>`).join('')}
+    </div>`).join('');
+  syncModes();
 }
 
+/** The tools in the order the list shows them, for the arrow keys. */
+const LISTED = TOOL_GROUPS.flatMap((group) => group.tools).filter((id) => TOOLS[id]);
+
 function syncModes() {
+  const steps = pathState().steps;
   for (const pill of document.querySelectorAll('[data-train]')) {
-    pill.setAttribute('aria-checked', pill.dataset.train === ui.mode ? 'true' : 'false');
+    const id = pill.dataset.train;
+    pill.setAttribute('aria-checked', id === ui.mode ? 'true' : 'false');
+    pill.querySelector('.tool-marks').innerHTML = steps.filter((step) => step.tool === id)
+      .map((step) => `<i class="is-${step.done ? 'done' : step.solves > 0 ? 'started' : 'none'}"></i>`)
+      .join('');
   }
+  $('#toolName').textContent = tool().label;
+  $('#toolBlurb').textContent = tool().blurb.toLowerCase();
+}
+
+/** Open or shut the tool list, where it is a sheet rather than a column. */
+function pickTools(open) {
+  $('#modes').classList.toggle('is-open', open);
+  $('#modesScrim').hidden = !open;
+  $('#toolPick').setAttribute('aria-expanded', open ? 'true' : 'false');
+  if (open) $('#modes').querySelector('[aria-checked="true"]')?.focus();
 }
 
 /**
@@ -134,17 +169,20 @@ function fillTiers() {
   const spec = tool();
   if (!spec.tiers[ui.tier]) ui.tier = Object.keys(spec.tiers)[0];
 
+  // Pills rather than a select: three states, every one of them visible, and
+  // what each means on hover rather than in a dropdown that had to be opened
+  // to be read.
   $('#tier').innerHTML = Object.entries(spec.tiers)
-    .map(([id, tier]) => `<option value="${id}">${tier.label} — ${tierBlurb(id)}</option>`)
+    .map(([id, tier]) => `<button class="tier-pill" type="button" role="radio" data-tier="${id}"`
+      + ` aria-checked="${id === ui.tier}" title="${tierBlurb(id)}">${tier.label}</button>`)
     .join('');
-  $('#tier').value = ui.tier;
 }
 
 /**
- * The settings row, with the exercise list narrowed to the kind on the pill.
+ * The settings row, with the exercise list narrowed to the kind on the tab.
  *
  * Narrowed rather than reordered: in drills the dropdown offers the drills
- * and nothing else, so the pill is the only thing deciding which activity
+ * and nothing else, so the tab is the only thing deciding which activity
  * this is and the dropdown cannot quietly put you back in the other one.
  */
 function fillSettings() {
@@ -167,7 +205,7 @@ function fillSettings() {
 }
 
 /**
- * Put the chosen exercise inside the kind on the pill.
+ * Put the chosen exercise inside the kind on the tab.
  *
  * Called whenever either moves: switching to drills has to land on a drill,
  * and switching tool has to land on one of that tool's. Returns nothing - it
@@ -192,21 +230,12 @@ function settleKind() {
 /** The things this page is for. The ids match the sections and buttons. */
 const VIEWS = ['home', 'tools', 'analysis', 'mix', 'sketch'];
 
-/** What the chart's head says when the page is not a tool. */
-const VIEW_HEAD = {
-  home: { mark: 'Home', blurb: 'where to start' },
-  analysis: { mark: 'Analysis', blurb: 'read a track back' },
-  mix: { mark: 'Mix', blurb: 'four parts, one balance' },
-  sketch: { mark: 'Sketch', blurb: 'get the idea down' },
-};
-
 /**
  * Show one of the things this app is.
  *
- * Everything above the sheet belongs to the tools, so all of it goes when the
- * page is not one: the tool strip, the work-or-drills pill, the difficulty
- * row, the status, and the dock with its submit button. None of the others
- * has a round to submit.
+ * The tool list, the tabs and the difficulty are on the tools' own page, so
+ * they go with it; the answer bar is the round's, and goes when there is no
+ * round showing - on another page, or on the Learn tab.
  *
  * Each page is built the first time it is asked for and kept after that, the
  * same bargain the tools get: the analysis page holds decoded audio and the
@@ -224,15 +253,8 @@ function syncView() {
 
   for (const id of VIEWS) $(`#${id}-view`).hidden = id !== view;
 
-  $('#modes').hidden = !working;
-  $('#dock').hidden = !working;
-  document.querySelector('.kind-switch').hidden = !working;
-  document.querySelector('.setup').hidden = !working;
-  $('#puzzleStatus').hidden = !working;
-
-  $('#modeMark').textContent = working ? tool().label : VIEW_HEAD[view].mark;
-  $('#modeBlurb').textContent = working
-    ? tool().blurb.toLowerCase() : VIEW_HEAD[view].blurb;
+  $('#dock').hidden = !working || ui.learning;
+  pickTools(false);
 
   // Whatever was sounding in the page being left stops: a page you cannot see
   // is not background music.
@@ -289,7 +311,7 @@ function writeRoute({ replace = false } = {}) {
   // history entry for each would make Back walk through them. The address
   // stays where the set was started from, and Back leaves the set.
   if (ui.set || ui.holding) return;
-  const next = routeFor(ui);
+  const next = routeFor(here());
   try { localStorage.setItem(ROUTE_KEY, next); } catch { /* private window */ }
   if (location.hash === next) return;
   try {
@@ -300,19 +322,28 @@ function writeRoute({ replace = false } = {}) {
   }
 }
 
+/** Where the shell is, in a route's fields: Learn is a kind, as far as a link goes. */
+const here = () => ({
+  view: ui.view, mode: ui.mode, kind: ui.learning ? 'learn' : ui.kind, tier: ui.tier,
+});
+
 /** Take the fields a route names onto `ui`, without doing anything about it. */
 function takeRoute(route) {
   ui.view = route.view;
   if (route.view !== 'tools') return;
   ui.mode = route.mode ?? ui.mode;
-  ui.kind = route.kind ?? ui.kind;
+  if (route.kind === 'learn') ui.learning = true;
+  else if (route.kind) {
+    ui.learning = false;
+    ui.kind = route.kind;
+  }
   ui.tier = route.tier ?? ui.tier;
 }
 
 /**
  * Go where a route says - Back, Forward, or a link somebody pasted.
  *
- * The same steps the tool strip, the pill and the tier select take, because a
+ * The same steps the tool list, the tabs and the difficulty take, because a
  * route is only a different way of pressing them.
  */
 function applyRoute(route) {
@@ -323,10 +354,13 @@ function applyRoute(route) {
     writeRoute({ replace: true });
     return;
   }
-  if (sameRoute(route, ui)) return;
+  if (sameRoute(route, here())) return;
 
-  const tooling = route.view === 'tools'
-    && ['mode', 'kind', 'tier'].some((key) => route[key] !== undefined && route[key] !== ui[key]);
+  // A new round only when the round would differ: moving between Learn and
+  // the tab it sits over does not change what is being asked.
+  const kind = route.kind && route.kind !== 'learn' ? route.kind : ui.kind;
+  const tooling = route.view === 'tools' && (kind !== ui.kind
+    || ['mode', 'tier'].some((key) => route[key] !== undefined && route[key] !== ui[key]));
   const moving = route.view !== ui.view;
   takeRoute(route);
 
@@ -342,13 +376,84 @@ function applyRoute(route) {
   // history for it.
   writeRoute({ replace: true });
   if (moving) syncView();
+  syncLearn();
   if (tooling) startGame();
 }
 
-function syncKind() {
-  for (const button of document.querySelectorAll('[data-kind]')) {
-    button.setAttribute('aria-checked', button.dataset.kind === ui.kind ? 'true' : 'false');
+/**
+ * Learn, Drill or Work.
+ *
+ * Learn opens over the round rather than replacing it, so leaving it for the
+ * tab it was opened from starts nothing; leaving it for the other one, or
+ * moving between Drill and Work, starts a round of that kind.
+ */
+function toTab(kind) {
+  if (kind === 'learn') {
+    if (ui.learning) return;
+    ui.learning = true;
+    syncLearn();
+    writeRoute();
+    return;
   }
+
+  ui.learning = false;
+  if (ui.kind === kind) {
+    syncLearn();
+    writeRoute();
+    return;
+  }
+  ui.kind = kind;
+  settleKind();
+  syncLearn();
+  // After settleKind, because a tier is described by the exercise and the
+  // exercise has only just changed.
+  fillTiers();
+  fillSettings();
+  startGame();
+}
+
+function syncKind() {
+  // The tabs only: the sketchpad has `data-kind` chips of its own, and this
+  // used to mark them as well.
+  const on = ui.learning ? 'learn' : ui.kind;
+  for (const button of document.querySelectorAll('.tool-tabs [data-kind]')) {
+    button.setAttribute('aria-checked', button.dataset.kind === on ? 'true' : 'false');
+  }
+}
+
+/**
+ * The Learn tab, or the round.
+ *
+ * Learn is the notes, set to be read rather than tucked into a disclosure,
+ * beside this tool's three steps on the path. The round goes on underneath -
+ * the tool stays open and its round loaded - so going back to Drill or Work
+ * is a switch rather than a reload.
+ */
+function syncLearn() {
+  const learning = ui.learning;
+  $('#learn').hidden = !learning;
+  $('#round').hidden = learning;
+  $('#toolSettings').hidden = learning;
+  $('#dock').hidden = ui.view !== 'tools' || learning;
+  syncKind();
+  if (!learning) return;
+
+  // A page you cannot see is not background music.
+  if (ui.tool?.isPlaying?.()) ui.tool.toggle?.();
+  markRead(ui.mode);
+  syncModes();
+
+  const steps = pathState().steps.filter((step) => step.tool === ui.mode);
+  $('#learnSide').innerHTML = `
+    <p class="learn-side-label">${tool().label} on the path</p>
+    <ol class="learn-steps">${steps.map((step) => `
+      <li class="${step.done ? 'is-done' : ''}">
+        <span class="learn-step-what">${step.label}</span>
+        <span class="learn-step-where">${step.done ? 'done'
+          : step.step === 'read' ? '' : `${Math.min(step.solves, step.enough)} of ${step.enough}`}</span>
+      </li>`).join('')}
+    </ol>
+    <button class="submit-btn" type="button" data-learn="drill">Go to the drill</button>`;
 }
 
 /* ---------- the picker ---------- */
@@ -650,8 +755,8 @@ function buildHead() {
 /**
  * What the tool is for, as opposed to how to work it.
  *
- * Closed until asked for. The help dialog says which button does what; this
- * says what a pre-delay is, why even harmonics sound like an octave, and what
+ * The Learn tab. The help dialog says which button does what; this says
+ * what a pre-delay is, why even harmonics sound like an octave, and what
  * summing to mono actually costs - the half of this project that was written
  * down years' worth of commits ago and addressed only to whoever was next to
  * change the code.
@@ -663,8 +768,7 @@ function buildNotes() {
   panel.hidden = !notes;
   if (!notes) return;
 
-  panel.open = false;
-  $('#notesOpen').textContent = `Notes on ${notes.title.toLowerCase()}`;
+  $('#notesTitle').textContent = notes.title;
   $('#notesBody').innerHTML = notes.sections
     .map((section) => `<section><h3>${section.heading}</h3>${section.body
       .split('\n\n').map((line) => `<p>${line}</p>`).join('')}</section>`)
@@ -914,20 +1018,8 @@ function onShow() {
 function render() {
   const game = ui.game;
 
-  // The tier, and nothing else. What was here was `Daily #294 · Easy`, and
-  // with the daily gone the number names nothing - every round is its own.
-  // The exercise is already a control in the setup row and the tool is already
-  // in the sheet head, so repeating either here would be furniture.
-  const status = $('#puzzleStatus');
-  status.textContent = tool().tiers[game.puzzle.tier].label;
-  status.dataset.state = game.status === 'playing' ? 'playing' : 'done';
-
-  // Only while the tools are what is showing: a round that finishes loading
-  // after a switch to another view must not write its head over that one's.
-  if (ui.view === 'tools') {
-    $('#modeMark').textContent = tool().label;
-    $('#modeBlurb').textContent = tool().blurb.toLowerCase();
-  }
+  // The marks on the tool list move as rounds are recorded.
+  syncModes();
 
   const solved = game.status === 'solved';
   $('#picker').classList.toggle('done', solved);
@@ -1126,6 +1218,7 @@ async function goTo(id) {
   }
 
   ui.mode = step.tool;
+  ui.learning = step.step === 'read';
   if (step.kind) {
     ui.kind = step.kind;
     ui.tier = step.tier ?? PATH_TIER;
@@ -1136,15 +1229,8 @@ async function goTo(id) {
   syncKind();
   fillTiers();
   fillSettings();
+  syncLearn();
   await startGame();
-
-  if (step.step !== 'read') return;
-
-  // Open the notes and put them on screen, which is the step itself.
-  const notes = $('#notes');
-  notes.open = true;
-  notes.scrollIntoView({ block: 'center', behavior: 'smooth' });
-  markRead(step.tool);
 }
 
 /* ---------- home ---------- */
@@ -1295,7 +1381,7 @@ function startSet() {
     questions: set.questions,
     at: 0,
     results: [],
-    was: { mode: ui.mode, kind: ui.kind, tier: ui.tier, chosen: { ...ui.chosen } },
+    was: { mode: ui.mode, kind: ui.kind, tier: ui.tier, learning: ui.learning, chosen: { ...ui.chosen } },
   };
   ui.lastSet = null;
   document.body.classList.add('in-set');
@@ -1309,6 +1395,8 @@ function askQuestion() {
   const question = ui.set.questions[ui.set.at];
   ui.mode = question.tool;
   ui.kind = 'drill';
+  ui.learning = false;
+  syncLearn();
   ui.tier = question.tier;
   ui.chosen[question.tool] = { ...ui.chosen[question.tool], exercise: question.exercise };
   syncModes();
@@ -1393,7 +1481,10 @@ function endSet({ home = true } = {}) {
 
   // The tools go back to where they were before the set, out of sight.
   ui.holding = true;
-  Object.assign(ui, { mode: was.mode, kind: was.kind, tier: was.tier, chosen: was.chosen });
+  Object.assign(ui, {
+    mode: was.mode, kind: was.kind, tier: was.tier, learning: was.learning, chosen: was.chosen,
+  });
+  syncLearn();
   syncModes();
   syncKind();
   fillTiers();
@@ -1575,10 +1666,11 @@ function fillHelp() {
   // changes what kind of question you are being asked rather than how hard
   // it is, and it is new enough to be worth saying out loud.
   entries.unshift([
-    ui.kind === 'drill' ? 'You are on the drills.' : 'Work at it, or be drilled on it.',
-    'The pill under the tools switches between building the answer on the plugin '
-    + 'and being asked about it with the plugin put away. It stays where you put '
-    + 'it when you change tool, so a run of drills across every tool is one click each.',
+    ui.kind === 'drill' ? 'You are on the drills.' : 'Learn it, be drilled on it, or work it.',
+    'The tabs under the tool\'s name: Learn is what the tool is for, Drill asks you '
+    + 'about it with the plugin put away, and Work has you build the answer on the '
+    + 'plugin. The tab stays where you put it when you change tool, so a run of '
+    + 'drills across every tool is one click each.',
   ]);
 
   for (const spec of tool().settings ?? []) {
@@ -1612,26 +1704,22 @@ function wire() {
     });
   }
 
-  for (const button of document.querySelectorAll('[data-kind]')) {
-    button.addEventListener('click', () => {
-      if (ui.kind === button.dataset.kind) return;
-      ui.kind = button.dataset.kind;
-      settleKind();
-      syncKind();
-      // After settleKind, because a tier is described by the exercise and
-      // the exercise has only just changed.
-      fillTiers();
-      fillSettings();
-      startGame();
-    });
+  for (const button of document.querySelectorAll('.tool-tabs [data-kind]')) {
+    button.addEventListener('click', () => toTab(button.dataset.kind));
   }
+  $('#learnSide').addEventListener('click', (e) => {
+    if (e.target.closest('[data-learn="drill"]')) toTab('drill');
+  });
 
   $('#modes').addEventListener('click', (e) => {
     const pill = e.target.closest('[data-train]');
-    if (!pill || pill.dataset.train === ui.mode) return;
+    if (!pill) return;
+    pickTools(false);
+    if (pill.dataset.train === ui.mode) return;
 
     ui.mode = pill.dataset.train;
     syncModes();
+    syncLearn();
     // The pill stays where it was and the exercise moves to match it, which
     // is what makes a run of drills across all six one click each.
     settleKind();
@@ -1640,22 +1728,33 @@ function wire() {
     startGame();
   });
 
-  // Arrow keys walk the strip, the way a radio group is expected to.
+  // Arrow keys walk the list, the way a radio group is expected to - down and
+  // up now that it is a column, and across as well for anybody used to it.
   $('#modes').addEventListener('keydown', (e) => {
-    if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+    if (e.key === 'Escape') { pickTools(false); $('#toolPick').focus(); return; }
+    const step = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[e.key];
+    if (!step) return;
     e.preventDefault();
 
-    const step = e.key === 'ArrowRight' ? 1 : -1;
-    const next = TOOL_IDS[(TOOL_IDS.indexOf(ui.mode) + step + TOOL_IDS.length) % TOOL_IDS.length];
+    const next = LISTED[(LISTED.indexOf(ui.mode) + step + LISTED.length) % LISTED.length];
     ui.mode = next;
     syncModes();
+    syncLearn();
     settleKind();
     fillTiers();
     fillSettings();
     startGame();
     document.querySelector(`[data-train="${next}"]`).focus();
   });
-  $('#tier').addEventListener('change', (e) => { ui.tier = e.target.value; startGame(); });
+  $('#tier').addEventListener('click', (e) => {
+    const pill = e.target.closest('[data-tier]');
+    if (!pill || pill.dataset.tier === ui.tier) return;
+    ui.tier = pill.dataset.tier;
+    fillTiers();
+    startGame();
+  });
+  $('#toolPick').addEventListener('click', () => pickTools(!$('#modes').classList.contains('is-open')));
+  $('#modesScrim').addEventListener('click', () => pickTools(false));
   $('#settings').addEventListener('change', (e) => {
     const select = e.target.closest('[data-setting]');
     if (!select) return;
@@ -1720,11 +1819,6 @@ function wire() {
   $('#setLeave').addEventListener('click', () => endSet());
   $('#setSkip').addEventListener('click', skipQuestion);
 
-  // Opening the notes is the path's reading step, wherever it is opened from.
-  $('#notes').addEventListener('toggle', () => {
-    if ($('#notes').open) markRead(ui.mode);
-  });
-
   $('#help-btn').addEventListener('click', () => { fillHelp(); $('#help').showModal(); });
   $('#help-close').addEventListener('click', () => $('#help').close());
   $('#help-ok').addEventListener('click', () => $('#help').close());
@@ -1753,8 +1847,9 @@ function wire() {
       if (e.code === 'Space') { e.preventDefault(); ui[ui.view]?.toggle?.(); }
       return;
     }
-    // The submit belongs to a round, and the analysis view does not have one.
-    if (ui.view === 'analysis') return;
+    // The submit belongs to a round, and neither the analysis view nor the
+    // Learn tab has one showing.
+    if (ui.view !== 'tools' || ui.learning) return;
     if (e.code === 'Space') {
       e.preventDefault();
       Promise.resolve(ui.tool?.toggle?.()).then(syncTransport);
@@ -1781,5 +1876,6 @@ fillSettings();
 wire();
 writeRoute({ replace: true });
 syncView();
+syncLearn();
 startGame();
 

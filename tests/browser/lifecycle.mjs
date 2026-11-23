@@ -22,7 +22,7 @@
 //   swapped   a new sample picked while it plays is what is heard - none of
 //             the old one is still sounding once the new one has started
 
-import { TOOLS } from './harness.mjs';
+import { TOOLS, pickTool } from './harness.mjs';
 
 export const name = 'lifecycle';
 
@@ -136,7 +136,7 @@ export async function check({ browser, at, say }) {
       (pill) => pill.getAttribute('aria-checked') === 'true');
     if (here) return;
     await page.evaluate(() => { const v = document.querySelector('#verdict'); if (v) v.textContent = ''; });
-    await page.click(`.modes button:text-is("${tool}")`);
+    await pickTool(page, `${tool}`);
     await page.waitForFunction(
       () => (document.querySelector('#verdict')?.textContent.trim().length ?? 0) > 0,
       null, { timeout: 20000 },

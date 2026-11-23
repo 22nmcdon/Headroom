@@ -13,7 +13,7 @@
 // 500, 700, 820 and 1024 - none of which is one of the three. A check that
 // only looks where the other checks look would have gone on passing.
 
-import { open } from './harness.mjs';
+import { open, pickTool } from './harness.mjs';
 
 export const name = 'decks';
 
@@ -52,7 +52,7 @@ export async function check({ browser, at, say }) {
     const { page, noise } = await open(browser, at, { width, height: 1000, view: 'tools' });
 
     for (const tool of TOOLS) {
-      await page.click(`.modes button:text-is("${tool}")`);
+      await pickTool(page, `${tool}`);
       await page.waitForTimeout(400);
 
       // Deck by deck, not face by face. The compressor has two of them -

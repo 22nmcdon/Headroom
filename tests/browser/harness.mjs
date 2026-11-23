@@ -147,6 +147,22 @@ export async function shot(page, name) {
   await page.screenshot({ path: `${into}/${name}.png` });
 }
 
+/**
+ * Pick a tool by its name, the way a person would at this size: from the list
+ * down the side where there is one, and from the sheet behind the tool's
+ * name where the window is too narrow or too short for the list.
+ */
+export async function pickTool(page, label) {
+  const button = page.locator(`.modes button:text-is("${label}")`);
+  if (!(await button.isVisible())) await page.click('#toolPick');
+  await button.click();
+}
+
+/** Pick a difficulty from the pills. */
+export async function pickTier(page, tier) {
+  await page.click(`#tier [data-tier="${tier}"]`);
+}
+
 /** Every face, by the class each one wears. */
 export const FACES = '.eq, .comp, .heat, .stereo, .echo, .verb, .level, .limiter, .gate, .deess, .align, .modulation';
 
@@ -210,11 +226,11 @@ export async function putRound(page, { exercise = null, tier = null } = {}) {
     }
   }
 
-  if (tier) await settle(() => page.selectOption('#tier', tier));
+  if (tier) await settle(() => pickTier(page, tier));
 }
 
 /** Which kind of activity the pill is on, and how to get to the other one. */
 export async function putKind(page, kind) {
-  await page.click(`button:text-is("${kind === 'drill' ? 'Drills' : 'Work at it'}")`);
+  await page.click(`.tool-tabs [data-kind="${kind}"]`);
   await page.waitForTimeout(400);
 }

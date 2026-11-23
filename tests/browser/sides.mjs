@@ -39,7 +39,7 @@
 // identically - so "which routing" is a question these readings can ask and
 // "how much offset" is not.
 
-import { open } from './harness.mjs';
+import { open, pickTool } from './harness.mjs';
 
 export const name = 'sides';
 
@@ -295,7 +295,7 @@ export async function check({ browser, at, say }) {
   // to a chassis that is checked for exactly that.
   for (const [label, width, height] of [['portrait', 430, 932], ['desktop', 1280, 1000]]) {
     const view = await open(browser, at, { width, height, view: 'tools' });
-    await view.page.click('.modes button:text-is("Delay")');
+    await pickTool(view.page, 'Delay');
     await view.page.waitForTimeout(500);
 
     const face = await view.page.evaluate(() => {

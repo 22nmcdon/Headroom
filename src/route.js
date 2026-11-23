@@ -7,7 +7,7 @@
 // the hash so the browser keeps it, and back and forward walk it.
 //
 //   #/home
-//   #/tools/<tool>/<work|drill>/<tier>
+//   #/tools/<tool>/<learn|drill|work>/<tier>
 //   #/mix   #/sketch   #/analysis
 //
 // The exercise is not in it. It lives under the tool's settings, it is
@@ -22,8 +22,8 @@
 /** The pages a route can name. The tools are one of them. */
 export const ROUTE_VIEWS = ['home', 'tools', 'mix', 'sketch', 'analysis'];
 
-/** The two ways of being at a tool. */
-export const ROUTE_KINDS = ['work', 'drill'];
+/** The three ways of being at a tool: reading about it, being asked, working it. */
+export const ROUTE_KINDS = ['learn', 'drill', 'work'];
 
 /**
  * A hash, read into the fields `ui` keeps - or null when it names nothing.

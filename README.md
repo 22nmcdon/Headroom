@@ -31,16 +31,21 @@ measured.
 > all of it is in: the identification drills, the analysis pillar and the
 > guided path.
 
-The app has two halves, on a switch above everything: **Tools**, which is all
-of the below, and **Analysis**, which asks nothing and reads a track back.
+One row along the top: **Home**, **Tools**, **Mix**, **Sketch** and
+**Analysis** — the last of which asks nothing and reads a track back — with
+Stats and help at the end of it.
 
-Within the tools there are two ways to use any of them, on a pill: **work at
-it**, or be **drilled** on it. Working at a tool is matching a target, curing a fault,
-levelling a loop — you build the answer on the plugin. A drill puts the tool
-away and asks instead: which octave moved, how much reduction is that, warm or
-dirty, where is it, how big is the room, which note are the repeats on — and
-on a drill, the first answer is the one that counts. The pill survives
-changing tool, so a run through all twelve tools' drills is one click each.
+The tools page has the twelve down the side in four families — tone, dynamics,
+space, image — each with three marks for how far along the path it is. Under a
+tool's name are three tabs: **Learn** is what the tool is for, as reading;
+**Drill** puts the tool away and asks instead — which octave moved, how much
+reduction is that, warm or dirty, where is it, how big is the room, which note
+are the repeats on — and the first answer is the one that counts; **Work** is
+matching a target, curing a fault, levelling a loop, building the answer on the
+plugin. The tab survives changing tool, so a run through all twelve tools'
+drills is one click each. Beside the tabs are the difficulty, as three pills,
+and the exercise. On a phone, or anything too narrow or too short for the list
+down the side, the list is a sheet behind **All tools**.
 
 | Mode | What you work with | Exercises | The drill |
 | --- | --- | --- | --- |
@@ -109,8 +114,8 @@ things on it:
   it, then go and build one.
 
 It is not new content and it is not a course. Every step is something that was
-already there, and clicking one sets the tool, the tier and the work-or-drills
-pill and takes you to it. **Nothing is locked** — an unlock would make this a
+already there, and clicking one sets the tool, the tier and the tab and takes
+you to it. **Nothing is locked** — an unlock would make this a
 gate, and a gate is wrong for an app somebody might open knowing exactly what
 they want to practise. Somebody who went and solved the delay first gets the
 delay marked done *and* is still pointed back at the EQ, because the order is
@@ -293,6 +298,7 @@ and Yours / Target are still on the face for now. The mix has the same bar:
 Play, Yours / The one to match, the ways out and **Submit the mix**.
 
 The address says where you are — `#/home`, `#/tools/reverb/drill/medium`,
+`#/tools/eq/learn/easy`,
 `#/mix`, `#/sketch`, `#/analysis` — so a reload comes back to the same place,
 Back and Forward walk where you have been, and a link can point at one drill.
 Opened with no address, it goes wherever this browser was last, and on a first
@@ -318,8 +324,8 @@ that doing it right is audible rather than merely scored:
   exercises, drills included,
   and every one usable on **your own audio** — there is an *Open a file* button
   on every plugin.
-- **Notes on each tool**: four sections apiece on what it is *for*, rather than
-  which button does what. What mid/side actually is, why pre-delay is the
+- **Notes on each tool**, on its Learn tab: four sections apiece on what it is
+  *for*, rather than which button does what. What mid/side actually is, why pre-delay is the
   control people miss, why even harmonics sound like an octave and odd ones
   like something breaking.
 - **Every sound synthesised live** — no samples to host. A piano built from

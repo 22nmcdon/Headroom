@@ -18,38 +18,27 @@
 <body>
 
 <div class="wrap">
+  <!-- One row: the name, the five things this app is for, and the two
+       things that are about all of them. What used to stack under it - the
+       tool strip, the work-or-drills pill, the difficulty row and an EASY
+       pill saying the difficulty a second time - belongs to the tool page,
+       and is on it. -->
   <header class="top-bar">
-    <!-- A chart's own head, engraved along a line: feel, title, credit. -->
-    <!-- A chart's own head: what is being played, what it is called, what it
-         is. The feel changes with the mode, the way it would on a stand. -->
-    <div class="sheet-head">
-      <span class="style-mark" id="modeMark">EQ</span>
-      <h1 class="sheet-title">Headroom</h1>
-      <span class="sheet-credit" id="modeBlurb">shape it until it matches</span>
-    </div>
+    <h1 class="sheet-title">Headroom</h1>
 
-    <div class="top-bar-right">
-      <!-- A state you are in, not an action, so: a pill. There was a
-           Daily/Practice switch beside it; it went with the daily. -->
-      <div class="status" id="puzzleStatus" data-state="playing">Easy</div>
-      <!-- Grouped so the "?" never wraps onto a line of its own at a phone
-           width, which reads as a control that fell off the row. -->
-      <div class="tools">
-        <button class="link-btn" type="button" id="stats-btn">Stats</button>
-        <button class="help-button" type="button" id="help-btn" aria-label="How this works" title="How this works">?</button>
-      </div>
-    </div>
-
-    <!-- The top of the hierarchy, and the only control above the tools: two
-         different things to do with this app rather than two ways of doing
-         one. Working at a tool asks you a question; the analysis view does
-         not ask anything, it reads a track back. -->
     <div class="view-switch" role="radiogroup" aria-label="What this page is for">
       <button class="view-option" type="button" data-view="home" role="radio" aria-checked="false">Home</button>
       <button class="view-option" type="button" data-view="tools" role="radio" aria-checked="true">Tools</button>
-      <button class="view-option" type="button" data-view="analysis" role="radio" aria-checked="false">Analysis</button>
       <button class="view-option" type="button" data-view="mix" role="radio" aria-checked="false">Mix</button>
       <button class="view-option" type="button" data-view="sketch" role="radio" aria-checked="false">Sketch</button>
+      <button class="view-option" type="button" data-view="analysis" role="radio" aria-checked="false">Analysis</button>
+    </div>
+
+    <!-- Grouped so the "?" never wraps onto a line of its own at a phone
+         width, which reads as a control that fell off the row. -->
+    <div class="tools">
+      <button class="link-btn" type="button" id="stats-btn">Stats</button>
+      <button class="help-button" type="button" id="help-btn" aria-label="How this works" title="How this works">?</button>
     </div>
 
     <!-- A set in progress. The rest of the navigation steps back while one
@@ -59,27 +48,6 @@
       <span class="set-count" id="setCount"></span>
       <ol class="set-strip" id="setStrip" aria-label="How the set is going"></ol>
       <button class="link-btn" type="button" id="setSkip">Skip this one</button>
-    </div>
-
-    <nav class="modes" id="modes" role="radiogroup" aria-label="What to practise"></nav>
-
-    <!-- Two ways to use any of these tools: work at it, or be asked about it.
-         A state you are in, so: a pill, and it survives changing tool - which
-         is the whole point of having it, since a run of drills across all six
-         is the thing somebody wants to do. -->
-    <div class="kind-switch" role="radiogroup" aria-label="How to practise">
-      <button class="kind-option" type="button" data-kind="work" role="radio" aria-checked="true">Work at it</button>
-      <button class="kind-option" type="button" data-kind="drill" role="radio" aria-checked="false">Drills</button>
-    </div>
-
-    <div class="setup">
-      <label class="field">
-        <span class="field-label">Difficulty</span>
-        <select id="tier"></select>
-      </label>
-      <!-- A mode's own settings: what you are listening to, and in the
-           production modes, which exercise you are doing. -->
-      <span class="settings" id="settings"></span>
     </div>
   </header>
 </div>
@@ -111,16 +79,52 @@
   </section>
 
   <section class="sheet-section" id="tools-view">
+   <div class="tools-layout">
+    <!-- The twelve, in their four families, each with three marks for how
+         far along the path it is. Down the side where there is room; behind
+         the tool's name, as a sheet, where there is not. -->
+    <nav class="modes" id="modes" role="radiogroup" aria-label="Tools"></nav>
+    <div class="modes-scrim" id="modesScrim" hidden></div>
+
+    <div class="tools-main">
+     <div class="tool-head">
+      <div class="tool-title">
+        <h2 class="tool-name" id="toolName">EQ</h2>
+        <span class="tool-blurb" id="toolBlurb">shape it until it matches</span>
+        <button class="link-btn tool-pick" type="button" id="toolPick"
+                aria-controls="modes" aria-expanded="false">All tools</button>
+      </div>
+      <div class="tool-row">
+        <!-- Three ways to be at a tool: read what it is for, be asked about
+             it, or work it. A state you are in, and it survives changing
+             tool - a run of drills across every tool is one click each. -->
+        <div class="tool-tabs" role="radiogroup" aria-label="How to use this tool">
+          <button class="tool-tab" type="button" data-kind="learn" role="radio" aria-checked="false">Learn</button>
+          <button class="tool-tab" type="button" data-kind="drill" role="radio" aria-checked="false">Drill</button>
+          <button class="tool-tab" type="button" data-kind="work" role="radio" aria-checked="true">Work</button>
+        </div>
+        <div class="tool-settings" id="toolSettings">
+          <div class="tier-pills" id="tier" role="radiogroup" aria-label="Difficulty"></div>
+          <!-- A mode's own settings: which exercise, and anything else the
+               tool asks of a round. -->
+          <span class="settings" id="settings"></span>
+        </div>
+      </div>
+     </div>
+
     <div class="sheet">
+     <!-- Learn: what the tool is for, as reading rather than as a round. -->
+     <div class="learn" id="learn" hidden>
+      <div class="notes" id="notes" hidden>
+        <h3 class="notes-title" id="notesTitle"></h3>
+        <div class="notes-body" id="notesBody"></div>
+      </div>
+      <aside class="learn-side" id="learnSide" aria-label="This tool on the path"></aside>
+     </div>
+
+     <div class="round" id="round">
       <p class="lede" id="lede"></p>
       <p class="advice" id="advice" hidden></p>
-
-      <!-- The written half of the tool. Collapsed, because it is reference
-           rather than instruction - one line until somebody wants it. -->
-      <details class="notes" id="notes" hidden>
-        <summary class="notes-open" id="notesOpen"></summary>
-        <div class="notes-body" id="notesBody"></div>
-      </details>
 
       <!-- A mode may bring its own interface instead of a picker: the EQ is
            a plugin, not a question with options under it. -->
@@ -150,7 +154,10 @@
            there is no ceiling to size an empty grid to any more, and the
            first attempt decides the columns. -->
       <div class="log" id="log"></div>
+     </div>
     </div>
+    </div>
+   </div>
   </section>
 </main>
 

@@ -11,7 +11,7 @@
 // its bottom edge just as happily, and what you get is not a broken layout
 // but a knob that is quietly not there.
 
-import { open, FACES, TOOLS, SIZES } from './harness.mjs';
+import { open, FACES, TOOLS, SIZES, pickTool } from './harness.mjs';
 
 export const name = 'faces';
 
@@ -22,7 +22,7 @@ export async function check({ browser, at, say }) {
     const { page, noise } = await open(browser, at, { width, height, view: 'tools' });
 
     for (const tool of TOOLS) {
-      await page.click(`.modes button:text-is("${tool}")`);
+      await pickTool(page, `${tool}`);
       await page.waitForTimeout(500);
 
       const seen = await page.evaluate((sel) => {

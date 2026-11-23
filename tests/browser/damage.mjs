@@ -16,7 +16,7 @@
 // printing 6.02b + 1.76, so the only way to know it is telling the truth is
 // to turn the knobs and read what it says.
 
-import { open } from './harness.mjs';
+import { open, pickTool } from './harness.mjs';
 
 export const name = 'damage';
 
@@ -215,7 +215,7 @@ export async function check({ browser, at, say }) {
   await page.waitForTimeout(400);
   // Blanked first, so the verdict waited for below is this round's.
   await page.evaluate(() => { const v = document.querySelector('#verdict'); if (v) v.textContent = ''; });
-  await page.click('.modes button:text-is("Saturation")');
+  await pickTool(page, 'Saturation');
   await page.waitForSelector('.surface .plugin.heat', { timeout: 8000 });
   // The face is on the page before the round that opened it has attached,
   // and attaching puts the round's settings on it - so a family chosen in

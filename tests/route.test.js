@@ -30,7 +30,7 @@ test('a route is read as far as it makes sense', () => {
 });
 
 test('something that names nothing is not a route', () => {
-  for (const hash of ['', '#', '#/', '#/progress', '#/learn', '#/tools/theremin/work/easy',
+  for (const hash of ['', '#', '#/', '#/progress', '#/learn', '#/set', '#/tools/theremin/work/easy',
     '#/tools/constructor', '#/tools/__proto__', null, undefined]) {
     assert.equal(parseRoute(hash, FAKE), null, `${hash} was read as a route`);
   }
@@ -39,7 +39,7 @@ test('something that names nothing is not a route', () => {
 test('where the shell is, written out and read back, is where it was', () => {
   for (const id of Object.keys(TOOLS)) {
     for (const tier of Object.keys(TOOLS[id].tiers)) {
-      for (const kind of ['work', 'drill']) {
+      for (const kind of ['learn', 'drill', 'work']) {
         const at = { view: 'tools', mode: id, kind, tier };
         assert.deepEqual(parseRoute(routeFor(at), TOOLS), at, `${id}/${kind}/${tier}`);
       }

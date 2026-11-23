@@ -4,7 +4,7 @@
 // Moved in from a scratchpad, where it ran when somebody remembered to run
 // it. See harness.mjs for why that is the same as not having it.
 
-import { open, FACES, TOOLS, SIZES } from './harness.mjs';
+import { open, FACES, TOOLS, SIZES, pickTool } from './harness.mjs';
 
 export const name = 'knobs';
 
@@ -40,7 +40,7 @@ export async function check({ browser, at, say }) {
 
   /** Clicks a tool and waits for that tool's own face to be the one there. */
   const openFace = async (tool) => {
-    await page.click(`.modes button:text-is("${tool}")`);
+    await pickTool(page, `${tool}`);
     await page.waitForSelector(`.surface .plugin.${FACES_BY_TOOL[tool]}`, { timeout: 8000 });
     await page.waitForTimeout(120);
   };
