@@ -320,7 +320,7 @@ export class CompPlugin extends PluginFace {
         <div class="knob" data-knob="${knob.id}">
           <label class="knob-name" for="comp-${knob.id}">${knob.name}</label>
           <output class="knob-value" id="comp-${knob.id}-value">${knob.write(this.settings[knob.id])}</output>
-          <input class="knob-dial" type="range" id="comp-${knob.id}" data-dial="${knob.id}"
+          <input class="knob-dial" type="range" id="comp-${knob.id}" data-dial="${knob.id}"${knob.log ? ' data-log' : ''}
                  min="${dial.min}" max="${dial.max}" step="${dial.step}" value="${dial.at}"
                  data-rest="${dialOf(knob, COMP_DEFAULTS[knob.id] ?? dial.at).at}"
                  aria-label="${knob.name}">

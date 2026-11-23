@@ -185,7 +185,7 @@ export class AlignPlugin extends PluginFace {
         <div class="knob">
           <label class="knob-name" for="align-${knob.id}">${knob.name}</label>
           <output class="knob-value" id="align-${knob.id}-value">${knob.write(this.settings[knob.id])}</output>
-          <input class="knob-dial" type="range" id="align-${knob.id}" data-dial="${knob.id}"
+          <input class="knob-dial" type="range" id="align-${knob.id}" data-dial="${knob.id}"${knob.log ? ' data-log' : ''}
                  min="${dial.min}" max="${dial.max}" step="${dial.step}" value="${dial.at}"
                  data-rest="${dialOf(knob, ALIGN_DEFAULTS[knob.id]).at}"
                  aria-label="${knob.name}">

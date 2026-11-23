@@ -876,6 +876,20 @@ input.knob-value:focus {
   cursor: grab;
 }
 .knob-face.is-held { cursor: grabbing; }
+/* The knob being turned wears a ring, so which one the finger has is never
+   in doubt - under a thumb, the knob itself is the one thing you cannot see. */
+.knob-face.is-held::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 3px rgba(226, 196, 143, 0.55);
+  pointer-events: none;
+}
+/* A readout you can click into, and the field it becomes. */
+output.knob-value { cursor: text; }
+output.knob-value:hover { text-decoration: underline dotted; text-underline-offset: 3px; }
+input.knob-entry { font: inherit; font-size: var(--read, 13.5px); color: inherit; }
 
 /* How far it has been turned, as a ring round the outside. The ninety
    degrees it does not travel through are transparent in the gradient

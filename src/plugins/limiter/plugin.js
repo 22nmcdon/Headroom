@@ -209,7 +209,7 @@ export class LimiterPlugin extends PluginFace {
         <div class="knob">
           <label class="knob-name" for="ceil-${knob.id}">${knob.name}</label>
           <output class="knob-value" id="ceil-${knob.id}-value">${knob.write(this.settings[knob.id])}</output>
-          <input class="knob-dial" type="range" id="ceil-${knob.id}" data-dial="${knob.id}"
+          <input class="knob-dial" type="range" id="ceil-${knob.id}" data-dial="${knob.id}"${knob.log ? ' data-log' : ''}
                  min="${dial.min}" max="${dial.max}" step="${dial.step}" value="${dial.at}"
                  data-rest="${dialOf(knob, CEIL_DEFAULTS[knob.id] ?? dial.at).at}"
                  aria-label="${knob.name}">

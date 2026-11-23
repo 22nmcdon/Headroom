@@ -42,12 +42,159 @@ export const KNOB_FINE = 0.22;
 
 const faceOf = (input) => input.parentElement?.querySelector('.knob-face');
 
+/* --- typing a value ------------------------------------------------------ */
+
+/** How big each unit a value can be written in is, against its own family. */
+const UNITS = { khz: 1000, k: 1000, hz: 1, ms: 0.001, s: 1, db: 1, '%': 1 };
+
+/**
+ * A number and the unit written after it - "4.5k", "-18 dB", "120 ms",
+ * "4:1", "× 0.55" - or null when there is no number in it.
+ *
+ * The minus sign is the typographic one as often as the ASCII one, because
+ * that is what the readouts print and somebody editing one starts from it.
+ */
+export function readNumber(text) {
+  const plain = String(text ?? '').replace(/[−–]/g, '-').replace(/×/g, '').trim().toLowerCase();
+  const match = plain.match(/(-?\+?\d*\.?\d+)\s*(khz|k|hz|ms|s|db|%)?/);
+  if (!match) return null;
+  const number = Number(match[1].replace('+', ''));
+  return Number.isFinite(number) ? { number, unit: match[2] ?? null } : null;
+}
+
+/**
+ * What a typed value means on a dial, worked out from what the dial shows.
+ *
+ * The readout above a knob is written in the knob's own words - "1.80 s",
+ * "120 ms", "6.0 kHz", "35 %" - and the setting behind it may be in seconds,
+ * milliseconds, hertz or a fraction. Rather than every knob describing its
+ * units, the two are compared: the number shown against the setting it shows
+ * gives the scale, and a unit typed differently from the one shown is
+ * converted. So "0.4k" on a knob reading "400 Hz" is 400, "1.2 s" on one
+ * reading "120 ms" is 1200, and "50" on one reading "35 %" of a 0-to-1
+ * setting is 0.5.
+ *
+ * `shown` is the readout's text and `real` the setting it is showing.
+ * Returns the setting to put on, or null when nothing in `typed` is a number.
+ */
+export function readTyped(typed, { shown, real, max }) {
+  const wanted = readNumber(typed);
+  if (!wanted) return null;
+  const display = readNumber(shown);
+
+  // Settings per shown unit: 1 almost always; 0.01 for a fraction shown as a
+  // percentage; whatever the two say when they can be compared at all.
+  let per = 1;
+  if (display && display.number !== 0 && Number.isFinite(real) && real !== 0) {
+    per = real / (display.number * (UNITS[display.unit] ?? 1));
+    // A display that rounds - "1.8 s" for 1.79 - should not leave the scale
+    // at 0.9944; scales are powers of ten.
+    per = 10 ** Math.round(Math.log10(Math.abs(per)));
+  } else if (display?.unit === '%' && max <= 1.0001) {
+    per = 0.01;
+  }
+
+  // A bare number is in the unit shown - except a frequency typed in hertz
+  // on a knob that reads in kilohertz, which is what "400" means on a knob
+  // reading "6.0 kHz": nobody types 400 kHz.
+  let unit = wanted.unit ?? display?.unit ?? null;
+  if (!wanted.unit && ['k', 'khz'].includes(unit) && Math.abs(wanted.number) >= 50) unit = 'hz';
+  return wanted.number * (UNITS[unit] ?? 1) * per;
+}
+
 /** Where a dial's value sits in its own range, 0 to 1. */
 function fractionOf(input) {
   const min = Number(input.min);
   const max = Number(input.max);
   if (!(max > min)) return 0;
   return Math.min(1, Math.max(0, (Number(input.value) - min) / (max - min)));
+}
+
+/** Put a value on a dial as if it had been dialled, and tell everyone. */
+function setDial(input, value, face = faceOf(input)) {
+  input.value = value;
+  if (face) face.style.setProperty('--angle', `${fractionOf(input) * KNOB_SWEEP}deg`);
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+/** Back to where it rests, if it says where that is. */
+function restore(input, face) {
+  if (input.disabled || input.closest('.is-locked')) return;
+  const rest = input.dataset.rest;
+  if (rest !== undefined) setDial(input, rest, face);
+}
+
+/**
+ * Type a value into a knob.
+ *
+ * The readout is swapped for a text field holding what it said, selected,
+ * so typing replaces it. Enter or leaving the field puts the value on;
+ * Escape leaves the knob as it was. What was typed is read against what the
+ * readout said (see `readTyped`), so units can be the readout's or another
+ * of the same kind. A log dial - `data-log` - holds octaves, and is given
+ * the log of the value.
+ */
+function typeInto(shown) {
+  const input = shown.parentElement?.querySelector('.knob-dial');
+  if (!input || input.disabled || input.closest('.is-locked')) return;
+  if (shown.parentElement.querySelector('.knob-entry')) return;
+
+  const log = input.hasAttribute('data-log');
+  const toReal = (raw) => (log ? 2 ** Number(raw) : Number(raw));
+  const name = input.getAttribute('aria-label') ?? 'this knob';
+
+  const entry = document.createElement('input');
+  entry.type = 'text';
+  entry.className = 'knob-value knob-entry';
+  entry.value = shown.textContent.trim();
+  entry.setAttribute('aria-label', `Type a value for ${name}`);
+  entry.spellcheck = false;
+  shown.hidden = true;
+  shown.after(entry);
+  entry.focus();
+  entry.select();
+
+  let done = false;
+  const finish = (commit) => {
+    if (done) return;
+    done = true;
+    if (commit) {
+      const value = readTyped(entry.value, {
+        shown: shown.textContent, real: toReal(input.value), max: toReal(input.max),
+      });
+      if (value !== null) {
+        const min = Number(input.min);
+        const max = Number(input.max);
+        let dial = log ? Math.log2(Math.max(value, 1e-9)) : value;
+        dial = Math.min(max, Math.max(min, dial));
+        if (log) {
+          // A range input snaps to its step, and a log dial's step is a two-
+          // hundredth of an octave - so 1.2 s came out 1198 ms. What was typed
+          // is what was meant: the step is let go for the one assignment, and
+          // the plugin reads the exact value while its input event runs.
+          const step = input.step;
+          input.step = 'any';
+          setDial(input, dial);
+          input.step = step;
+        } else {
+          const step = Number(input.step) || 0;
+          if (step > 0) dial = min + Math.round((dial - min) / step) * step;
+          setDial(input, Number(dial.toFixed(6)));
+        }
+      }
+    }
+    entry.remove();
+    shown.hidden = false;
+    input.focus({ preventScroll: true });
+  };
+  entry.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') { event.preventDefault(); finish(true); }
+    if (event.key === 'Escape') { event.preventDefault(); finish(false); }
+    // The page's own keys - Space for the transport - are not for this.
+    event.stopPropagation();
+  });
+  entry.addEventListener('blur', () => finish(true));
 }
 
 /**
@@ -92,6 +239,13 @@ export function dressKnobs(root) {
 
     face.addEventListener('pointerdown', (event) => {
       if (event.button !== undefined && event.button !== 0) return;
+      // Alt-click (Option on a Mac) puts it back where it rests, the way
+      // Logic and Pro Tools have it, beside the double tap below.
+      if (event.altKey) {
+        event.preventDefault();
+        restore(input, face);
+        return;
+      }
       const min = Number(input.min);
       const max = Number(input.max);
       if (!(max > min)) return;
@@ -134,19 +288,29 @@ export function dressKnobs(root) {
 
     // A double tap puts it back where it rests, which is the one gesture
     // every plugin has and none of these had.
-    face.addEventListener('dblclick', () => {
-      const rest = input.dataset.rest;
-      if (rest === undefined) return;
-      input.value = rest;
-      face.style.setProperty('--angle', `${fractionOf(input) * KNOB_SWEEP}deg`);
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-      input.dispatchEvent(new Event('change', { bubbles: true }));
-    });
+    face.addEventListener('dblclick', () => restore(input, face));
+
+    // The readout above it can be typed into: say so on it.
+    const shown = input.parentElement.querySelector('output.knob-value');
+    if (shown) shown.title = 'Click to type a value';
   }
 
   // The arrow keys still work on the input itself; this keeps the face in
   // step with them.
   if (!root.dataset.knobsWired) {
+    // Click the readout, or press Enter on the knob, to type a value.
+    root.addEventListener('click', (event) => {
+      const shown = event.target.closest?.('output.knob-value');
+      if (shown) typeInto(shown);
+    });
+    root.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter') return;
+      const input = event.target.closest?.('.knob-dial');
+      const shown = input?.parentElement?.querySelector('output.knob-value');
+      if (!shown) return;
+      event.preventDefault();
+      typeInto(shown);
+    });
     root.addEventListener('input', (event) => {
       const input = event.target.closest?.('.knob-dial');
       if (!input) return;

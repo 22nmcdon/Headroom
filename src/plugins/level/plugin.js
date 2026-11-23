@@ -165,7 +165,7 @@ export class LevelPlugin extends PluginFace {
         <div class="knob">
           <label class="knob-name" for="level-${knob.id}">${knob.name}</label>
           <output class="knob-value" id="level-${knob.id}-value">${knob.write(this.settings[knob.id])}</output>
-          <input class="knob-dial" type="range" id="level-${knob.id}" data-dial="${knob.id}"
+          <input class="knob-dial" type="range" id="level-${knob.id}" data-dial="${knob.id}"${knob.log ? ' data-log' : ''}
                  min="${dial.min}" max="${dial.max}" step="${dial.step}" value="${dial.at}"
                  data-rest="${dialOf(knob, LEVEL_DEFAULTS[knob.id] ?? dial.at).at}"
                  aria-label="${knob.name}">

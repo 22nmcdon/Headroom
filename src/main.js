@@ -1832,6 +1832,15 @@ function fillHelp() {
     + 'drills across every tool is one click each.',
   ]);
 
+  // The knobs, which work the same on every face.
+  entries.push([
+    'Every knob: drag it, type it, put it back.',
+    'Drag up or down; hold Shift for fine. Click the number above a knob - or press '
+    + 'Enter on it - to type a value: 400, 0.4k and 400 Hz are the same frequency, 1.2 s '
+    + 'and 1200 ms the same time. Double-click or Alt-click a knob to put it back where '
+    + 'it rests. Undo and Redo, and the A and B slots, are above the face.',
+  ]);
+
   for (const spec of tool().settings ?? []) {
     entries.push([`${spec.label}: ${spec.options.map((o) => o.label).join(', ')}.`,
       spec.id === 'exercise'

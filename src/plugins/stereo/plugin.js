@@ -332,7 +332,7 @@ export class StereoPlugin extends PluginFace {
         <div class="knob">
           <label class="knob-name" for="image-${knob.id}">${knob.name}</label>
           <output class="knob-value" id="image-${knob.id}-value">${knob.write(this.settings[knob.id])}</output>
-          <input class="knob-dial" type="range" id="image-${knob.id}" data-dial="${knob.id}"
+          <input class="knob-dial" type="range" id="image-${knob.id}" data-dial="${knob.id}"${knob.log ? ' data-log' : ''}
                  min="${dial.min}" max="${dial.max}" step="${dial.step}" value="${dial.at}"
                  data-rest="${dialOf(knob, STEREO_DEFAULTS[knob.id] ?? dial.at).at}"
                  aria-label="${knob.name}">

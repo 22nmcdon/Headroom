@@ -270,7 +270,11 @@ writing it; `tests/bundle.test.js` runs the whole thing on every `npm test`.
    **Target** are two chains fed by the same source, so flipping between them
    changes the processing and nothing else.
 2. Dial it in. Every control is one you would reach for in a session, with the
-   same units written on it, and audible before you commit to it.
+   same units written on it, and audible before you commit to it. A knob drags
+   up and down (Shift for fine), takes a typed value - click the number above
+   it, or press Enter on it; `400`, `0.4k` and `400 Hz` are the same, as are
+   `1.2 s` and `1200 ms` - and goes back to where it rests on a double-click or
+   an Alt-click.
 3. Submit when you think you are on it.
 
 Every attempt comes back as coloured readings: 🟩 that is it, 🟨 close, 🟥 not
