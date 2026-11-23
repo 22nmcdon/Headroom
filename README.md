@@ -298,7 +298,11 @@ whatever the exercise calls it — on work, and **Hear it clean** on a drill,
 where the chips are on the paper where the tool was. Starting the loop and
 choosing which side you hear are the host's jobs rather than the device's, so
 no face carries them; the sample and *Open a file* stay on the paper above the
-face. The mix has the same bar:
+face, beside **Undo**, **Redo** (Ctrl+Z, Ctrl+Shift+Z) and two slots, **A** and
+**B**, for comparing two settings of your own — the A/B a plugin host has, as
+against Yours / Target, which compares yours with the answer. Both are built on
+what every face already does, its state and putting a state back, so none of
+the twelve had to change for them; one turn of a knob is one step of undo. The mix has the same bar:
 Play, Yours / The one to match, the ways out and **Submit the mix**.
 
 The address says where you are — `#/home`, `#/tools/reverb/drill/medium`,

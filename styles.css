@@ -2490,6 +2490,34 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
 .path-key { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 0; font-size: 13px; color: var(--text-soft); }
 .path-key > span { display: inline-flex; align-items: center; gap: 6px; }
 
+/* --- undo, redo and the A/B slots ----------------------------------------- */
+/* On the paper, beside the sample and Open a file, because they are the
+   host's too. Where there is width they sit at the right of that row; where
+   there is not, on a line of their own above it. */
+.surface-wrap { position: relative; }
+.face-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 8px; }
+@media (min-width: 1000px) {
+  .face-tools { position: absolute; top: 0; right: 0; z-index: 1; margin: 0; }
+}
+.face-tool, .face-slot {
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 1px;
+  background: var(--paper);
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--charcoal);
+}
+.face-tool:hover:not(:disabled), .face-slot:hover:not(:disabled) { border-color: var(--charcoal); }
+.face-tool:disabled, .face-slot:disabled { color: var(--text-soft); opacity: 0.55; cursor: default; }
+.face-slots { display: inline-flex; }
+.face-slot + .face-slot { border-left: 0; }
+.face-slot[aria-checked="true"] { background: var(--charcoal); border-color: var(--charcoal); color: var(--cream); }
+
 /* --- progress --------------------------------------------------------------- */
 /* Every tool at once. A table, because it is one: tools down the side, each
    kind and tier across, and every cell a way into that round. The four fills

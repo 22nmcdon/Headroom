@@ -21,6 +21,7 @@ import { renderPicker, syncPicker, pickerState, dialValue } from './learn/bench/
 import { makeLog } from './learn/bench/log.js';
 import { notesFor } from './learn/notes/index.js';
 import { parseRoute, routeFor, sameRoute } from './route.js';
+import { makeHistory } from './lib/history.js';
 import { AnalysisPage } from './analysis/page.js';
 import { SketchPage } from './sketch/grid.js';
 import { MixPage } from './mix/page.js';
@@ -552,7 +553,13 @@ async function openTool() {
   const host = document.createElement('div');
   host.className = 'tool-host';
   surface.append(host);
-  ui.tool = toolOf(ui.mode).open(host, { engine, onChange: () => syncAnswer() });
+  ui.tool = toolOf(ui.mode).open(host, {
+    engine,
+    onChange: () => {
+      syncAnswer();
+      noteChange();
+    },
+  });
   ui.toolId = ui.mode;
   return ui.tool;
 }
@@ -581,6 +588,8 @@ async function putExercise() {
   // against odd. Hidden, every canvas reads as zero by zero and every draw is
   // a no-op, so nothing is spent on pictures nobody is looking at.
   $('#surface').hidden = drilling;
+  // Undo and the A/B slots are for settings you dial, and a drill dials none.
+  $('#faceTools').hidden = drilling;
   $('#drill').hidden = !drilling;
   $('#picker').hidden = !drilling;
   // Yours and the other side on work; on a drill the other side is the
@@ -630,6 +639,112 @@ async function putExercise() {
 
   syncAnswer();
   syncTransport();
+}
+
+/* ---------- undo, redo, and the A/B slots ---------- */
+
+/**
+ * The settings you dial, kept.
+ *
+ * Undo is a list of `state()` snapshots, and the slots are two of them you
+ * can flip between - the A/B a plugin host has, for comparing two settings
+ * of your own rather than yours against a target. Both are the shell's, built
+ * on what every face already does, so no face had to change for them.
+ *
+ * A snapshot is taken when a change has settled rather than on every step of
+ * a drag: one turn of a knob is one undo.
+ */
+const faceTools = {
+  history: makeHistory(),
+  slots: { on: 'A', A: null, B: null },
+  // While the shell itself is putting a state on, the face's onChange is the
+  // shell's own doing and is not a change to record.
+  applying: false,
+  settle: 0,
+};
+
+const SETTLE_MS = 350;
+
+function resetFaceTools() {
+  clearTimeout(faceTools.settle);
+  const state = ui.tool?.state?.();
+  faceTools.history.reset(state);
+  faceTools.slots = { on: 'A', A: null, B: null };
+  syncFaceTools();
+}
+
+function noteChange() {
+  if (faceTools.applying) return;
+  clearTimeout(faceTools.settle);
+  faceTools.settle = setTimeout(() => {
+    const state = ui.tool?.state?.();
+    if (state !== undefined && faceTools.history.record(state)) syncFaceTools();
+  }, SETTLE_MS);
+}
+
+/** Put a state on the face without that counting as a change of its own. */
+function applyState(state) {
+  if (!state || !ui.tool?.setState) return;
+  clearTimeout(faceTools.settle);
+  faceTools.applying = true;
+  try {
+    ui.tool.setState(state);
+  } finally {
+    faceTools.applying = false;
+  }
+  syncAnswer();
+}
+
+/** Settings can only be moved while the round is still open. */
+const settable = () => ui.game?.status !== 'solved' && !!ui.tool?.setState;
+
+function undoStep() {
+  if (!settable()) return;
+  applyState(faceTools.history.undo());
+  syncFaceTools();
+}
+
+function redoStep() {
+  if (!settable()) return;
+  applyState(faceTools.history.redo());
+  syncFaceTools();
+}
+
+/**
+ * Flip to the other slot. What is on the controls is kept in the slot being
+ * left; the other slot's settings go on, or - the first time - it starts as a
+ * copy of these, which is where somebody comparing two settings starts.
+ */
+function toSlot(slot) {
+  const { slots } = faceTools;
+  if (slot === slots.on || !settable()) return;
+  slots[slots.on] = ui.tool.state();
+  slots.on = slot;
+  if (slots[slot]) {
+    applyState(slots[slot]);
+    faceTools.history.record(ui.tool.state());
+  }
+  syncFaceTools();
+}
+
+/** Copy what is on the controls into the other slot. */
+function copySlot() {
+  if (!settable()) return;
+  const { slots } = faceTools;
+  slots[slots.on === 'A' ? 'B' : 'A'] = ui.tool.state();
+  syncFaceTools();
+}
+
+function syncFaceTools() {
+  const open = settable();
+  $('#undo').disabled = !open || !faceTools.history.canUndo;
+  $('#redo').disabled = !open || !faceTools.history.canRedo;
+  $('#slotCopy').disabled = !open;
+  $('#slotCopy').textContent = faceTools.slots.on === 'A' ? 'A → B' : 'B → A';
+  for (const button of document.querySelectorAll('#faceTools [data-slot]')) {
+    button.setAttribute('aria-checked', button.dataset.slot === faceTools.slots.on ? 'true' : 'false');
+    button.disabled = !open;
+  }
 }
 
 /* ---------- the transport ---------- */
@@ -841,6 +956,9 @@ async function playRound(round, fresh) {
   // for, heard rather than read.
   await putExercise();
   if (round !== ui.round) return;
+  // After the round has put its starting settings on: those are where undo
+  // goes back to, not whatever the last round left.
+  resetFaceTools();
 
   // Nothing is restored into a round. What this replaces re-ran the scoring
   // over stored guesses and could print different text than had been shown,
@@ -1044,6 +1162,8 @@ function render() {
 
   // The marks on the tool list move as rounds are recorded.
   syncModes();
+  // And settings stop moving once the round is solved.
+  syncFaceTools();
 
   const solved = game.status === 'solved';
   $('#picker').classList.toggle('done', solved);
@@ -1843,6 +1963,13 @@ function wire() {
     await ui.tool?.toggle?.();
     syncTransport();
   });
+  $('#undo').addEventListener('click', undoStep);
+  $('#redo').addEventListener('click', redoStep);
+  $('#slotCopy').addEventListener('click', copySlot);
+  $('#faceTools').addEventListener('click', (e) => {
+    const slot = e.target.closest('[data-slot]')?.dataset.slot;
+    if (slot) toSlot(slot);
+  });
   $('#barAB').addEventListener('click', (e) => {
     const side = e.target.closest('[data-side]')?.dataset.side;
     if (!side || !ui.tool?.hear) return;
@@ -1892,6 +2019,14 @@ function wire() {
     // The submit belongs to a round, and neither the analysis view nor the
     // Learn tab has one showing.
     if (ui.view !== 'tools' || ui.learning) return;
+    // Undo and redo, the way every editor has them.
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z' || e.key === 'y')) {
+      if ($('#faceTools').hidden) return;
+      e.preventDefault();
+      if (e.key === 'y' || e.shiftKey) redoStep();
+      else undoStep();
+      return;
+    }
     if (e.code === 'Space') {
       e.preventDefault();
       Promise.resolve(ui.tool?.toggle?.()).then(syncTransport);

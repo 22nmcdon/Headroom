@@ -141,7 +141,21 @@
 
       <!-- A mode may bring its own interface instead of a picker: the EQ is
            a plugin, not a question with options under it. -->
-      <div class="surface" id="surface" hidden></div>
+      <div class="surface-wrap">
+        <!-- Undo, redo and two slots to compare settings in: the host's, like
+             the transport, and built on what every face already answers -
+             its state, and putting a state back. -->
+        <div class="face-tools" id="faceTools" role="toolbar" aria-label="Your settings" hidden>
+          <button class="face-tool" type="button" id="undo" title="Undo (Ctrl+Z)" disabled>Undo</button>
+          <button class="face-tool" type="button" id="redo" title="Redo (Ctrl+Shift+Z)" disabled>Redo</button>
+          <span class="face-slots" role="radiogroup" aria-label="Settings slot">
+            <button class="face-slot" type="button" role="radio" data-slot="A" aria-checked="true">A</button>
+            <button class="face-slot" type="button" role="radio" data-slot="B" aria-checked="false">B</button>
+          </span>
+          <button class="face-tool" type="button" id="slotCopy" title="Copy these settings to the other slot">A → B</button>
+        </div>
+        <div class="surface" id="surface" hidden></div>
+      </div>
 
       <!-- A drill puts the tool away and asks instead. It has to: on every
            one of these tools the display IS the answer - the analyser draws

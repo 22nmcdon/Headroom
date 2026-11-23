@@ -15,6 +15,7 @@ What more than one of the folders above needs, and nothing else.
     panel.js     canvas sizing, dials, resize watching, formatting a frequency
     knob.js      the knob control
     face.js      what every plugin face has in common: play, the A/B, state, lock
+    history.js   undo and redo over a face's state snapshots
     meter.js     the moving-coil meter
     player.js    the shared half of auditioning a loop
     worklet.js   installing an AudioWorklet, and the fallback
