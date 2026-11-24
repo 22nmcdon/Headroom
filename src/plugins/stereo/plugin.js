@@ -6,7 +6,7 @@ import {
 import { notReady, stampOf } from '../../lib/read.js';
 import { StereoPlayer } from './player.js';
 import { dialOf, offDial, readyCanvas, watchSize, span } from '../../lib/panel.js';
-import { dressKnobs } from '../../lib/knob.js';
+import { dressKnobs, foldMore } from '../../lib/knob.js';
 import { writeHertz } from '../../lib/panel.js';
 import { MONO_SLOPES } from './shuffle.js';
 import { WIDEN_KINDS } from './widen.js';
@@ -42,6 +42,12 @@ const writePlace = (v) => (Math.abs(v) < 0.02
   : `${Math.round(Math.abs(v) * 100)}% ${v < 0 ? 'left' : 'right'}`);
 
 /** Every knob, and how it reads. */
+/**
+ * Behind the deck's More row: the lean, and the widener's time and detune -
+ * the fine print of two controls that are on the deck already.
+ */
+export const STEREO_MORE = ['asymmetry', 'widenDelay', 'widenCents'];
+
 const STEREO_KNOBS = [
   { id: 'low', name: 'Low width', ...span(STEREO_LIMITS.low), step: 0.01, write: (v) => `${Math.round(v * 100)} %` },
   { id: 'mid', name: 'Mid width', ...span(STEREO_LIMITS.mid), step: 0.01, write: (v) => `${Math.round(v * 100)} %` },
@@ -338,6 +344,7 @@ export class StereoPlugin extends PluginFace {
                  aria-label="${knob.name}">
         </div>`;
     }).join('');
+    foldMore(this.el.querySelector('#stereoKnobs'), STEREO_MORE);
     this.syncKnobs();
   }
 

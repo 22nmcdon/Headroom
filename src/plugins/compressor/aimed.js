@@ -27,7 +27,7 @@ import { notReady, stampOf } from '../../lib/read.js';
 import {
   dialOf, offDial, readyCanvas, watchSize, span, writeMs, writeHertz,
 } from '../../lib/panel.js';
-import { dressKnobs } from '../../lib/knob.js';
+import { dressKnobs, foldMore } from '../../lib/knob.js';
 
 /** Where the reduction trace starts and stops, in dB. */
 const AIM_TOP = 0;
@@ -154,6 +154,9 @@ export const GATE_FACE = {
     mix: 1,
   },
   knobs: ['threshold', 'ratio', 'range', 'attack', 'hold', 'release', 'hysteresis'],
+  // Behind the deck's More row: the gap between opening and shutting, which
+  // no round varies and which a gate is set up with once.
+  more: ['hysteresis'],
   // A gate has no band. What it has is a detector, and hearing what the
   // detector hears is how anybody finds out that it is opening on the hi-hat.
   listen: 'Hear the detector',
@@ -389,6 +392,7 @@ export class AimedPlugin extends PluginFace {
                  aria-label="${knob.name}">
         </div>`;
     }).join('');
+    foldMore(this.el.querySelector(`#${mark}Knobs`), this.spec.more ?? []);
     this.syncKnobs();
   }
 

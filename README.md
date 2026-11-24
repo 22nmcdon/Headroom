@@ -331,7 +331,17 @@ the tool's defaults so recalling one leaves no knob where the last put it, and
 recalling one is a step you can undo. What you are listening to is not part of
 it. Saving is refused while the answer is on the controls: what they hold then
 is the target, and a preset of it would be the answer kept under a name. None
-of the built-in ones is any exercise's target. The mix has the same bar:
+of the built-in ones is any exercise's target.
+
+Under five of the decks is a **More** row: the compressor's lookahead and
+range, the gate's hysteresis, the reverb's early reflections and shimmer, the
+delay's diffusion, offset and duck, and the stereo plugin's lean and widener
+detail. Folded, the row still says what each is set to, in gold when it is
+off where it rests, so nothing is ever set out of sight. It is shut on Easy
+and Medium, where no round asks about what is in it (`tests/more.test.js`
+holds every round to that), and open on the harder tiers, where some do. It
+is a row of the deck's own grid, so the knobs it opens line up with the ones
+above them. The mix has the same bar:
 Play, Yours / The one to match, the ways out and **Submit the mix**.
 
 The address says where you are — `#/home`, `#/tools/reverb/drill/medium`,

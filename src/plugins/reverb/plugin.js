@@ -9,7 +9,7 @@ import { ImpulsePlayer } from '../../lib/player.js';
 import { writeHertz } from '../../lib/panel.js';
 import { notReady, stampOf } from '../../lib/read.js';
 import { dialOf, offDial, sizeOf, readyCanvas, decayX, decayY, watchSize, span } from '../../lib/panel.js';
-import { dressKnobs } from '../../lib/knob.js';
+import { dressKnobs, foldMore } from '../../lib/knob.js';
 
 /**
  * The reverb, as a plugin.
@@ -25,6 +25,12 @@ import { dressKnobs } from '../../lib/knob.js';
 export const writeSeconds = (s) => (s >= 1 ? `${s.toFixed(2)} s` : `${Math.round(s * 1000)} ms`);
 
 /** Every knob, and how it reads. */
+/**
+ * Behind the deck's More row: the walls' share of the room, and the pitched
+ * bloom. Only the hard tier asks about the walls, and it opens the row.
+ */
+export const VERB_MORE = ['early', 'shimmer'];
+
 const VERB_KNOBS = [
   { id: 'preDelay', name: 'Pre-delay', ...span(VERB_LIMITS.preDelay), step: 1, write: (v) => `${Math.round(v)} ms` },
   { id: 'decay', name: 'Decay', ...span(VERB_LIMITS.decay), log: true, write: (v) => writeSeconds(v) },
@@ -256,6 +262,7 @@ export class VerbPlugin extends PluginFace {
                  aria-label="${knob.name}">
         </div>`;
     }).join('');
+    foldMore(this.el.querySelector('#verbKnobs'), VERB_MORE);
     this.syncKnobs();
   }
 

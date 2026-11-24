@@ -3,7 +3,7 @@ import { writeHertz } from '../../lib/panel.js';
 import { staticGain, COMP_DEFAULTS, COMP_LIMITS } from './dsp.js';
 import { CompPlayer } from './player.js';
 import { dialOf, offDial, sizeOf, readyCanvas, watchSize, span } from '../../lib/panel.js';
-import { dressKnobs } from '../../lib/knob.js';
+import { dressKnobs, foldMore } from '../../lib/knob.js';
 import { vuFace, aimVu, VU_DEEPEST } from '../../lib/meter.js';
 import { FRAME_MS, materialStamp } from '../../lib/reduce.js';
 import { notReady, stampOf } from '../../lib/read.js';
@@ -95,6 +95,12 @@ const COMP_FAMILIES = {
   modern: { label: 'Modern', knobs: null },
   opto: { label: 'Opto', knobs: OPTO_KNOBS },
 };
+
+/**
+ * What hardly any round asks about, behind the deck's More row: how far ahead
+ * it looks, and how much it will ever take.
+ */
+export const COMP_MORE = ['lookahead', 'range'];
 
 /** The detector's own controls - the half of a compressor nobody touches. */
 const COMP_SIDECHAIN = [
@@ -330,6 +336,7 @@ export class CompPlugin extends PluginFace {
     this.el.querySelector('#compKnobs').innerHTML =
       write(COMP_FAMILIES[this.settings.family]?.knobs ?? COMP_KNOBS);
     this.el.querySelector('#compKeyKnobs').innerHTML = write(COMP_SIDECHAIN);
+    foldMore(this.el.querySelector('#compKnobs'), COMP_MORE);
     this.showWindow();
     this.syncKnobs();
   }

@@ -324,6 +324,100 @@ export function dressKnobs(root) {
   paintKnobs(root);
 }
 
+/* ---------- the More row ---------- */
+
+/**
+ * Whether each deck's More row is open, kept apart from the markup because a
+ * face writes its deck again on every new state - a preset, an undo, a change
+ * of space - and the row a person opened should still be open after it.
+ */
+const moreOpen = new WeakMap();
+const moreWatched = new WeakSet();
+
+/**
+ * Tuck a deck's rarely used knobs behind a More row.
+ *
+ * Most rounds never touch a compressor's lookahead or a delay's diffusion,
+ * and nine knobs where five would do is a face that reads as a form. So the
+ * ones named here go at the end of the deck, folded, under a row that still
+ * says what each is set to - "More · Lookahead 0 ms · Range 40 dB" - with any
+ * that is off where it rests drawn in gold, so nothing set behind it is ever
+ * set out of sight.
+ *
+ * Called by a face right after it writes its deck. The knobs stay inside the
+ * deck element, so the listener the face hung on the deck still hears them;
+ * they sit in a row of its own grid, in the same columns as the rest.
+ * Open or shut is whatever this deck was last, and otherwise what the nearest
+ * `[data-more]` above it says - the shell sets that per round, open on the
+ * harder tiers, where these are part of the question.
+ */
+export function foldMore(deck, ids) {
+  if (!deck) return;
+  deck.querySelector(':scope > .knob-more')?.remove();
+  const knobs = [...deck.querySelectorAll(':scope > .knob')]
+    .filter((knob) => ids.includes(knob.querySelector('[data-dial]')?.dataset.dial));
+  if (!knobs.length) return;
+
+  // A row of the deck's own grid rather than a box inside it, so the folded
+  // knobs fall into the same columns as the ones above them.
+  const more = document.createElement('div');
+  more.className = 'knob-more';
+  more.innerHTML = '<button class="knob-more-sum" type="button" aria-expanded="false">'
+    + '<span class="knob-more-word">More</span><span class="knob-more-read"></span></button>';
+  more.append(...knobs);
+  deck.append(more);
+  showMore(more, moreOpen.get(deck) ?? deck.closest('[data-more]')?.dataset.more === 'open');
+  more.firstElementChild.addEventListener('click', () => {
+    const open = !more.classList.contains('is-open');
+    moreOpen.set(deck, open);
+    showMore(more, open);
+  });
+  readMore(deck);
+
+  // The readouts are rewritten by the face whenever a value moves; the row
+  // follows them rather than every face having to remember to tell it.
+  if (!moreWatched.has(deck)) {
+    moreWatched.add(deck);
+    new MutationObserver(() => readMore(deck)).observe(deck, {
+      subtree: true, childList: true, characterData: true,
+    });
+  }
+}
+
+function showMore(more, open) {
+  more.classList.toggle('is-open', open);
+  more.firstElementChild.setAttribute('aria-expanded', String(open));
+}
+
+/** Write what the folded knobs are set to into the More row. */
+function readMore(deck) {
+  const read = deck.querySelector(':scope > .knob-more .knob-more-read');
+  if (!read) return;
+  const html = [...deck.querySelectorAll(':scope > .knob-more .knob')].map((knob) => {
+    const name = knob.querySelector('.knob-name')?.textContent.trim() ?? '';
+    const value = knob.querySelector('output.knob-value')?.textContent.trim() ?? '';
+    const dial = knob.querySelector('.knob-dial');
+    const moved = dial && dial.dataset.rest !== undefined
+      && Math.abs(Number(dial.value) - Number(dial.dataset.rest)) > 1e-9;
+    return `<span class="knob-more-one${moved ? ' is-moved' : ''}">${name} ${value}</span>`;
+  }).join('');
+  if (read.innerHTML !== html) read.innerHTML = html;
+}
+
+/**
+ * Open or shut every More row under `root`, and make it what rows built from
+ * here on start as. A person's own opening and shutting is forgotten: this is
+ * the shell starting a round.
+ */
+export function setMoreOpen(root, open) {
+  if (!root) return;
+  root.dataset.more = open ? 'open' : 'shut';
+  for (const more of root.querySelectorAll('.knob-more')) {
+    moreOpen.delete(more.parentElement);
+    showMore(more, open);
+  }
+}
+
 /**
  * How many knobs a row should hold, so the last row is never one knob.
  *
@@ -384,7 +478,8 @@ const spread = new WeakMap();
 export function spreadKnobs(deck) {
   if (!deck) return;
 
-  const count = deck.querySelectorAll('.knob').length;
+  // Its own knobs: a More row's are a deck of their own, spread on their own.
+  const count = deck.querySelectorAll(':scope > .knob').length;
   const width = Math.round(deck.getBoundingClientRect().width);
   const seen = spread.get(deck);
   if (seen && seen.width === width && seen.count === count) return;

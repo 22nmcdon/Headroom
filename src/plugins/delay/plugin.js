@@ -12,7 +12,7 @@ import {
 import { ImpulsePlayer } from '../../lib/player.js';
 import { notReady, stampOf } from '../../lib/read.js';
 import { dialOf, offDial, sizeOf, readyCanvas, decayX, decayY, writeMs, watchSize, span } from '../../lib/panel.js';
-import { dressKnobs } from '../../lib/knob.js';
+import { dressKnobs, foldMore } from '../../lib/knob.js';
 import { LOOP_BEAT } from '../../lib/tempo.js';
 import { writeHertz } from '../../lib/panel.js';
 
@@ -34,6 +34,12 @@ import { writeHertz } from '../../lib/panel.js';
 const BARS_SHOWN = 4;    // beats of the track across the repeats panel
 
 /** Every knob, and how it reads. */
+/**
+ * Behind the deck's More row: the smear, the second head's offset and the
+ * ducking. Only the expert tier asks about the smear, and it opens the row.
+ */
+export const ECHO_MORE = ['diffusion', 'offset', 'duck'];
+
 const ECHO_KNOBS = [
   { id: 'time', name: 'Time', ...span(ECHO_LIMITS.time), log: true, write: writeMs },
   { id: 'feedback', name: 'Feedback', ...span(ECHO_LIMITS.feedback), step: 0.01, write: (v) => `${Math.round(v * 100)} %` },
@@ -274,6 +280,7 @@ export class EchoPlugin extends PluginFace {
                  aria-label="${knob.name}">
         </div>`;
     }).join('');
+    foldMore(this.el.querySelector('#echoKnobs'), ECHO_MORE);
     this.syncKnobs();
   }
 

@@ -23,6 +23,7 @@ import { notesFor } from './learn/notes/index.js';
 import { parseRoute, routeFor, sameRoute } from './route.js';
 import { makeHistory } from './lib/history.js';
 import { userPresets, savePreset, deletePreset, recall } from './lib/presets.js';
+import { setMoreOpen } from './lib/knob.js';
 import { AnalysisPage } from './analysis/page.js';
 import { SketchPage } from './sketch/grid.js';
 import { MixPage } from './mix/page.js';
@@ -684,6 +685,8 @@ function resetFaceTools() {
   faceTools.slots = { on: 'A', A: null, B: null };
   faceTools.preset = null;
   fillPresets();
+  // The More rows start open on the tiers that ask about what is in them.
+  setMoreOpen($('#surface'), !['easy', 'medium'].includes(ui.tier));
   syncFaceTools();
 }
 

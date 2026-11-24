@@ -1447,6 +1447,55 @@ input.knob-entry { font: inherit; font-size: var(--read, 13.5px); color: inherit
 /* Once the round is over the plugin stops moving, and the answer is on screen. */
 .is-locked .plugin-controls { opacity: 0.5; pointer-events: none; }
 
+/* The More row: the deck's rarely used knobs, folded, under a line that says
+   what each is set to. A row of the deck's own grid - spanning it, and laid
+   out on its columns - so the folded knobs line up with the ones above. */
+.knob-more {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--deck, 92px), 1fr));
+  grid-template-columns: subgrid;
+  row-gap: 10px;
+  border-top: 1px solid var(--face-lo);
+  padding-top: 4px;
+  min-width: 0;
+}
+.knob-more:not(.is-open) > .knob { display: none; }
+.knob-more-sum {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 14px;
+  min-height: 32px;
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  font-family: var(--sans);
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+.knob-more-sum:hover .knob-more-word { color: var(--ink); }
+.knob-more-sum:focus-visible { outline: 2px solid var(--blush); outline-offset: 2px; }
+.knob-more-word {
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  font-weight: 500;
+  color: var(--ink-soft);
+}
+.knob-more-word::before { content: '▸'; display: inline-block; margin-right: 6px; transition: transform 0.15s; }
+.knob-more.is-open .knob-more-word::before { transform: rotate(90deg); }
+.knob-more-read { display: flex; flex-wrap: wrap; gap: 2px 14px; }
+/* Set away from where it rests, behind the fold: said in gold, so nothing is
+   ever set out of sight. */
+.knob-more-one.is-moved { color: #e2c48f; }
+/* Open, the knobs say it themselves. */
+.knob-more.is-open .knob-more-read { display: none; }
+/* Shut or open, the row can still be read once the round is over. */
+.is-locked .knob-more-sum { pointer-events: auto; }
+
 /* --- the reverb's controls -------------------------------------------------- */
 /* (Its two displays are further down, past the compressor, under a heading of
    their own. Both sections used to be called "the reverb", which is how a
