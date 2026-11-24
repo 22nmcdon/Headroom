@@ -38,6 +38,7 @@ import { ALIGN_WORK } from '../work/align.js';
 import { MOD_WORK } from '../work/modulation.js';
 
 import { notesFor } from '../notes/index.js';
+import { presetsFor } from '../../tools/presets.js';
 
 /** One tool, with everything anybody asks of it in one place. */
 const assemble = (tool, work) => ({
@@ -45,6 +46,7 @@ const assemble = (tool, work) => ({
   ...work,
   id: tool.id,
   notes: notesFor(tool.id),
+  presets: presetsFor(tool.id),
 });
 
 export const TOOLS = {

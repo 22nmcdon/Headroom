@@ -2563,6 +2563,30 @@ dialog::backdrop { background: rgba(36, 31, 29, 0.45); }
 .path-key { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 0; font-size: 13px; color: var(--text-soft); }
 .path-key > span { display: inline-flex; align-items: center; gap: 6px; }
 
+/* The preset menu, after the device's name. A native select, drawn as the
+   strip's other buttons are; the chevron is the browser's own. */
+.face-preset {
+  min-height: 32px;
+  max-width: 14em;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 1px;
+  background: var(--paper);
+  color: var(--charcoal);
+  font: 500 12px var(--sans);
+  letter-spacing: 0.04em;
+  text-overflow: ellipsis;
+}
+.face-preset:disabled { opacity: 0.5; }
+.plugin-head .face-preset {
+  min-height: 28px;
+  border-color: #5a514b;
+  background: transparent;
+  color: var(--ink);
+}
+.plugin-head .face-preset option,
+.plugin-head .face-preset optgroup { background: #2a2421; color: var(--ink); }
+
 /* --- undo, redo and the A/B slots ----------------------------------------- */
 /* On the paper, beside the sample and Open a file, because they are the
    host's too. Where there is width they sit at the right of that row; where

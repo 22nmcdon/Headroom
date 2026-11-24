@@ -377,6 +377,12 @@ export class HeatPlugin extends PluginFace {
 
 
   changed() {
+    // The curve switch follows the settings, however they were put on.
+    for (const button of this.el.querySelectorAll('[data-mode]')) {
+      button.classList.toggle('is-on', button.dataset.mode === this.settings.mode);
+    }
+    const heat = this.el.querySelector('.heat');
+    if (heat) heat.dataset.curve = this.settings.mode;
     this.syncKnobs();
     this.schedule();
     this.draw();

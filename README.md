@@ -304,7 +304,8 @@ choosing which side you hear are the host's jobs rather than the device's, so
 no face carries them; the sample and *Open a file* stay on the paper above the
 face. Every face's title strip is laid out the same way: **On** — the lamp,
 now a switch, which takes the device out of circuit so yours is heard as the
-loop with nothing done to it — then its name, what it is doing in one line, and
+loop with nothing done to it — then its name, the **preset** menu, what it is
+doing in one line, and
 **Undo**, **Redo** (Ctrl+Z, Ctrl+Shift+Z) and two slots, **A** and **B**, for
 comparing two settings of your own: the A/B a plugin host has, as against
 Yours / Target, which compares yours with the answer. Undo and the slots are
@@ -321,7 +322,16 @@ BS.1770 weights loudness, before the A/B rather than after it, so both sides
 are measured all the time and a flip is matched the moment it happens; the
 number on the button is the trim on the side being heard. The level and the
 limiter do not offer it, because loudness is what they ask about, and the EQ
-keeps the auto gain it already has. The mix has the same bar:
+keeps the auto gain it already has.
+
+The preset menu holds a few starting points per tool — *Vocal plate*,
+*Slapback*, *Clear the mud* — and any you save, which are kept in this browser
+beside your progress. A preset is a face's state with a name, each built from
+the tool's defaults so recalling one leaves no knob where the last put it, and
+recalling one is a step you can undo. What you are listening to is not part of
+it. Saving is refused while the answer is on the controls: what they hold then
+is the target, and a preset of it would be the answer kept under a name. None
+of the built-in ones is any exercise's target. The mix has the same bar:
 Play, Yours / The one to match, the ways out and **Submit the mix**.
 
 The address says where you are — `#/home`, `#/tools/reverb/drill/medium`,

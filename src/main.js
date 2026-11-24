@@ -22,6 +22,7 @@ import { makeLog } from './learn/bench/log.js';
 import { notesFor } from './learn/notes/index.js';
 import { parseRoute, routeFor, sameRoute } from './route.js';
 import { makeHistory } from './lib/history.js';
+import { userPresets, savePreset, deletePreset, recall } from './lib/presets.js';
 import { AnalysisPage } from './analysis/page.js';
 import { SketchPage } from './sketch/grid.js';
 import { MixPage } from './mix/page.js';
@@ -657,6 +658,7 @@ async function putExercise() {
 // Held rather than looked up: while a face rebuilds its strip, the tools
 // are out of the document for a moment, and a lookup by id finds nothing.
 const FACE_TOOLS = document.querySelector('#faceTools');
+const PRESET = FACE_TOOLS.querySelector('#facePreset');
 
 const faceTools = {
   history: makeHistory(),
@@ -665,6 +667,9 @@ const faceTools = {
   // shell's own doing and is not a change to record.
   applying: false,
   settle: 0,
+  // The preset last recalled or saved, until anything moves: what the menu
+  // shows in place of "Preset".
+  preset: null,
 };
 
 const SETTLE_MS = 350;
@@ -677,6 +682,8 @@ function resetFaceTools() {
   const state = ui.tool?.state?.();
   faceTools.history.reset(state);
   faceTools.slots = { on: 'A', A: null, B: null };
+  faceTools.preset = null;
+  fillPresets();
   syncFaceTools();
 }
 
@@ -694,6 +701,11 @@ function mountFaceTools() {
   const head = $('#surface .plugin-head');
   if (head && tools.parentElement !== head) head.append(tools);
   if (!head && tools.parentElement !== $('.surface-wrap')) $('.surface-wrap').prepend(tools);
+  // The preset menu goes after the device's name, where a host puts it: what
+  // the settings are called beside what the device is.
+  const name = head?.querySelector('.plugin-name');
+  if (name && PRESET.previousElementSibling !== name) name.after(PRESET);
+  if (!name && PRESET.parentElement !== tools) tools.prepend(PRESET);
 }
 
 function noteChange() {
@@ -701,7 +713,14 @@ function noteChange() {
   clearTimeout(faceTools.settle);
   faceTools.settle = setTimeout(() => {
     const state = ui.tool?.state?.();
-    if (state !== undefined && faceTools.history.record(state)) syncFaceTools();
+    if (state !== undefined && faceTools.history.record(state)) {
+      // Moved by hand: no longer the preset it was.
+      if (faceTools.preset) {
+        faceTools.preset = null;
+        fillPresets();
+      }
+      syncFaceTools();
+    }
   }, SETTLE_MS);
 }
 
@@ -723,12 +742,14 @@ const settable = () => ui.game?.status !== 'solved' && !!ui.tool?.setState;
 
 function undoStep() {
   if (!settable()) return;
+  faceTools.preset = null;
   applyState(faceTools.history.undo());
   syncFaceTools();
 }
 
 function redoStep() {
   if (!settable()) return;
+  faceTools.preset = null;
   applyState(faceTools.history.redo());
   syncFaceTools();
 }
@@ -750,6 +771,79 @@ function toSlot(slot) {
   syncFaceTools();
 }
 
+/* ---------- presets ---------- */
+
+/**
+ * The preset menu: the tool's own starting points, then yours, then saving
+ * and - when one of yours is what is on - deleting it.
+ *
+ * A native select, so it is a menu on a phone and a list a screen reader
+ * already knows how to read; the actions are its last options, and choosing
+ * one does the thing and puts the menu back.
+ */
+function fillPresets() {
+  const select = PRESET;
+  const builtIn = tool().presets ?? [];
+  const yours = userPresets(ui.mode);
+  const on = faceTools.preset;
+  const option = (value, label) => `<option value="${value}">${label.replace(/[<&"]/g, '')}</option>`;
+
+  select.innerHTML = [
+    option('', on ? on.name : 'Preset'),
+    builtIn.length ? `<optgroup label="Built in">${builtIn.map((p, i) => option(`b:${i}`, p.name)).join('')}</optgroup>` : '',
+    yours.length ? `<optgroup label="Yours">${yours.map((p, i) => option(`u:${i}`, p.name)).join('')}</optgroup>` : '',
+    '<optgroup label="This setting">',
+    option('save', 'Save these settings…'),
+    on?.kind === 'u' ? option('delete', `Delete “${on.name}”`) : '',
+    '</optgroup>',
+  ].join('');
+  select.value = '';
+  select.disabled = !settable();
+}
+
+/** Whether the answer is what is on the controls - "Put it on the controls". */
+const answerOn = () => $('#onto').getAttribute('aria-pressed') === 'true';
+
+function onPreset(select) {
+  const value = select.value;
+  select.value = '';
+  if (!value || !settable()) return fillPresets();
+
+  if (value === 'save') {
+    // The one thing a preset must never be is the answer: once it is on the
+    // controls, what they hold is the target, and saving it would be keeping
+    // the answer under a name.
+    if (answerOn()) {
+      say('The answer is on the controls — put yours back before saving a preset.');
+      return fillPresets();
+    }
+    const suggestion = faceTools.preset?.kind === 'u' ? faceTools.preset.name : `My ${tool().label}`;
+    const name = window.prompt('Name these settings', suggestion);
+    if (name && savePreset(ui.mode, name, ui.tool.state())) {
+      faceTools.preset = { kind: 'u', name: name.trim().slice(0, 60) };
+    }
+    return fillPresets();
+  }
+
+  if (value === 'delete') {
+    const on = faceTools.preset;
+    if (on?.kind === 'u' && window.confirm(`Delete the preset “${on.name}”?`)) {
+      deletePreset(ui.mode, on.name);
+      faceTools.preset = null;
+    }
+    return fillPresets();
+  }
+
+  const [kind, at] = value.split(':');
+  const preset = (kind === 'b' ? tool().presets ?? [] : userPresets(ui.mode))[Number(at)];
+  if (!preset) return fillPresets();
+  applyState(recall(preset.state, ui.tool.state()));
+  faceTools.history.record(ui.tool.state());
+  faceTools.preset = { kind, name: preset.name };
+  syncFaceTools();
+  return fillPresets();
+}
+
 /** Copy what is on the controls into the other slot. */
 function copySlot() {
   if (!settable()) return;
@@ -760,6 +854,7 @@ function copySlot() {
 
 function syncFaceTools() {
   const open = settable();
+  PRESET.disabled = !open;
   FACE_TOOLS.querySelector('#undo').disabled = !open || !faceTools.history.canUndo;
   FACE_TOOLS.querySelector('#redo').disabled = !open || !faceTools.history.canRedo;
   FACE_TOOLS.querySelector('#slotCopy').disabled = !open;
@@ -2026,6 +2121,7 @@ function wire() {
     ui.tool.setGainMatch(!match.on);
     syncMatch();
   });
+  PRESET.addEventListener('change', (e) => onPreset(e.target));
   FACE_TOOLS.querySelector('#undo').addEventListener('click', undoStep);
   FACE_TOOLS.querySelector('#redo').addEventListener('click', redoStep);
   FACE_TOOLS.querySelector('#slotCopy').addEventListener('click', copySlot);

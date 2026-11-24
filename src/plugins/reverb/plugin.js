@@ -327,6 +327,10 @@ export class VerbPlugin extends PluginFace {
    * the audio should not be re-rendered once per frame of a drag.
    */
   changed() {
+    // The space switch follows the settings, however they were put on.
+    for (const button of this.el.querySelectorAll('[data-space]')) {
+      button.classList.toggle('is-on', button.dataset.space === spaceOf(this.settings));
+    }
     this.syncKnobs();
     this.restage();
     this.draw();

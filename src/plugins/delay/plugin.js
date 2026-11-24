@@ -415,6 +415,10 @@ export class EchoPlugin extends PluginFace {
    * the repeats are on both sides at once and there is no side to start from.
    */
   showFrom() {
+    // Set from the settings rather than left where it was clicked, so a
+    // preset, an undo or the other slot puts it where it belongs.
+    const ping = this.el.querySelector('#echoPingPong');
+    if (ping) ping.checked = !!this.settings.pingPong;
     const field = this.el.querySelector('#echoFromField');
     if (field) field.hidden = !this.settings.pingPong;
     const pick = this.el.querySelector('#echoFrom');
