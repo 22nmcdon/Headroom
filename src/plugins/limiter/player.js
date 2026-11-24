@@ -145,6 +145,9 @@ export class CeilingPlayer extends LoopPlayer {
 
   // One source into both sides, so the two cannot be so much as a sample
   // apart and the A/B is the limiter and nothing else.
+  /** No gain match: loudness is this tool's question, and matching it would hide the answer. */
+  get matchable() { return false; }
+
   wire(at) {
     this.start(this.buffer, (node) => {
       node.connect(this.drive);

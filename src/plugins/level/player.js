@@ -98,6 +98,9 @@ export class LevelPlayer extends LoopPlayer {
 
   // The untreated side runs from the raw loop, in step with the other, so the
   // flip lands on the same bar of music rather than the beginning.
+  /** No gain match: loudness is this tool's question, and matching it would hide the answer. */
+  get matchable() { return false; }
+
   wire(at) {
     this.start(this.buffer, (node) => node.connect(this.mine), at);
     if (this.raw) this.start(this.raw, (node) => node.connect(this.theirs), at);

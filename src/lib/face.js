@@ -60,6 +60,27 @@ export class PluginFace {
       + `<span class="plugin-lamp"></span><span class="plugin-onoff-word">${this.bypassed ? 'Off' : 'On'}</span></button>`;
   }
 
+  /* ---------- gain match ---------- */
+
+  /**
+   * Where the gain match stands: whether this tool offers one, whether it is
+   * on, and the trim it is putting on the side being heard. A player only
+   * offers one once its graph is built - which is the first Play - and never
+   * on a tool whose question is loudness.
+   */
+  gainMatch() {
+    const player = this.player;
+    return {
+      offered: !!player?.taps,
+      on: !!player?.matching,
+      db: player?.matchOn?.(this.hearing) ?? 0,
+    };
+  }
+
+  setGainMatch(on) {
+    this.player?.setGainMatch?.(on);
+  }
+
   /** In circuit, or bypassed. */
   setBypass(on) {
     this.bypassed = !!on;

@@ -770,6 +770,22 @@ function syncFaceTools() {
   }
 }
 
+/**
+ * The gain match button: there once the tool's graph is built, and saying
+ * the trim it is putting on the side being heard - "Match −3.2" - so the
+ * match is something you can see as well as hear.
+ */
+function syncMatch() {
+  const button = FACE_TOOLS.querySelector('#gainMatch');
+  const match = ui.tool?.gainMatch?.() ?? { offered: false };
+  button.hidden = !match.offered;
+  if (!match.offered) return;
+  button.setAttribute('aria-pressed', match.on ? 'true' : 'false');
+  const db = Math.abs(match.db) < 0.05 ? '0.0' : `${match.db > 0 ? '+' : '−'}${Math.abs(match.db).toFixed(1)}`;
+  const text = match.on ? `Match ${db}` : 'Match';
+  if (button.textContent !== text) button.textContent = text;
+}
+
 /* ---------- the transport ---------- */
 
 /**
@@ -782,6 +798,7 @@ function syncFaceTools() {
  */
 function syncTransport() {
   const face = ui.tool;
+  syncMatch();
   $('#play').textContent = face?.isPlaying?.() ? 'Stop' : 'Play';
 
   const heard = face?.heard?.() ?? 'mine';
@@ -1863,7 +1880,10 @@ function fillHelp() {
     + 'and 1200 ms the same time. Double-click or Alt-click a knob to put it back where '
     + 'it rests. On the face\'s title strip: On, which takes the device out of circuit '
     + 'so you hear the loop with nothing done to it; Undo and Redo; and two slots, A and '
-    + 'B, for comparing two settings of your own.',
+    + 'B, for comparing two settings of your own; and, once it is playing, Match, which '
+    + 'brings both sides of the comparison to the loudness of the loop as it comes in - '
+    + 'the louder side always seems better, and this takes that away. The number on it '
+    + 'is the trim it is putting on the side you are hearing.',
   ]);
 
   for (const spec of tool().settings ?? []) {
@@ -2000,6 +2020,12 @@ function wire() {
   new MutationObserver(() => {
     if (!FACE_TOOLS.isConnected || !FACE_TOOLS.closest('.plugin-head')) mountFaceTools();
   }).observe($('#surface'), { childList: true, subtree: true });
+  FACE_TOOLS.querySelector('#gainMatch').addEventListener('click', () => {
+    const match = ui.tool?.gainMatch?.();
+    if (!match?.offered) return;
+    ui.tool.setGainMatch(!match.on);
+    syncMatch();
+  });
   FACE_TOOLS.querySelector('#undo').addEventListener('click', undoStep);
   FACE_TOOLS.querySelector('#redo').addEventListener('click', redoStep);
   FACE_TOOLS.querySelector('#slotCopy').addEventListener('click', copySlot);

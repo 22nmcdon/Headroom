@@ -1643,6 +1643,7 @@ input.knob-entry { font: inherit; font-size: var(--read, 13.5px); color: inherit
 .plugin-head .face-tool:disabled,
 .plugin-head .face-slot:disabled { color: var(--ink-faint); opacity: 0.6; }
 .plugin-head .face-slot[aria-checked="true"] { background: var(--blush); border-color: var(--blush); color: var(--charcoal); }
+.plugin-head .face-match[aria-pressed="true"] { border-color: var(--blush); color: var(--blush); font-variant-numeric: tabular-nums; }
 
 /* --- the reverb's two displays ---------------------------------------------- */
 /* Two pictures of one room, because they answer different questions. The

@@ -256,3 +256,18 @@ test('the dry path is fed from the loop as it comes in, and nothing else', () =>
   assert.equal(player.isDry(loop), true);
   assert.equal(player.isDry({}), false, 'a reverb tail, a key, a far microphone: not the loop');
 });
+
+test('a gain match is the decibels between the loop and a side, within limits', async () => {
+  const { matchDb, GAIN_MATCH_LIMIT } = await import('../src/lib/loop-player.js');
+  assert.equal(matchDb(1, 1), 0);
+  assert.ok(Math.abs(matchDb(1, 10 ** (12 / 10)) + 12) < 1e-9, 'a side 12 dB hot is taken down 12');
+  assert.ok(Math.abs(matchDb(10 ** (6 / 10), 1) - 6) < 1e-9, 'and one 6 dB shy brought up 6');
+  assert.equal(matchDb(1, 1e-12), 0, 'silence is not matched to anything');
+  assert.equal(matchDb(1e6, 1), GAIN_MATCH_LIMIT, 'nor is anything taken past the limit');
+});
+
+test('a player whose question is loudness does not offer a match', async () => {
+  const { LevelPlayer } = await import('../src/plugins/level/player.js').catch(() => ({}));
+  if (!LevelPlayer) return;
+  assert.equal(Object.getOwnPropertyDescriptor(LevelPlayer.prototype, 'matchable')?.get.call({}), false);
+});

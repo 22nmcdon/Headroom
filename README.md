@@ -311,7 +311,17 @@ Yours / Target, which compares yours with the answer. Undo and the slots are
 built on what every face already does, its state and putting a state back, so
 none of the twelve had to change for them; one turn of a knob is one step of
 undo. The bypass is one dry path in the shared player, fed from the loop as it
-comes in and sent wherever yours goes, so the meters show it too. The mix has the same bar:
+comes in and sent wherever yours goes, so the meters show it too.
+
+At the end of the strip, once the loop is playing, is **Match**: a gain match,
+which brings both sides of the comparison to the loudness of the loop as it
+comes in, so the louder side does not win for being louder — a decibel is
+enough to swing a judgement. It reads each side live, K-weighted the way
+BS.1770 weights loudness, before the A/B rather than after it, so both sides
+are measured all the time and a flip is matched the moment it happens; the
+number on the button is the trim on the side being heard. The level and the
+limiter do not offer it, because loudness is what they ask about, and the EQ
+keeps the auto gain it already has. The mix has the same bar:
 Play, Yours / The one to match, the ways out and **Submit the mix**.
 
 The address says where you are — `#/home`, `#/tools/reverb/drill/medium`,

@@ -31,6 +31,54 @@ export const LEAD = 0.08;
 /** The time constant every A/B flip and dragged gain moves with. */
 export const GLIDE = 0.008;
 
+/** How far a gain match will go, either way, in decibels. */
+export const GAIN_MATCH_LIMIT = 24;
+
+/** How often the loudness is read while the loop plays, in milliseconds. */
+const MATCH_EVERY = 100;
+
+/**
+ * Loudness as it is read live: K-weighting - BS.1770's high-pass at 38 Hz and
+ * its +4 dB shelf above 1.5 kHz - into an analyser. Not a gated LUFS figure,
+ * which needs the whole programme; a running mean square of the same weighted
+ * signal, which is what a comparison second to second needs.
+ */
+function loudnessTap(ctx, own) {
+  const high = own(ctx.createBiquadFilter());
+  high.type = 'highpass';
+  high.frequency.value = 38;
+  high.Q.value = 0.5;
+  const shelf = own(ctx.createBiquadFilter());
+  shelf.type = 'highshelf';
+  shelf.frequency.value = 1500;
+  shelf.gain.value = 4;
+  const eye = own(ctx.createAnalyser());
+  eye.fftSize = 2048;
+  high.connect(shelf).connect(eye);
+  return { input: high, eye, data: new Float32Array(eye.fftSize), power: 0, reads: 0 };
+}
+
+/**
+ * Fold the latest window into a tap's running mean square: an even average
+ * for the first three seconds, then one that forgets over about three.
+ */
+function readTap(tap) {
+  tap.eye.getFloatTimeDomainData(tap.data);
+  let sum = 0;
+  for (const value of tap.data) sum += value * value;
+  const now = sum / tap.data.length;
+  tap.reads += 1;
+  const weight = Math.max(1 / tap.reads, MATCH_EVERY / 3000);
+  tap.power += (now - tap.power) * weight;
+}
+
+/** How many decibels take `power` to `reference`, within the limit. */
+export function matchDb(reference, power) {
+  if (!(reference > 1e-10) || !(power > 1e-10)) return 0;
+  const db = 10 * Math.log10(reference / power);
+  return Math.max(-GAIN_MATCH_LIMIT, Math.min(GAIN_MATCH_LIMIT, db));
+}
+
 export class LoopPlayer {
   constructor(engine, { source = 'mix', spread = true } = {}) {
     this.engine = engine;
@@ -43,6 +91,14 @@ export class LoopPlayer {
     // which compares yours with somebody else's.
     this.bypassed = false;
     this.dry = null;
+    // Gain match: both sides brought to the loudness of the loop as it comes
+    // in, so a comparison is about what the device does rather than about
+    // which side is louder. Off until asked for, and only on a player that
+    // can be matched at all - see `matchable`.
+    this.matching = false;
+    this.taps = null;
+    this.match = { mine: 0, theirs: 0 };
+    this.timer = null;
     this.fault = null;
     this.yours = null;
     // The loop as it is heard, and as it was before the fault went in.
@@ -96,6 +152,12 @@ export class LoopPlayer {
   /** Anything else that should feed the dry path, for a graph that has it. */
   feedDry(dry) {}
 
+  /**
+   * Whether a gain match makes sense here. A tool whose question is loudness
+   * - the level, the limiter - answers no: matching would hide the answer.
+   */
+  get matchable() { return true; }
+
   /* ---------- the graph ---------- */
 
   /**
@@ -139,6 +201,7 @@ export class LoopPlayer {
     this.dry.gain.value = 0;
     this.dry.connect(this.dryTo());
     this.feedDry(this.dry);
+    this.meterSides(ctx);
     this.ready = true;
     this.apply();
     this.flip();
@@ -213,6 +276,70 @@ export class LoopPlayer {
     this.flip();
   }
 
+  /**
+   * Read each side before the A/B rather than after it, so both are measured
+   * all the time - a side that is faded out cannot be heard to be measured.
+   *
+   * Every player sends both sides to the same place, which is `dryTo`, so the
+   * sides' own gains are held at one and the crossfade moves to a pair of
+   * gains after them: side -> trim -> fade -> where it went before, with the
+   * side also feeding a loudness tap. The loop itself is tapped where the dry
+   * path is fed. A player whose A/B is not that pair - the EQ, which fades
+   * its chains - is left as it was, and has its own auto gain.
+   */
+  meterSides(ctx) {
+    if (!this.matchable || !this.mineOut || !this.theirsOut) return;
+    if (typeof ctx.createAnalyser !== 'function' || typeof ctx.createBiquadFilter !== 'function') return;
+    const to = this.dryTo();
+    const side = (out) => {
+      out.disconnect();
+      out.gain.cancelScheduledValues?.(0);
+      out.gain.value = 1;
+      const tap = loudnessTap(ctx, (node) => this.own(node));
+      out.connect(tap.input);
+      const trim = this.own(ctx.createGain());
+      const fade = this.own(ctx.createGain());
+      out.connect(trim).connect(fade).connect(to);
+      return { tap, trim, fade };
+    };
+    this.taps = {
+      mine: side(this.mineOut),
+      theirs: side(this.theirsOut),
+      loop: loudnessTap(ctx, (node) => this.own(node)),
+    };
+  }
+
+  /** Bring both sides to the loudness of the loop, or let them be. */
+  setGainMatch(on) {
+    this.matching = !!on && !!this.taps;
+    this.applyMatch();
+  }
+
+  /** The trim a gain match is putting on a side, in dB - 0 while it is off. */
+  matchOn(side = 'mine') {
+    return this.matching ? this.match[side] : 0;
+  }
+
+  /** One reading of all three taps, and the trims that follow from it. */
+  readMatch() {
+    if (!this.taps) return;
+    for (const tap of [this.taps.mine.tap, this.taps.theirs.tap, this.taps.loop]) readTap(tap);
+    const loop = this.taps.loop.power;
+    this.match.mine = matchDb(loop, this.taps.mine.tap.power);
+    this.match.theirs = matchDb(loop, this.taps.theirs.tap.power);
+    this.applyMatch();
+  }
+
+  applyMatch() {
+    if (!this.taps || !this.ready) return;
+    const at = this.engine.ctx.currentTime;
+    for (const side of ['mine', 'theirs']) {
+      const gain = this.matching ? 10 ** (this.match[side] / 20) : 1;
+      // Slow, so the match settles rather than pumps with the music.
+      this.taps[side].trim.gain.setTargetAtTime(gain, at, 0.3);
+    }
+  }
+
   /** Take the device out of circuit, or put it back. */
   setBypass(on) {
     this.bypassed = !!on;
@@ -241,8 +368,11 @@ export class LoopPlayer {
     if (!this.ready || !this.mineOut || !this.theirsOut) return;
     const at = this.engine.ctx.currentTime;
     const level = this.sides();
-    this.mineOut.gain.setTargetAtTime(level.mine, at, GLIDE);
-    this.theirsOut.gain.setTargetAtTime(level.theirs, at, GLIDE);
+    // Measured sides fade after their taps; the rest fade where they stand.
+    const mine = this.taps?.mine.fade ?? this.mineOut;
+    const theirs = this.taps?.theirs.fade ?? this.theirsOut;
+    mine.gain.setTargetAtTime(level.mine, at, GLIDE);
+    theirs.gain.setTargetAtTime(level.theirs, at, GLIDE);
     this.dry?.gain.setTargetAtTime(level.dry, at, GLIDE);
   }
 
@@ -257,7 +387,10 @@ export class LoopPlayer {
     node.buffer = buffer;
     node.loop = loop;
     connect(node);
-    if (this.dry && this.isDry(buffer)) node.connect(this.dry);
+    if (this.dry && this.isDry(buffer)) {
+      node.connect(this.dry);
+      if (this.taps) node.connect(this.taps.loop.input);
+    }
     node.start(at, offset);
     this.sources.add(node);
     node.onended = () => this.sources.delete(node);
@@ -281,6 +414,8 @@ export class LoopPlayer {
     this.wire(at);
     this.began = at;
     this.playing = true;
+    // The loudness is read only while there is something to read.
+    if (this.taps && !this.timer) this.timer = setInterval(() => this.readMatch(), MATCH_EVERY);
     return true;
   }
 
@@ -299,6 +434,8 @@ export class LoopPlayer {
     this.sources.clear();
     this.playing = false;
     this.began = null;
+    clearInterval(this.timer);
+    this.timer = null;
   }
 
   /** Where the loop has got to, as a fraction of it - for a playhead. */

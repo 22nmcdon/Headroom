@@ -153,6 +153,10 @@
             <button class="face-slot" type="button" role="radio" data-slot="B" aria-checked="false">B</button>
           </span>
           <button class="face-tool" type="button" id="slotCopy" title="Copy these settings to the other slot">A → B</button>
+          <!-- Both sides of the comparison at the loudness of the loop as it
+               comes in, so the louder side does not win for being louder. -->
+          <button class="face-tool face-match" type="button" id="gainMatch" aria-pressed="false" hidden
+                  title="Gain match: hear both sides at the loudness of the loop">Match</button>
         </div>
         <div class="surface" id="surface" hidden></div>
       </div>
