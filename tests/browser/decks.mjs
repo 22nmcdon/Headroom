@@ -63,8 +63,11 @@ export async function check({ browser, at, say }) {
       const decks = await page.evaluate(() => {
         const face = document.querySelector('.plugin');
         if (!face) return [];
-        return [...face.querySelectorAll('.plugin-controls, .eq-knobs')].map((deck, i) => {
-          const knobs = [...deck.querySelectorAll('.knob')];
+        // A deck's own knobs only. What it folds behind a More row is a row
+        // of its own - spread on its own when open, and not laid out at all
+        // when shut, where every one of its knobs reads as a row at the top.
+        return [...face.querySelectorAll('.plugin-controls, .eq-knobs, .knob-more.is-open')].map((deck, i) => {
+          const knobs = [...deck.querySelectorAll(':scope > .knob')];
 
           // Rows by the top of each knob, which is what a row actually is -
           // not the grid's own column count, because the question is where
