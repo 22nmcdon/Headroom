@@ -320,8 +320,59 @@ export function dressKnobs(root) {
     root.dataset.knobsWired = '1';
   }
 
-  for (const deck of root.querySelectorAll('.plugin-controls')) spreadKnobs(deck);
+  for (const deck of root.querySelectorAll('.plugin-controls, .knob-group-knobs')) spreadKnobs(deck);
   paintKnobs(root);
+}
+
+/* ---------- named groups ---------- */
+
+/**
+ * Put a deck's knobs into named groups: a card each, with a title saying what
+ * the knobs in it are for - "How much", "How fast", "The repeat path".
+ *
+ * Nine knobs in a row is a form; three cards of three is an instrument, and
+ * the title is the one thing a person needs to know before touching any of
+ * them. A face lists its groups by knob id, in the order they read; a group
+ * whose knobs this deck does not have (a reverb space without spread, a curve
+ * without bias) is left out, and a knob no group names goes into a last card
+ * of its own rather than going missing. What the More row holds is already
+ * out of the way, and stays at the end.
+ *
+ * Called by a face right after it writes its deck (and after `foldMore`).
+ * The cards are inside the deck, so the listener the face hung on it still
+ * hears every knob.
+ */
+export function groupKnobs(deck, groups) {
+  if (!deck) return;
+  const loose = new Map([...deck.querySelectorAll(':scope > .knob')]
+    .map((knob) => [knob.querySelector('[data-dial]')?.dataset.dial, knob]));
+  if (!loose.size) return;
+
+  const card = ({ title = '', note = '' }, knobs) => {
+    const group = document.createElement('div');
+    group.className = 'knob-group';
+    group.setAttribute('role', 'group');
+    if (title) group.setAttribute('aria-label', title);
+    group.style.setProperty('--n', knobs.length);
+    group.innerHTML = (title ? `<span class="knob-group-name">${title}</span>` : '')
+      + (note ? `<span class="knob-group-note">${note}</span>` : '')
+      + '<div class="knob-group-knobs"></div>';
+    group.lastElementChild.append(...knobs);
+    return group;
+  };
+
+  const cards = [];
+  for (const group of groups) {
+    const knobs = group.knobs.map((id) => loose.get(id)).filter(Boolean);
+    for (const id of group.knobs) loose.delete(id);
+    if (knobs.length) cards.push(card(group, knobs));
+  }
+  if (loose.size) cards.push(card({}, [...loose.values()]));
+
+  deck.classList.add('is-grouped');
+  const more = deck.querySelector(':scope > .knob-more');
+  if (more) more.before(...cards);
+  else deck.append(...cards);
 }
 
 /* ---------- the More row ---------- */

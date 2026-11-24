@@ -21,7 +21,7 @@ import { notReady, stampOf } from '../../lib/read.js';
 import {
   dialOf, offDial, readyCanvas, watchSize, span, writeHertz,
 } from '../../lib/panel.js';
-import { dressKnobs } from '../../lib/knob.js';
+import { dressKnobs, groupKnobs } from '../../lib/knob.js';
 import { SYNC_DIVISIONS, rateFor, nearestDivision } from '../../lib/tempo.js';
 
 const MOD_KNOBS = {
@@ -191,6 +191,7 @@ export class ModulationPlugin extends PluginFace {
                  aria-label="${knob.name}">
         </div>`;
     }).join('');
+    groupKnobs(this.el.querySelector('#modKnobs'), [{ title: 'The oscillator', knobs: ['rate', 'depth', 'feedback'] }]);
     this.syncKnobs();
   }
 

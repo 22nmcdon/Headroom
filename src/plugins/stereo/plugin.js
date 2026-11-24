@@ -6,7 +6,7 @@ import {
 import { notReady, stampOf } from '../../lib/read.js';
 import { StereoPlayer } from './player.js';
 import { dialOf, offDial, readyCanvas, watchSize, span } from '../../lib/panel.js';
-import { dressKnobs, foldMore } from '../../lib/knob.js';
+import { dressKnobs, foldMore, groupKnobs } from '../../lib/knob.js';
 import { writeHertz } from '../../lib/panel.js';
 import { MONO_SLOPES } from './shuffle.js';
 import { WIDEN_KINDS } from './widen.js';
@@ -47,6 +47,14 @@ const writePlace = (v) => (Math.abs(v) < 0.02
  * the fine print of two controls that are on the deck already.
  */
 export const STEREO_MORE = ['asymmetry', 'widenDelay', 'widenCents'];
+
+/** Width band by band, the bottom on its own, width made from nothing, and where it all sits. */
+const STEREO_GROUPS = [
+  { title: 'Width by band', knobs: ['low', 'mid', 'high', 'lowMid', 'midHigh'] },
+  { title: 'The bottom', knobs: ['monoBelow', 'shuffle'] },
+  { title: 'Widener', knobs: ['widenAmount'] },
+  { title: 'Where it sits', knobs: ['pan', 'panL', 'panR', 'rotate'] },
+];
 
 const STEREO_KNOBS = [
   { id: 'low', name: 'Low width', ...span(STEREO_LIMITS.low), step: 0.01, write: (v) => `${Math.round(v * 100)} %` },
@@ -345,6 +353,7 @@ export class StereoPlugin extends PluginFace {
         </div>`;
     }).join('');
     foldMore(this.el.querySelector('#stereoKnobs'), STEREO_MORE);
+    groupKnobs(this.el.querySelector('#stereoKnobs'), STEREO_GROUPS);
     this.syncKnobs();
   }
 

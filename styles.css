@@ -1447,6 +1447,60 @@ input.knob-entry { font: inherit; font-size: var(--read, 13.5px); color: inherit
 /* Once the round is over the plugin stops moving, and the answer is on screen. */
 .is-locked .plugin-controls { opacity: 0.5; pointer-events: none; }
 
+/* Named groups: a deck's knobs in cards, each titled with what its knobs are
+   for. The deck stops being one grid and becomes a row of cards that wrap;
+   each card is a small grid of its own, and grows in proportion to how many
+   knobs it holds, so a card of three is not squeezed beside a card of one. */
+.plugin-controls.is-grouped {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 8px;
+}
+.knob-group {
+  /* A knob's width in a card: the deck's bay, but no wider than a knob and
+     its name need, so three cards of a nine-knob deck share one row. */
+  --gk: min(var(--deck, 92px), 92px);
+  flex: var(--n, 1) 1 calc(var(--n, 1) * var(--gk) + 18px);
+  min-width: min(100%, calc(var(--gk) + 18px));
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 7px 8px 9px;
+  background: #342e2a;
+  border: 1px solid #2d2724;
+  border-radius: 2px;
+}
+/* A phone gives a card a phone's knob, whatever bay the face asked for. */
+@media (max-width: 600px) {
+  .knob-group { --gk: min(var(--deck, 76px), 76px); }
+}
+.knob-group-name {
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+.knob-group-note { font-family: var(--sans); font-size: 12px; color: var(--ink-faint); }
+/* Filled rather than fitted: a card that ends up alone on a row keeps its
+   knobs at their own spacing, from the left, instead of spreading two of
+   them across the whole width. */
+.knob-group-knobs {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--gk), 1fr));
+  gap: 10px 6px;
+  flex: 1;
+  align-content: center;
+}
+/* The More row under cards is a row of its own: there is no deck grid to be
+   a subgrid of, so it lays its knobs out the way a card does. */
+.plugin-controls.is-grouped > .knob-more {
+  flex: 1 1 100%;
+  grid-template-columns: repeat(auto-fill, minmax(var(--deck, 92px), 1fr));
+}
+
 /* The More row: the deck's rarely used knobs, folded, under a line that says
    what each is set to. A row of the deck's own grid - spanning it, and laid
    out on its columns - so the folded knobs line up with the ones above. */

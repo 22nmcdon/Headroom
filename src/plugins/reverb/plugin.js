@@ -9,7 +9,7 @@ import { ImpulsePlayer } from '../../lib/player.js';
 import { writeHertz } from '../../lib/panel.js';
 import { notReady, stampOf } from '../../lib/read.js';
 import { dialOf, offDial, sizeOf, readyCanvas, decayX, decayY, watchSize, span } from '../../lib/panel.js';
-import { dressKnobs, foldMore } from '../../lib/knob.js';
+import { dressKnobs, foldMore, groupKnobs } from '../../lib/knob.js';
 
 /**
  * The reverb, as a plugin.
@@ -30,6 +30,14 @@ export const writeSeconds = (s) => (s >= 1 ? `${s.toFixed(2)} s` : `${Math.round
  * bloom. Only the hard tier asks about the walls, and it opens the row.
  */
 export const VERB_MORE = ['early', 'shimmer'];
+
+/** How long, what colour, what the space itself is made of, and how much of it. */
+const VERB_GROUPS = [
+  { title: 'Time', knobs: ['preDelay', 'decay', 'size'] },
+  { title: 'Tone', knobs: ['bass', 'damping', 'lowCut', 'highCut'] },
+  { title: 'Character', knobs: ['spread', 'tension'] },
+  { title: 'Blend', knobs: ['mix'] },
+];
 
 const VERB_KNOBS = [
   { id: 'preDelay', name: 'Pre-delay', ...span(VERB_LIMITS.preDelay), step: 1, write: (v) => `${Math.round(v)} ms` },
@@ -263,6 +271,7 @@ export class VerbPlugin extends PluginFace {
         </div>`;
     }).join('');
     foldMore(this.el.querySelector('#verbKnobs'), VERB_MORE);
+    groupKnobs(this.el.querySelector('#verbKnobs'), VERB_GROUPS);
     this.syncKnobs();
   }
 

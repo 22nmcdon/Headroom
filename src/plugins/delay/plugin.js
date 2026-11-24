@@ -12,7 +12,7 @@ import {
 import { ImpulsePlayer } from '../../lib/player.js';
 import { notReady, stampOf } from '../../lib/read.js';
 import { dialOf, offDial, sizeOf, readyCanvas, decayX, decayY, writeMs, watchSize, span } from '../../lib/panel.js';
-import { dressKnobs, foldMore } from '../../lib/knob.js';
+import { dressKnobs, foldMore, groupKnobs } from '../../lib/knob.js';
 import { LOOP_BEAT } from '../../lib/tempo.js';
 import { writeHertz } from '../../lib/panel.js';
 
@@ -39,6 +39,13 @@ const BARS_SHOWN = 4;    // beats of the track across the repeats panel
  * ducking. Only the expert tier asks about the smear, and it opens the row.
  */
 export const ECHO_MORE = ['diffusion', 'offset', 'duck'];
+
+/** When the repeats come and how many, what each pass does to them, and the machine's own drift. */
+const ECHO_GROUPS = [
+  { title: 'When', knobs: ['time', 'feedback', 'mix'] },
+  { title: 'The repeat path', knobs: ['tone', 'lowCut'] },
+  { title: 'Machine', knobs: ['wow', 'flutter'] },
+];
 
 const ECHO_KNOBS = [
   { id: 'time', name: 'Time', ...span(ECHO_LIMITS.time), log: true, write: writeMs },
@@ -281,6 +288,7 @@ export class EchoPlugin extends PluginFace {
         </div>`;
     }).join('');
     foldMore(this.el.querySelector('#echoKnobs'), ECHO_MORE);
+    groupKnobs(this.el.querySelector('#echoKnobs'), ECHO_GROUPS);
     this.syncKnobs();
   }
 

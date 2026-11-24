@@ -27,7 +27,7 @@ import { notReady, stampOf } from '../../lib/read.js';
 import {
   dialOf, offDial, readyCanvas, watchSize, span, writeMs, writeHertz,
 } from '../../lib/panel.js';
-import { dressKnobs, foldMore } from '../../lib/knob.js';
+import { dressKnobs, foldMore, groupKnobs } from '../../lib/knob.js';
 
 /** Where the reduction trace starts and stops, in dB. */
 const AIM_TOP = 0;
@@ -157,6 +157,11 @@ export const GATE_FACE = {
   // Behind the deck's More row: the gap between opening and shutting, which
   // no round varies and which a gate is set up with once.
   more: ['hysteresis'],
+  groups: [
+    { title: 'When it opens', knobs: ['threshold'] },
+    { title: 'How far it shuts', knobs: ['range', 'ratio'] },
+    { title: 'How fast', knobs: ['attack', 'hold', 'release'] },
+  ],
   // A gate has no band. What it has is a detector, and hearing what the
   // detector hears is how anybody finds out that it is opening on the hi-hat.
   listen: 'Hear the detector',
@@ -206,6 +211,11 @@ export const DEESS_FACE = {
     mix: 1,
   },
   knobs: ['threshold', 'ratio', 'crossover', 'attack', 'release', 'range'],
+  groups: [
+    { title: 'Where it listens', knobs: ['crossover'] },
+    { title: 'How much', knobs: ['threshold', 'ratio', 'range'] },
+    { title: 'How fast', knobs: ['attack', 'release'] },
+  ],
   listen: 'Hear the band',
   hint: 'listen to the band on its own first — a de-esser aimed at the wrong place takes the voice with it',
   /**
@@ -393,6 +403,7 @@ export class AimedPlugin extends PluginFace {
         </div>`;
     }).join('');
     foldMore(this.el.querySelector(`#${mark}Knobs`), this.spec.more ?? []);
+    groupKnobs(this.el.querySelector(`#${mark}Knobs`), this.spec.groups ?? []);
     this.syncKnobs();
   }
 

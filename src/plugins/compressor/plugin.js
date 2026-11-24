@@ -3,7 +3,7 @@ import { writeHertz } from '../../lib/panel.js';
 import { staticGain, COMP_DEFAULTS, COMP_LIMITS } from './dsp.js';
 import { CompPlayer } from './player.js';
 import { dialOf, offDial, sizeOf, readyCanvas, watchSize, span } from '../../lib/panel.js';
-import { dressKnobs, foldMore } from '../../lib/knob.js';
+import { dressKnobs, foldMore, groupKnobs } from '../../lib/knob.js';
 import { vuFace, aimVu, VU_DEEPEST } from '../../lib/meter.js';
 import { FRAME_MS, materialStamp } from '../../lib/reduce.js';
 import { notReady, stampOf } from '../../lib/read.js';
@@ -101,6 +101,13 @@ const COMP_FAMILIES = {
  * it looks, and how much it will ever take.
  */
 export const COMP_MORE = ['lookahead', 'range'];
+
+/** The deck in the three questions a compressor answers. An opto's one knob is its how much. */
+const COMP_GROUPS = [
+  { title: 'How much', knobs: ['threshold', 'ratio', 'knee', 'peakReduction'] },
+  { title: 'How fast', knobs: ['attack', 'release'] },
+  { title: 'Out of it', knobs: ['makeup', 'mix'] },
+];
 
 /** The detector's own controls - the half of a compressor nobody touches. */
 const COMP_SIDECHAIN = [
@@ -337,6 +344,7 @@ export class CompPlugin extends PluginFace {
       write(COMP_FAMILIES[this.settings.family]?.knobs ?? COMP_KNOBS);
     this.el.querySelector('#compKeyKnobs').innerHTML = write(COMP_SIDECHAIN);
     foldMore(this.el.querySelector('#compKnobs'), COMP_MORE);
+    groupKnobs(this.el.querySelector('#compKnobs'), COMP_GROUPS);
     this.showWindow();
     this.syncKnobs();
   }

@@ -8,7 +8,7 @@ import { HARMONICS, SERIES_FLOOR } from '../../lib/harmonics.js';
 import { CeilingPlayer } from './player.js';
 import { notReady, stampOf } from '../../lib/read.js';
 import { dialOf, offDial, readyCanvas, watchSize, span, writeMs } from '../../lib/panel.js';
-import { dressKnobs } from '../../lib/knob.js';
+import { dressKnobs, groupKnobs } from '../../lib/knob.js';
 
 /**
  * The limiter, as a plugin.
@@ -98,6 +98,13 @@ function ceilPalette(el) {
     zero: 'rgba(250, 246, 240, 0.3)',
   };
 }
+
+/** What goes in, how the ceiling holds it, and what comes out. */
+const CEIL_GROUPS = [
+  { title: 'Into it', knobs: ['drive'] },
+  { title: 'How it holds', knobs: ['ceiling', 'release', 'knee'] },
+  { title: 'Out', knobs: ['output'] },
+];
 
 export class LimiterPlugin extends PluginFace {
   constructor(el, {
@@ -215,6 +222,7 @@ export class LimiterPlugin extends PluginFace {
                  aria-label="${knob.name}">
         </div>`;
     }).join('');
+    groupKnobs(this.el.querySelector('#ceilKnobs'), CEIL_GROUPS);
     this.syncKnobs();
   }
 

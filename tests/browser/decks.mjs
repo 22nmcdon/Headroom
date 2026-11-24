@@ -65,8 +65,9 @@ export async function check({ browser, at, say }) {
         if (!face) return [];
         // A deck's own knobs only. What it folds behind a More row is a row
         // of its own - spread on its own when open, and not laid out at all
-        // when shut, where every one of its knobs reads as a row at the top.
-        return [...face.querySelectorAll('.plugin-controls, .eq-knobs, .knob-more.is-open')].map((deck, i) => {
+        // when shut, where every one of its knobs reads as a row at the top -
+        // and each named group is a small deck of its own.
+        return [...face.querySelectorAll('.plugin-controls, .eq-knobs, .knob-more.is-open, .knob-group-knobs')].map((deck, i) => {
           const knobs = [...deck.querySelectorAll(':scope > .knob')];
 
           // Rows by the top of each knob, which is what a row actually is -

@@ -333,6 +333,17 @@ it. Saving is refused while the answer is on the controls: what they hold then
 is the target, and a preset of it would be the answer kept under a name. None
 of the built-in ones is any exercise's target.
 
+The knobs sit in **named groups** — a card each, titled with what they are
+for: the compressor's *How much*, *How fast* and *Out of it*; the gate's *When
+it opens*, *How far it shuts* and *How fast*; the delay's *When*, *The repeat
+path* and *Machine*; the saturator's middle card named for the curve that is
+on. Nine knobs in a row read as a form; three cards of three read as an
+instrument. A face lists its groups by knob id, a group whose knobs a mode
+does not have is left out, and a knob no group names goes into a last card
+rather than going missing. The cards are inside the deck, so nothing about how
+a face hears its knobs changed. The EQ, the level and Align have three knobs
+or fewer and stay as they are.
+
 Under five of the decks is a **More** row: the compressor's lookahead and
 range, the gate's hysteresis, the reverb's early reflections and shimmer, the
 delay's diffusion, offset and duck, and the stereo plugin's lean and widener

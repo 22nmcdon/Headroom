@@ -12,7 +12,7 @@ import { notReady, stampOf } from '../../lib/read.js';
 import { snrOf } from '../../lib/damage.js';
 import { HeatPlayer } from './player.js';
 import { dialOf, offDial, readyCanvas, watchSize, span } from '../../lib/panel.js';
-import { dressKnobs } from '../../lib/knob.js';
+import { dressKnobs, groupKnobs } from '../../lib/knob.js';
 import { writeHertz } from '../../lib/panel.js';
 
 /**
@@ -302,6 +302,13 @@ export class HeatPlugin extends PluginFace {
                  aria-label="${knob.name}">
         </div>`;
     }).join('');
+    // The curve's own knobs, under the curve's name: what they are depends
+    // on which curve it is, which is the point of the switch above them.
+    groupKnobs(this.el.querySelector('#heatKnobs'), [
+      { title: 'Into the curve', knobs: ['drive'] },
+      { title: CURVES[this.settings.mode]?.label ?? 'The curve', knobs: ['bias', 'hardness', 'speed', 'bloom', 'core', 'amount', 'folds', 'bits', 'hold', 'dither'] },
+      { title: 'Out of it', knobs: ['tone', 'mix'] },
+    ]);
     this.syncKnobs();
   }
 
